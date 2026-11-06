@@ -40,6 +40,12 @@ impl RemoteStartCancellation {
 #[async_trait]
 pub trait RemoteSessionIo: Send {
     fn cancellation(&self) -> Arc<dyn AdbServiceCancellation>;
+    /// True when the next request should start a fresh session instead of
+    /// writing to this one (its streams are near their lifetime or its helper
+    /// already exited). Checked before any input of that request.
+    fn renewal_due(&self) -> bool {
+        false
+    }
     async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String>;
     async fn send_key_press(&mut self, keycode: u32) -> Result<(), String>;
     async fn send_text(&mut self, text: &str) -> Result<(), String>;
@@ -261,11 +267,14 @@ impl RemoteRegistry {
             let tag = generation.unwrap_or_else(|| cell.generation.load(Ordering::Acquire));
             {
                 let slot = cell.session.lock().await;
-                if slot
-                    .as_ref()
-                    .is_some_and(|session| session.generation == tag)
-                {
-                    return Ok(());
+                match slot.as_ref() {
+                    Some(session) if session.generation == tag => {
+                        if !session.session.renewal_due() {
+                            return Ok(());
+                        }
+                        tracing::info!("Renewing the Remote session before this request's input");
+                    }
+                    _ => {}
                 }
             }
             let previous = cell.session.lock().await.take();
@@ -493,6 +502,7 @@ mod tests {
         send_started: Arc<Notify>,
         block_close: Option<Arc<Notify>>,
         close_started: Arc<Notify>,
+        renewal: Arc<AtomicBool>,
     }
     impl Fixture {
         fn simple(name: &'static str, events: Arc<StdMutex<Vec<String>>>) -> Self {
@@ -505,6 +515,7 @@ mod tests {
                 send_started: Arc::new(Notify::new()),
                 block_close: None,
                 close_started: Arc::new(Notify::new()),
+                renewal: Arc::default(),
             }
         }
     }
@@ -512,6 +523,9 @@ mod tests {
     impl RemoteSessionIo for Fixture {
         fn cancellation(&self) -> Arc<dyn AdbServiceCancellation> {
             Arc::new(Cancellation(self.cancel.clone()))
+        }
+        fn renewal_due(&self) -> bool {
+            self.renewal.load(Ordering::Acquire)
         }
         async fn send_key(&mut self, key: u32, down: bool) -> Result<(), String> {
             lock(&self.events).push(format!("{}:key:{key}:{down}", self.name));
@@ -912,6 +926,49 @@ mod tests {
         assert_eq!(*lock(&events), vec!["old:close"]);
         registry.close("A", Some(b)).await.unwrap();
         assert_eq!(*lock(&events), vec!["old:close"]);
+    }
+    #[tokio::test]
+    async fn a_session_due_for_renewal_is_replaced_before_the_next_input() {
+        let registry = RemoteRegistry::default();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let generation = registry.begin("A").unwrap();
+        let first = Fixture::simple("first", events.clone());
+        let due = first.renewal.clone();
+        ready(&registry, "A", generation, first).await;
+        ready(
+            &registry,
+            "A",
+            generation,
+            Fixture::simple("unused", events.clone()),
+        )
+        .await;
+        registry
+            .send("A", Some(generation), RemoteAction::Press(1))
+            .await
+            .unwrap();
+        due.store(true, Ordering::Release);
+        ready(
+            &registry,
+            "A",
+            generation,
+            Fixture::simple("renewed", events.clone()),
+        )
+        .await;
+        registry
+            .send("A", Some(generation), RemoteAction::Press(2))
+            .await
+            .unwrap();
+        registry.close("A", Some(generation)).await.unwrap();
+        assert_eq!(
+            *lock(&events),
+            vec![
+                "first:press:1",
+                "first:close",
+                "renewed:press:2",
+                "renewed:close"
+            ],
+            "a healthy session is reused; a due one closes before its replacement takes input"
+        );
     }
     #[tokio::test]
     async fn closing_current_generation_also_retires_inherited_previous_session() {

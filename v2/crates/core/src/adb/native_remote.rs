@@ -19,8 +19,70 @@ use std::{
 use tokio::io::AsyncReadExt;
 
 const LIFETIME: Duration = Duration::from_secs(300);
+/// Replace a session this long before its streams reach their lifetime, so
+/// input never meets a socket the deadline has already closed.
+const RENEW_MARGIN: Duration = Duration::from_secs(30);
 const IO_DEADLINE: Duration = Duration::from_secs(2);
+/// How long an abandoned setup call may keep running. The driver's identity
+/// probe on the TV's own connection is bounded below this, so aborting after
+/// it can only interrupt a dedicated connection.
+const ABANDON_GRACE: Duration = Duration::from_secs(6);
 static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+
+fn cancel_service(service: AdbOwnedService) {
+    service.cancellation.cancel();
+}
+
+/// Runs a driver call that checks the TV's identity on its own connection.
+/// Dropping such a call midway closes that connection for every other
+/// command, so cancellation only stops waiting: the call continues as a task,
+/// whatever it opens is dropped (which cancels it), and it is aborted only
+/// after [`ABANDON_GRACE`].
+async fn shielded<T: Send + 'static>(
+    work: impl std::future::Future<Output = AdbResult<T>> + Send + 'static,
+    discard: fn(T),
+) -> AdbResult<T> {
+    struct Abandon<T: Send + 'static> {
+        task: Option<tokio::task::JoinHandle<AdbResult<T>>>,
+        discard: fn(T),
+    }
+    impl<T: Send + 'static> Drop for Abandon<T> {
+        fn drop(&mut self) {
+            let Some(mut task) = self.task.take() else {
+                return;
+            };
+            let discard = self.discard;
+            match tokio::runtime::Handle::try_current() {
+                Ok(runtime) => {
+                    runtime.spawn(async move {
+                        match tokio::time::timeout(ABANDON_GRACE, &mut task).await {
+                            Ok(Ok(Ok(value))) => discard(value),
+                            Ok(_) => {}
+                            Err(_) => task.abort(),
+                        }
+                    });
+                }
+                Err(_) => task.abort(),
+            }
+        }
+    }
+    let mut task = Abandon {
+        task: Some(tokio::spawn(work)),
+        discard,
+    };
+    let result = task
+        .task
+        .as_mut()
+        .expect("task is owned until joined")
+        .await;
+    task.task = None;
+    result.unwrap_or_else(|error| {
+        Err(AdbError::Uncertain {
+            operation: "Remote service setup",
+            detail: format!("setup worker failed: {error}"),
+        })
+    })
+}
 
 struct Connections(Mutex<Vec<Arc<dyn AdbServiceCancellation>>>);
 impl AdbServiceCancellation for Connections {
@@ -49,6 +111,7 @@ pub struct NativeRemoteSession {
     held: BTreeSet<u32>,
     poisoned: bool,
     cleanup: Option<HelperCleanup>,
+    renew_at: tokio::time::Instant,
 }
 
 async fn open(
@@ -61,10 +124,24 @@ async fn open(
     if cancel.is_cancelled() {
         return Err(AdbError::Transport("Remote startup cancelled.".into()));
     }
+    let request = {
+        let adb = adb.clone();
+        let binding = binding.clone();
+        let service = service.to_owned();
+        shielded(
+            async move {
+                adb.open_bound_device_service(&binding, &service, LIFETIME)
+                    .await
+            },
+            cancel_service,
+        )
+    };
+    // A finished open is taken first, so a cancel racing it cancels that
+    // service here instead of leaving it to the abandoned-call cleanup.
     let result = tokio::select! {
         biased;
+        result = request => result?,
         _ = cancel.cancelled() => return Err(AdbError::Transport("Remote startup cancelled.".into())),
-        result = adb.open_bound_device_service(binding, service, LIFETIME) => result?,
     };
     connections
         .0
@@ -139,14 +216,20 @@ async fn remove_helper(
     binding: &AdbDeviceBinding,
     jar: &str,
 ) -> Result<(), String> {
-    let service = adb
-        .open_bound_device_service(
-            binding,
-            &format!("shell:rm -f -- '{jar}' && printf REMOVED"),
-            IO_DEADLINE,
+    let service = {
+        let adb = adb.clone();
+        let binding = binding.clone();
+        let command = format!("shell:rm -f -- '{jar}' && printf REMOVED");
+        shielded(
+            async move {
+                adb.open_bound_device_service(&binding, &command, IO_DEADLINE)
+                    .await
+            },
+            cancel_service,
         )
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?
+    };
     let cancellation = service.cancellation.clone();
     let result = io(
         Arc::new(Mutex::new(service.stream)),
@@ -352,9 +435,14 @@ impl NativeRemoteSession {
         if cancel.is_cancelled() {
             return Err("Remote startup cancelled.".into());
         }
+        let request = {
+            let adb = adb.clone();
+            let serial = serial.to_owned();
+            shielded(async move { adb.device_binding(&serial).await }, drop)
+        };
         let binding = tokio::select! {biased;
             _=cancel.cancelled()=>return Err("Remote startup cancelled.".into()),
-            binding=adb.device_binding(serial)=>binding.map_err(|e|e.to_string())?,
+            binding=request=>binding.map_err(|e|e.to_string())?,
         };
         if cancel.is_cancelled() {
             return Err("Remote startup cancelled.".into());
@@ -426,6 +514,7 @@ impl NativeRemoteSession {
             return Err("Remote startup cancelled.".into());
         }
         let command = format!("shell:trap 'rm -f -- \"{jar}\"' EXIT; CLASSPATH={jar} app_process / com.genymobile.scrcpy.Server 3.1 scid={scid} log_level=warn video=false audio=false control=true tunnel_forward=true send_device_meta=false send_dummy_byte=true </dev/null");
+        let renew_at = tokio::time::Instant::now() + LIFETIME - RENEW_MARGIN;
         let resident = open(&adb, &binding, &command, &cancel, &connections).await.map_err(|e|e.to_string())?;
         let mut resident_stream = resident.stream;
         let drain = tokio::task::spawn_blocking(move || {
@@ -463,6 +552,7 @@ impl NativeRemoteSession {
             drain: Some(drain),
             held: BTreeSet::new(),
             poisoned: false,
+            renew_at,
         };
         let handshake = io(
             session.control.clone(),
@@ -531,6 +621,16 @@ impl NativeRemoteSession {
 impl RemoteSessionIo for NativeRemoteSession {
     fn cancellation(&self) -> Arc<dyn AdbServiceCancellation> {
         self.connections.clone()
+    }
+    fn renewal_due(&self) -> bool {
+        // The resident shell ends when the helper exits, so a finished drain
+        // means no server is listening on the control socket any more.
+        self.poisoned
+            || self
+                .drain
+                .as_ref()
+                .map_or(true, |drain| drain.is_finished())
+            || tokio::time::Instant::now() >= self.renew_at
     }
     async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String> {
         if down {
@@ -702,6 +802,9 @@ mod tests {
         control_refusals: AtomicU32,
         uncertain_open: AtomicBool,
         cancel_on_control: Mutex<Option<Arc<RemoteStartCancellation>>>,
+        slow_identity: AtomicBool,
+        identity_checks_started: AtomicU32,
+        identity_checks_finished: AtomicU32,
     }
     #[async_trait]
     impl AdbDriver for Fake {
@@ -718,6 +821,7 @@ mod tests {
             panic!("unbound shell forbidden")
         }
         async fn device_binding(&self, serial: &str) -> AdbResult<AdbDeviceBinding> {
+            self.identity_check().await;
             Ok(AdbDeviceBinding {
                 serial: serial.into(),
                 hardware_id: "fixture-hardware".into(),
@@ -739,6 +843,7 @@ mod tests {
             );
             self.bindings.lock().unwrap().push(binding.clone());
             self.services.lock().unwrap().push(service.into());
+            self.identity_check().await;
             if service.starts_with("shell:rm ") {
                 if self.cleanup_pending.load(Ordering::Acquire) {
                     std::future::pending::<()>().await;
@@ -826,6 +931,17 @@ mod tests {
                 stream,
                 cancellation: stop,
             })
+        }
+    }
+    impl Fake {
+        /// Stands in for the probe a real driver runs on the TV's own connection,
+        /// which closes that connection if it is dropped midway.
+        async fn identity_check(&self) {
+            self.identity_checks_started.fetch_add(1, Ordering::AcqRel);
+            if self.slow_identity.load(Ordering::Acquire) {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+            }
+            self.identity_checks_finished.fetch_add(1, Ordering::AcqRel);
         }
     }
     fn fixture() -> std::path::PathBuf {
@@ -990,6 +1106,86 @@ mod tests {
             .all(|stop| *stop.stopped.lock().unwrap()));
     }
 
+    #[tokio::test]
+    async fn native_remote_cancel_never_drops_an_identity_check_midway() {
+        for cancel_at in [Duration::from_millis(50), Duration::from_millis(200)] {
+            let fake = Arc::new(Fake::default());
+            fake.slow_identity.store(true, Ordering::Release);
+            let cancel = Arc::new(RemoteStartCancellation::default());
+            let task = tokio::spawn({
+                let fake = fake.clone();
+                let cancel = cancel.clone();
+                async move { NativeRemoteSession::start(fake, &fixture(), "fixture", cancel).await }
+            });
+            tokio::time::sleep(cancel_at).await;
+            assert!(
+                fake.identity_checks_started.load(Ordering::Acquire)
+                    > fake.identity_checks_finished.load(Ordering::Acquire),
+                "cancel lands while an identity check is running"
+            );
+            cancel.cancel();
+            let returned = tokio::time::timeout(Duration::from_millis(100), task)
+                .await
+                .expect("cancellation returns without waiting for the probe")
+                .unwrap();
+            assert!(returned.is_err());
+            // The interrupted probe (and any service it was opening) still finishes,
+            // and whatever it opened is cancelled rather than kept.
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            assert_eq!(
+                fake.identity_checks_finished.load(Ordering::Acquire),
+                fake.identity_checks_started.load(Ordering::Acquire),
+                "an identity check was dropped midway"
+            );
+            assert!(fake
+                .stops
+                .lock()
+                .unwrap()
+                .iter()
+                .all(|stop| *stop.stopped.lock().unwrap()));
+        }
+    }
+    #[tokio::test]
+    async fn native_remote_renewal_is_due_near_lifetime_or_after_the_helper_exits() {
+        let fake = Arc::new(Fake::default());
+        let mut session =
+            NativeRemoteSession::start(fake.clone(), &fixture(), "fixture", Arc::default())
+                .await
+                .unwrap();
+        assert!(!session.renewal_due());
+        let renew_at = session.renew_at;
+        assert!(
+            renew_at
+                > tokio::time::Instant::now() + LIFETIME - RENEW_MARGIN - Duration::from_secs(5)
+        );
+        session.renew_at = tokio::time::Instant::now();
+        assert!(
+            session.renewal_due(),
+            "streams near their lifetime are renewed"
+        );
+        session.renew_at = renew_at;
+        assert!(!session.renewal_due());
+        let resident = fake
+            .services
+            .lock()
+            .unwrap()
+            .iter()
+            .position(|s| s.starts_with("shell:trap "))
+            .unwrap();
+        fake.stops.lock().unwrap()[resident].cancel();
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while !session.renewal_due() {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("a helper that exited makes the session due for renewal");
+        assert!(
+            fake.control.lock().unwrap().is_empty(),
+            "renewal is decided before any input"
+        );
+        Box::new(session).close().await.unwrap();
+    }
     #[tokio::test]
     async fn native_remote_abandoned_io_cancels_worker_and_waits_for_cleanup() {
         let stop = Arc::new(Stop::default());
