@@ -159,6 +159,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         optimize::prepare_optimize,
         optimize::apply_performance_settings,
         update::check_for_update,
+        update::update_channel,
         app_report::save_app_report,
         diagnostics::collect_diagnostics,
         diagnostics::upload_diagnostics,

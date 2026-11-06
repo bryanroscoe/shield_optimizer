@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-05",
+  "updated_at": "2026-11-06",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -203,6 +203,481 @@
       "reviewers": "Implementation and independent source reviewer independently checked exact developer listings, original observations and proposed Caution/Keep treatment.",
       "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md",
       "decision": "Optional Caution; Disable suggestion; both defaults false; no model/firmware certification."
+    },
+    "com.google.android.syncadapters.calendar": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Calendar sync identity is documented on Samsung phones, not TV dependencies or removal/recovery. Calendar absence cannot be assumed.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on docs.samsungknox.com android.googlesource.com source.android.com support.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/beko-b43b880b/debloat.txt#L41",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-smart-projector-c025rgn/debloat.txt#L37"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 124,
+        "commented_profiles": 7,
+        "note_profiles": 4
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.esticker": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact vendor functional/dependency documentation found in bounded search. Retail-demo label is insufficient; firmware can reactivate it.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hitachi-cdh-le32smart21/debloat.txt#L83",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-65c735/debloat.txt#L25-L27"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 73,
+        "commented_profiles": 1,
+        "note_profiles": 3
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.google.android.onetimeinitializer": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Official battery-statistics example contains the ID but does not establish initialization/setup dependencies, optionality or recovery.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on android.googlesource.com source.android.com support.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/nvidia-shield-tv-2017/debloat.txt#L74",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50dp660/debloat.txt#L86"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 69,
+        "commented_profiles": 3,
+        "note_profiles": 1
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "fusion.android.tv.demo": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Original observations explicitly KEEP it for TV_INPUT_BUTTON on some firmware. Exact implementation/dependency evidence and enforceable input-safe scope unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on mediatek.com android.googlesource.com sony.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/benq-gv32/debloat.txt#L12-L18",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/eko-4k-bangbae/debloat.txt#L15"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 66,
+        "commented_profiles": 2,
+        "note_profiles": 26
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.messagebox": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary dependency documentation. Original ttvs receiver and keep observations make notification-only purpose/removal assumptions insufficient.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hitachi-cdh-le32smart21/debloat.txt#L52-L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5k/debloat.txt#L62"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 61,
+        "commented_profiles": 5,
+        "note_profiles": 6
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.google.android.tv.bugreportsender": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No sufficient exact primary implementation, reporting/recovery dependencies or target scope found; uploader label alone is insufficient.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on android.googlesource.com source.android.com support.google.com play.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L50",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50dp660/debloat.txt#L76"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 59,
+        "commented_profiles": 1,
+        "note_profiles": 3
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.partnercustomizer": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Original KEEP warnings identify tvlauncher.widget provider, persistent TV-service callers and remote/input hooks. Firmware-specific safe applicability cannot be enforced by common/family loader.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43s5k/debloat.txt#L33-L43",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43p725/debloat.txt#L74"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 52,
+        "commented_profiles": 10,
+        "note_profiles": 19
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.usercenter": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Account/settings dependencies, reactivation and permission/recovery limits unresolved. Original settings binding bug is pre-existing, not evidence debloating caused it.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5k/debloat.txt#L34-L55",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c715/debloat.txt#L32"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 51,
+        "commented_profiles": 5,
+        "note_profiles": 32
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "android.autoinstalls.config.google.gtvpai": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary implementation establishing provisioning/setup behavior or recovery. Generic PAI mechanism and source labels are insufficient; source records permission/skip limitations.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on android.googlesource.com source.android.com support.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/google-chromecast-gtv-hd/debloat.txt#L95",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g03-google-tv/debloat.txt#L82"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 50,
+        "commented_profiles": 4,
+        "note_profiles": 5
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.guard": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Persistent system-UID memory-manager/installer behavior can survive Disable. No exact primary caller/recovery evidence; do not promise stopping it or memory gains.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hitachi-cdh-le32smart21/debloat.txt#L40-L47",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c815/debloat.txt#L21"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 48,
+        "commented_profiles": 5,
+        "note_profiles": 18
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.tv.tclhome_passive": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary evidence resolving home/content service boundaries, launcher dependencies or recovery; boot-content label insufficient.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43p615/debloat.txt#L52",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g08-eu-android12/debloat.txt#L29"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 45,
+        "commented_profiles": 1,
+        "note_profiles": 3
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.miui.tv.analytics": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No vendor-authored exact implementation/dependency evidence found; Xiaomi Community user debloat list excluded. Source includes Fire TV, so no platform-wide assumptions.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on mi.com github.com/MiCode privacy.mi.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-f2-fire-tv-aftma2857f/debloat.txt#L30",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/redmi-mitv-mftp0/debloat.txt#L71"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 41,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.qterics.da.product": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Exact device-agent support/update dependencies and recovery unknown; source records tool skipping and reboot reactivation.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on qterics.com sony.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-gb/debloat.txt#L9",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21/debloat.txt#L53"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 39,
+        "commented_profiles": 0,
+        "note_profiles": 4
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.sony.dtv.da.service": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Remote-support/device-agent label lacks exact primary dependency and recovery contract; do not infer support-only scope.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on sony.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-gb-us/debloat.txt#L45",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21-eu/debloat.txt#L40"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 39,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.xm.webcontent": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact vendor implementation proving embedded web/RN container only serves optional promotions; broader dependencies and recovery unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on mi.com github.com/MiCode privacy.mi.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/redmi-mitv-antl0/debloat.txt#L27",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/redmi-mitv-mftp0/debloat.txt#L78"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 39,
+        "commented_profiles": 0,
+        "note_profiles": 1
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.smartalexa": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Voice/bridge dependencies, persistent-process behavior and recovery unresolved; source records reactivation. No sufficient exact primary documentation.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com developer.amazon.com play.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s334/debloat.txt#L15",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50p615/debloat.txt#L32-L33"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 38,
+        "commented_profiles": 8,
+        "note_profiles": 28
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.mstar.android.tv.disclaimercustomization": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Setup/disclaimer/consent consequences and recovery unresolved; source includes kept/skip observations. No exact primary implementation found.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on mediatek.com mstar.com.tw; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/formovie-xming-page-one-tianshan/debloat.txt#L21",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/philips-50pud7406/debloat.txt#L94"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 37,
+        "commented_profiles": 3,
+        "note_profiles": 11
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.sony.dtv.multiscreendemo": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary implementation or dependency/recovery contract. Build-specific alternate demo name is not sufficient optionality evidence.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on sony.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu2/debloat.txt#L67",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu3/debloat.txt#L38"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 37,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.sony.dtv.sonyselect": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Sony supports featured-app/registration and APPS-button functions, but no exact package dependency/recovery contract was established across firmware.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on sony.com play.google.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-gb-us/debloat.txt#L31",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21-us/debloat.txt#L28"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 37,
+        "commented_profiles": 0,
+        "note_profiles": 1
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.bi": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary evidence of telemetry-only boundaries, provider/caller dependencies or recovery. Multiple reporting/monitor components observed upstream.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/semp-tcl-50p8m/debloat.txt#L71",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c815/debloat.txt#L43"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 37,
+        "commented_profiles": 0,
+        "note_profiles": 2
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.ui_mediaCenter": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "USB/media player relationships and recovery not established by exact primary documentation. Original owners keep it for USB playback; HDMI observation is firmware-specific.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5400a/debloat.txt#L104-L105",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55p8ls/debloat.txt#L18"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 37,
+        "commented_profiles": 7,
+        "note_profiles": 15
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "tv.samba.ssm": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Vendor settings opt-out and viewing-data features do not establish equivalence to disabling this exact package. TV-service bindings and firmware-specific recovery unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on samba.tv sony.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/philips-55oled708/debloat.txt#L48",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-65x9300d/debloat.txt#L19"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 36,
+        "commented_profiles": 0,
+        "note_profiles": 6
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.logkit": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "No exact primary diagnostic/support caller, consequence or recovery documentation. Logging label and varying factory state insufficient.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_search": "Bounded exact-ID searches on tcl.com; no sufficient vendor/source dependency and recovery evidence. No-result searches do not prove absence.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43c645/debloat.txt#L69",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-qm6k-google-tv/debloat.txt#L14"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 35,
+        "commented_profiles": 4,
+        "note_profiles": 3
+      },
+      "independent_review": "Same exact identity independently researched; both agents agree HOLD. Source comments remain observations, not removal-safety proof."
+    },
+    "com.tcl.waterfall.overseas": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_evidence": "https://play.google.com/store/apps/details?id=com.tcl.waterfall.overseas",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50p615/debloat.txt#L25-L31",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-65c725/debloat.txt#L62-L75"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 56,
+        "commented_profiles": 2,
+        "note_profiles": 7
+      },
+      "decision": "Optional Caution; Disable suggestion; review=true; both defaults=false; Keep initially. No automatic restore or model/firmware certification.",
+      "independent_review": "Implementation and exactly one independent reviewer separately checked exact TCL Group listing, substantive viewing purpose, original warnings, dependency boundaries and recovery limits; both agree."
+    },
+    "com.tcl.channelplus": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md",
+      "primary_evidence": "https://play.google.com/store/apps/details?id=com.tcl.channelplus",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43c645/debloat.txt#L72",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g07-google-tv/debloat.txt#L76-L80",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g10-google-tv/debloat.txt#L128-L132",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g03-google-tv/debloat.txt#L90"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 36,
+        "commented_profiles": 2,
+        "note_profiles": 7
+      },
+      "decision": "Optional Caution; Disable suggestion; review=true; both defaults=false; Keep initially. No automatic restore or model/firmware certification.",
+      "independent_review": "Implementation and exactly one independent reviewer separately checked exact TCL Group listing, substantive viewing purpose, original warnings, dependency boundaries and recovery limits; both agree."
     }
   }
 }

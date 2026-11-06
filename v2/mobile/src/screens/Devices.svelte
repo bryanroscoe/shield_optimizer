@@ -166,8 +166,8 @@
     try {
       const r = await api.renameDevice(session.serial, name);
       showToast(r.message || (r.ok ? "Renamed." : "Rename failed."), r.ok ? "success" : "error");
-      if (r.ok) {
-        await session.refreshDevices();
+      // Save the new name only from a profile the TV just reported.
+      if (r.ok && (await session.refreshDevices())) {
         session.rememberCurrentDevice();
         refreshSaved();
       }
@@ -276,12 +276,14 @@
                 <span class="o-note">Another saved TV shares this address</span>
               {/if}
             </div>
-            <button class="o-forget" onclick={() => (forgetTarget = d)} aria-label="Forget {d.name}">
-              <span class="msr">close</span>
-            </button>
-            <button class="o-connect" disabled={connectingToken !== ""} onclick={() => reconnect(d)}>
-              {#if connectingToken === savedDeviceKey(d)}<span class="pdot blink"></span>{:else}Connect{/if}
-            </button>
+            <div class="o-actions">
+              <button class="o-forget" onclick={() => (forgetTarget = d)} aria-label="Forget {d.name}">
+                <span class="msr">close</span>
+              </button>
+              <button class="o-connect" disabled={connectingToken !== ""} onclick={() => reconnect(d)}>
+                {#if connectingToken === savedDeviceKey(d)}<span class="pdot blink"></span>{:else}Connect{/if}
+              </button>
+            </div>
           </div>
         {/each}
       </div>
@@ -485,8 +487,11 @@
     flex-direction: column;
     gap: 10px;
   }
+  /* On a narrow screen the actions wrap below the name instead of squeezing
+     it to one word per line. */
   .other-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     padding: 13px 14px;
@@ -508,7 +513,7 @@
     color: var(--text-soft);
   }
   .o-body {
-    flex: 1;
+    flex: 1 1 120px;
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -517,6 +522,13 @@
   .o-name {
     font-size: 14px;
     font-weight: 600;
+    overflow-wrap: anywhere;
+  }
+  .o-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-left: auto;
   }
   .o-sub {
     font-size: 10px;

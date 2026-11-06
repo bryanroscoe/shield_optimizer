@@ -7,6 +7,7 @@
 
 import { api } from "./api";
 import { onConnectionLost, setConnectionGeneration } from "./connectionEvents";
+import { normalizeHardwareId } from "./identity";
 import { cachedDeviceName, rememberDevice, setAutoConnect } from "./savedDevices";
 import { deviceLabelOf } from "./types";
 import { parseSupport, type SupportInfo } from "../../../shared/support";
@@ -120,12 +121,21 @@ class Session {
 
   /// Connect and, on success, resolve the real device via list_devices and go
   /// live. Returns the raw ConnectResult so the caller can surface errors.
-  async connect(host: string, port: number): Promise<ConnectResult> {
+  /// `onAttempt` receives this attempt's generation, the only value
+  /// `cancelConnect` accepts, so a screen can never cancel a connection it
+  /// did not start.
+  async connect(
+    rawHost: string,
+    port: number,
+    onAttempt?: (generation: number) => void,
+  ): Promise<ConnectResult> {
     if (this.applyInProgress) return { ok: false, message: "Stop the current operation before switching TVs." };
+    // The backend trims too; the stored host has to match the serial it lists.
+    const host = rawHost.trim();
     const generation = this.nextGeneration();
-    this.recoveryAttempted = false;
     this.liveness = "connecting";
     this.identityNote = "";
+    onAttempt?.(generation);
     try {
       const result = await api.wirelessConnect(host, port, generation);
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
@@ -149,6 +159,7 @@ class Session {
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
       this.liveness = this.connectedDevice ? "live" : "lost";
       if (this.connectedDevice) {
+        this.recoveryAttempted = false;
         // Remember this TV so the next launch can offer it, and allow a
         // silent redial of it because the user chose it explicitly.
         this.rememberCurrentDevice();
@@ -164,12 +175,21 @@ class Session {
   }
 
   /// Re-read the device list. Results are discarded when a newer connection
-  /// attempt started in the meantime.
-  async refreshDevices(generation = this.connectionGeneration): Promise<void> {
+  /// attempt started in the meantime. Resolves true when the backend still
+  /// lists this connection. When it doesn't, the last profile is kept so the
+  /// banner can name the TV, Retry and the network-return redial still have a
+  /// target, and a live session turns lost.
+  async refreshDevices(generation = this.connectionGeneration): Promise<boolean> {
     const list = await api.listDevices();
-    if (generation !== this.connectionGeneration) return;
+    if (generation !== this.connectionGeneration) return false;
     const expected = `${this.host}:${this.connectPort}`;
-    this.connectedDevice = list.find((d) => d.serial === expected && d.status === "device") ?? null;
+    const found = list.find((d) => d.serial === expected && d.status === "device") ?? null;
+    if (found) {
+      this.connectedDevice = found;
+      return true;
+    }
+    if (this.connectedDevice && this.liveness === "live") this.liveness = "lost";
+    return false;
   }
 
   /// Explicit user disconnect. Also turns off launch auto-dial so a process
@@ -188,26 +208,34 @@ class Session {
     return true;
   }
 
-  async cancelConnect(): Promise<void> {
-    const canceledRequestId = this.connectionGeneration;
+  /// Cancel the connect attempt `expected` names. Anything else -- a newer
+  /// attempt, a silent redial, or the live connection itself -- is left alone.
+  async cancelConnect(expected: number): Promise<void> {
+    if (expected !== this.connectionGeneration || this.liveness !== "connecting") return;
     const generation = this.nextGeneration();
-    this.liveness = this.connectedDevice ? "lost" : "idle";
+    if (!this.connectedDevice) this.liveness = "idle";
+    let failure: unknown = null;
     try {
-      await api.wirelessCancelConnect(generation, canceledRequestId);
+      await api.wirelessCancelConnect(generation, expected);
     } catch (e) {
-      if (generation === this.connectionGeneration) throw e;
+      failure = e ?? "Couldn't cancel the connection attempt.";
     }
-    if (generation === this.connectionGeneration) await this.restoreCurrentLiveness(generation);
+    if (generation !== this.connectionGeneration) return;
+    await this.restoreCurrentLiveness(generation);
+    if (failure !== null && generation === this.connectionGeneration) throw failure;
   }
 
   async reconnect(): Promise<ConnectResult> {
     return this.connect(this.host, this.connectPort);
   }
 
-  rememberCurrentDevice(): void {
-    if (!this.host) return;
+  /// Returns true when the saved row at this address belongs to a different
+  /// device than the one now connected.
+  rememberCurrentDevice(): boolean {
+    if (!this.host) return false;
     const result = rememberDevice(this.host, this.connectPort, this.connectedDevice);
     if (result.mismatch) this.identityNote = "A different device is now at this address.";
+    return result.mismatch;
   }
 
   reset(): void {
@@ -233,11 +261,14 @@ class Session {
     this.bloatError = "";
   }
 
+  /// After a connect that didn't replace the connection: live if the backend
+  /// still holds the previous TV, lost (keeping its profile) if it was
+  /// evicted, idle if there was none.
   private async restoreCurrentLiveness(generation: number): Promise<void> {
     try {
-      await this.refreshDevices(generation);
+      const listed = await this.refreshDevices(generation);
       if (generation !== this.connectionGeneration) return;
-      this.liveness = this.connectedDevice ? "live" : "idle";
+      this.liveness = listed ? "live" : this.connectedDevice ? "lost" : "idle";
     } catch {
       if (generation !== this.connectionGeneration) return;
       this.liveness = this.connectedDevice ? "lost" : "idle";
@@ -290,22 +321,28 @@ class Session {
     const generation = this.nextGeneration();
     const promise = (async () => {
       this.liveness = "reconnecting";
+      const lostId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
       try {
         const result = await api.wirelessConnect(this.host, this.connectPort, generation);
         if (generation !== this.connectionGeneration) return false;
         if (result.ok) {
-          await this.refreshDevices(generation);
+          const live = await this.refreshDevices(generation);
           if (generation !== this.connectionGeneration) return false;
-          const live = this.connectedDevice != null;
-          // A silent recovery redials the same host:port, exactly like an
-          // explicit reconnect -- so it needs the same identity check before
-          // being trusted as live. Without it, a different id-less TV that
-          // took over this address mid-session would be silently treated as
-          // "the" saved TV reconnecting (#154).
-          if (live) this.rememberCurrentDevice();
-          this.liveness = live ? "live" : "lost";
-          if (live) this.recoveryAttempted = false;
-          return live;
+          if (live) {
+            // A silent recovery redials the same host:port, exactly like an
+            // explicit reconnect -- so it needs the same identity check before
+            // being trusted as live. Without it, a different id-less TV that
+            // took over this address mid-session would be silently treated as
+            // "the" saved TV reconnecting (#154).
+            const mismatch = this.rememberCurrentDevice();
+            const recoveredId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
+            // Cached stats describe the TV that was lost; another TV at this
+            // address must not show them as its own.
+            if (mismatch || recoveredId !== lostId) this.clearDeviceData();
+            this.liveness = "live";
+            this.recoveryAttempted = false;
+            return true;
+          }
         }
       } catch {
         // fall through to lost
@@ -427,13 +464,12 @@ class Session {
       ) return;
       this.bloatError = String(e);
     } finally {
-      if (
-        request === this.bloatGeneration &&
-        connectionGeneration === this.generation &&
-        serial === this.serial
-      ) {
-        this.bloatLoaded = true;
+      // A load abandoned by a reconnect still has to release the flag, or the
+      // card says "Checking…" forever with Retry hidden. Only a newer load
+      // owns it.
+      if (request === this.bloatGeneration) {
         this.bloatLoading = false;
+        if (connectionGeneration === this.generation && serial === this.serial) this.bloatLoaded = true;
       }
     }
   }

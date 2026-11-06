@@ -173,6 +173,37 @@ test("bounds record count and serialized byte size while marking truncation", ()
   assert.equal(report.records.at(-1).token, "com.example.unknown7");
 });
 
+test("trimming keeps this save's third-party packages and never stores the hint", () => {
+  const store = new MemoryStorage();
+  const collector = new diagnostics.UnknownDiagnostics(store, { maxRecords: 5 });
+  collector.observe(base({ token: "com.example.olderthirdparty", system: false }));
+  // Rust lists third-party packages first, so they are the oldest of a batch.
+  const batch = [
+    base({ token: "com.example.sideloaded1", system: false }),
+    base({ token: "com.example.sideloaded2", system: false }),
+    ...Array.from({ length: 6 }, (_, i) => base({ token: `com.vendor.system${i}`, system: true })),
+  ];
+  assert.equal(collector.observeMany(batch).ok, true);
+
+  const report = collector.snapshot();
+  const tokens = report.records.map((record) => record.token);
+  assert.equal(report.records.length, 5);
+  assert.equal(report.truncated, true);
+  assert.deepEqual(tokens, [
+    "com.example.sideloaded1",
+    "com.example.sideloaded2",
+    "com.vendor.system3",
+    "com.vendor.system4",
+    "com.vendor.system5",
+  ]);
+  assert.doesNotMatch(store.raw, /"system"/);
+
+  // With nothing else left to drop, the oldest third-party record goes.
+  const tight = new diagnostics.UnknownDiagnostics(new MemoryStorage(), { maxRecords: 1 });
+  tight.observeMany([base({ token: "com.example.a", system: false }), base({ token: "com.example.b", system: false })]);
+  assert.deepEqual(tight.snapshot().records.map((record) => record.token), ["com.example.b"]);
+});
+
 test("fails harmlessly for corrupt or full storage", () => {
   const corrupt = new MemoryStorage("{not-json");
   const corruptCollector = new diagnostics.UnknownDiagnostics(corrupt);

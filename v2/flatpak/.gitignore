@@ -1,0 +1,5 @@
+generated-sources/
+.flatpak-builder/
+build-dir/
+repo/
+*.flatpak

@@ -285,7 +285,7 @@ test("a live TV that reports no id is never named after a stale advert at its ad
   assert.deepEqual(
     rows.map((row) => [row.key, row.name, row.status, row.savedTarget]),
     [
-      ["discovery:192.168.1.10", "Android TV", "connected", undefined],
+      ["discovery:192.168.1.10", "Name unavailable", "connected", undefined],
       ["saved:hardware:shield-a", "Shield A", "saved-address", shieldA],
     ],
   );
@@ -439,7 +439,7 @@ test("a stored placeholder id is not a wildcard for serial-less adbd (#116)", ()
   assert.deepEqual(
     rows.map((row) => [row.key, row.name, row.status]),
     [
-      ["discovery:192.168.1.77", "Android TV", "found"],
+      ["discovery:192.168.1.77", "Name unavailable", "found"],
       ["saved:idless:192.168.1.10:5555", "Living room", "saved-missing"],
     ],
   );
@@ -518,7 +518,7 @@ test("instance names are only used when they are unambiguous and not adb ids", (
     [],
     offline,
   );
-  assert.equal(adbInstance[0].name, "Android TV");
+  assert.equal(adbInstance[0].name, "Name unavailable");
 
   const conflicting = buildDiscoveryRows(
     [
@@ -528,7 +528,7 @@ test("instance names are only used when they are unambiguous and not adb ids", (
     [],
     offline,
   );
-  assert.equal(conflicting[0].name, "Android TV");
+  assert.equal(conflicting[0].name, "Name unavailable");
 });
 
 test("legacy connect ports are the only ones flagged as needing no pairing code", () => {
@@ -591,7 +591,7 @@ test("a serial that matches no saved TV leaves the row unclaimed", () => {
   assert.deepEqual(
     rows.map((row) => [row.key, row.name, row.status]),
     [
-      ["discovery:192.168.1.42", "Android TV", "found"],
+      ["discovery:192.168.1.42", "Name unavailable", "found"],
       ["saved:hardware:shield-a", "Living room", "saved-missing"],
     ],
   );
@@ -646,7 +646,73 @@ test("rows are ordered by usability then recency, not by mDNS answer order", () 
       // Same timestamp, so the address breaks the tie rather than the network.
       ["Living Room", "saved-verified"],
       ["Media Room", "saved-verified"],
-      ["Android TV", "found"],
+      ["Name unavailable", "found"],
     ],
   );
+});
+
+test("fresh discovery shows advertised friendly names while retaining ADB identity evidence", () => {
+  const rows = buildDiscoveryRows([
+    { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Studio TV" },
+    { ...advert("192.0.2.20", 41000, TLS_CONNECT, "adb-serial-b-AbC123"), friendly_name: "Kitchen TV" },
+  ], [], offline);
+  assert.deepEqual(rows.map(({ name, status, savedTarget }) => [name, status, savedTarget]), [
+    ["Studio TV", "found", undefined], ["Kitchen TV", "found", undefined],
+  ]);
+  const recognized = buildDiscoveryRows([
+    { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Network name" },
+  ], [saved({ host: "192.0.2.99", hardwareId: "serial-a", name: "My TV" })], offline);
+  assert.equal(recognized[0].name, "My TV");
+  assert.equal(recognized[0].status, "saved-verified");
+});
+
+test("friendly-name matches never promote a reused address or name to saved identity", () => {
+  const previous = saved({ hardwareId: "previous-tv", name: "Studio TV" });
+  const rows = buildDiscoveryRows([
+    { ...advert(previous.host, 5555, LEGACY, "adb-replacement-tv"), friendly_name: "Studio TV" },
+  ], [previous], offline);
+  assert.equal(rows[0].name, "Studio TV");
+  assert.equal(rows[0].status, "saved-address");
+  assert.equal(rows[0].savedTarget, undefined);
+  assert.equal(previous.hardwareId, "previous-tv");
+});
+
+test("conflicting or missing friendly metadata remains unnamed and never leaks opaque ADB labels", () => {
+  for (const name of ["adb-serial-a", "ADB-serial-a", "AdB-serial-a"]) {
+    for (const friendly_name of [undefined, null, "   "]) {
+      const rows = buildDiscoveryRows([{ ...advert("192.0.2.10", 5555, LEGACY, name), friendly_name }], [], offline);
+      assert.equal(rows[0].name, "Name unavailable");
+    }
+  }
+  const rows = buildDiscoveryRows([
+    { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Studio TV" },
+    { ...advert("192.0.2.10", 41000, TLS_CONNECT, "adb-serial-a-AbC123"), friendly_name: "Another TV" },
+  ], [], offline);
+  assert.equal(rows[0].name, "Name unavailable");
+});
+
+test("a later scan cannot reuse a friendly name whose current metadata disappeared", () => {
+  const endpoint = advert("192.0.2.10", 5555, LEGACY, "adb-serial-a");
+  assert.equal(buildDiscoveryRows([{ ...endpoint, friendly_name: "Studio TV" }], [], offline)[0].name, "Studio TV");
+  assert.equal(buildDiscoveryRows([endpoint], [], offline)[0].name, "Name unavailable");
+});
+
+test("one named advert names its host even when the host's other adverts carry no name", () => {
+  // The Cast name fills only adverts that lacked one, so a host can mix named
+  // and unnamed adverts; the unnamed ones add no conflicting name.
+  const rows = buildDiscoveryRows([
+    { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Living Room TV" },
+    { ...advert("192.0.2.10", 37099, TLS_PAIRING, "adb-serial-a-AbC123"), friendly_name: null },
+    advert("192.0.2.10", 41000, TLS_CONNECT, "adb-serial-a-AbC123"),
+  ], [], offline);
+  assert.deepEqual(summarize(rows), [
+    {
+      key: "discovery:192.0.2.10",
+      name: "Living Room TV",
+      status: "found",
+      connectPorts: [5555, 41000],
+      pairingPorts: [37099],
+    },
+  ]);
+  assert.equal(rows[0].savedTarget, undefined);
 });

@@ -188,7 +188,9 @@
       "backend": "../crates/core/src/commands/health.rs",
       "callers": [
         "src/lib/session.svelte.ts",
-        "src/screens/Apps.svelte"
+        "src/screens/Apps.svelte",
+        "src/screens/Diagnostics.svelte",
+        "src/screens/Tweaks.svelte"
       ]
     },
     {
@@ -368,7 +370,8 @@
         "src/components/AppSheetHost.svelte",
         "src/screens/Apps.svelte",
         "src/screens/Diagnostics.svelte",
-        "src/screens/Optimize.svelte"
+        "src/screens/Optimize.svelte",
+        "src/components/AppDetailSheet.svelte"
       ]
     },
     {
@@ -737,7 +740,9 @@
       "backend": "src/lib/api.ts (scoped opener plugin)",
       "callers": [
         "src/components/AppReportSheet.svelte",
-        "src/screens/Launcher.svelte"
+        "src/screens/Catalog.svelte",
+        "src/screens/Launcher.svelte",
+        "src/screens/More.svelte"
       ]
     },
     {
@@ -756,7 +761,8 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/telemetry.rs",
       "callers": [
-        "src/screens/More.svelte"
+        "src/screens/More.svelte",
+        "src/components/TelemetryNotice.svelte"
       ]
     },
     {

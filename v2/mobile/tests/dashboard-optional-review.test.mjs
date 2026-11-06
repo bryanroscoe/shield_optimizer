@@ -294,11 +294,13 @@ test("optional choices survive tabs and confirmation names every actual action",
   await page.getByRole("button", { name: "Apply optimization", exact: false }).click();
   const dialog = page.getByRole("heading", { name: "Apply 3 selected changes?" }).locator("..");
   const text = await dialog.innerText();
-  assert.match(text, /Recommended One — Disable/);
-  assert.match(text, /Optional Disable — Disable/);
-  assert.match(text, /Optional Uninstall — Uninstall for this user/);
-  assert.match(text, /2 apps will be disabled/);
-  assert.match(text, /1 app will be uninstalled/);
+  // Every app is named once with its actual verb; the shared reason and its
+  // tier are stated once for the three of them.
+  assert.match(text, /Caution: Disable Recommended One, Disable Optional Disable, Uninstall Optional Uninstall — Review whether you use this app\./);
+  for (const name of ["Recommended One", "Optional Disable", "Optional Uninstall"]) {
+    assert.equal(text.split(name).length - 1, 1, name);
+  }
+  assert.match(text, /Reinstall works only while its APK remains on the TV/);
   assert.match(text, /animation scales are set to 0.5×/);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal(
@@ -429,6 +431,7 @@ test("the confirm summary names the Safe verdict rather than calling it Caution"
   const dialog = page.locator(".dialog-card");
   await dialog.waitFor();
   const text = await dialog.innerText();
-  assert.match(text, /Safe to remove: Safe Default/);
-  assert.doesNotMatch(text, /Caution: Safe Default/);
+  // Each app sits under its own tier with its verb: "Safe to remove: Disable …".
+  assert.match(text, /Safe to remove: Disable Safe Default — Reviewed for Android TV/);
+  assert.doesNotMatch(text, /Caution/);
 });
