@@ -110,6 +110,15 @@ async function exercise({ browser, base }) {
     assert.equal(await row.locator('[data-verdict="caution"]').count(), 1, entry.package);
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", entry.package);
     assert.equal((await row.locator(".review-pill").innerText()).trim(), "Review: disable if unused");
+    if (entry.consequence_fragments) {
+      await row.getByRole("button", { name: `Show why ${entry.name} has this verdict`, exact: true }).click();
+      const detail = row.locator("xpath=following-sibling::tr[1]");
+      assert.ok(await detail.isVisible(), `expanded consequences: ${entry.package}`);
+      for (const fragment of entry.consequence_fragments) {
+        assert.ok((await detail.innerText()).includes(fragment), `visible consequence: ${entry.package}: ${fragment}`);
+      }
+      await row.getByRole("button", { name: `Hide why ${entry.name} has this verdict`, exact: true }).click();
+    }
   }
   await panel.getByRole("button", { name: "Keep all", exact: true }).click();
   await panel.getByRole("button", { name: "Select all safe", exact: true }).click();
@@ -124,6 +133,7 @@ async function exercise({ browser, base }) {
   assert.equal((await first.locator(".radio-pill.active .radio-label").innerText()).trim(), "Disable");
   await first.getByRole("button", { name: "Keep", exact: true }).click();
   if (evidence) {
+    await first.locator(".row-caret").click();
     await first.scrollIntoViewIfNeeded();
     await page.screenshot({ path: join(evidence, "desktop-optimize-reviewed.png") });
     await page.setViewportSize({ width: 720, height: 1000 });

@@ -1652,6 +1652,47 @@
     ]
   },
   {
+    "package": "com.tcl.waterfall.overseas",
+    "name": "TCL Channel",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops TCL Channel viewing and content recommendations through this app; its app shortcut may stop working. Keep it if used. The TV's updater may re-enable it.",
+    "restore_description": "Re-enables TCL Channel if still installed. Does not restore account access, app settings or content availability; future updates may reactivate it.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.tcl.waterfall.overseas",
+      "https://www.tcl.com/content/dam/brandsite/region/turkey/user-manual/tv/S5400-User-Manual.pdf",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50p615/debloat.txt#L25-L31",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-65c725/debloat.txt#L62-L75",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md. Optional viewing loss, updater reactivation and recovery limits assessed; device/firmware behavior unverified. No updater-disable recommendation."
+    ]
+  },
+  {
+    "package": "com.tcl.channelplus",
+    "name": "TCL Live",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops TCL free streaming channels. If these are your only Live TV channels, Live TV may open channel scan. Channel rows can remain blank and the TCL Channel shortcut may stop working. Keep it if used.",
+    "restore_description": "Re-enables TCL Live if still installed. Channels may return only after a TV reboot. Does not restore app settings, account access or content availability.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.tcl.channelplus",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43c645/debloat.txt#L72",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g07-google-tv/debloat.txt#L76-L80",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g10-google-tv/debloat.txt#L128-L132",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g03-google-tv/debloat.txt#L90",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md. Optional streaming input only; common exact-ID lookup is not model/firmware certification. HDMI/tuner/system-TV authorities unchanged; hardware disable/recovery unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",
