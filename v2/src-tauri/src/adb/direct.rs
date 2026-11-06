@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use atv_direct_adb::{Paired, WirelessAdb};
+use atv_direct_adb::{Paired, PreferredKeys, WirelessAdb};
 use atv_optimizer_core::adb::{
     native_mdns_services, render_mdns_services, AdbByteStream, AdbDriver, AdbError, AdbOutput,
     AdbResult, Leases, NativeDiscoveryReport, ScanConnectOutcome, ScanConnectionFailure,
@@ -103,9 +103,24 @@ impl DirectNetworkAdb {
     /// Counts this driver's work on the app's admission counter, so quit
     /// drains it, and leaves that counter open when the driver is dropped.
     pub fn with_shared_operations(key: PathBuf, operations: Arc<Leases>) -> Self {
+        Self::with_shared_operations_and_keys(key, PreferredKeys::none(), operations)
+    }
+
+    /// [`Self::with_shared_operations`], with every connection offering
+    /// `preferred` (the platform-tools key) before the app's own `key`.
+    pub fn with_shared_operations_and_keys(
+        key: PathBuf,
+        preferred: PreferredKeys,
+        operations: Arc<Leases>,
+    ) -> Self {
         Self::with_factory_and_operations(
             key,
-            Arc::new(|key, operations| Arc::new(WirelessAdb::with_existing_key(key, operations))),
+            Arc::new(move |key, operations| {
+                Arc::new(
+                    WirelessAdb::with_existing_key(key, operations)
+                        .with_preferred_keys(preferred.clone()),
+                )
+            }),
             operations,
             false,
         )

@@ -124,7 +124,6 @@ impl AdbDriver for ConfigurationError {
 /// `rename.rs` migrates with its `native-adb/` key. When the OS reports no
 /// local data folder, `migrate_host` falls back to the working directory;
 /// a key must never be created there.
-#[cfg(feature = "direct-adb")]
 fn identity_app_data(
     local_data: Option<PathBuf>,
     data_dir: &std::path::Path,
@@ -140,8 +139,12 @@ struct DesktopEngines {
     data_dir: PathBuf,
     /// The OS local data folder, read once at launch.
     local_data: Option<PathBuf>,
-    /// `ATV_OPTIMIZER_DIRECT_KEY`: an existing identity to use instead.
+    /// `ATV_OPTIMIZER_DIRECT_KEY`: an existing identity to use instead, and
+    /// then the only one the built-in engine offers.
     key_override: Option<PathBuf>,
+    /// Where Google's adb keeps its key, located once at launch. The
+    /// built-in engine reads it each time it starts, never writing it.
+    platform_tools_key: Option<PathBuf>,
 }
 
 impl DesktopEngines {
@@ -150,6 +153,22 @@ impl DesktopEngines {
             data_dir,
             local_data: dirs::data_local_dir(),
             key_override: std::env::var_os("ATV_OPTIMIZER_DIRECT_KEY").map(PathBuf::from),
+            #[cfg(feature = "direct-adb")]
+            platform_tools_key: adb::identity::platform_tools_key_path(),
+            #[cfg(not(feature = "direct-adb"))]
+            platform_tools_key: None,
+        }
+    }
+
+    /// The key the built-in engine uses (or would create), which platform-tools
+    /// started by this app also offers, so a TV that allowed only the
+    /// built-in engine needs no new prompt there either.
+    fn builtin_key_path(&self) -> Option<PathBuf> {
+        match &self.key_override {
+            Some(path) => Some(path.clone()),
+            None => identity_app_data(self.local_data.clone(), &self.data_dir)
+                .ok()
+                .map(|root| root.join("native-adb").join("identity.pkcs8.pem")),
         }
     }
 }
@@ -169,11 +188,19 @@ impl EngineStarter for DesktopEngines {
                 None => identity_app_data(self.local_data.clone(), &self.data_dir)
                     .and_then(|root| adb::identity::ensure_app_identity(&root)),
             };
+            // An explicit key override is a diagnostic choice: that key alone.
+            let preferred = match &self.key_override {
+                Some(_) => atv_direct_adb::PreferredKeys::none(),
+                None => adb::identity::load_platform_tools_key(self.platform_tools_key.as_deref()),
+            };
             match identity {
-                Ok(key) => Ok(Arc::new(adb::direct::DirectNetworkAdb::with_shared_operations(
-                    key,
-                    Arc::clone(operations),
-                ))),
+                Ok(key) => Ok(Arc::new(
+                    adb::direct::DirectNetworkAdb::with_shared_operations_and_keys(
+                        key,
+                        preferred,
+                        Arc::clone(operations),
+                    ),
+                )),
                 Err(message) => Err(format!("The built-in engine couldn't set up its key, so this session uses Google platform-tools. Existing keys were not replaced. Details: {message}")),
             }
         }
@@ -184,6 +211,7 @@ impl EngineStarter for DesktopEngines {
                 &self.data_dir,
                 &self.local_data,
                 &self.key_override,
+                &self.platform_tools_key,
             );
             Err(
                 "This build doesn't include the built-in engine, so it uses Google platform-tools."
@@ -198,11 +226,10 @@ async fn default_state(
     data_dir: PathBuf,
 ) -> (AppState, AdbEngineControl) {
     let env = std::env::var(adb::selection::TRANSPORT_ENV).ok();
-    let (control, driver) = AdbEngineControl::start(
-        data_dir.clone(),
-        env.as_deref(),
-        Arc::new(DesktopEngines::from_environment(data_dir.clone())),
-    );
+    let engines = DesktopEngines::from_environment(data_dir.clone());
+    adb::driver::offer_builtin_key_to_adb_server(engines.builtin_key_path());
+    let (control, driver) =
+        AdbEngineControl::start(data_dir.clone(), env.as_deref(), Arc::new(engines));
     let driver: Arc<dyn AdbDriver> = match driver {
         Ok(driver) => driver,
         Err(message) => Arc::new(ConfigurationError(message)),
@@ -454,6 +481,7 @@ mod initialization_tests {
             data_dir,
             local_data,
             key_override: None,
+            platform_tools_key: None,
         }
     }
 
@@ -623,5 +651,156 @@ mod initialization_tests {
             driver.stop_server(std::time::Duration::from_secs(1)).await,
             atv_optimizer_core::adb::ServerStop::Skipped(_)
         ));
+    }
+}
+
+/// The built-in engine started by the desktop offers platform-tools' key
+/// before its own, end to end through a loopback adbd.
+#[cfg(all(test, unix, feature = "direct-adb"))]
+mod builtin_key_tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+
+    fn send(socket: &mut TcpStream, command: &[u8; 4], arg0: u32, arg1: u32, payload: &[u8]) {
+        let command = u32::from_le_bytes(*command);
+        for field in [
+            command,
+            arg0,
+            arg1,
+            payload.len() as u32,
+            payload.iter().map(|b| u32::from(*b)).sum(),
+            command ^ u32::MAX,
+        ] {
+            socket.write_all(&field.to_le_bytes()).unwrap();
+        }
+        socket.write_all(payload).unwrap();
+    }
+
+    fn receive(socket: &mut TcpStream) -> ([u8; 4], u32, Vec<u8>) {
+        let mut header = [0; 24];
+        socket.read_exact(&mut header).unwrap();
+        let size = u32::from_le_bytes(header[12..16].try_into().unwrap()) as usize;
+        let mut payload = vec![0; size];
+        socket.read_exact(&mut payload).unwrap();
+        (
+            header[..4].try_into().unwrap(),
+            u32::from_le_bytes(header[4..8].try_into().unwrap()),
+            payload,
+        )
+    }
+
+    /// The AUTH signature `key` makes over `token` (PKCS#1 v1.5 over SHA-1's
+    /// DigestInfo, which is deterministic).
+    fn signature(key: &rsa::RsaPrivateKey, token: &[u8; 20]) -> Vec<u8> {
+        let mut digest_info = vec![
+            0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04,
+            0x14,
+        ];
+        digest_info.extend_from_slice(token);
+        key.sign(rsa::Pkcs1v15Sign::new_unprefixed(), &digest_info)
+            .unwrap()
+    }
+
+    /// One adbd connection that wants `signers` to sign its AUTH tokens in
+    /// that order, then answers the liveness `echo ok`.
+    fn adbd(listener: TcpListener, signers: Vec<rsa::RsaPrivateKey>) {
+        let (mut socket, _) = listener.accept().unwrap();
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(10)))
+            .unwrap();
+        assert_eq!(&receive(&mut socket).0, b"CNXN");
+        for (round, signer) in signers.iter().enumerate() {
+            let token = [round as u8 + 1; 20];
+            send(&mut socket, b"AUTH", 1, 0, &token);
+            let (command, kind, payload) = receive(&mut socket);
+            assert_eq!((&command, kind), (b"AUTH", 2));
+            assert_eq!(
+                payload,
+                signature(signer, &token),
+                "AUTH round {round}: wrong key"
+            );
+        }
+        send(
+            &mut socket,
+            b"CNXN",
+            0x0100_0000,
+            1 << 20,
+            b"device::features=shell_v2\0",
+        );
+        let (command, local, destination) = receive(&mut socket);
+        assert_eq!(&command, b"OPEN");
+        assert_eq!(destination, b"shell,v2,raw:echo ok\0");
+        send(&mut socket, b"OKAY", 1, local, &[]);
+        for packet in [
+            [&[1, 3, 0, 0, 0][..], b"ok\n"].concat(),
+            vec![3, 1, 0, 0, 0, 0],
+        ] {
+            send(&mut socket, b"WRTE", 1, local, &packet);
+            assert_eq!(&receive(&mut socket).0, b"OKAY");
+        }
+        send(&mut socket, b"CLSE", 1, local, &[]);
+        let _ = std::io::copy(&mut socket, &mut std::io::sink());
+    }
+
+    #[tokio::test]
+    async fn builtin_offers_the_platform_tools_key_first_and_never_changes_it() {
+        use rsa::pkcs1::EncodeRsaPrivateKey;
+        use rsa::pkcs8::DecodePrivateKey;
+        let dir = tempfile::tempdir().unwrap();
+        let android = dir.path().join("home").join(".android");
+        std::fs::create_dir_all(&android).unwrap();
+        let adbkey = android.join("adbkey");
+        let platform_tools = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048).unwrap();
+        std::fs::write(
+            &adbkey,
+            platform_tools
+                .to_pkcs1_pem(rsa::pkcs1::LineEnding::LF)
+                .unwrap()
+                .as_bytes(),
+        )
+        .unwrap();
+        let adbkey_before = std::fs::read(&adbkey).unwrap();
+        let engines = DesktopEngines {
+            data_dir: dir.path().join("ATVOptimizer"),
+            local_data: Some(dir.path().to_path_buf()),
+            key_override: None,
+            platform_tools_key: Some(adbkey.clone()),
+        };
+        let driver = engines.builtin(&Leases::new()).unwrap();
+        let app_key_path = engines.builtin_key_path().unwrap();
+        let app_key = rsa::RsaPrivateKey::from_pkcs8_pem(
+            &std::fs::read_to_string(&app_key_path).expect("builtin_key_path names the app key"),
+        )
+        .unwrap();
+
+        // The platform-tools key signs the first token, the app key the next.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let signers = vec![platform_tools.clone(), app_key.clone()];
+        let peer = std::thread::spawn(move || adbd(listener, signers));
+        driver.raw(&["connect", &address]).await.unwrap();
+        drop(driver);
+        peer.join().unwrap();
+
+        // An explicit key override is used alone.
+        let engines = DesktopEngines {
+            key_override: Some(app_key_path.clone()),
+            ..engines
+        };
+        let driver = engines.builtin(&Leases::new()).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = format!("127.0.0.1:{}", listener.local_addr().unwrap().port());
+        let peer = std::thread::spawn(move || adbd(listener, vec![app_key]));
+        driver.raw(&["connect", &address]).await.unwrap();
+        drop(driver);
+        peer.join().unwrap();
+
+        assert_eq!(std::fs::read(&adbkey).unwrap(), adbkey_before);
+        let names: Vec<_> = std::fs::read_dir(&android)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("adbkey")]);
     }
 }

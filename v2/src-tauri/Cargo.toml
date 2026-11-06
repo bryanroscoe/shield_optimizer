@@ -89,6 +89,8 @@ socket2 = "0.6"
 [dev-dependencies]
 atv-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"
+# Test keys for the platform-tools key loader; never the user's own key.
+rsa = { version = "0.9", features = ["std", "pem", "getrandom"] }
 tempfile = "3"
 # `start_paused` — lets the reconnect-backoff tests advance time instantly
 # instead of really sleeping through it.

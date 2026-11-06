@@ -52,6 +52,9 @@ where
     }
 }
 
+mod platform_tools;
+pub use platform_tools::{load_platform_tools_key, platform_tools_key_path};
+
 #[cfg(windows)]
 mod windows;
 

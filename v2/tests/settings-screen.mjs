@@ -380,7 +380,9 @@ async function adbEngineSwitching({ browser, base }) {
   const said = await section.innerText();
   assert.match(said, /no adb server or download/);
   assert.match(said, /network only, so USB devices need platform-tools/);
-  assert.match(said, /each TV asks once to allow debugging/);
+  assert.match(said, /uses this computer's platform-tools key when there is one/);
+  assert.match(said, /already allow platform-tools connect without a new prompt/);
+  assert.match(said, /Otherwise each TV asks once to allow debugging/);
   assert.match(said, /adb server shared with other tools/);
   await help.press("Escape");
   assert.equal(await help.getAttribute("aria-expanded"), "false");

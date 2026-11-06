@@ -461,8 +461,9 @@
             network only, so USB devices need platform-tools.
           </p>
           <p>
-            The built-in engine has its own key, so each TV asks once to allow debugging for it, even
-            if the TV already allows platform-tools.
+            Built-in uses this computer's platform-tools key when there is one, so TVs that already
+            allow platform-tools connect without a new prompt. Otherwise each TV asks once to allow
+            debugging.
           </p>
           <p>
             Google platform-tools uses the adb server shared with other tools on this computer, such

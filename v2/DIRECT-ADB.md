@@ -12,9 +12,11 @@ Devices shows **Native Rust ADB · direct connection** when active. Add by IP an
 Scan LAN connect directly to the TV; Scan LAN combines fresh mDNS endpoints with
 the existing port-5555 sweep. Pair PIN connects by itself when the TV names itself
 while pairing (see **Pairing** below); otherwise it asks for the separate connect port.
-The private app identity is created once on supported Unix hosts; approve it on
-the TV, even if platform-tools was already approved. No standard ADB key is imported
-or replaced. Native mode does not expose Restart ADB or Stop ADB when quitting.
+The private app identity is created once on supported Unix hosts. The built-in engine
+offers Google platform-tools' own key first when this computer has one, so a TV that
+already allows platform-tools connects without a new prompt (see **Keys**). No ADB key
+is imported, copied or replaced. Native mode does not expose Restart ADB or Stop ADB
+when quitting.
 
 ## Choosing the engine
 
@@ -78,13 +80,46 @@ TV counts as the paired device. Probes run back to back while a browse is in fli
 Forget does not read mDNS there, because the built-in engine never re-attaches a TV by
 itself.
 
+## Keys
+
+The built-in engine offers two keys, in order: Google platform-tools' own key, when
+there is a usable one, then the app's key (`<data folder>/native-adb/identity.pkcs8.pem`).
+
+- **Where.** `.android/adbkey` in the home folder, found exactly as adb finds it
+  (`adb_get_homedir_path` in AOSP `adb_utils.cpp`, `get_user_key_path` in
+  `client/auth.cpp`): `$HOME` as it is (even empty), or the user database's home when
+  `HOME` is unset, on macOS and Linux; the user profile folder on Windows. adb reads no
+  other variable for it (`ANDROID_USER_HOME` and `ANDROID_SDK_HOME` do not move it).
+- **Read only.** It is read when the built-in engine starts or is switched to, never per
+  command, and is never created, written, copied, re-permissioned or logged. It must be a
+  regular file of at most 32 KiB holding an unencrypted RSA 2048 key in PKCS#8 (what adb
+  writes) or PKCS#1 PEM. Anything else, or no file, is skipped with a debug log and the
+  engine starts with the app key alone, which stays required. `ATV_OPTIMIZER_DIRECT_KEY`
+  replaces the app key and is then the only key offered.
+- **Legacy AUTH (port 5555).** Each AUTH token is signed with the next key, as adb signs
+  with each of its keys. Once both are refused, the platform-tools key's public key is
+  offered, so one approval on the TV covers both engines.
+- **TLS (Wireless debugging).** The client certificate is the key the TV names in its CA
+  hints (`O=AdbKey-0, CN=<SHA-256 of the key's SubjectPublicKeyInfo>`, AOSP
+  `tls/adb_ca_list.cpp`), else the first key, as adb's `adb_tls_set_certificate` does. A
+  refused certificate is tried again once with the other key, on a fresh connection under
+  the same deadline.
+- **PIN pairing** registers the first key, so platform-tools trusts the pairing too.
+- **The other direction.** Under platform-tools every adb command the app runs names the
+  app key in `ADB_VENDOR_KEYS`, after any value already set, while that file exists. adb
+  loads vendor keys (files, PKCS#8 included, or the `*.adb_key` files of a folder) only
+  in the server when it starts (`adb_auth_init`), so this helps only when one of the
+  app's commands starts the server, including the restart the macOS server repair makes.
+  A server another tool started keeps its keys; nothing restarts one for this.
+- The Android app is unchanged: it offers only its own key.
+
 ## Limits
 
 Built-in is network-only: a TV connected by USB needs Google platform-tools, and the
 connection help on Devices says so. Remote uses shell input under built-in; the fast
 native Remote path stays gated, so hold-to-repeat and full Unicode input are not yet at
-parity. Each TV approves the built-in engine's own key once; the platform-tools key is
-never read, imported or replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
+parity. A TV that allows neither key approves the platform-tools key once (the app key when
+there is no platform-tools key); neither key is ever imported or replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
 N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
 ---
