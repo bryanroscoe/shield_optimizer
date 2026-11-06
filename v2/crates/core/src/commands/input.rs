@@ -1,8 +1,10 @@
 //! Remote input — keys and text to the TV.
 //!
 //! Two transports, tried in order:
-//! 1. The persistent scrcpy control channel (`adb::remote_input`) — per-press
-//!    cost is network RTT (~ms). Lazily started on first use; full UTF-8 text.
+//! 1. The persistent scrcpy control channel — per-press cost is network RTT
+//!    (~ms). Lazily started on first use; full UTF-8 text. Platform-tools
+//!    reaches it through `adb forward` (`adb::remote_input`); the built-in
+//!    engine through identity-bound streams (`adb::native_remote`).
 //! 2. `adb shell input …` — the slow (~690 ms/press, ASCII-only) but
 //!    compatibility path when selected explicitly or the channel cannot start.
 //!    A failed channel send closes the session without replay: delivery is
@@ -539,47 +541,193 @@ mod tests {
         );
     }
 
-    struct DisabledNativeDriver;
+    /// A built-in-engine driver: no host server, only identity-bound services.
+    #[derive(Default)]
+    struct NativeDriver {
+        fail_binding: bool,
+        services: std::sync::Mutex<Vec<String>>,
+        bindings: std::sync::Mutex<Vec<crate::adb::AdbDeviceBinding>>,
+        control: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    }
+
+    #[derive(Default)]
+    struct Hold {
+        released: std::sync::Mutex<bool>,
+        changed: std::sync::Condvar,
+    }
+    impl crate::adb::AdbServiceCancellation for Hold {
+        fn cancel(&self) {
+            *self.released.lock().unwrap() = true;
+            self.changed.notify_all();
+        }
+    }
+
+    /// Answers `reply`, then ends, or for a resident service blocks like an
+    /// idle one until cancelled.
+    struct Service {
+        reply: std::io::Cursor<Vec<u8>>,
+        resident: bool,
+        writes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+        hold: std::sync::Arc<Hold>,
+    }
+    impl std::io::Read for Service {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let read = std::io::Read::read(&mut self.reply, out)?;
+            if read > 0 || !self.resident {
+                return Ok(read);
+            }
+            let mut released = self.hold.released.lock().unwrap();
+            while !*released {
+                released = self.hold.changed.wait(released).unwrap();
+            }
+            Ok(0)
+        }
+    }
+    impl std::io::Write for Service {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
 
     #[async_trait::async_trait]
-    impl crate::adb::AdbDriver for DisabledNativeDriver {
+    impl crate::adb::AdbDriver for NativeDriver {
         fn uses_host_server(&self) -> bool {
             false
         }
         async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
-            panic!("disabled native Remote must not start a command")
+            panic!("native Remote must not use host-server commands")
         }
         async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
-            panic!("disabled native Remote must not start a helper")
+            panic!("native Remote must not use the TV's shared shell")
         }
         async fn device_binding(
             &self,
-            _: &str,
+            serial: &str,
         ) -> crate::adb::AdbResult<crate::adb::AdbDeviceBinding> {
-            panic!("disabled native Remote must not begin dedicated setup")
+            if self.fail_binding {
+                return Err(crate::adb::AdbError::Transport(
+                    "fixture identity unavailable".into(),
+                ));
+            }
+            Ok(crate::adb::AdbDeviceBinding {
+                serial: serial.into(),
+                hardware_id: "fixture-hardware".into(),
+            })
+        }
+        async fn open_bound_device_service(
+            &self,
+            binding: &crate::adb::AdbDeviceBinding,
+            service: &str,
+            _: std::time::Duration,
+        ) -> crate::adb::AdbResult<crate::adb::AdbOwnedService> {
+            self.bindings.lock().unwrap().push(binding.clone());
+            self.services.lock().unwrap().push(service.into());
+            let control = service.starts_with("localabstract:");
+            let reply = if service == "sync:" {
+                b"OKAY\0\0\0\0".to_vec()
+            } else if service.starts_with("shell:rm ") {
+                b"REMOVED".to_vec()
+            } else if control {
+                vec![0]
+            } else {
+                Vec::new()
+            };
+            let hold = std::sync::Arc::new(Hold::default());
+            Ok(crate::adb::AdbOwnedService {
+                stream: Box::new(Service {
+                    reply: std::io::Cursor::new(reply),
+                    resident: control || service.starts_with("shell:trap "),
+                    writes: if control {
+                        self.control.clone()
+                    } else {
+                        std::sync::Arc::default()
+                    },
+                    hold: hold.clone(),
+                }),
+                cancellation: hold,
+            })
         }
     }
 
+    fn helper_fixture() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
+    }
+
     #[tokio::test]
-    async fn production_native_fast_remote_remains_disabled_before_any_transport_work() {
-        let driver = std::sync::Arc::new(DisabledNativeDriver);
+    async fn production_admission_starts_native_remote_on_identity_bound_streams() {
+        let driver = std::sync::Arc::new(NativeDriver::default());
         let state = AppState::new(
             driver.clone(),
             crate::engine::AppListBundle::default(),
             std::env::temp_dir(),
         );
         let generation = state.begin_remote_generation("fixture-TV").await.unwrap();
-        let result = state
+        state
             .ensure_remote_session_for_generation(
-                driver,
-                std::path::Path::new("not-opened"),
+                state.adb_snapshot().await,
+                &helper_fixture(),
+                "fixture-TV",
+                Some(generation),
+            )
+            .await
+            .unwrap();
+        state
+            .remote_send_key_press_for_generation("fixture-TV", 20, Some(generation))
+            .await
+            .unwrap();
+        let mut expected = crate::adb::remote_input::encode_inject_keycode(0, 20, 0, 0);
+        expected.extend(crate::adb::remote_input::encode_inject_keycode(1, 20, 0, 0));
+        assert_eq!(*driver.control.lock().unwrap(), expected);
+        state
+            .close_remote_generation("fixture-TV", generation)
+            .await
+            .unwrap();
+        let services = driver.services.lock().unwrap().clone();
+        assert_eq!(services[0], "sync:");
+        assert!(services[1].starts_with("shell:trap "));
+        assert!(services[2].starts_with("localabstract:scrcpy_"));
+        assert!(services.last().unwrap().starts_with("shell:rm -f -- "));
+        assert!(driver
+            .bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|binding| binding.serial == "fixture-TV"
+                && binding.hardware_id == "fixture-hardware"));
+    }
+
+    #[tokio::test]
+    async fn native_startup_failure_is_reported_before_any_input() {
+        let driver = std::sync::Arc::new(NativeDriver {
+            fail_binding: true,
+            ..NativeDriver::default()
+        });
+        let state = AppState::new(
+            driver.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let generation = state.begin_remote_generation("fixture-TV").await.unwrap();
+        let started = state
+            .ensure_remote_session_for_generation(
+                state.adb_snapshot().await,
+                &helper_fixture(),
                 "fixture-TV",
                 Some(generation),
             )
             .await;
-        assert!(result.unwrap_err().contains("lifecycle acceptance gates"));
+        assert!(started
+            .unwrap_err()
+            .contains("fixture identity unavailable"));
+        assert!(driver.services.lock().unwrap().is_empty());
+        assert!(driver.control.lock().unwrap().is_empty());
+        // The send_key command's shell fallback is still allowed for this request.
         state
-            .close_remote_generation("fixture-TV", generation)
+            .validate_remote_generation("fixture-TV", generation)
             .await
             .unwrap();
     }

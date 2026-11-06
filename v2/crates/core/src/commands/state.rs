@@ -251,21 +251,31 @@ impl AppState {
         serial: &str,
         generation: Option<u64>,
     ) -> Result<(), String> {
-        #[cfg(not(target_os = "android"))]
-        const NATIVE_FAST_REMOTE_ENABLED: bool = false;
+        use crate::adb::remote_lifecycle::RemoteSessionIo;
         let jar = jar.to_owned();
         let serial_owned = serial.to_owned();
-        self.remote_registry.ensure(serial,generation,move |cancel|async move {
-            #[cfg(target_os = "android")]
-            let _ = &cancel;
-            #[cfg(not(target_os = "android"))]
-            if !adb.uses_host_server() {
-                if !NATIVE_FAST_REMOTE_ENABLED {return Err("Fast Remote is unavailable for direct ADB until its lifecycle acceptance gates pass.".into());}
-                let session=crate::adb::native_remote::NativeRemoteSession::start(adb,&jar,&serial_owned,cancel).await?;
-                return Ok(Box::new(session) as Box<dyn crate::adb::remote_lifecycle::RemoteSessionIo>);
-            }
-            RemoteInputSession::start(adb,&jar,&serial_owned).await.map(|session|Box::new(session) as Box<dyn crate::adb::remote_lifecycle::RemoteSessionIo>)
-        }).await
+        self.remote_registry
+            .ensure(serial, generation, move |cancel| async move {
+                #[cfg(target_os = "android")]
+                let _ = &cancel;
+                // The built-in engine has no host server to forward through, so the
+                // helper and its control socket use dedicated identity-bound streams.
+                #[cfg(not(target_os = "android"))]
+                if !adb.uses_host_server() {
+                    let session = crate::adb::native_remote::NativeRemoteSession::start(
+                        adb,
+                        &jar,
+                        &serial_owned,
+                        cancel,
+                    )
+                    .await?;
+                    return Ok(Box::new(session) as Box<dyn RemoteSessionIo>);
+                }
+                RemoteInputSession::start(adb, &jar, &serial_owned)
+                    .await
+                    .map(|session| Box::new(session) as Box<dyn RemoteSessionIo>)
+            })
+            .await
     }
     pub async fn remote_send_key(
         &self,

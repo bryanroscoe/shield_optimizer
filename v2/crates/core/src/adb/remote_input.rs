@@ -584,7 +584,7 @@ impl RemoteInputSession {
     ) -> Result<Self, String> {
         if !adb.uses_host_server() {
             return Err(
-                "Fast Remote is unavailable in desktop direct ADB mode; using shell input instead."
+                "The forwarded Remote channel needs the platform-tools adb server; the built-in engine opens its own."
                     .into(),
             );
         }
@@ -876,7 +876,9 @@ mod tests {
         let result =
             RemoteInputSession::start(Arc::new(Direct), Path::new("not-opened"), "192.0.2.1:5555")
                 .await;
-        assert!(matches!(result, Err(message) if message.contains("Fast Remote is unavailable")));
+        assert!(
+            matches!(result, Err(message) if message.contains("needs the platform-tools adb server"))
+        );
     }
 
     #[test]
