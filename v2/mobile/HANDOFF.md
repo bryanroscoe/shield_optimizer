@@ -132,6 +132,11 @@ A patch-notes viewer is deferred.
   lookup could otherwise hold their single resolve slot and hide TVs. They retain saved or
   meaningful ADB names, with the same honest fallback. Before authorization, the selected name stays visible with
   its endpoint through connection progress and errors.
+  `wireless_discover` then fills any missing `friendly_name` from the TV's Cast endpoint
+  (`GET http://<host>:8008/setup/eureka_info`, `core::net::cast_display_name`, parser in
+  `engine::cast_name`): LAN IPv4 only, 1.2 s per host and 1.5 s in total, only `name` is read,
+  display only, never overwriting an advertised name. The TVs reject HTTP/1.0 and keep HTTP/1.1
+  connections open, so the reader stops at the end of the body.
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing is
   implemented in the vendored crate (`vendor/adb_client/src/message_devices/tcp/pairing/`) and wired
   through `WirelessAdb::pair`. It passed against the Android TV 14 emulator's real adbd on

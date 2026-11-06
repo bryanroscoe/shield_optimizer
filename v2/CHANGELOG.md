@@ -22,6 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Android: the TV list shows each TV's name again on Android 13 and older, where every row said "Name unavailable". The app asks each TV it finds for its Cast name over the local network; the name is only shown, never used to identify a TV.
 - Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.

@@ -6,6 +6,7 @@
 //! through the ADB driver.
 
 pub mod app_lists;
+pub mod cast_name;
 pub mod detection;
 pub mod diagnostics;
 pub mod launcher;
