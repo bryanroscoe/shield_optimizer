@@ -1,8 +1,9 @@
 # Rust-primary ADB acceptance gates
 
 A passing fixture suite does not establish physical-device acceptance or authorize
-a release or default switch. The current native fast Remote gate stays
-disabled and platform-tools remains the shipped default.
+a release by itself. Built-in is the default engine in normal desktop builds and
+native fast Remote is enabled (2026-11-06, emulator-verified); physical acceptance is
+`docs/DEVICE-TEST-SCRIPT.md` N1–N18.
 
 ## Fixture-tested implementation
 

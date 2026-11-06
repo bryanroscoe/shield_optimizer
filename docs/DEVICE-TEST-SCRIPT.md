@@ -141,29 +141,29 @@ the app itself on your LAN (its launch scan dials every TV), TVs other than the 
 Wireless debugging hardware, and Windows/Linux.
 
 Preconditions: a build of the commit under test (normal builds start on Built-in; the PR's
-"Native ADB macOS test app" artifact is a separately labeled copy); a TV that has never approved the app's
-built-in key, or one where you accept clearing its approvals (TV Settings → Developer options →
+"Native ADB macOS test app" artifact is a separately labeled copy); a TV that has never approved this computer
+(neither the built-in key nor platform-tools' `~/.android/adbkey`), or one where you accept clearing its approvals (TV Settings → Developer options →
 Revoke USB debugging authorizations); a Google TV or other Android 11+ TV with Wireless
 debugging; the devtest APKs or any small APK you are willing to install and remove.
 
 | Step | Action | Expected |
 |------|--------|----------|
 | N1 | macOS: first launch of the native build from Finder | The Local Network alert appears once (the test build has its own identifier) → Allow. Settings → ADB shows "Built-in" selected; Devices says "Native Rust ADB · direct connection" |
-| N2 | With TVs that approved the earlier native test app (both Shields have), launch and let the scan run | They connect with no prompt on the TV: the key moved from `ShieldOptimizer/native-adb` to `ATVOptimizer/native-adb` with the 2.5.0 rename |
-| N3 | A TV that has never approved this key: Scan LAN, watch the TV, choose Allow with "Always allow" | The row says Approval requested while the TV asks; within a few seconds of Allow it becomes a normal TV card. Repeat with Cancel/Deny on another TV (or after revoking): the row stays awaiting approval with Retry approval, nothing else breaks |
+| N2 | With TVs that already allow platform-tools on this Mac (Always allow), and TVs that approved the earlier native test app (both Shields have), launch on Built-in and let the scan run | All connect with no prompt on the TV: Built-in offers platform-tools' key first, then its own key (moved from `ShieldOptimizer/native-adb` to `ATVOptimizer/native-adb` by the 2.5.0 rename) |
+| N3 | A TV that has never approved this computer: Scan LAN, watch the TV, choose Allow with "Always allow" | The row says Approval requested while the TV asks; the prompt's fingerprint matches `adb pubkey ~/.android/adbkey` (the app key when there is no platform-tools key); within a few seconds of Allow it becomes a normal TV card, and later works under platform-tools with no prompt. Repeat with Cancel/Deny on another TV (or after revoking): the row stays awaiting approval with Retry approval, nothing else breaks |
 | N4 | Wireless debugging TV: Pair PIN with the code and pairing port, close the pairing dialog, type nothing else. Then a wrong PIN once | Pairs, shows "Waiting for the device to advertise its connect port…", then connects by itself on the separate connect port within 45 s and highlights the TV's row (if it falls back to asking for the port instead, note the message and whether `pair` logged `instance_found`). Survives an app restart without pairing again. Wrong PIN: "The PIN didn't match…" |
 | N5 | Same TV: open Files, then immediately a download, a Device Logs read and an install, back to back | Each works first time (adbd on Android 14 sometimes drops a TLS connection opened right after another; the app now retries that once) |
 | N6 | Files: upload a small file to `/sdcard/Download`, download it back; upload to `/system` | Same bytes back; `/system` fails with the TV's reason, no "success" |
 | N7 | Install APK: a single APK, the same with replace, a split APK set (base + split), a corrupt file | Each installs or fails with the package manager's own `Failure […]` text; nothing reports success that didn't happen. Uninstall the test package afterwards |
-| N8 | Remote tab: D-pad, Home, Back, type text, hold a key | Works; note the delay per press (fast native Remote is still off, so this is shell input) |
+| N8 | Remote tab under Built-in: D-pad, Home, Back, type `café`, hold a direction, switch tabs and back | Status shows "● instant"; each press lands at once; a held direction repeats; text lands. Optionally, after leaving the tab, `adb shell ps -A` from platform-tools shows no leftover scrcpy helper |
 | N9 | Screenshot, Device Logs, a Shell bookmark, the health report | All return real data |
 | N10 | Optimize: disable then re-enable one harmless app; snapshot and restore | Same results as with platform-tools |
 | N11 | Put a TV to sleep from its remote, wait a minute, wake it | Its card goes offline, then reconnects by itself or with Retry, without a second card for the same TV |
 | N12 | Turn the Mac's Wi-Fi off for 20 seconds, then on | Cards go offline without the app hanging; they come back after a scan or Retry |
 | N13 | Quit during a large download or install | The app quits within a few seconds and leaves no helper running on the TV |
-| N14 | Settings → ADB engine: switch to Google platform-tools, use a TV, switch back to Built-in | Each switch takes effect without relaunching; Devices follows; Restart ADB and Stop ADB when quitting are usable only with platform-tools |
+| N14 | Settings → ADB engine: switch to Google platform-tools, use a TV, switch back to Built-in. Then run `adb kill-server` in Terminal, switch to platform-tools and connect a TV that allowed only Built-in | Each switch takes effect without relaunching; Devices follows; Restart ADB and Stop ADB when quitting are usable only with platform-tools. The Built-in-only TV connects with no prompt (the app's adb server offers the built-in key; a server another tool started keeps its own keys) |
 | N15 | USB: plug a TV in by USB with Built-in selected, then switch to platform-tools | Built-in is network-only and doesn't list it; platform-tools does |
-| N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs connect through Built-in; any TV that never approved the built-in key asks once; the old server doesn't interfere |
+| N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs that 2.5.0 already used connect through Built-in with no prompt; only a TV that allows neither key asks, once; the old server doesn't interfere |
 | N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. If Windows Firewall asks about ATV Optimizer (mDNS discovery listens for TV announcements), allow private networks. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
 | N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
 

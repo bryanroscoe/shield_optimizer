@@ -97,8 +97,9 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**The first time the app connects, each TV asks "Allow USB debugging?"** for the app's own key,
-even if it already trusts Google's `adb` on this computer. Tick **Always allow** and choose Allow.
+**A TV that has never allowed this computer asks "Allow USB debugging?"** the first time the app
+connects. Tick **Always allow** and choose Allow. TVs that already allow Google's `adb` on this
+computer connect without asking again.
 
 **On a Mac, if nothing is found even by IP,** macOS may be blocking the app: open System Settings →
 Privacy & Security → **Local Network** and turn ATV Optimizer on. If it already looks on, turn it

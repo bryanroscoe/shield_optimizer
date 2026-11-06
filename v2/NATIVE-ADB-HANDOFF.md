@@ -1,5 +1,30 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## No reprompt and fast Remote — 2026-11-06
+
+Bryan: "Ideally there is no reprompt, yes we need fast remote as well."
+
+- **Key reuse.** Built-in offers platform-tools' `adbkey` first, then the app key.
+  - The key is located as adb does: `<home>/.android/adbkey`, where home is `$HOME` or the Windows profile folder; adb ignores `ANDROID_USER_HOME`. It is read-only and read once per engine start.
+  - AUTH signs with each key in turn, then offers the first key's public key.
+  - TLS presents the key adbd names in its CA hints (`O=AdbKey-0, CN=<SHA-256>`), retrying once per other key if refused.
+  - PIN pairing registers the first key.
+  - `ADB_VENDOR_KEYS` names the app key for any adb server our commands start; a server another tool started keeps its keys.
+  - `ATV_OPTIMIZER_DIRECT_KEY` means that key alone. Mobile is unchanged.
+  - Emulator (Android TV 14): `[adbkey, fresh]` and `[fresh, adbkey]` connect with no prompt; a fresh key alone prompts with its own fingerprint; TLS picks the hinted key on the first try.
+  - Quirk seen there: after a burst of authorized connections Android can drop a new prompt and adbd holds later ones. `service call adb 2` (deny, same as Cancel) clears it.
+- **Fast Remote under Built-in** is enabled; Android is unchanged.
+  - The harness is `src-tauri/tests/native_remote_emulator.rs` (`#[ignore]`, env-gated, never run by CI).
+  - The real run found two bugs, fixed in `9eed0d9`:
+    - cancelling startup cut the TV's main identity check short and dropped its connection;
+    - a session idle past the 5-minute stream lifetime failed its next press. Sessions now renew first.
+  - Emulator results:
+    - start about 320 ms;
+    - press p50 2.8 ms (shell input 105 ms);
+    - held keys, text, 12 stop/reopen rounds, cancel, TLS and a relay that stops mid-session all pass.
+  - Details are in `NATIVE-REMOTE-ACCEPTANCE.md`.
+- Still open: Bryan's batch (N1–N18), which now also checks no-prompt switching (N2, N3, N14, N16) and fast Remote (N8). Real-TV Wi-Fi latency, sleep/wake and packaged Windows/Linux are unverified.
+
 ## Built-in is the default; ready for the hardware batch — 2026-11-05
 
 - Bryan chose built-in Rust ADB as the default engine with Settings switching back to
@@ -10,7 +35,7 @@
 - Test packages for the batch come from the PR's `native-test-app` label: macOS app,
   Windows installer, Linux AppImage. The last verified macOS app (`bbc84eb`, run
   42100618827) is in the task folder; Windows/Linux artifacts expire after 7 days.
-- Open: Bryan's batch (N1–N18), then the release. Fast native Remote stays gated.
+- Open: Bryan's batch (N1–N18), then the release. (Fast native Remote: enabled 2026-11-06, above.)
 
 ## Engine setting, device checks and the hardware batch — 2026-11-05
 

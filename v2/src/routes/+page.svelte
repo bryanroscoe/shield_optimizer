@@ -250,7 +250,7 @@
     const address = connectAddress.trim();
     if (directUnavailable || connectBusy || scanBusy || restartBusy || !address || nativePairNeedsPort) return;
     connectBusy = true;
-    connectMessage = adbBackend === "direct" ? "Connecting… Look for Allow debugging on the TV and approve this app. The native driver uses its own identity, so it may need approval again." : "";
+    connectMessage = adbBackend === "direct" ? "Connecting… Look for Allow debugging on the TV and approve it if it asks." : "";
     connectDetail = "";
     connectError = null;
     try {

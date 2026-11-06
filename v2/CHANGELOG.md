@@ -30,7 +30,9 @@ this file and shows the newest few sections, dated, from its version button.
 ### Built-in ADB
 
 - **Desktop now connects to your TVs with its own built-in ADB**, the same Rust code the Android app uses, instead of Google's `adb` and its background server. Nothing to download first. Scan LAN, Add by IP and Pair PIN work as before.
-- **Each TV asks "Allow USB debugging?" once** for the built-in engine's own key, even if it already trusts Google's `adb` on this computer. While it waits, the TV's row says Approval requested, with Retry approval.
+- **No new "Allow USB debugging?" prompt for TVs that already allow Google's `adb` on this computer.** The built-in engine uses platform-tools' key when there is one, and only reads it. A TV that allows neither asks once, and that approval covers both engines. While it waits, the TV's row says Approval requested, with Retry approval.
+- **Switching back to platform-tools doesn't prompt either**: when the app starts the adb server, platform-tools also offers the built-in key, so TVs that allowed only Built-in connect as before.
+- **Fast Remote works with the built-in engine.** Presses reach the TV in milliseconds and holding a direction repeats. It falls back to slower shell input only if the fast channel can't start before a press, and never repeats a press whose result is unknown.
 - **Settings › ADB › ADB engine** switches between Built-in and Google platform-tools at any time, without relaunching, and remembers the choice. Use platform-tools for a TV connected by USB (built-in is network-only) or if a TV doesn't work well with the built-in engine. If the built-in engine can't set up its key, the app uses platform-tools and Settings says why.
 - Scan LAN connects to TVs as they answer instead of after the whole sweep, and keeps failed and duplicate addresses in Scan details rather than as extra TV cards. Two addresses are shown as one TV only when the TV reports the same hardware ID.
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.

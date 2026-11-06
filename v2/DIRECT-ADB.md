@@ -116,9 +116,10 @@ there is a usable one, then the app's key (`<data folder>/native-adb/identity.pk
 ## Limits
 
 Built-in is network-only: a TV connected by USB needs Google platform-tools, and the
-connection help on Devices says so. Remote uses shell input under built-in; the fast
-native Remote path stays gated, so hold-to-repeat and full Unicode input are not yet at
-parity. A TV that allows neither key approves the platform-tools key once (the app key when
+connection help on Devices says so. Fast Remote uses the scrcpy control channel over its
+own verified connections to the TV, and shell input only if the channel fails before any
+input (see `NATIVE-REMOTE-ACCEPTANCE.md`); Android's keymap drops CJK and emoji text on
+both engines. A TV that allows neither key approves the platform-tools key once (the app key when
 there is no platform-tools key); neither key is ever imported or replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
 N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
@@ -173,7 +174,7 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | File push/pull and bounded downloads | Shared sync transfer and streaming size limit, finite inactivity timeouts; no hardware evidence |
 | Screenshots and reboot | Shared binary screenshot/reboot services; no hardware evidence |
 | APK installer | Single local APK with optional replacement, streamed through the native package service; requires verified hardware-ID agreement between the current control session and new install connection. Unknown IDs or unsupported shell-v2 identity queries refuse installation. Split APKs remain unavailable; no replay or cross-driver fallback |
-| Remote | Existing shell-input fallback remains in this backend. Desktop fast Remote is explicitly declined before pushing a jar; forwarding/spawn are unavailable |
+| Remote | Existing shell-input fallback remains in this backend. Desktop fast Remote is explicitly declined before pushing a jar; forwarding/spawn are unavailable (since 2026-11-06 fast Remote runs natively; see `NATIVE-REMOTE-ACCEPTANCE.md`) |
 | Expert shell and Device Logs | Dedicated shell-v2 connection, 30-second total deadline, 256 KiB retained per stream, partial timeout output and cancellation cleanup; shell-v1-only peers fail without replay |
 | Restart ADB / install platform-tools | Explicitly refused in direct mode; neither resets a host server nor silently changes the selected backend |
 | Quit | Blocking workers and owned streams hold the same operation counter adopted by AppState; after work drains, only owned direct sockets close |
