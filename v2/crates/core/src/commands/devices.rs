@@ -54,11 +54,13 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
         // For non-authorized devices we can't query properties — we still
-        // surface them, named by the TV at that address when it says, else
-        // by the serial.
+        // surface them, an unauthorized one named by the TV at that address
+        // when it says, else by the serial.
         if e.status != DeviceStatus::Device {
             report_no_details(state, &e.serial, Some(e.status), e.connection, None, None);
-            let name = serial_lookup_target(&e.serial)
+            let name = (e.status == DeviceStatus::Unauthorized)
+                .then(|| serial_lookup_target(&e.serial))
+                .flatten()
                 .and_then(|ip| cast_names.get(&ip).cloned())
                 .unwrap_or_else(|| e.serial.clone());
             out.push(Device {
@@ -141,8 +143,10 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(out)
 }
 
-/// Cast names for the network transports adb can't query, when the app has
-/// lookups enabled. Display only: rows still collapse and match on hardware id.
+/// Cast names for unauthorized network transports, when the app has lookups
+/// enabled. Only unauthorized: adb holds a live connection to that address, so
+/// the answer comes from the same TV. An offline transport's address may since
+/// belong to another device. Display only: rows still match on hardware id.
 async fn unqueried_names(
     state: &AppState,
     entries: &[crate::adb::parse::DeviceListEntry],
@@ -152,7 +156,9 @@ async fn unqueried_names(
     };
     let hosts: Vec<Ipv4Addr> = entries
         .iter()
-        .filter(|e| e.status != DeviceStatus::Device && e.connection == ConnectionType::Network)
+        .filter(|e| {
+            e.status == DeviceStatus::Unauthorized && e.connection == ConnectionType::Network
+        })
         .filter_map(|e| serial_lookup_target(&e.serial))
         .collect();
     if hosts.is_empty() {
@@ -1847,6 +1853,7 @@ mod tests {
                  192.168.42.71:5555\tdevice\n\
                  192.168.42.143:5555\tunauthorized\n\
                  192.168.42.25:5555\tunauthorized\n\
+                 192.168.42.60:5555\toffline\n\
                  adb-1323719049001._adb-tls-connect._tcp\toffline\n",
             )
             .on_shell(
@@ -1864,6 +1871,7 @@ mod tests {
         };
         assert_eq!(name("192.168.42.143:5555"), "Bedroom TV");
         assert_eq!(name("192.168.42.25:5555"), "192.168.42.25:5555");
+        assert_eq!(name("192.168.42.60:5555"), "192.168.42.60:5555");
         assert_eq!(
             name("adb-1323719049001._adb-tls-connect._tcp"),
             "adb-1323719049001._adb-tls-connect._tcp"
@@ -1876,7 +1884,7 @@ mod tests {
                 Ipv4Addr::new(192, 168, 42, 25),
                 Ipv4Addr::new(192, 168, 42, 143)
             ],
-            "only unqueried network rows are looked up"
+            "only unauthorized network rows are looked up"
         );
     }
 

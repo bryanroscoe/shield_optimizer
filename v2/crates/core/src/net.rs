@@ -63,11 +63,13 @@ pub(crate) type NameLookup =
 
 const LOOKUP_TIMEOUT: Duration = Duration::from_millis(1_200);
 const LOOKUPS_BUDGET: Duration = Duration::from_millis(1_500);
-const NAME_TTL: Duration = Duration::from_secs(300);
+/// Short too: the address may be handed to another TV, and a stale name there
+/// would point the setup help at the wrong screen.
+const NAME_TTL: Duration = Duration::from_secs(60);
 /// Short, so a TV that was asleep or still booting gets asked again soon.
 const MISS_TTL: Duration = Duration::from_secs(30);
 
-/// Cast names for TVs adb lists but cannot query yet (unauthorized, offline),
+/// Cast names for TVs adb lists but cannot query yet (unauthorized),
 /// cached so a device list refreshed every few seconds doesn't wait on the
 /// network each time. Display text only: never identity, and never compared.
 pub struct CastNames {
