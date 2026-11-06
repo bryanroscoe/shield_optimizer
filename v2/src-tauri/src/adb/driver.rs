@@ -102,7 +102,7 @@ impl SubprocessAdb {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub(crate) fn with_vendor_key(mut self, key: Option<PathBuf>) -> Self {
         self.vendor_key = key;
         self
