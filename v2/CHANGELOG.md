@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- App reports preserve explicit public HTTP(S) store/developer hostnames, including the reported app's Play Store id, in the preview and GitHub Details. Desktop and mobile share the privacy rules; device identifiers, other package ids, URL credentials, other query values and fragments remain redacted (#323).
+
 - Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.

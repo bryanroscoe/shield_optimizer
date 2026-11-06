@@ -110,6 +110,33 @@ async function preview(dialog) {
   return dialog.getByLabel("Report preview").inputValue();
 }
 
+async function verifyKeepUndo(page, evidence) {
+  const row = page.locator("tr", { has: page.locator(".pkg-id", { hasText: CATALOGUED }) }).first();
+  await row.getByRole("button", { name: "Keep", exact: true }).click();
+  await row.locator('[data-rec="Kept"]').waitFor();
+  const change = row.getByRole("button", { name: "Change", exact: true });
+  assert.equal(await change.isVisible(), true);
+  assert.equal(await change.getAttribute("data-tip"), "Undo keeping this app");
+  assert.ok((await page.evaluate(() => localStorage.getItem("shieldopt.keptPackages"))).includes(CATALOGUED));
+  for (const width of [1400, 720]) {
+    await page.setViewportSize({ width, height: 1000 });
+    await change.scrollIntoViewIfNeeded();
+    await change.focus();
+    assert.equal(await change.evaluate((el) => document.activeElement === el), true);
+    if (evidence) await page.screenshot({ path: join(evidence, `desktop-kept-${width}-simulated.png`) });
+  }
+  await change.press("Enter");
+  await row.getByRole("button", { name: "Keep", exact: true }).waitFor();
+  assert.equal(await row.locator('[data-rec="Kept"]').count(), 0);
+  assert.equal(await page.evaluate(() => localStorage.getItem("shieldopt.keptPackages")), "{}");
+  // Returning to App List renders the cleared decision again.
+  await page.locator("#tab-overview").click();
+  await page.locator("#tab-apps").click();
+  await row.getByRole("button", { name: "Keep", exact: true }).waitFor();
+  await page.setViewportSize({ width: 1400, height: 1000 });
+  console.log("Keep undo verified: rendered Change at 1400/720px, keyboard activation, saved choice cleared and reopened row restored.");
+}
+
 async function exercise({ browser, base }) {
   const evidence = process.env.APP_REPORT_EVIDENCE_DIR;
   if (evidence) mkdirSync(evidence, { recursive: true });
@@ -141,6 +168,8 @@ async function exercise({ browser, base }) {
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
   await page.locator("#tab-apps").click();
   await page.locator(".pkg-id", { hasText: UNCATALOGUED }).first().waitFor();
+
+  await verifyKeepUndo(page, evidence);
 
   // An uncatalogued app: unknown, from no list, reported as missing.
   let dialog = await openReport(page, UNCATALOGUED);
@@ -246,6 +275,20 @@ async function exercise({ browser, base }) {
   assert.equal(record.reason, "user_report_wrong_verdict");
   assert.equal(record.verdict_source, "reviewed_catalog");
   assert.equal(record.current_verdict, "safe");
+  const publicNote = `Store: https://play.google.com/store/apps/details?id=${CATALOGUED}\nDeveloper: https://developer.example.com/support\nPrivate: com.private.app at ${DEVICE_SERIAL}`;
+  await dialog.getByLabel("Note (optional)").fill(publicNote);
+  const shared = await preview(dialog);
+  const expectedNote = `Store: https://play.google.com/store/apps/details?id=${CATALOGUED}\nDeveloper: https://developer.example.com/support\nPrivate: [redacted] at [redacted]`;
+  assert.equal(JSON.parse(shared).records[0].note, expectedNote);
+  await dialog.getByRole("button", { name: "Copy", exact: true }).click();
+  assert.equal(await page.evaluate(() => window.__COPIED__.at(-1)), shared);
+  await dialog.getByRole("button", { name: "Save as file" }).click();
+  assert.equal((await page.evaluate(() => window.__SAVED_APP_REPORTS__.at(-1))).contents, shared);
+  await dialog.getByRole("button", { name: "Open GitHub issue" }).click();
+  const opened = new URL(await page.evaluate(() => window.__OPENED__.at(-1)));
+  assert.equal(opened.searchParams.get("report"), shared);
+  assert.equal(opened.searchParams.get("details"), expectedNote);
+  if (evidence) await page.screenshot({ path: join(evidence, "desktop-public-link-simulated.png") });
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });
 
@@ -375,6 +418,51 @@ async function issueNotePrefill(server) {
   }
 }
 
+async function publicLinkPrivacy(server) {
+  const pkg = "com.weathergroup.localnow";
+  const links = [
+    `https://play.google.com/store/apps/details?id=${pkg}`,
+    "https://www.localnow.com/",
+    "https://developer.example.com/support/app",
+    "http://developer.example.com/support",
+  ];
+  const cases = [
+    ...links.map((url) => [url, url]),
+    ["play.google.com and com.private.app", "[redacted] and [redacted]"],
+    ["See (https://developer.example.com/support).", "See (https://developer.example.com/support)."],
+    ["https://developer.example.com/com.private.app", "https://developer.example.com/[redacted]"],
+    ["https://developer.example.com/com%2Eprivate%2Eapp", "https://developer.example.com/[redacted]"],
+    ["https://developer.example.com/SECRET123", "https://developer.example.com/[redacted]"],
+    ["https://developer.example.com/%53ECRET123", "https://developer.example.com/[redacted]"],
+    ["https://secret123.example.com/path", "https://[redacted]/path"],
+    ["https://192.168.1.42:5555/path", "https://[redacted]:5555/path"],
+    ["https://[fe80::1]/path", "https://[redacted]/path"],
+    ["https://0x7f000001/path", "https://[redacted]/path"],
+    ["http://tv.local/path", "http://[redacted]/path"],
+    ["http://localhost/path", "http://[redacted]/path"],
+    ["https://user:password@developer.example.com/path?token=opaque#credential", "https://[redacted]@developer.example.com/path?token=[redacted]#[redacted]"],
+    ["https://developer.example.com/?id=com.private.app&serial=SECRET123&next=https%3A%2F%2F192.168.1.42", "https://developer.example.com/?id=[redacted]&serial=[redacted]&next=[redacted]"],
+    ["https://developer.example.com/com%252Eprivate%252Eapp", "https://developer.example.com/[redacted]"],
+    ["https://developer.example.com/%ZZ", "https://developer.example.com/[redacted]"],
+  ];
+  for (const path of ["/src/lib/app-report.ts", "/mobile/src/lib/app-report.ts"]) {
+    const { redactNote, buildAppReport, reportText, appReportIssueUrl } = await server.ssrLoadModule(path);
+    for (const [input, expected] of cases) assert.equal(redactNote(input, ["SECRET123"], pkg), expected, `${path}: ${input}`);
+    for (const note of links) {
+      const report = buildAppReport({ package: pkg, appName: "Local Now", reason: "other", note,
+        appVersion: "2.5.0", device: { family: "shield", androidVersion: "11", redact: ["SECRET123"] },
+        verdict: null, includeState: false, state: { status: null, running: null, ramMb: null, storage: null },
+        now: new Date("2026-11-06T00:00:00Z") });
+      const text = reportText(report);
+      assert.equal(report.records[0].note, note);
+      const url = new URL(appReportIssueUrl(pkg, "other", text).url);
+      assert.equal(url.searchParams.get("report"), text);
+      assert.equal(url.searchParams.get("details"), note);
+    }
+  }
+  console.log(`Public-link privacy passed: ${cases.length} cases per client plus preview/report/Details parity.`);
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
@@ -384,6 +472,7 @@ async function main() {
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false, fs: { allow: [V2, realpathSync(join(V2, "node_modules"))] } } });
     await server.listen();
     browser = await chromium.launch();
+    await publicLinkPrivacy(server);
     await issueNotePrefill(server);
     await placeholderSerials(server);
     await noteRedactionGaps(server);
