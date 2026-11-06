@@ -527,9 +527,12 @@ impl Read for ControlledReader<'_> {
                     "ADB read timed out",
                 ));
             }
-            self.connection
-                .socket()
-                .set_read_timeout(Some(remaining.min(CONTROL_POLL_INTERVAL)))?;
+            under_control(
+                Some(self.control),
+                self.connection
+                    .socket()
+                    .set_read_timeout(Some(remaining.min(CONTROL_POLL_INTERVAL))),
+            )?;
             let result = self.connection.read(buf);
             self.control.remaining()?;
             match result {
@@ -537,6 +540,16 @@ impl Read for ControlledReader<'_> {
                 other => return other,
             }
         }
+    }
+}
+
+/// A socket call that fails because a cancel or deadline shut the socket down
+/// just before it (macOS then answers `setsockopt` with `EINVAL`) reports the
+/// control's outcome, not the socket's.
+fn under_control<T>(control: Option<&BoundedShellControl>, result: io::Result<T>) -> io::Result<T> {
+    match (result, control) {
+        (Err(error), Some(control)) => control.remaining().and(Err(error)),
+        (result, _) => result,
     }
 }
 
@@ -569,8 +582,8 @@ fn complete_handshake(
         } else {
             remaining
         };
-        stream.sock.set_read_timeout(Some(wait))?;
-        stream.sock.set_write_timeout(Some(wait))?;
+        under_control(control, stream.sock.set_read_timeout(Some(wait)))?;
+        under_control(control, stream.sock.set_write_timeout(Some(wait)))?;
         let result = stream.conn.complete_io(&mut stream.sock);
         if let Some(control) = control {
             control.remaining()?;
@@ -771,7 +784,9 @@ impl ADBMessageTransport for TcpTransport {
 
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
-        raw_connection.set_write_timeout(write_timeout)?;
+        if let Err(error) = raw_connection.set_write_timeout(write_timeout) {
+            return Err(self.control_failure().unwrap_or(error));
+        }
         let (accepted, result) = write_frame(&mut *raw_connection, &header, message.payload());
         if let Err(error) = result {
             // Only a timeout before any byte was taken leaves the outgoing
@@ -1571,6 +1586,27 @@ mod tests {
         );
         server.join().unwrap();
         assert!(transport.limits.check_in_step().is_err());
+    }
+
+    #[test]
+    fn a_socket_error_after_a_cancel_reports_the_cancel() {
+        let invalid = || Err::<(), _>(io::Error::from(io::ErrorKind::InvalidInput));
+        let control = BoundedShellControl::new(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            under_control(Some(&control), invalid()).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput,
+            "a running control keeps the socket's own error"
+        );
+        assert_eq!(
+            under_control(None, invalid()).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        control.cancel();
+        assert_eq!(
+            under_control(Some(&control), invalid()).unwrap_err().kind(),
+            io::ErrorKind::ConnectionAborted
+        );
+        assert!(under_control(Some(&control), Ok(())).is_ok());
     }
 
     #[test]
