@@ -33,8 +33,9 @@ Bryan: "Ideally there is no reprompt, yes we need fast remote as well."
 - Pair PIN connects by itself under built-in: the pair reports the TV's `[guid=…]` and
   `mdns services` is answered from one native browse (see `DIRECT-ADB.md`, Pairing).
 - Test packages for the batch come from the PR's `native-test-app` label: macOS app,
-  Windows installer, Linux AppImage. The last verified macOS app (`bbc84eb`, run
-  42100618827) is in the task folder; Windows/Linux artifacts expire after 7 days.
+  Windows installer, Linux AppImage. The last verified macOS app (`e84265b`, run
+  42165613638, with key reuse and fast Remote) is in the task folder; Windows/Linux
+  artifacts expire after 7 days (2026-11-13).
 - Open: Bryan's batch (N1–N18), then the release. (Fast native Remote: enabled 2026-11-06, above.)
 
 ## Engine setting, device checks and the hardware batch — 2026-11-05
