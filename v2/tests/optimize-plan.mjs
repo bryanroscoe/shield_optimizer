@@ -129,12 +129,20 @@ async function exercise({ browser, base }) {
   const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
   assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
   const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: focusPackage }) });
+  if (evidence) {
+    await first.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(600);
+  }
   await first.getByRole("button", { name: "Disable", exact: true }).click();
   assert.equal((await first.locator(".radio-pill.active .radio-label").innerText()).trim(), "Disable");
+  if (evidence) await page.waitForTimeout(400);
   await first.getByRole("button", { name: "Keep", exact: true }).click();
   if (evidence) {
     await first.locator(".row-caret").click();
     await first.scrollIntoViewIfNeeded();
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(700);
     await page.screenshot({ path: join(evidence, "desktop-optimize-reviewed.png") });
     await page.setViewportSize({ width: 720, height: 1000 });
     await first.locator(".app-name").scrollIntoViewIfNeeded();
