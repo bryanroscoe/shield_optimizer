@@ -18,6 +18,11 @@ export async function startViteServer() {
   const server = await createServer({
     root: fileURLToPath(new URL("../../", import.meta.url)),
     logLevel: "silent",
+    // The browser can finish Vite's initial crawl before its Svelte scan finds
+    // these imports, triggering a cold-cache reload in the first evaluation.
+    optimizeDeps: {
+      include: ["@tauri-apps/api/app", "@tauri-apps/api/core", "@tauri-apps/api/event"],
+    },
     server: { host: "127.0.0.1", port: 5200, strictPort: false },
   });
   await server.listen();
