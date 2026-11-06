@@ -1,0 +1,22 @@
+name: Package catalog experiment
+
+on:
+  pull_request:
+    paths:
+      - 'v2/experiments/package-catalog/**'
+      - 'v2/crates/core/data/app-lists/**'
+      - '.github/workflows/package-catalog-experiment.yml'
+
+jobs:
+  offline-catalog:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline schema, provenance, coverage and safety isolation
+        working-directory: v2/experiments/package-catalog
+        run: |
+          python -m unittest -v
+          python catalog.py --check

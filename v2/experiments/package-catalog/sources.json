@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "sources": {
+    "fdroid-index": {
+      "url": "https://f-droid.org/repo/index-v1.json",
+      "retrieved_at": "2026-10-22",
+      "sha256": "41dc0a5911c954d51f24d51f66fe2bdd89ea8ee241d92d0c703a643d0710d1e2",
+      "repo_timestamp_ms": 1792318203035,
+      "license": "AGPL-3.0",
+      "license_url": "https://github.com/f-droid/fdroiddata/blob/e2e9df249c54154ef3e07355286a326237473568/LICENSE",
+      "policy": "Only package identifiers, category terms and required-feature/version facts are retained. No upstream prose, app names, icons, signatures, APK URLs or removal advice.",
+      "normalized_seed_sha256": "8db1fa7b49253e0c1a949292852db0ba962137df9811a674e4094c6bde69beea"
+    }
+  },
+  "excluded_sources": [
+    {
+      "url": "https://github.com/Universal-Debloater-Alliance/universal-android-debloater-next-generation",
+      "license": "GPL-3.0",
+      "decision": "Reference only; no content or safety labels ingested."
+    },
+    {
+      "url": "https://github.com/Generator/Awesome-Android-TV-FOSS-Apps/tree/9f0c751ff58b609cee1c482d4634c53c250f266c",
+      "license": "CC-BY-NC-SA-4.0",
+      "decision": "No content ingested; noncommercial restriction unsuitable for production reuse."
+    }
+  ]
+}
