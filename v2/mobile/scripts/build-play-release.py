@@ -27,6 +27,12 @@ def main():
     parser.add_argument('--target', nargs='+', choices=['aarch64', 'armv7', 'i686', 'x86_64'],
                         default=['aarch64', 'armv7', 'i686', 'x86_64'])
     parser.add_argument('--preflight-only', action='store_true')
+    parser.add_argument('--previous-version-source', default='operator', choices=['operator', 'play-api', 'smoke'],
+                        help='Who confirmed --previous-version-code; recorded in the receipt')
+    parser.add_argument('--min-free-gib', type=int, default=40,
+                        help='Refuse to build below this much free disk (CI runners pass less)')
+    parser.add_argument('--build-jobs', type=int, default=1,
+                        help='Cargo/CMake/Gradle parallelism; stays 1 on workstations')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
@@ -75,27 +81,31 @@ def main():
     if not (sdk / 'platforms/android-36/android.jar').is_file() or not (ndk / 'source.properties').is_file():
         raise ValueError('Set ANDROID_HOME and NDK_HOME to the installed SDK 36 and NDK')
     free = shutil.disk_usage(root).free
-    if free < 40 * 1024 ** 3:
-        raise ValueError('Less than 40 GiB free: inspect owned output and expected build growth before continuing')
+    if free < args.min_free_gib * 1024 ** 3:
+        raise ValueError(f'Less than {args.min_free_gib} GiB free: inspect owned output and expected build growth before continuing')
+    if args.build_jobs < 1:
+        raise ValueError('--build-jobs must be at least 1')
     listing = json.loads((root / 'store-listing/listing.json').read_text())
     policy = run(['curl', '--fail', '--silent', '--show-error', '--max-time', '30',
                   listing['privacyPolicyUrl']], capture_output=True).stdout
     if listing['supportEmail'].encode() not in policy or b'ATV Optimizer Privacy Policy' not in policy:
         raise ValueError('Live privacy policy does not match the approved app/contact')
     env.update({
-        'CARGO_BUILD_JOBS': '1',
-        'CMAKE_BUILD_PARALLEL_LEVEL': '1',
+        'CARGO_BUILD_JOBS': str(args.build_jobs),
+        'CMAKE_BUILD_PARALLEL_LEVEL': str(args.build_jobs),
         'ATVOPT_DISTRIBUTION': 'play',
         'ATVOPT_PLAY_LICENSE_KEY': public_key,
         'ATVOPT_TELEMETRY_URL': 'https://atv-optimizer-telemetry.bryanroscoe.workers.dev',
     })
     env.pop('ATVOPT_ALLOW_UNSIGNED_RELEASE', None)
     env.pop('VITE_DEMO', None)
-    env['GRADLE_OPTS'] = env.get('GRADLE_OPTS', '') + ' -Dorg.gradle.workers.max=1 -Dorg.gradle.daemon=false'
+    env['GRADLE_OPTS'] = (env.get('GRADLE_OPTS', '') +
+                          f' -Dorg.gradle.workers.max={args.build_jobs} -Dorg.gradle.daemon=false')
     receipt = {
         'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
         'version_code': args.version_code,
-        'previous_version_code_confirmed_by_operator': args.previous_version_code,
+        'previous_version_code': args.previous_version_code,
+        'previous_version_code_source': args.previous_version_source,
         'targets': args.target,
         'upload_certificate_sha256': hashlib.sha256(cert).hexdigest(),
         'play_license_key_sha256': hashlib.sha256(der).hexdigest(),

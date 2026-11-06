@@ -5,7 +5,9 @@ Two products live in this tree:
 - **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy**: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
-The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
+- **Android app** — `v2/mobile/`, shipped on Google Play. Released on `mobile-v*` tags via `.github/workflows/mobile-play-release.yml`, which uploads a draft to the internal track; see `v2/mobile/RELEASE.md`.
+
+The release tracks are intentionally separate. Don't mix tag namespaces and don't edit one track's workflow when shipping another.
 
 Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the priority list, and any in-flight scope that isn't yet in the code.
 
