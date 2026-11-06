@@ -24,8 +24,9 @@ pub use app_lists::{AppList, AppListBundle};
 pub use detection::{detect_device_type, is_fire_tv, tv_evidence, DeviceType, TvEvidence};
 pub use diagnostics::{format_diagnostics, DeviceDiagnostics, DiagnosticsInput};
 pub use launcher::{
-    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, paired_transient_holders,
-    pick_current_home, HomeReading, LauncherCatalog, LauncherEntry, LauncherStatus,
+    home_keep_reason, is_last_enabled_home_handler, is_valid_package_name, launcher_rows,
+    may_be_home_handler, paired_transient_holders, pick_current_home, plan_home_safe_disables,
+    HomeKeepReason, HomeReading, LauncherCatalog, LauncherEntry, LauncherStatus,
 };
 pub use media::{
     build_capabilities, parse_media_codecs, surround_mode, video_formats, AudioPassthrough,

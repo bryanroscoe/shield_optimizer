@@ -1146,6 +1146,17 @@ async fn harvest_properties(adb: &dyn AdbDriver, serial: &str) -> Result<DeviceP
     )))
 }
 
+/// This device's type from one property read, without profiling every
+/// connected device the way `device_profile_impl` does.
+pub(crate) async fn device_type_for(
+    adb: &dyn AdbDriver,
+    serial: &str,
+) -> Result<DeviceType, String> {
+    harvest_properties(adb, serial)
+        .await
+        .map(|props| detect_device_type(&props))
+}
+
 /// A batch reports only its LAST command's exit code, and the last read is
 /// `pm has-feature`, which exits 1 to say "no" — an answer, not a failure. The
 /// desktop driver turns any nonzero exit into an error before stdout is

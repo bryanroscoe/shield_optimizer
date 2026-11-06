@@ -38,6 +38,18 @@ pub(crate) fn is_valid_setting_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
+/// Package reads scoped to user 0, the user every package action targets
+/// (#233). Unscoped, a TV with a second user (a Google TV kids profile) also
+/// lists apps installed only for that user.
+pub(crate) const LIST_PACKAGES: &str = "pm list packages --user 0";
+pub(crate) const LIST_DISABLED_PACKAGES: &str = "pm list packages -d --user 0";
+pub(crate) const LIST_THIRD_PARTY_PACKAGES: &str = "pm list packages -3 --user 0";
+
+/// `LIST_DISABLED_PACKAGES` narrowed to `package`.
+pub(crate) fn list_disabled_package(package: &str) -> String {
+    format!("{LIST_DISABLED_PACKAGES} {package}")
+}
+
 /// Single-quote a value for the device-side shell — the standard `'\''`
 /// idiom (same as `quote_path` in files.rs). Spaces and all shell
 /// metacharacters inside the value are inert once wrapped.
