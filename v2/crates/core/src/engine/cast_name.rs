@@ -68,6 +68,14 @@ pub fn lookup_target(host: &str) -> Option<Ipv4Addr> {
     }
 }
 
+/// The address to ask for a network adb serial (`192.168.1.20:5555`). An
+/// mDNS transport key or a USB serial names no address, so it has none.
+pub fn serial_lookup_target(serial: &str) -> Option<Ipv4Addr> {
+    let (host, port) = serial.trim().rsplit_once(':')?;
+    port.parse::<u16>().ok()?;
+    lookup_target(host)
+}
+
 /// RFC 1918, carrier-grade NAT (100.64/10) and link-local (169.254/16). A
 /// discovery result naming any other address is never sent a request.
 pub fn is_lan_ipv4(ip: Ipv4Addr) -> bool {
@@ -419,5 +427,23 @@ mod tests {
             request,
             "GET /setup/eureka_info?params=name HTTP/1.1\r\nHost: 192.168.1.20:8008\r\nConnection: close\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn only_a_lan_ip_and_port_serial_names_an_address() {
+        assert_eq!(
+            serial_lookup_target("192.168.42.143:5555"),
+            Some(Ipv4Addr::new(192, 168, 42, 143))
+        );
+        for serial in [
+            "192.168.42.143",
+            "8.8.8.8:5555",
+            "adb-1323719049001._adb-tls-connect._tcp",
+            "1323719049001",
+            "[fe80::1]:5555",
+            "192.168.42.143:port",
+        ] {
+            assert_eq!(serial_lookup_target(serial), None, "{serial}");
+        }
     }
 }

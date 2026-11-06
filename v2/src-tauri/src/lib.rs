@@ -64,7 +64,9 @@ fn default_state(app_lists: engine::AppListBundle, data_dir: PathBuf) -> AppStat
         }
     };
     // The desktop app has no paywall; every feature is unlocked.
-    AppState::new(adb, app_lists, data_dir).with_entitlement(Entitlement::Pro)
+    AppState::new(adb, app_lists, data_dir)
+        .with_entitlement(Entitlement::Pro)
+        .with_cast_names(Arc::new(atv_optimizer_core::net::CastNames::live()))
 }
 
 /// Every command the desktop frontend can invoke. One list, shared by the app

@@ -1,5 +1,8 @@
 //! Device-list and profile commands.
 
+use std::collections::HashMap;
+use std::net::Ipv4Addr;
+
 use serde::Serialize;
 use tauri::State;
 
@@ -7,6 +10,7 @@ use crate::adb::{
     batch_command, instance_serial, parse_device_list, parse_mdns_services, split_batch, AdbDriver,
     MdnsService, MDNS_SERVICE_CONNECT,
 };
+use crate::engine::cast_name::serial_lookup_target;
 use crate::engine::telemetry_diag::{device_diag, lacks_details, Diag, DiagReason};
 use crate::engine::{
     classify_support, detect_device_type, tv_evidence,
@@ -45,17 +49,24 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     for e in &entries {
         state.telemetry.note_transport(&e.serial);
     }
+    let cast_names = unqueried_names(state, &entries).await;
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
         // For non-authorized devices we can't query properties — we still
-        // surface them in the list with a placeholder name.
+        // surface them, an unauthorized one named by the TV at that address
+        // when it says, else by the serial.
         if e.status != DeviceStatus::Device {
             report_no_details(state, &e.serial, Some(e.status), e.connection, None, None);
+            let name = (e.status == DeviceStatus::Unauthorized)
+                .then(|| serial_lookup_target(&e.serial))
+                .flatten()
+                .and_then(|ip| cast_names.get(&ip).cloned())
+                .unwrap_or_else(|| e.serial.clone());
             out.push(Device {
                 id,
                 serial: e.serial.clone(),
-                name: e.serial.clone(),
+                name,
                 model: String::new(),
                 device_type: DeviceType::Unknown,
                 // Nothing was readable, so it told us nothing. The UI says
@@ -130,6 +141,30 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     }
 
     Ok(out)
+}
+
+/// Cast names for unauthorized network transports, when the app has lookups
+/// enabled. Only unauthorized: adb holds a live connection to that address, so
+/// the answer comes from the same TV. An offline transport's address may since
+/// belong to another device. Display only: rows still match on hardware id.
+async fn unqueried_names(
+    state: &AppState,
+    entries: &[crate::adb::parse::DeviceListEntry],
+) -> HashMap<Ipv4Addr, String> {
+    let Some(cast_names) = state.cast_names() else {
+        return HashMap::new();
+    };
+    let hosts: Vec<Ipv4Addr> = entries
+        .iter()
+        .filter(|e| {
+            e.status == DeviceStatus::Unauthorized && e.connection == ConnectionType::Network
+        })
+        .filter_map(|e| serial_lookup_target(&e.serial))
+        .collect();
+    if hosts.is_empty() {
+        return HashMap::new();
+    }
+    cast_names.names(&hosts).await
 }
 
 /// Report a listed device that told us nothing usable: unauthorized,
@@ -1799,6 +1834,58 @@ mod tests {
             crate::engine::types::DeviceStatus::Unauthorized
         );
         assert!(devices[1].properties.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_unqueried_network_tv_is_named_from_its_cast_endpoint() {
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let cast_names = crate::net::CastNames::with_lookup(std::sync::Arc::new(move |ip| {
+            seen.lock().unwrap().push(ip);
+            Box::pin(async move {
+                (ip == Ipv4Addr::new(192, 168, 42, 143)).then(|| "Bedroom TV".to_string())
+            })
+        }));
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 192.168.42.71:5555\tdevice\n\
+                 192.168.42.143:5555\tunauthorized\n\
+                 192.168.42.25:5555\tunauthorized\n\
+                 192.168.42.60:5555\toffline\n\
+                 adb-1323719049001._adb-tls-connect._tcp\toffline\n",
+            )
+            .on_shell(
+                "settings get global device_name",
+                &batched_props(&["Living Room", "NVIDIA"]),
+            );
+        let state = state_with(mock).with_cast_names(std::sync::Arc::new(cast_names));
+        let devices = list_devices_impl(&state).await.unwrap();
+        let name = |serial: &str| {
+            devices
+                .iter()
+                .find(|d| d.serial == serial)
+                .map(|d| d.name.clone())
+                .unwrap()
+        };
+        assert_eq!(name("192.168.42.143:5555"), "Bedroom TV");
+        assert_eq!(name("192.168.42.25:5555"), "192.168.42.25:5555");
+        assert_eq!(name("192.168.42.60:5555"), "192.168.42.60:5555");
+        assert_eq!(
+            name("adb-1323719049001._adb-tls-connect._tcp"),
+            "adb-1323719049001._adb-tls-connect._tcp"
+        );
+        let mut asked = asked.lock().unwrap().clone();
+        asked.sort_unstable();
+        assert_eq!(
+            asked,
+            [
+                Ipv4Addr::new(192, 168, 42, 25),
+                Ipv4Addr::new(192, 168, 42, 143)
+            ],
+            "only unauthorized network rows are looked up"
+        );
     }
 
     #[test]
