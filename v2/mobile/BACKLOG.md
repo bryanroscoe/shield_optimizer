@@ -38,14 +38,17 @@ go-ahead; don't infer permission from a phone being powered on.
    density-only display overrides); RAM, storage and thermal readings against the TV's own
    figures; the setup-helper disable rollback; and stock-launcher protection on a Fire TV build
    ([#205](https://github.com/bryanroscoe/shield_optimizer/issues/205)).
-2. **Device pass of the 2026-11-05 parity and bug-bash branch** (PR #300) on the Pixel 3
-   (Android 12) and both Shields. Host tests cover each of these; none has run on hardware:
-   Back during Add-a-TV pairing keeps the connected TV; a failed Retry while lost stays lost
-   (banner, name, redial); the report notice shows during onboarding before anything is sent; app
-   data is absent from a device-transfer restore; a snapshot whose launcher is disabled on the TV
-   skips it and keeps stock on; stock Disable is off while the Home app is unknown; App List shows
-   another TV family's catalog apps once, under the other apps; app sheets show the support-tier
-   warning and Report/Research.
+2. **Rest of the device pass of the 2026-11-05 parity and bug-bash branch** (PR #300). On
+   2026-11-05 a Pixel 3 (Android 12) against the Living Room Shield confirmed: Cast names in scan
+   rows; Back from Add a TV keeps the live TV; Cancel during the approval wait; a failed Retry with
+   Wi-Fi off keeps the banner and name, and Wi-Fi back reconnects silently; Dashboard figures match
+   the TV; Optimize confirm, apply and undo; app sheets with Report/Research; snapshot save and a
+   named delete; notices as text; all tabs at font scale 1.5; no backup allowed; on `56fe49e`
+   More/Add a TV → Back → Back reach Dashboard and a font size change keeps the session. Still
+   open: two-TV menu, a sleep-triggered banner (the Shield's adb stays up while asleep), Optimize
+   cancel and tab lock with several items, Remote D-pad/hold-to-repeat, Launcher, Backups, Files,
+   Emergency recovery, a disabled-launcher snapshot restore, the support warning on a Disable
+   confirm, and a Google TV.
 3. **The app-restart report** ([#105](https://github.com/bryanroscoe/shield_optimizer/issues/105)).
    Follow the physical gate in [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md): name the exact
    leaving action and correlate it with the Android lifecycle before changing any persistence.
@@ -73,11 +76,19 @@ go-ahead; don't infer permission from a phone being powered on.
    handshake can block the next connect for up to 30 s, because the whole handshake runs under the
    lifecycle lock. Patch idea: run the handshake outside the lock, then publish the connection
    under it only if the request id is still the latest.
-7. **Phone-side storage reclaim.** An interrupted pull or APK backup in `file_commands.rs` leaves
+7. **Device findings left from the 2026-11-05 pass** (P2): the TV menu's Disconnect has no
+   confirmation; Cancel during the approval wait leaves the socket open until the 30 s deadline,
+   so the TV queues one Allow prompt per cancelled try (pairs with the connect-lock item above);
+   Optimize Restore pre-selects every disabled recommended app — check against desktop; a phone
+   advertising wireless debugging is listed under "new TVs"; the Send Text dialog sits under the
+   keyboard; Apps rows reach the accessibility tree only after the first tap. Android 11 Shields
+   can hold a stale "Allow debugging" prompt (`adbd_auth: prompt currently pending, skipping`) and
+   never show the phone's; the timeout copy already advises restarting the TV.
+8. **Phone-side storage reclaim.** An interrupted pull or APK backup in `file_commands.rs` leaves
    `.tmp*` partial files and bundle directories without a manifest. Nothing cleans them up or lists
    them, so they take app-private space the user can't see or free. Clean them on start or on the
    next listing, and never touch a bundle with a valid manifest.
-8. Product decisions for the owner:
+9. Product decisions for the owner:
    - Let Free users see the Optimize plan read-only. Core `prepare_optimize` is Pro-gated, so the
      flagship screen is a lock card for Free users while the Dashboard already shows them the
      count.
@@ -86,7 +97,7 @@ go-ahead; don't infer permission from a phone being powered on.
    - The launcher icon reads slightly top-heavy. A 1.8 px downward optical shift is mocked in
      `evidence/settings-polish-2026-10-17/icon-optical-comparison.png`; the assets are unchanged
      pending a preference.
-9. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification) is **built, not yet
+10. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification) is **built, not yet
    tested with a real Play account**; see [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md)
    "Implemented v1". Remaining: license-tester purchases on a Play track (buy, pending, cancel,
    restore on a second phone, refund, promo code), and later a server verifier/RTDN. Bounded Free
