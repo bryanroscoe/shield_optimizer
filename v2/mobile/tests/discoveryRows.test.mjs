@@ -696,3 +696,23 @@ test("a later scan cannot reuse a friendly name whose current metadata disappear
   assert.equal(buildDiscoveryRows([{ ...endpoint, friendly_name: "Studio TV" }], [], offline)[0].name, "Studio TV");
   assert.equal(buildDiscoveryRows([endpoint], [], offline)[0].name, "Name unavailable");
 });
+
+test("one named advert names its host even when the host's other adverts carry no name", () => {
+  // The Cast name fills only adverts that lacked one, so a host can mix named
+  // and unnamed adverts; the unnamed ones add no conflicting name.
+  const rows = buildDiscoveryRows([
+    { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Living Room TV" },
+    { ...advert("192.0.2.10", 37099, TLS_PAIRING, "adb-serial-a-AbC123"), friendly_name: null },
+    advert("192.0.2.10", 41000, TLS_CONNECT, "adb-serial-a-AbC123"),
+  ], [], offline);
+  assert.deepEqual(summarize(rows), [
+    {
+      key: "discovery:192.0.2.10",
+      name: "Living Room TV",
+      status: "found",
+      connectPorts: [5555, 41000],
+      pairingPorts: [37099],
+    },
+  ]);
+  assert.equal(rows[0].savedTarget, undefined);
+});

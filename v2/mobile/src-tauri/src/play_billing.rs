@@ -394,6 +394,14 @@ fn reconcile_purchases(
     }
 }
 
+/// Play's debug message when `startConnection` runs while an earlier attempt
+/// is still connecting. It comes with DEVELOPER_ERROR, but it means Play was
+/// slow, not that this install can't buy.
+const STILL_CONNECTING: &str = "already in the process of connecting";
+
+const UNREACHABLE_MESSAGE: &str =
+    "Couldn't reach Google Play. Check your connection and try again.";
+
 /// User-facing text for a Play `BillingResponseCode` that is not success.
 pub fn response_message(code: i32, debug_message: &str) -> String {
     let base = match code {
@@ -401,8 +409,9 @@ pub fn response_message(code: i32, debug_message: &str) -> String {
         response_code::SERVICE_UNAVAILABLE
         | response_code::NETWORK_ERROR
         | response_code::SERVICE_TIMEOUT
-        | response_code::SERVICE_DISCONNECTED => {
-            "Couldn't reach Google Play. Check your connection and try again."
+        | response_code::SERVICE_DISCONNECTED => UNREACHABLE_MESSAGE,
+        response_code::DEVELOPER_ERROR if debug_message.contains(STILL_CONNECTING) => {
+            UNREACHABLE_MESSAGE
         }
         response_code::BILLING_UNAVAILABLE => {
             "Google Play purchases aren't available on this phone or account."
@@ -762,5 +771,22 @@ mod tests {
         );
         assert!(response_message(response_code::NETWORK_ERROR, "x").contains("Couldn't reach"));
         assert!(response_message(999, "").contains("Try again"));
+    }
+
+    #[test]
+    fn a_connection_still_in_progress_is_not_a_broken_install() {
+        // Play Billing 9.1.0's exact text for a second startConnection.
+        let still_connecting = "Client is already in the process of connecting to billing service.";
+        assert_eq!(
+            response_message(response_code::DEVELOPER_ERROR, still_connecting),
+            UNREACHABLE_MESSAGE
+        );
+        assert!(response_message(response_code::DEVELOPER_ERROR, "")
+            .contains("Install it from Google Play"));
+        assert!(response_message(
+            response_code::DEVELOPER_ERROR,
+            "Client was already closed and can't be reused. Please create another instance."
+        )
+        .contains("Install it from Google Play"));
     }
 }

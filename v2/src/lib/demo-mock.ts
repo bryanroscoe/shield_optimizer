@@ -15,12 +15,14 @@ import demoApps from "./demo-apps.json";
 import pkg from "../../package.json";
 import type {
   AppEntry,
+  ApplyResult,
   Device,
   HealthReport,
   LauncherStatus,
   MediaCapabilities,
   OptimizePlan,
   OptimizePlanItem,
+  SnapshotApplyPlan,
   SnapshotFile,
   StopAdbOnQuit,
   TweaksState,
@@ -958,6 +960,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         launcher_to_set: snap.launcher && snap.launcher !== homeNow ? snap.launcher : null,
         current_launcher: homeNow,
         launcher_not_installed: null,
+        launcher_disabled: null,
+        packages_kept: [],
         settings_to_write: {
           "global.hdmi_control_enabled": "0",
           "secure.match_content_frame_rate": "1",
@@ -967,7 +971,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         settings_already_set: ["global.transition_animation_scale", "global.animator_duration_scale"],
         current_values: now,
         cross_device_warning: null,
-      };
+      } satisfies SnapshotApplyPlan;
     }
     case "set_home_any": {
       // Only real Home apps are accepted; anything else gets the honest refusal
@@ -1006,7 +1010,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         settings_deleted: ["global.encoded_surround_output"],
         settings_failed: [],
         summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written, 1 reset.",
-      };
+      } satisfies ApplyResult;
     case "prepare_optimize":
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
     case "report_all":
