@@ -1920,5 +1920,62 @@
       "https://support.google.com/googleplay/answer/7018481",
       "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
     ]
+  },
+  {
+    "package": "com.epix.epix.now",
+    "name": "MGM+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops MGM+ movies, series, live channels and list access through this app. Keep it if used. Your subscription is not cancelled.",
+    "restore_description": "Re-enables MGM+ if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.epix.epix.now",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.france24.androidapp.gtv",
+    "name": "FRANCE 24 - Android TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops FRANCE 24 live news, bulletins and on-demand shows through this TV app. Keep it if anyone watches with it.",
+    "restore_description": "Re-enables FRANCE 24 if still installed. Does not restore deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.france24.androidapp.gtv",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.weathergroup.localnow",
+    "name": "Local Now: News, Movies & TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Local Now news, weather coverage, channels and on-demand viewing through this app. Keep it if used, including for local or severe-weather coverage.",
+    "restore_description": "Re-enables Local Now if still installed. Does not restore local preferences, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.weathergroup.localnow",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
   }
 ]

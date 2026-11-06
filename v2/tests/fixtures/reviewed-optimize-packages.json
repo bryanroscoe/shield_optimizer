@@ -146,5 +146,23 @@
     "name": "Discovery GO - Watch with TV",
     "issue": 317,
     "source_url": "https://play.google.com/store/apps/details?id=com.discovery.dsctve"
+  },
+  {
+    "package": "com.epix.epix.now",
+    "name": "MGM+",
+    "issue": 319,
+    "source_url": "https://play.google.com/store/apps/details?id=com.epix.epix.now"
+  },
+  {
+    "package": "com.france24.androidapp.gtv",
+    "name": "FRANCE 24 - Android TV",
+    "issue": 320,
+    "source_url": "https://play.google.com/store/apps/details?id=com.france24.androidapp.gtv"
+  },
+  {
+    "package": "com.weathergroup.localnow",
+    "name": "Local Now: News, Movies & TV",
+    "issue": 322,
+    "source_url": "https://play.google.com/store/apps/details?id=com.weathergroup.localnow"
   }
 ]

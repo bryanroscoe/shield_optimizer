@@ -281,6 +281,43 @@
       "assessed_at": "2026-11-06",
       "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-313-317.md; source observations do not establish removal safety.",
       "evidence": "https://play.google.com/store/apps/details?id=com.discovery.dsctve"
+    },
+    "com.epix.epix.now": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-318-322.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.epix.epix.now"
+    },
+    "com.france24.androidapp.gtv": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-318-322.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.france24.androidapp.gtv"
+    },
+    "com.weathergroup.localnow": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reason": "Exact-ID optional Caution; deliberate Disable suggestion; both defaults false. See docs/REPORTED-APPS-318-322.md; source observations do not establish removal safety.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.weathergroup.localnow"
+    },
+    "com.google.android.tv": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "Known-name only; tuner/IP/guide and TIF firmware role unresolved. Need installed manifest/provenance/roles, dependencies, recovery and enforceable scope. Deprecation is not removal evidence.",
+      "evidence": "https://source.android.com/docs/devices/tv/reference-tv-app"
+    },
+    "com.disney.datg.videoplatforms.android.watchdc": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-06",
+      "reconsider_after": "2026-12-06",
+      "reason": "DisneyNOW apps retired and current exact Play listing returns 404. Historical exact package identity and installed-build dependency/recovery scope insufficiently verified; no action or reinstall promise.",
+      "evidence": "https://disneynow.com/help"
     }
   }
 }
