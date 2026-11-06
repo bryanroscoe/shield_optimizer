@@ -46,6 +46,10 @@ pub trait RemoteSessionIo: Send {
     fn renewal_due(&self) -> bool {
         false
     }
+    /// True while a key-down was written without its key-up.
+    fn holds_keys(&self) -> bool {
+        false
+    }
     async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String>;
     async fn send_key_press(&mut self, keycode: u32) -> Result<(), String>;
     async fn send_text(&mut self, text: &str) -> Result<(), String>;
@@ -265,6 +269,7 @@ impl RemoteRegistry {
                 return Err("Remote startup was cancelled.".into());
             }
             let tag = generation.unwrap_or_else(|| cell.generation.load(Ordering::Acquire));
+            let mut renewing = false;
             {
                 let slot = cell.session.lock().await;
                 match slot.as_ref() {
@@ -272,6 +277,7 @@ impl RemoteRegistry {
                         if !session.session.renewal_due() {
                             return Ok(());
                         }
+                        renewing = true;
                         tracing::info!("Renewing the Remote session before this request's input");
                     }
                     _ => {}
@@ -280,15 +286,23 @@ impl RemoteRegistry {
             let previous = cell.session.lock().await.take();
             if let Some(previous) = previous {
                 lock(&cell.live_cancel).take();
+                // Renewing this generation's own session with no key held: a
+                // failed close can only mean helper cleanup is unconfirmed, so
+                // the request still gets a session (or its shell fallback).
+                let tolerable =
+                    renewing && previous.generation == tag && !previous.session.holds_keys();
                 if let Err(error) = previous.session.close().await {
-                    let _publication = lock(&cell.publication);
-                    let _ = cell.generation.compare_exchange(
-                        tag,
-                        0,
-                        Ordering::AcqRel,
-                        Ordering::Acquire,
-                    );
-                    return Err(error);
+                    if !tolerable {
+                        let _publication = lock(&cell.publication);
+                        let _ = cell.generation.compare_exchange(
+                            tag,
+                            0,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        );
+                        return Err(error);
+                    }
+                    tracing::warn!(%error, "Renewing Remote: the previous session's cleanup was not confirmed");
                 }
             }
             if cell.retired.load(Ordering::Acquire)
@@ -503,6 +517,8 @@ mod tests {
         block_close: Option<Arc<Notify>>,
         close_started: Arc<Notify>,
         renewal: Arc<AtomicBool>,
+        holds: Arc<AtomicBool>,
+        fail_close: Arc<AtomicBool>,
     }
     impl Fixture {
         fn simple(name: &'static str, events: Arc<StdMutex<Vec<String>>>) -> Self {
@@ -516,6 +532,8 @@ mod tests {
                 block_close: None,
                 close_started: Arc::new(Notify::new()),
                 renewal: Arc::default(),
+                holds: Arc::default(),
+                fail_close: Arc::default(),
             }
         }
     }
@@ -526,6 +544,9 @@ mod tests {
         }
         fn renewal_due(&self) -> bool {
             self.renewal.load(Ordering::Acquire)
+        }
+        fn holds_keys(&self) -> bool {
+            self.holds.load(Ordering::Acquire)
         }
         async fn send_key(&mut self, key: u32, down: bool) -> Result<(), String> {
             lock(&self.events).push(format!("{}:key:{key}:{down}", self.name));
@@ -549,6 +570,9 @@ mod tests {
                 release.notified().await;
             }
             lock(&self.events).push(format!("{}:close", self.name));
+            if self.fail_close.load(Ordering::Acquire) {
+                return Err("helper cleanup not confirmed".into());
+            }
             Ok(())
         }
     }
@@ -969,6 +993,48 @@ mod tests {
             ],
             "a healthy session is reused; a due one closes before its replacement takes input"
         );
+    }
+    #[tokio::test]
+    async fn a_renewal_whose_cleanup_is_unconfirmed_still_serves_the_request() {
+        let registry = RemoteRegistry::default();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let generation = registry.begin("A").unwrap();
+        let first = Fixture::simple("first", events.clone());
+        first.renewal.store(true, Ordering::Release);
+        first.fail_close.store(true, Ordering::Release);
+        ready(&registry, "A", generation, first).await;
+        ready(
+            &registry,
+            "A",
+            generation,
+            Fixture::simple("renewed", events.clone()),
+        )
+        .await;
+        registry.validate("A", generation).unwrap();
+        registry
+            .send("A", Some(generation), RemoteAction::Press(2))
+            .await
+            .unwrap();
+        assert_eq!(*lock(&events), vec!["first:close", "renewed:press:2"]);
+    }
+    #[tokio::test]
+    async fn a_renewal_with_a_held_key_and_a_failed_close_ends_the_generation() {
+        let registry = RemoteRegistry::default();
+        let events = Arc::new(StdMutex::new(Vec::new()));
+        let generation = registry.begin("A").unwrap();
+        let first = Fixture::simple("first", events.clone());
+        first.renewal.store(true, Ordering::Release);
+        first.holds.store(true, Ordering::Release);
+        first.fail_close.store(true, Ordering::Release);
+        ready(&registry, "A", generation, first).await;
+        let result = registry
+            .ensure("A", Some(generation), |_| async {
+                Ok(Box::new(Fixture::simple("unused", Arc::default())) as Box<dyn RemoteSessionIo>)
+            })
+            .await;
+        assert!(result.is_err());
+        assert!(registry.validate("A", generation).is_err());
+        assert_eq!(*lock(&events), vec!["first:close"]);
     }
     #[tokio::test]
     async fn closing_current_generation_also_retires_inherited_previous_session() {

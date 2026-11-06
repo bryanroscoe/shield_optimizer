@@ -632,6 +632,9 @@ impl RemoteSessionIo for NativeRemoteSession {
                 .map_or(true, |drain| drain.is_finished())
             || tokio::time::Instant::now() >= self.renew_at
     }
+    fn holds_keys(&self) -> bool {
+        !self.held.is_empty()
+    }
     async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String> {
         if down {
             self.held.insert(keycode);
