@@ -8,7 +8,7 @@ go-ahead; don't infer permission from a phone being powered on.
 ## P0 — physical device gates
 
 1. **Device pass of the current build** on the Pixel against a Shield and a Google TV. One session
-   should cover, in order: confirm the installed build, the #105 capture (item 2), then
+   should cover, in order: confirm the installed build, the #105 capture (item 3), then
    [#93](https://github.com/bryanroscoe/shield_optimizer/issues/93) saved-TV discovery and
    reconnect: a legacy `:5555` Shield without mDNS shows one Connected row; a Google TV whose port
    rotates shows the other-port state with no duplicate; an address change never carries a cached
@@ -38,14 +38,22 @@ go-ahead; don't infer permission from a phone being powered on.
    density-only display overrides); RAM, storage and thermal readings against the TV's own
    figures; the setup-helper disable rollback; and stock-launcher protection on a Fire TV build
    ([#205](https://github.com/bryanroscoe/shield_optimizer/issues/205)).
-2. **The app-restart report** ([#105](https://github.com/bryanroscoe/shield_optimizer/issues/105)).
+2. **Device pass of the 2026-11-05 parity and bug-bash branch** (PR #300) on the Pixel 3
+   (Android 12) and both Shields. Host tests cover each of these; none has run on hardware:
+   Back during Add-a-TV pairing keeps the connected TV; a failed Retry while lost stays lost
+   (banner, name, redial); the report notice shows during onboarding before anything is sent; app
+   data is absent from a device-transfer restore; a snapshot whose launcher is disabled on the TV
+   skips it and keeps stock on; stock Disable is off while the Home app is unknown; App List shows
+   another TV family's catalog apps once, under the other apps; app sheets show the support-tier
+   warning and Report/Research.
+3. **The app-restart report** ([#105](https://github.com/bryanroscoe/shield_optimizer/issues/105)).
    Follow the physical gate in [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md): name the exact
    leaving action and correlate it with the Android lifecycle before changing any persistence.
-3. **Code pairing end to end** per [`PAIRING-PLAN.md`](PAIRING-PLAN.md). The host binary
+4. **Code pairing end to end** per [`PAIRING-PLAN.md`](PAIRING-PLAN.md). The host binary
    (`vendor/adb_client/examples/device_smoke.rs pair`) passed against the Android TV 14 emulator's
    real adbd on 2026-11-04; still needed: the Pixel's own pairing service, then a Google TV from the app. A wrong code must fail
    cleanly, and a paired TV must then connect with no "Allow debugging" prompt.
-4. **Fast-remote Phase 4** per [`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md): concurrency on the
+5. **Fast-remote Phase 4** per [`FAST-REMOTE-PLAN.md`](FAST-REMOTE-PLAN.md): concurrency on the
    Bedroom Shield; on both Shields hold-to-repeat, live-session background/resume before and after
    30 seconds, sleep/wake and reboot cleanup; and a fresh controlled Living Room latency sample.
 
@@ -57,8 +65,19 @@ go-ahead; don't infer permission from a phone being powered on.
    phone→TV upload in Files; then consider Google Drive for complete APK bundles.
 2. Install APK / sideload from the phone.
 3. The bug-report bundle (`collect_diagnostics`) with an explicit share step.
-4. A patch-notes viewer.
-5. Product decisions for the owner:
+4. A patch-notes viewer (deferred).
+5. **Logs tab.** Desktop reads a bounded logcat snapshot through `AdbDriver::shell_bounded`, which
+   `WirelessAdb` doesn't implement; add it there (bounded output, same timeouts) before porting
+   the tab.
+6. **Connect-lock narrowing** in `wireless_adb.rs` (deferred from the bug bash). A cancelled
+   handshake can block the next connect for up to 30 s, because the whole handshake runs under the
+   lifecycle lock. Patch idea: run the handshake outside the lock, then publish the connection
+   under it only if the request id is still the latest.
+7. **Phone-side storage reclaim.** An interrupted pull or APK backup in `file_commands.rs` leaves
+   `.tmp*` partial files and bundle directories without a manifest. Nothing cleans them up or lists
+   them, so they take app-private space the user can't see or free. Clean them on start or on the
+   next listing, and never touch a bundle with a valid manifest.
+8. Product decisions for the owner:
    - Let Free users see the Optimize plan read-only. Core `prepare_optimize` is Pro-gated, so the
      flagship screen is a lock card for Free users while the Dashboard already shows them the
      count.
@@ -67,7 +86,7 @@ go-ahead; don't infer permission from a phone being powered on.
    - The launcher icon reads slightly top-heavy. A 1.8 px downward optical shift is mocked in
      `evidence/settings-polish-2026-10-17/icon-optical-comparison.png`; the assets are unchanged
      pending a preference.
-6. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification) is **built, not yet
+9. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification) is **built, not yet
    tested with a real Play account**; see [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md)
    "Implemented v1". Remaining: license-tester purchases on a Play track (buy, pending, cancel,
    restore on a second phone, refund, promo code), and later a server verifier/RTDN. Bounded Free

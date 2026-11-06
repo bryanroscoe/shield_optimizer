@@ -221,7 +221,7 @@
     error = "";
     try {
       const [otherResult, catalogResult] = await Promise.allSettled([
-        api.listOtherPackages(serial),
+        api.listOtherPackages(serial, device.device_type),
         readCatalog(serial, device.device_type),
       ]);
       if (request !== loadRequest || !sessionCurrent(serial, generation)) return;

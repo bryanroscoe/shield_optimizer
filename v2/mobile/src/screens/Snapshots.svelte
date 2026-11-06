@@ -170,9 +170,9 @@
     try {
       const res = await api.applySnapshot(p.serial, p.snap.path);
       const outcome = restoreOutcome(res, p.plan);
-      // The summary carries any launcher follow-up (a setup helper that
-      // couldn't be re-enabled); that is not a clean success either.
-      const followUp = res.summary?.includes("Re-enable Setup Wraith");
+      // Only the summary names a stock launcher left off with its setup
+      // helper (Setup Wraith) still on; that is not a clean success either.
+      const followUp = res.summary?.includes("Setup Wraith");
       showToast(
         res.summary || "Snapshot applied.",
         outcome.length || followUp ? "info" : "success",
@@ -401,7 +401,11 @@
             {/if}
 
             {#if nothingToDo}
-              <p class="plan-empty">This TV already matches the snapshot — nothing to change.</p>
+              <p class="plan-empty">
+                {homeSkip || kept.length > 0
+                  ? "Nothing to change. Everything else already matches the snapshot."
+                  : "This TV already matches the snapshot — nothing to change."}
+              </p>
             {:else}
               <span class="plan-heading">What happens</span>
               <ul class="plan-list" aria-label="Changes">

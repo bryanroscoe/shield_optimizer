@@ -252,6 +252,30 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
   assert.equal(await count(page, "enable_package"), 0);
 });
 
+test("a plan with only a skipped Home app never claims the TV already matches", async (t) => {
+  const page = await open(t, "snapshots", {
+    setup: () => {
+      window.snapshots = [{
+        path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Projectivy setup",
+        device_name: "A", device_serial: "A:5555", device_type: "shield", disabled_count: 0, settings_count: 0,
+        launcher: "com.spocky.projengmenu",
+      }];
+      window.handlers.preview_apply = () => ({
+        cross_device_warning: null, packages_to_disable: [], packages_already_disabled: [],
+        packages_not_installed: [], launcher_to_set: null, current_launcher: "com.google.android.tvlauncher",
+        launcher_not_installed: null, launcher_disabled: "com.spocky.projengmenu", packages_kept: [],
+        settings_to_write: {}, settings_to_delete: [], settings_already_set: [], current_values: {},
+      });
+    },
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  const card = page.locator(".plan-card");
+  await card.getByText(/The Home app won't change: com\.spocky\.projengmenu is disabled/).waitFor();
+  await card.getByText("Nothing to change. Everything else already matches the snapshot.", { exact: true }).waitFor();
+  assert.doesNotMatch(await card.innerText(), /This TV already matches the snapshot/);
+  assert.equal(await card.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
+});
+
 // ---- Remote ----
 
 test("keyboard and accessibility activation moves the D-pad once; a tap still sends once", async (t) => {

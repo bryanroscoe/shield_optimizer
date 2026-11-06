@@ -215,6 +215,54 @@ async function genericHomeStates({ browser, base }) {
   console.log("Uncurated package: absent recommendation and generic installed/disabled/current HOME states pass.");
 }
 
+// With the Home app unknown, any stock row could be the only Home screen, so
+// its Disable is off with a visible reason; the rest of the list still loads.
+async function stockDisableNeedsKnownHome({ browser, base }) {
+  const stock = "com.google.android.tvlauncher";
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const pageErrors = [];
+  page.on("pageerror", (e) => pageErrors.push(String(e)));
+  try {
+    for (const mode of ["known", "unread", "none"]) {
+      await page.goto(base, { waitUntil: "networkidle" });
+      await page.evaluate((mode) => {
+        const original = window.__TAURI_INTERNALS__.invoke;
+        window.launcherCalls = [];
+        window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+          window.launcherCalls.push(command);
+          if (command === "current_launcher" && mode === "unread") throw new Error("Simulated: neither Home source answered");
+          if (command === "current_launcher" && mode === "none") return { package: null, activity: null };
+          return original(command, args);
+        };
+      }, mode);
+      await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
+      await page.getByRole("tab", { name: "Launcher" }).click();
+      const row = page.locator(".launcher-list li").filter({ has: page.locator(".launcher-pkg", { hasText: stock }) });
+      await row.waitFor({ timeout: 15000 });
+      assert.equal(await page.locator("#tabpanel-launcher > .error").count(), 0, `${mode}: the list still shows`);
+      const disable = row.getByRole("button", { name: "Disable", exact: true });
+      const reason = row.locator(".launcher-blocked");
+      if (mode === "known") {
+        assert.equal(await disable.isDisabled(), false, "stock Disable is offered once Home is known");
+        assert.equal(await reason.count(), 0);
+        continue;
+      }
+      assert.equal(await disable.isDisabled(), true, `${mode}: stock Disable is off while Home is unknown`);
+      assert.match(await reason.innerText(), /Disable is off until the TV reports its current Home app/);
+      assert.ok(await reason.isVisible(), `${mode}: the reason is visible, not hover-only`);
+      assert.equal(await disable.getAttribute("aria-describedby"), await reason.getAttribute("id"));
+      const projectivy = page.locator(".launcher-list li").filter({ has: page.locator(".launcher-pkg", { hasText: "com.spocky.projengmenu" }) });
+      assert.equal(await projectivy.getByRole("button", { name: "Disable", exact: true }).isDisabled(), false, "a non-stock launcher keeps its Disable");
+      const calls = await page.evaluate(() => window.launcherCalls);
+      assert.equal(calls.filter((c) => c === "disable_launcher").length, 0);
+    }
+    assert.deepEqual(pageErrors, [], "the page must not throw");
+  } finally {
+    await page.close();
+  }
+  console.log("Stock Disable: offered with a known Home app; off with a visible reason when the Home read fails or names none.");
+}
+
 async function main() {
   const restore = setHarnessEnvironment();
   let server, browser;
@@ -226,6 +274,7 @@ async function main() {
     browser = await chromium.launch();
     await exercise({ browser, base: serverURL(server) });
     await genericHomeStates({ browser, base: serverURL(server) });
+    await stockDisableNeedsKnownHome({ browser, base: serverURL(server) });
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));
     await server?.close().catch((e) => console.error("Vite cleanup failed", e));
