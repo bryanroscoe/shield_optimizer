@@ -127,6 +127,36 @@ function installBackend(options) {
       }
     },
   };
+  if (options.nativeBack) {
+    // The Android app: Tauri's `isTauri` flag and the core app plugin's
+    // `back-button` listeners. As in AppPlugin.kt, a press goes only to the
+    // registered listeners while any exist, and to Android when none do.
+    Object.defineProperty(window, "isTauri", { value: true });
+    const callbacks = new Map();
+    let nextCallback = 0;
+    window.__TAURI_INTERNALS__.transformCallback = (callback) => {
+      callbacks.set(++nextCallback, callback);
+      return nextCallback;
+    };
+    window.__TAURI_INTERNALS__.unregisterCallback = (id) => callbacks.delete(id);
+    // Channel id -> index of its next message.
+    window.backListeners = new Map();
+    window.handlers["plugin:app|register_listener"] = ({ event, handler }) => {
+      if (event === "back-button") window.backListeners.set(handler.id, 0);
+    };
+    window.removeBackListener = ({ event, channelId }) => {
+      if (event === "back-button") window.backListeners.delete(channelId);
+    };
+    window.handlers["plugin:app|remove_listener"] = (args) => window.removeBackListener(args);
+    window.pressBack = () => {
+      if (window.backListeners.size === 0) return "android";
+      for (const [id, index] of window.backListeners) {
+        window.backListeners.set(id, index + 1);
+        callbacks.get(id)?.({ index, message: { canGoBack: false } });
+      }
+      return "app";
+    };
+  }
 }
 
 async function createPage(t, options = {}) {
@@ -655,4 +685,95 @@ test("at 320px a long saved-TV name keeps the row width and the actions wrap bel
   assert.ok(layout.nameWidth >= 170, `name squeezed to ${layout.nameWidth}px`);
   assert.equal(layout.actionsBelow, true);
   assert.ok(layout.page <= 320);
+});
+
+test("native Back walks More > Devices and Dashboard > Add a TV back to Dashboard, then leaves Back to Android", async (t) => {
+  const page = await openDashboard(t, { nativeBack: true });
+  const historyLength = await page.evaluate(() => history.length);
+  const listeners = () => page.evaluate(() => window.backListeners.size);
+  await settle(page);
+  assert.equal(await listeners(), 0);
+
+  await page.locator(".bottom-tabs .tab-btn", { hasText: "More" }).click();
+  await page.locator(".setting-row", { hasText: "Devices" }).click();
+  await page.waitForFunction(() => window.router.current === "devices");
+  await page.waitForFunction(() => window.backListeners.size === 1);
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.waitForFunction(() => window.router.current === "more");
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.waitForFunction(() => window.router.current === "dashboard");
+  await page.waitForFunction(() => window.backListeners.size === 0);
+  assert.equal(await page.evaluate(() => window.pressBack()), "android");
+
+  await page.locator(".device-selector").click();
+  await page.getByRole("button", { name: "Manage devices" }).click();
+  await page.getByRole("button", { name: "Add a TV" }).click();
+  await page.waitForFunction(() => window.router.current === "addtv");
+  await page.waitForFunction(() => window.backListeners.size === 1);
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.waitForFunction(() => window.router.current === "devices");
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.waitForFunction(() => window.router.current === "dashboard");
+  await page.waitForFunction(() => window.backListeners.size === 0);
+  assert.equal(await page.evaluate(() => window.pressBack()), "android");
+
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  assert.equal(await page.evaluate(() => window.session.isConnected), true);
+  // Nothing goes through webview history on the device.
+  assert.equal(await page.evaluate(() => history.length), historyLength);
+  const registered = (await commands(page, "plugin:app|register_listener")).length;
+  assert.equal(registered, 2);
+  assert.equal((await commands(page, "plugin:app|remove_listener")).length, registered);
+  assert.deepEqual(page.pageErrors, []);
+});
+
+test("native Back at the root removes the listener; a press during the removal or an apply stays in the app", async (t) => {
+  const page = await openDashboard(t, { nativeBack: true });
+  await page.evaluate(() => {
+    window.handlers["plugin:app|remove_listener"] = (args) => new Promise((resolve) => {
+      window.finishRemoval = () => resolve(window.removeBackListener(args));
+    });
+    window.router.navigate("devices");
+  });
+  await page.waitForFunction(() => window.backListeners.size === 1);
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.waitForFunction(() => !!window.finishRemoval);
+
+  // The removal hasn't landed, so Android still sends this press to the app:
+  // it finds nothing to pop and changes nothing.
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await settle(page);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  await page.evaluate(() => window.finishRemoval());
+  await page.waitForFunction(() => window.backListeners.size === 0);
+  assert.equal(await page.evaluate(() => window.pressBack()), "android");
+
+  // An apply swallows Back wherever it is.
+  await page.evaluate(() => {
+    window.handlers["plugin:app|remove_listener"] = (args) => window.removeBackListener(args);
+    window.session.applyInProgress = true;
+  });
+  await page.waitForFunction(() => window.backListeners.size === 1);
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  await page.evaluate(() => { window.session.applyInProgress = false; });
+  await page.waitForFunction(() => window.backListeners.size === 0);
+  assert.deepEqual(page.pageErrors, []);
+});
+
+test("native Back steps out of first-launch pairing, then leaves Back to Android", async (t) => {
+  const page = await createPage(t, { nativeBack: true });
+  await enterManualHost(page, "B");
+  await settle(page);
+  assert.equal(await page.evaluate(() => window.backListeners.size), 0);
+  await page.getByRole("button", { name: "Pair with code" }).click();
+  await page.getByRole("heading", { name: "Enter pairing code" }).waitFor();
+  await page.waitForFunction(() => window.backListeners.size === 1);
+
+  assert.equal(await page.evaluate(() => window.pressBack()), "app");
+  await page.getByRole("heading", { name: "Find your TV" }).waitFor();
+  await page.waitForFunction(() => window.backListeners.size === 0);
+  assert.equal(await page.evaluate(() => window.pressBack()), "android");
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["onboarding"]);
+  assert.deepEqual(page.pageErrors, []);
 });

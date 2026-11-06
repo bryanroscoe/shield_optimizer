@@ -184,7 +184,13 @@ A patch-notes viewer is deferred.
   Launch shows a saved-TV picker and auto-dials only when exactly one TV is saved and the last
   session wasn't ended by an explicit Disconnect (`atv.autoConnect.v1`), always naming the target
   with Cancel. "Add a TV" is a separate `addtv` route that never dials. The Android back button
-  keeps exactly one spare history entry.
+  is Tauri's native `back-button` event (`onBackButtonPress`), registered only while Back has
+  something to do (a pushed screen, a screen's own step back, an apply to swallow) and removed at
+  the root so Android backgrounds the app with its state kept. Never go back through webview
+  history on the device: Chromium skips entries pushed from `popstate` without a user gesture, so
+  the second Back left the app. The spare-history-entry path remains only for the browser tests.
+  A font or display size change must not recreate the activity (`fontScale|density` in
+  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom.
 - **Reconnect safety.** The session generation is reactive. Launcher, app sheets and file actions
   discard reads, picker intent, polling and continuations when the generation or liveness changes,
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
