@@ -20,6 +20,15 @@ SIGNING="$CONFIG/play-upload.json"
 LICENSE="$CONFIG/play-license-key"
 ACCOUNT="$CONFIG/play-service-account.json"
 DRY_RUN=0
+# GET environment -> PUT body: keep its reviewers ({type, id}), wait_timer and prevent_self_review.
+# shellcheck disable=SC2016 # jq variables, not shell expansions
+ENVIRONMENT_PAYLOAD='
+  ([.protection_rules[]? | select(.type == "required_reviewers")] | first) as $reviewers
+  | ([.protection_rules[]? | select(.type == "wait_timer")] | first) as $timer
+  | {deployment_branch_policy: {protected_branches: false, custom_branch_policies: true}}
+  + (if $reviewers then {reviewers: [$reviewers.reviewers[]? | {type, id: .reviewer.id}]} else {} end)
+  + (if $reviewers and ($reviewers | has("prevent_self_review")) then {prevent_self_review: $reviewers.prevent_self_review} else {} end)
+  + (if $timer then {wait_timer: $timer.wait_timer} else {} end)'
 [[ "${1:-}" == --dry-run ]] && DRY_RUN=1
 
 for file in "$SIGNING" "$LICENSE" "$ACCOUNT"; do
@@ -52,9 +61,14 @@ if (( DRY_RUN )); then
   exit 0
 fi
 
-gh api --silent -X PUT "repos/$REPO/environments/$ENVIRONMENT" --input - <<'JSON'
-{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}
-JSON
+# A PUT replaces the environment's protection rules, so send back the reviewers, wait timer and
+# self-review setting it already has; only the branch policy is set here.
+current='{}'
+environments="$(gh api --paginate "repos/$REPO/environments" --jq '.environments[].name')"
+if grep -qxF "$ENVIRONMENT" <<<"$environments"; then
+  current="$(gh api "repos/$REPO/environments/$ENVIRONMENT")"
+fi
+jq -c "$ENVIRONMENT_PAYLOAD" <<<"$current" | gh api --silent -X PUT "repos/$REPO/environments/$ENVIRONMENT" --input -
 existing="$(gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '.branch_policies[] | "\(.type):\(.name)"')"
 for policy in branch:main 'tag:mobile-v*'; do
   if ! grep -qxF "$policy" <<<"$existing"; then

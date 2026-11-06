@@ -18,11 +18,13 @@ git tag -a mobile-v0.1.2 -m "ATV Optimizer for Android 0.1.2" <merged commit> &&
 
 The `release` job of `mobile-play-release.yml` then, in the `google-play` environment:
 
-1. refuses a revision that is not on `main` and a tag that disagrees with `tauri.conf.json`;
-2. resolves the versionCode (`bundle.android.versionCode` if set, else derived from the version,
-   see §2) and asks Play for the highest code it holds across every bundle, APK and track
-   release; a code that is not above it fails here, before anything is built;
-3. checks the keystore's certificate against the recorded upload certificate;
+1. refuses a revision that is not on `main`, the `production` track and a tag that disagrees with
+   `tauri.conf.json`, resolves the versionCode (`bundle.android.versionCode` if set, else derived
+   from the version, see §2) and checks that every secret and variable below is set;
+2. installs the Android toolchain and npm dependencies before writing any credential, then checks
+   the keystore's certificate against the recorded upload certificate;
+3. asks Play for the highest versionCode it holds across every bundle, APK and track release; a
+   code that is not above it fails here, before anything is built;
 4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
 5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
    validate`, manifest package and versionCode, then the universal APK bundletool generates and the
@@ -34,9 +36,10 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
 
 **Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
 and verified, no upload), `publish` (pick the track, e.g. `alpha` for the default Closed testing
-track, and `draft` or `completed`) or `smoke`. `completed` is refused by Play while the app has
-never been published. A versionCode override is there for re-spinning one version; it must still
-be above everything on Play.
+track, or a custom closed track id, and `draft` or `completed`) or `smoke`. The `production`
+track is refused: promote a tested release to production in Play Console. `completed` is refused
+by Play while the app has never been published. A versionCode override is there for re-spinning
+one version; it must still be above everything on Play.
 
 The `smoke` job runs on every PR that touches the workflow, its toolchain action or these
 scripts: the same build and verification with a throwaway keystore and a random license key, no
@@ -54,9 +57,9 @@ purchase script; those stay in [Testing-candidate gates](#testing-candidate-gate
    Developer API* → IAM → Service accounts → create one (no Cloud roles) → Keys → Add key → JSON.
    Save it as `~/.config/atv-optimizer/play-service-account.json` (mode 600) and in 1Password.
    Then Play Console → **Users and permissions** → Invite new users → the service account's email
-   → App permissions → ATV Optimizer → grant *View app information*, *Release apps to testing
-   tracks* and, only when you want CI to ship production, *Release to production*. Access can take
-   a few minutes to apply.
+   → App permissions → ATV Optimizer → grant *View app information* and *Release apps to testing
+   tracks*. CI never releases to production, so it does not need *Release to production*. Access
+   can take a few minutes to apply.
 3. **Load the environment.** `mobile/scripts/setup-play-ci.sh --dry-run` prints what it will set;
    without `--dry-run` it creates the `google-play` environment (deploys only from `main` and
    `mobile-v*` tags) and sets, from the same local files `build-play-release.py` reads:
@@ -71,7 +74,8 @@ purchase script; those stay in [Testing-candidate gates](#testing-candidate-gate
    | `ATVOPT_PLAY_LICENSE_KEY` | variable | the Play licensing public key (public, kept out of Git) |
 
    Re-run it after rotating any of them. Optionally add yourself as a required reviewer on the
-   environment so every run waits for an approval click.
+   environment so every run waits for an approval click; re-running the script keeps the
+   environment's reviewers, wait timer and self-review setting.
 
 If a run fails, read the step that failed: credential and versionCode problems stop before the
 build, and a rejected artifact is never uploaded. Delete a wrong tag with
