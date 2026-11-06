@@ -109,9 +109,15 @@ pub mod test_support {
         raw_rules: Vec<Rule>,
         shell_log: Arc<Mutex<Vec<String>>>,
         raw_log: Arc<Mutex<Vec<String>>>,
+        no_host_server: bool,
     }
 
     impl MockAdb {
+        /// Report no host server, as the built-in engine does.
+        pub fn without_host_server(mut self) -> Self {
+            self.no_host_server = true;
+            self
+        }
         /// Like `on_shell`, but only for calls against `serial`. Checked before
         /// the serial-agnostic rules.
         pub fn on_shell_for(mut self, serial: &str, needle: &str, stdout: &str) -> Self {
@@ -244,6 +250,9 @@ pub mod test_support {
 
     #[async_trait]
     impl AdbDriver for MockAdb {
+        fn uses_host_server(&self) -> bool {
+            !self.no_host_server
+        }
         async fn shell_bounded(
             &self,
             serial: &str,

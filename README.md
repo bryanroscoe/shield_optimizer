@@ -17,8 +17,10 @@ Android TV devices.
 
 </details>
 
-It's a native app for macOS, Windows and Linux. It downloads its own `adb` on first launch, finds
-TVs on your network, and updates itself. You don't need a terminal or any scripting.
+It's a native app for macOS, Windows and Linux. It connects to your TVs directly with its own
+built-in ADB, finds them on your network, and updates itself. You don't need a terminal, Google's
+`adb` or any scripting. Google's platform-tools are still one click away in **Settings → ADB** if a
+TV doesn't get along with the built-in engine, or for a TV connected by USB.
 
 > **📱 Coming soon: [ATV Optimizer for Android](#atv-optimizer-for-android).** A phone and tablet
 > version that runs the same cleanup over Wi-Fi, with no computer involved. It's in testing now.
@@ -95,15 +97,20 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**On a Mac, if nothing is found even by IP** while `adb connect` from Terminal still works, click
-**Restart ADB** first. After an update, macOS cuts off the ADB server the previous version left
-running. The app now restarts it by itself when it notices, and a manual restart does the same. If
-that doesn't help, macOS may be blocking the app: open System Settings → Privacy & Security →
-**Local Network** and turn ATV Optimizer on. If it already looks on, turn it off and on again. If
-it's listed more than once, turn every entry on. Then click **Restart ADB** again.
+**A TV that has never allowed this computer asks "Allow USB debugging?"** the first time the app
+connects. Tick **Always allow** and choose Allow. TVs that already allow Google's `adb` on this
+computer connect without asking again.
+
+**On a Mac, if nothing is found even by IP,** macOS may be blocking the app: open System Settings →
+Privacy & Security → **Local Network** and turn ATV Optimizer on. If it already looks on, turn it
+off and on again. If it's listed more than once, turn every entry on. Then scan again.
+
+With **Google platform-tools** chosen in Settings, click **Restart ADB** first instead: after an
+update, macOS cuts off the ADB server the previous version left running. The app restarts it by
+itself when it notices, and a manual restart does the same.
 
 **Scan LAN** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
-devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second
+devices like the Shield use. It also listens for TVs that announce themselves over mDNS. That second
 check matters on Android 11+, where Wireless debugging listens on a random port that changes every
 time you toggle it, so a port sweep can't find it. If a TV is only advertising its pairing service,
 the scan tells you and fills in the pairing address for you.
@@ -176,7 +183,10 @@ the recovery they verified used standalone ADB. **Restart ADB** disconnects othe
 same server, and did not recover the reporter's connection in 2.4.1.
 
 Connection-recovery improvements are merged for the next desktop release and await physical
-confirmation of this report. They are not included in 2.4.1. Native Rust ADB remains experimental.
+confirmation of this report. They are not included in 2.4.1.
+
+**Built-in ADB is network-only.** A TV connected by USB needs **Google platform-tools**, chosen in
+**Settings → ADB → ADB engine**. Switching takes effect immediately, and you can switch back.
 
 **Fire TV launcher changes depend on the build.** Some Fire OS builds refuse changes to Amazon's
 protected stock launcher, including attempts to re-enable it. The app recognizing Projectivy or

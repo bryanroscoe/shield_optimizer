@@ -105,6 +105,9 @@ pub enum RustADBError {
     /// been paired with it.
     #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
     TlsAuthRejected(String),
+    /// An ADB key given in memory cannot be used: why, never the key itself.
+    #[error("the ADB key cannot be used: {0}")]
+    UnusableKey(String),
     /// The connection closed or reset during the TLS handshake or before the
     /// first message over TLS, without a TLS alert. A network drop does
     /// this, and so might a device refusing the key silently; which one it
@@ -195,5 +198,76 @@ pub enum RustADBError {
 impl<T> From<std::sync::PoisonError<T>> for RustADBError {
     fn from(_err: std::sync::PoisonError<T>) -> Self {
         Self::PoisonError
+    }
+}
+
+impl RustADBError {
+    /// Whether the device's TLS server explicitly refused this client's
+    /// certificate, which is how adbd reports a key it has not paired with.
+    /// Only a typed TLS alert counts: [`Self::TlsAuthRejected`], or the same
+    /// alerts carried as a rustls error. A hang-up
+    /// ([`Self::TlsConnectionClosed`]), a timeout or any other transport
+    /// failure says nothing about pairing and is never classified as one,
+    /// and neither is error text that merely mentions an alert.
+    #[must_use]
+    pub fn is_client_identity_rejected(&self) -> bool {
+        let tls = match self {
+            Self::TlsAuthRejected(_) => return true,
+            Self::TLSError(error) => Some(error),
+            Self::IOError(error) => error
+                .get_ref()
+                .and_then(|source| source.downcast_ref::<rustls::Error>()),
+            _ => None,
+        };
+        matches!(
+            tls,
+            Some(rustls::Error::AlertReceived(alert))
+                if crate::message_devices::tcp::is_untrusted_key_alert(*alert)
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn client_identity_rejection_requires_a_typed_peer_alert() {
+        assert!(
+            RustADBError::TlsAuthRejected("TLS alert UnknownCA".into())
+                .is_client_identity_rejected()
+        );
+        for alert in [
+            rustls::AlertDescription::CertificateUnknown,
+            rustls::AlertDescription::UnknownCA,
+            rustls::AlertDescription::CertificateRequired,
+            rustls::AlertDescription::AccessDenied,
+            rustls::AlertDescription::BadCertificate,
+        ] {
+            assert!(
+                RustADBError::TLSError(rustls::Error::AlertReceived(alert))
+                    .is_client_identity_rejected()
+            );
+            assert!(
+                RustADBError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    rustls::Error::AlertReceived(alert),
+                ))
+                .is_client_identity_rejected()
+            );
+        }
+        for error in [
+            RustADBError::TLSError(rustls::Error::AlertReceived(
+                rustls::AlertDescription::HandshakeFailure,
+            )),
+            RustADBError::TlsConnectionClosed(std::io::ErrorKind::UnexpectedEof.into()),
+            RustADBError::TlsConnectionClosed(std::io::ErrorKind::ConnectionReset.into()),
+            RustADBError::IOError(std::io::ErrorKind::TimedOut.into()),
+            RustADBError::IOError(std::io::Error::other("CertificateUnknown")),
+            RustADBError::ProtocolError("certificate_unknown".into()),
+            RustADBError::ADBRequestFailed("not authorized".into()),
+        ] {
+            assert!(!error.is_client_identity_rejected(), "{error:?}");
+        }
     }
 }

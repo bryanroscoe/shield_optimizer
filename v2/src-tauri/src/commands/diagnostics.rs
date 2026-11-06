@@ -333,8 +333,12 @@ pub async fn collect_diagnostics(
     logs: State<'_, LogControl>,
     serial: Option<String>,
 ) -> Result<String, String> {
-    let adb_path = crate::adb::cached_adb_binary().map(|p| p.display().to_string());
     let adb = state.adb_snapshot().await;
+    let adb_path = if adb.uses_host_server() {
+        crate::adb::cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        Some("(not applicable: direct network transport, no host binary)".into())
+    };
     let adb_version = adb
         .raw(&["version"])
         .await
@@ -467,6 +471,22 @@ pub(crate) async fn host_diag(
     swept: Option<[u8; 3]>,
     gateway: Option<Gateway>,
 ) -> Diag {
+    let ifaces = local_interfaces();
+    let ifaces: Vec<NetInterface> = ifaces
+        .iter()
+        .map(|(name, addr, prefix)| NetInterface {
+            name,
+            addr: *addr,
+            prefix: *prefix,
+        })
+        .collect();
+    if !adb.uses_host_server() {
+        return Diag {
+            adb: Some(adb_diag(AdbSource::Builtin, None, None)),
+            net: Some(net_diag(&ifaces, gateway, swept)),
+            ..Default::default()
+        };
+    }
     let version = adb.raw(&["version"]).await.ok().map(|o| o.combined());
     let devices = adb
         .raw(&["devices"])
@@ -485,15 +505,6 @@ pub(crate) async fn host_diag(
         .map(|o| crate::adb::parse_mdns_services(&o.stdout))
         .unwrap_or_default();
     let types: Vec<&str> = services.iter().map(|s| s.service.as_str()).collect();
-    let ifaces = local_interfaces();
-    let ifaces: Vec<NetInterface> = ifaces
-        .iter()
-        .map(|(name, addr, prefix)| NetInterface {
-            name,
-            addr: *addr,
-            prefix: *prefix,
-        })
-        .collect();
     Diag {
         adb: Some(adb_diag(
             adb_source(),
@@ -898,6 +909,37 @@ mod tests {
             !text.contains("QWERTYUIOPAS") && !text.contains("ZXCVBNMLKJHG"),
             "{text}"
         );
+    }
+
+    #[tokio::test]
+    async fn native_diagnostics_do_not_probe_sessions_or_a_host_server() {
+        struct Native;
+        #[async_trait::async_trait]
+        impl AdbDriver for Native {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(
+                &self,
+                _: &[&str],
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not probe native sessions")
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not read a TV")
+            }
+        }
+        let diag = host_diag(&Native, None, Some(Gateway::NotDetected)).await;
+        assert_eq!(diag.adb.unwrap().source, AdbSource::Builtin);
+        assert!(diag.mdns.is_none());
+        assert!(diag.transports.is_none());
+        assert!(diag.net.is_some());
     }
 
     #[test]

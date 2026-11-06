@@ -14,6 +14,8 @@
 import demoApps from "./demo-apps.json";
 import pkg from "../../package.json";
 import type {
+  AdbEngine,
+  AdbEngineStatus,
   AppEntry,
   ApplyResult,
   Device,
@@ -257,6 +259,47 @@ function storeNativeStopAdbOnQuit(next: StopAdbOnQuit): StopAdbOnQuit {
     // Lasts until the next call reads the default again.
   }
   return next;
+}
+
+/// The ADB engine setting, kept in memory like the real one for the app
+/// process. Flags: `adbEngineBuiltin` starts on the built-in engine,
+/// `adbEngineFallback` has the built-in engine selected but unable to start,
+/// `adbEngineEnv` stands in for an ATV_OPTIMIZER_TRANSPORT override, and
+/// `builtinUnavailable` for a build without the built-in engine.
+const DEMO_FALLBACK_REASON =
+  "The built-in engine couldn't set up its key, so this session uses Google platform-tools. Existing keys were not replaced. Details: demo storage is read-only.";
+let adbEngine: AdbEngineStatus | null = null;
+
+function adbEngineStatus(): AdbEngineStatus {
+  if (!adbEngine) {
+    const fallback = demoFlag("adbEngineFallback");
+    const selected: AdbEngine = fallback || demoFlag("adbEngineBuiltin") ? "builtin" : "platform_tools";
+    adbEngine = {
+      selected,
+      source: demoFlag("adbEngineEnv") ? "env" : selected === "builtin" ? "saved" : "default",
+      active: fallback ? "platform_tools" : selected,
+      fallback_reason: fallback ? DEMO_FALLBACK_REASON : null,
+      builtin_available: !demoFlag("builtinUnavailable"),
+    };
+  }
+  return { ...adbEngine };
+}
+
+function setAdbEngine(engine: AdbEngine): AdbEngineStatus {
+  const current = adbEngineStatus();
+  if (current.source === "env") {
+    throw "ATV_OPTIMIZER_TRANSPORT chooses the ADB engine for this launch. Remove it and reopen the app to use this setting.";
+  }
+  if (engine === "builtin" && !current.builtin_available) throw "This build doesn't include the built-in engine.";
+  const failsToStart = engine === "builtin" && demoFlag("adbEngineFallback");
+  adbEngine = {
+    ...current,
+    selected: engine,
+    source: "saved",
+    active: failsToStart ? "platform_tools" : engine,
+    fallback_reason: failsToStart ? DEMO_FALLBACK_REASON : null,
+  };
+  return { ...adbEngine };
 }
 
 // Replies to the Stop ADB when quitting commands that a test holds back, for
@@ -592,7 +635,20 @@ function demoShellOutput(command: string): string {
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
-      return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+      if (adbEngineStatus().active === "builtin") {
+        return {
+          backend: "direct",
+          available: true,
+          path: null,
+          last_probe: "Built-in ADB (demo); no host adb server",
+          connections: { pending: [], awaiting_authorization: [], ready: [], failed: [] },
+        };
+      }
+      return { backend: "subprocess", available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "adb_engine":
+      return adbEngineStatus();
+    case "set_adb_engine":
+      return setAdbEngine(args.engine as AdbEngine);
     case "get_stop_adb_on_quit":
       if (demoFlag("stopAdbOnQuitReadFails")) throw "demo: the setting could not be read";
       return nativeStopAdbOnQuit();
@@ -629,7 +685,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         current_notes: null,
       };
     case "list_devices":
-      return demoDevices();
+      // The built-in engine is network-only, so it never lists a USB device.
+      return adbEngineStatus().active === "builtin"
+        ? demoDevices().filter((d) => d.connection !== "usb")
+        : demoDevices();
     case "scan_network": {
       const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
       return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],
@@ -1030,7 +1089,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         ok: true,
         status: "unauthorized",
         message:
-          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+          'Approval requested again. Check the device for the debugging prompt, select "Always allow from this computer" if offered, and choose Allow.',
       };
     case "forget_device":
       return {
@@ -1048,6 +1107,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
       return null;
     }
+    case "remote_open":
+      return { generation: "1" };
+    case "remote_close":
+      return null;
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

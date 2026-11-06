@@ -62,6 +62,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `set_app_op` | AppPermissionWrite | `../crates/core/src/commands/apps.rs` | No direct API caller |
 | `get_app_op` | Free | `../crates/core/src/commands/apps.rs` | No direct API caller |
 | `open_play_store` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte`, `src/screens/Launcher.svelte` |
+| `remote_open` | Free | `../crates/core/src/commands/input.rs` | No mobile API wrapper or direct caller |
+| `remote_close` | Free | `../crates/core/src/commands/input.rs` | No mobile API wrapper or direct caller |
 | `send_text` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `send_key` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `open_settings` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |

@@ -1,5 +1,8 @@
 # v2 — current state
 
+Native desktop ADB takeover: see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
+for PR #268, exact candidate provenance, completed checks and remaining native acceptance.
+
 v2 is a shipping desktop app. Latest **published** version: **2.4.1** (2026-10-23). The `v2-2.4.0` tag's build
 failed, so 2.4.0 was never published.
 
@@ -26,11 +29,84 @@ Desktop connection recovery: Add by IP, Scan LAN and restart verify transport re
 confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
 the previous version is cut off from the network once the new version opens; the app restarts it
 when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
-remains the desktop default. Shared native ADB (PR236) and its parity branches remain
-experimental, with hardware and Windows identity acceptance outstanding. Reporter #235 has not
+was the desktop default through 2.5.0. PR #268 makes the built-in Rust ADB (the mobile
+transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
+ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its handoff is
+`NATIVE-ADB-HANDOFF.md`; the release that ships it waits for Bryan's hardware batch,
+`../docs/DEVICE-TEST-SCRIPT.md` N1–N18. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
+`server_repair.rs` stays for the platform-tools path and its fallback even once native is the
+default. Reporter #235 has not
 confirmed a fix. Put the next change under `## Unreleased` in `v2/CHANGELOG.md`;
 `tests/notes-seen.mjs` expects that heading to stay. Before tagging, run the physical script in
 [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.
+
+Native Scan LAN now separates discovery from TV approval: owned, bounded connection
+jobs continue after the scan returns, and ready TVs appear through serialized status
+refreshes. Status polling does not re-query unchanged device properties and stops on
+completion, backend unavailability, navigation, or its deadline. Pending handshakes
+alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
+and the native driver/scan unit tests.
+
+The current native owner-test app also retains the optional grouped IPv4/IPv6
+address picker in collapsed Scan details. Scan tries alternative mDNS routes
+serially and suppresses redundant routes after a ready connection or observed
+AUTH; actual TV cards still merge only on verified hardware identity. The exact
+624fd2f candidate passed seven CI jobs and the two-Shield duplicate-route,
+explicit IPv6 selection and endpoint Retry/Forget checks. See the native handoff
+above for its merge-ref provenance and remaining hardware acceptance.
+
+macOS native builds declare their Local Network purpose and ADB Bonjour services in
+`src-tauri/Info.plist`. Keep separately installed development apps on a distinct local
+bundle identifier and sign the complete development bundle; `--no-sign` leaves only
+the linker's executable signature. Local Network permissions can become ambiguous
+when multiple unsigned versions share an identifier. A zero-result scan accompanied
+by `No route to host` while the same address is reachable outside the app requires
+checking app-specific Local Network permission, not resetting TV authorization keys.
+The shipping identifier stays unchanged. Apple-issued signing remains a release task.
+
+LAN sweep hits now start connecting as each responder arrives, before the remaining
+subnet probes or mDNS observation window finish. Scan diagnostics record subnet
+detection, first responder, sweep admission and mDNS elapsed times to distinguish
+cold-network delays from authorization waits.
+Unapproved native endpoints stay visible in the existing device list with
+Approval requested and Retry approval. Failed or unidentified offline network
+addresses stay in Scan details with exact-endpoint retry, Forget and diagnostics;
+they are not additional identified devices. Authorization
+guidance is shown only after the transport actually sends its public-key AUTH
+packet; a timeout alone does not establish authorization state. Test discovery
+with no previously approved TVs, not just successful reconnections.
+
+Native connection attempts now use one 30-second handshake deadline and interrupt
+their owned socket when canceled or superseded. Forget/retry and mobile cancellation
+must not leave an old authorization read running until its per-response timeout.
+The deadline is detached after successful authentication so it cannot later close
+a live TV connection. Loopback transport regressions cover cancellation before AUTH,
+cancellation while awaiting approval, timeout, and the first shell probe after success. Explicit TLS certificate-trust rejections
+now point to Pair PIN and the separate connect port, rather than legacy AUTH prompts.
+
+Native sync transfers now parse DATA/DONE/FAIL as a byte stream across ADB packets.
+A real read-only system-file download exposed a permission rejection being written
+into the local file before a misleading trailer error. Failure text is now an error,
+never file data. Upload success requires an explicit sync OKAY, and STAT responses
+are acknowledged and may be fragmented. Loopback tests cover these boundaries;
+read-only physical download acceptance passed on the labeled Download Recovery Fix
+app at 3e2f6ce. Upload/install acceptance remains outstanding. A current-binary denied pull exposed
+another failure: it evicted the main session and left an empty local file. Native
+downloads now use the existing bounded, hardware-verified dedicated connection
+and publish a temporary file only after success; denial leaves the original TV
+connection and any existing local destination intact. Uploads also consume early or
+mid-transfer FAIL replies, including fragmented replies interleaved with a transport
+ACK. They stop when rejection is observed and never replay or accept success before
+DONE; the same total transfer deadline bounds incomplete error replies.
+
+The current integration also retains main's Settings and privacy controls. Native
+mode is identified as built-in in diagnostics, without probing a host server or
+live TV sessions for scan reports. Scan statistics count the existing streaming
+probes, and pending handshakes do not become failed-connection reports. Settings
+keeps host-server installation/restart controls inactive in native mode.
+Subprocess status distinguishes a missing binary from a failed availability probe;
+timeout/startup/I/O failures retain their diagnostic and Restart recovery instead
+of being labeled "ADB not found".
 
 ## Things the next reader needs that the code does not say
 

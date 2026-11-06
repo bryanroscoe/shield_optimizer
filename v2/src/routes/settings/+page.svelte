@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/components/Icon.svelte";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
@@ -16,7 +16,7 @@
     stopOnQuit,
     toggleStopOnQuit,
   } from "$lib/stop-adb-on-quit.svelte";
-  import type { AdbStatus } from "$lib/types";
+  import type { AdbEngine, AdbEngineStatus, AdbStatus } from "$lib/types";
   import {
     formatSupportId,
     NOTICE_TEXT,
@@ -88,6 +88,7 @@
   }
 
   let adb = $state<AdbStatus | null>(null);
+  const nativeAdb = $derived(adb?.backend === "direct");
   let adbError = $state<string | null>(null);
   let installBusy = $state(false);
   let installMessage = $state("");
@@ -105,6 +106,7 @@
   }
 
   async function downloadAdb() {
+    if (nativeAdb) return;
     installBusy = true;
     installMessage = "Downloading platform-tools from Google… (~12 MB)";
     try {
@@ -119,6 +121,7 @@
   }
 
   async function restartAdb() {
+    if (nativeAdb) return;
     if (
       !confirm(
         "Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.",
@@ -135,6 +138,62 @@
       restartMessage = String(e);
     } finally {
       restartBusy = false;
+    }
+  }
+
+  const ENGINES: { id: AdbEngine; label: string }[] = [
+    { id: "builtin", label: "Built-in" },
+    { id: "platform_tools", label: "Google platform-tools" },
+  ];
+  const engineLabel = (id: AdbEngine) => ENGINES.find((e) => e.id === id)?.label ?? id;
+
+  let engine = $state<AdbEngineStatus | null>(null);
+  let engineRead = $state(false);
+  let engineError = $state<string | null>(null);
+  let engineBusy = $state(false);
+  /// What the radios show: the saved choice, or the one being applied.
+  let engineChoice = $state<AdbEngine | null>(null);
+  let engineMessage = $state("");
+  let engineGroup = $state<HTMLDivElement | null>(null);
+  const engineLocked = $derived(engine?.source === "env");
+  const engineFellBack = $derived(!!engine?.active && engine.selected !== engine.active);
+
+  async function loadEngine() {
+    try {
+      engine = await api.adbEngine();
+      engineError = null;
+    } catch (e) {
+      engineError = String(e);
+    } finally {
+      engineRead = true;
+      engineChoice = engine?.selected ?? null;
+    }
+  }
+
+  async function chooseEngine(next: AdbEngine) {
+    if (!engine || engineBusy || engineLocked) return;
+    const hadFocus = !!engineGroup?.contains(document.activeElement);
+    const before = engine.active;
+    engineBusy = true;
+    engineChoice = next;
+    engineError = null;
+    engineMessage = "";
+    try {
+      engine = await api.setAdbEngine(next);
+      if (engine.active !== before && engine.active) {
+        engineMessage = `Now using ${engineLabel(engine.active)}. Connect TVs again from Devices if they don't appear.`;
+      }
+    } catch (e) {
+      engineError = String(e);
+    } finally {
+      // Believe the backend, not the click.
+      engineChoice = engine?.selected ?? null;
+      engineBusy = false;
+    }
+    await loadAdb();
+    if (hadFocus) {
+      await tick();
+      engineGroup?.querySelector<HTMLInputElement>("input:checked:not(:disabled)")?.focus();
     }
   }
 
@@ -184,6 +243,7 @@
     loadUiPrefs();
     void loadReports();
     void loadAdb();
+    void loadEngine();
     void loadLogs();
     void refreshStopOnQuit();
   });
@@ -395,17 +455,110 @@
     <h2 id="adb-title"><Icon name="terminal" size={18} /> ADB</h2>
     <div class="row">
       <div class="row-text">
+        <HelpTip label="ADB engine">
+          <p>
+            Built-in connects to TVs directly, with no adb server or download. It works over the
+            network only, so USB devices need platform-tools.
+          </p>
+          <p>
+            Built-in uses this computer's platform-tools key when there is one, so TVs that already
+            allow platform-tools connect without a new prompt. Otherwise each TV asks once to allow
+            debugging.
+          </p>
+          <p>
+            Google platform-tools uses the adb server shared with other tools on this computer, such
+            as Android Studio and scrcpy.
+          </p>
+          <p>Switching closes the current engine's connections. Connect TVs again from Devices.</p>
+        </HelpTip>
+        {#if !engine}
+          <p class="row-note" role="status">
+            {#if !engineRead}
+              Checking…
+            {:else}
+              Couldn't read this setting.
+              <button class="inline-link" onclick={loadEngine}>Check again</button>
+            {/if}
+          </p>
+        {:else}
+          {#if engineLocked}
+            <p class="row-note" data-engine-locked>
+              {engine.selected
+                ? "Set by ATV_OPTIMIZER_TRANSPORT for this launch."
+                : "ATV_OPTIMIZER_TRANSPORT has an invalid value. Fix or remove it, then reopen the app."}
+            </p>
+          {:else if !engine.builtin_available && !engineFellBack}
+            <p class="row-note">This build includes only Google platform-tools.</p>
+          {/if}
+          {#if engineFellBack}
+            <p class="row-note engine-fallback" role="status" data-engine-fallback>
+              <Icon name="warning" size={14} />
+              <span>
+                {engine.fallback_reason ??
+                  "The built-in engine couldn't start, so this session uses Google platform-tools."}
+                {#if !engineLocked && engine.builtin_available}
+                  <button class="inline-link" onclick={() => chooseEngine("builtin")} disabled={engineBusy}>
+                    Try again
+                  </button>
+                {/if}
+              </span>
+            </p>
+          {:else if engineMessage}
+            <p class="row-note" role="status">{engineMessage}</p>
+          {/if}
+        {/if}
+      </div>
+      <div class="row-control">
+        <div
+          class="engine-choice"
+          role="radiogroup"
+          aria-label="ADB engine"
+          aria-busy={engineBusy}
+          bind:this={engineGroup}
+        >
+          {#each ENGINES as option (option.id)}
+            {@const unavailable =
+              !engine || engineBusy || engineLocked || (option.id === "builtin" && !engine.builtin_available)}
+            <label class="engine-option" class:unavailable>
+              <input
+                type="radio"
+                name="adb-engine"
+                value={option.id}
+                checked={engineChoice === option.id}
+                disabled={unavailable}
+                onchange={() => chooseEngine(option.id)}
+              />
+              {option.label}
+            </label>
+          {/each}
+        </div>
+      </div>
+    </div>
+    {#if engineError}
+      <ErrorNotice error={engineError} action="Change ADB engine" />
+    {/if}
+    <div class="row">
+      <div class="row-text">
         <HelpTip label="ADB">
-          <p>The app can download Google's official platform-tools into its own folder.</p>
-          <p>To use a different adb, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+          {#if nativeAdb}
+            Native Rust ADB is built into this app. Connection recovery is on Devices.
+          {:else}
+            <p>The app can download Google's official platform-tools into its own folder.</p>
+            <p>To use a different adb, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+          {/if}
         </HelpTip>
         <p class="row-help">
           {#if adbError}
             Couldn't check adb: {adbError}
           {:else if !adb}
             Checking…
+          {:else if nativeAdb}
+            Native Rust ADB · direct connection{adb.available ? "" : " unavailable"}
+            {#if !adb.available && adb.last_probe}<span>{adb.last_probe}</span>{/if}
           {:else if adb.available}
             Using <span class="mono path">{adb.path ?? "adb from PATH"}</span>
+          {:else if adb.failure !== "missing_binary"}
+            ADB could not respond: {adb.last_probe ?? "The availability check failed."}
           {:else}
             Not found{adb.path ? ` at ${adb.path}` : ""}.
           {/if}
@@ -415,7 +568,7 @@
         {/if}
       </div>
       <div class="row-control">
-        {#if adb && !adb.available}
+        {#if adb && !nativeAdb && adb.failure === "missing_binary"}
           <button class="primary" onclick={downloadAdb} disabled={installBusy}>
             <Icon name="download" size={14} />
             {installBusy ? "Installing…" : "Download platform-tools"}
@@ -426,15 +579,19 @@
     <div class="row">
       <div class="row-text">
         <HelpTip label="Restart ADB">
-          Stops and starts the shared ADB server, then retries network connections.
-          Other tools using ADB are disconnected too.
+          {#if nativeAdb}
+            Native ADB has no shared server. Use the TV's Forget or Try again action on Devices.
+          {:else}
+            Stops and starts the shared adb server, then retries network connections. Other tools
+            using adb are disconnected too.
+          {/if}
         </HelpTip>
         {#if restartMessage}
           <p class="row-note">{restartMessage}</p>
         {/if}
       </div>
       <div class="row-control">
-        <button onclick={restartAdb} disabled={restartBusy || !adb?.available}>
+        <button onclick={restartAdb} disabled={nativeAdb || restartBusy || !adb || adb.failure === "missing_binary"}>
           <Icon name="restart_alt" size={14} />
           {restartBusy ? "Restarting…" : "Restart ADB"}
         </button>
@@ -442,7 +599,7 @@
     </div>
     <div class="row">
       <div class="row-text">
-        <HelpTip label="Stop ADB when quitting" forId="stop-adb-on-quit">{QUIT_ADB_TIP}</HelpTip>
+        <HelpTip label="Stop ADB when quitting" forId="stop-adb-on-quit">{nativeAdb ? "Native connections close when the app quits. This preference applies when using platform-tools." : QUIT_ADB_TIP}</HelpTip>
         {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
           <p class="row-note">Checking…</p>
         {/if}
@@ -461,7 +618,7 @@
           type="checkbox"
           checked={stopOnQuit.setting?.enabled ?? false}
           indeterminate={stopOnQuit.setting === null}
-          disabled={stopOnQuit.setting === null}
+          disabled={nativeAdb || stopOnQuit.setting === null}
           onclick={clickStopOnQuit}
         />
       </div>
@@ -654,6 +811,44 @@
   .sent {
     align-items: center;
     margin-bottom: 0.6rem;
+  }
+  .engine-choice {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.1rem;
+  }
+  .engine-option {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.88rem;
+    cursor: pointer;
+  }
+  .engine-option input {
+    width: 1rem;
+    height: 1rem;
+    margin: 0;
+    accent-color: var(--accent-strong);
+    cursor: inherit;
+  }
+  .engine-option input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .engine-option.unavailable {
+    color: var(--fg-muted);
+    cursor: not-allowed;
+  }
+  .engine-fallback {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    max-width: 62ch;
+  }
+  .engine-fallback :global(.msr) {
+    flex: none;
+    margin-top: 0.1rem;
+    color: var(--warn);
   }
   .inline-link {
     padding: 0;

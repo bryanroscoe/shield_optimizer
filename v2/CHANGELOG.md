@@ -26,6 +26,7 @@ this file and shows the newest few sections, dated, from its version button.
 - Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
+- Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
 - Desktop and Android: **restoring a snapshot keeps a Home screen.** Restore sets the snapshot's Home app first and checks the TV's Home apps again before disabling each launcher. A launcher that is the last enabled Home app stays on, and so does any possible Home app when the TV can't list its Home apps; the result names each one and why. Before, a snapshot whose launcher was missing or couldn't be set could leave the TV with no Home screen.
 - Desktop and Android: restore never re-enables anything. A snapshot launcher that is installed but disabled on this TV is skipped ("enable it first, then restore") instead of being turned back on.
 - Desktop: the restore preview shows a skipped Home app and every package kept on for Home among the unchanged rows, and never calls Home unchanged when it was skipped. The result lists kept packages apart from failures and shows why Home wasn't set.
@@ -35,6 +36,18 @@ this file and shows the newest few sections, dated, from its version button.
 - Desktop and Android: App List, Optimize, Launcher, snapshots and Emergency Recovery read packages for the main user (user 0), the same user every action changes (#233).
 - Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
 - Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
+
+### Built-in ADB
+
+- **Desktop now connects to your TVs with its own built-in ADB**, the same Rust code the Android app uses, instead of Google's `adb` and its background server. Nothing to download first. Scan LAN, Add by IP and Pair PIN work as before.
+- **No new "Allow USB debugging?" prompt for TVs that already allow Google's `adb` on this computer.** The built-in engine uses platform-tools' key when there is one, and only reads it. A TV that allows neither asks once, and that approval covers both engines. While it waits, the TV's row says Approval requested, with Retry approval.
+- **Switching back to platform-tools doesn't prompt either**: when the app starts the adb server, platform-tools also offers the built-in key, so TVs that allowed only Built-in connect as before.
+- **Fast Remote works with the built-in engine.** Presses reach the TV in milliseconds and holding a direction repeats. It falls back to slower shell input only if the fast channel can't start before a press, and never repeats a press whose result is unknown.
+- **Settings › ADB › ADB engine** switches between Built-in and Google platform-tools at any time, without relaunching, and remembers the choice. Use platform-tools for a TV connected by USB (built-in is network-only) or if a TV doesn't work well with the built-in engine. If the built-in engine can't set up its key, the app uses platform-tools and Settings says why.
+- Scan LAN connects to TVs as they answer instead of after the whole sweep, and keeps failed and duplicate addresses in Scan details rather than as extra TV cards. Two addresses are shown as one TV only when the TV reports the same hardware ID.
+- File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
+- macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
+- **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
 
 ## v2-2.5.0 — 2026-11-04
 

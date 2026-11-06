@@ -12,6 +12,8 @@ import {
 } from "../../shared/telemetry";
 import type {
   ActionResult,
+  AdbEngine,
+  AdbEngineStatus,
   AdbStatus,
   AppEntry,
   ApplyResult,
@@ -114,6 +116,8 @@ export const api = {
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
+  adbEngine: () => invoke<AdbEngineStatus>("adb_engine"),
+  setAdbEngine: (engine: AdbEngine) => invoke<AdbEngineStatus>("set_adb_engine", { engine }),
   /// `target`: an IP[:port] the app itself should try to reach as well.
   localNetworkAccess: (target: string | null = null) =>
     invoke<LocalNetworkAccess>("local_network_access", { target }),
@@ -243,12 +247,14 @@ export const api = {
   processSafetyInfo: async (process: string): Promise<Safety> =>
     parseSafety(await invoke<unknown>("process_safety_info", { process })),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
-  sendText: (serial: string, text: string, forceShell = false) =>
-    invoke<SendTextResult>("send_text", { serial, text, forceShell }),
-  sendKey: (serial: string, key: string, forceShell = false) =>
-    invoke<SendTextResult>("send_key", { serial, key, forceShell }),
-  openSettings: (serial: string) =>
-    invoke<SendTextResult>("open_settings", { serial }),
+  remoteOpen: (serial: string) => invoke<{ generation: string }>("remote_open", { serial }),
+  remoteClose: (serial: string, generation: string) => invoke<void>("remote_close", { serial, generation }),
+  sendText: (serial: string, text: string, forceShell = false, generation?: string) =>
+    invoke<SendTextResult>("send_text", { serial, text, forceShell, generation }),
+  sendKey: (serial: string, key: string, forceShell = false, generation?: string) =>
+    invoke<SendTextResult>("send_key", { serial, key, forceShell, generation }),
+  openSettings: (serial: string, generation?: string) =>
+    invoke<SendTextResult>("open_settings", { serial, generation }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),

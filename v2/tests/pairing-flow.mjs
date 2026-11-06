@@ -96,8 +96,8 @@ const TV_ROW = {
 /// Replace the demo bridge for one scenario. `probeReplies` is handed back in
 /// order (sticking on the last); `connectOk` decides what connect_device says;
 /// the new row joins list_devices once a connect has succeeded.
-async function installBridge(page, { probeReplies, connectOk = true, pairError = null, wrongDevice = false, listed = false }) {
-  await page.evaluate(({ probeReplies, connectOk, pairError, wrongDevice, listed, row }) => {
+async function installBridge(page, { probeReplies, connectOk = true, pairError = null, wrongDevice = false, listed = false, pairInstance, holdFirstProbe = false }) {
+  await page.evaluate(({ probeReplies, connectOk, pairError, wrongDevice, listed, row, pairInstance, holdFirstProbe }) => {
     const demo = window.__TAURI_INTERNALS__;
     const originalInvoke = demo.invoke.bind(demo);
     window.__PAIRING_FLOW_CALLS__ = [];
@@ -106,9 +106,16 @@ async function installBridge(page, { probeReplies, connectOk = true, pairError =
     demo.invoke = async (command, args = {}) => {
       window.__PAIRING_FLOW_CALLS__.push({ command, args });
       if (command === "pair_device" && pairError) throw pairError;
+      if (command === "pair_device" && pairInstance !== undefined) {
+        return { ok: true, message: "Paired.", instance: pairInstance };
+      }
       if (command === "probe_paired_connect") {
         const reply = probeReplies[Math.min(probes, probeReplies.length - 1)];
         probes += 1;
+        // A built-in engine probe is a browse that takes seconds to answer.
+        if (holdFirstProbe && probes === 1) {
+          return new Promise((resolve) => { window.__RELEASE_PROBE__ = () => resolve(reply); });
+        }
         return reply;
       }
       if (command === "connect_paired" && wrongDevice) {
@@ -129,7 +136,7 @@ async function installBridge(page, { probeReplies, connectOk = true, pairError =
       if (command === "list_devices" && connected) return [...result, row];
       return result;
     };
-  }, { probeReplies, connectOk, pairError, wrongDevice, listed, row: TV_ROW });
+  }, { probeReplies, connectOk, pairError, wrongDevice, listed, row: TV_ROW, pairInstance, holdFirstProbe });
 }
 
 async function openAndPair(page, address = PAIR_ADDRESS) {
@@ -142,11 +149,13 @@ async function openAndPair(page, address = PAIR_ADDRESS) {
 const calls = (page, name) =>
   page.evaluate((n) => window.__PAIRING_FLOW_CALLS__.filter((c) => c.command === n), name);
 
-async function freshPage(browser, base, { clock = false } = {}) {
+async function freshPage(browser, base, { clock = false, builtin = false } = {}) {
   const page = await browser.newPage();
   if (clock) await page.clock.install();
+  if (builtin) await page.addInitScript(() => localStorage.setItem("shieldopt.demo.adbEngineBuiltin", "1"));
   await page.goto(base, { waitUntil: "networkidle" });
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
+  if (builtin) await page.getByTestId("adb-backend").filter({ hasText: "Native Rust ADB" }).waitFor();
   return page;
 }
 
@@ -402,8 +411,85 @@ async function exercisePairingFlow({ browser, base }) {
     await page.close();
   }
 
+  // 6. Built-in engine: the device named itself while pairing, so the app
+  // watches for that device's connect port and dials only what it advertises,
+  // exactly as with platform-tools.
+  {
+    const page = await freshPage(browser, base, { builtin: true });
+    await installBridge(page, {
+      probeReplies: [{ state: "waiting" }, { state: "endpoint", address: CONNECT_ADDRESS }],
+    });
+    await openAndPair(page);
+    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    const note = await page.locator(".pair-note").innerText();
+    assert.match(note, /the app connects automatically/);
+    assert.match(note, /Do not reuse the pairing port\./);
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    const row = page.locator(`[data-serial="${CONNECT_ADDRESS}"]`);
+    await row.waitFor({ timeout: 15000 });
+    await page.getByText(`Connected ${MDNS_NAME}.`, { exact: true }).waitFor();
+    assert.equal(await page.locator(".pair-form").count(), 0, "the pairing panel closes once connected");
+    assert.match(await row.getAttribute("class"), /\bflash\b/);
+    const probes = await calls(page, "probe_paired_connect");
+    assert.equal(probes.length, 2);
+    assert.ok(probes.every((c) => c.args.pairAddress === PAIR_ADDRESS && c.args.instance === "adb-DEMO0001-a1B2c3"));
+    assert.deepEqual(await calls(page, "connect_paired"),
+      [{ command: "connect_paired", args: { address: CONNECT_ADDRESS, instance: "adb-DEMO0001-a1B2c3" } }]);
+    assert.equal((await calls(page, "connect_device")).length, 0);
+    await page.close();
+  }
+
+  // 6b. Built-in engine, nothing advertised within 45 s: the typed connect
+  // port takes over, and Add by IP waits for an explicit port.
+  {
+    const page = await freshPage(browser, base, { clock: true, builtin: true });
+    await installBridge(page, { probeReplies: [{ state: "waiting" }], holdFirstProbe: true });
+    await openAndPair(page);
+    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.waitForFunction(() => typeof window.__RELEASE_PROBE__ === "function");
+    await page.clock.runFor(3000);
+    const counted = Number(/(\d+)s of 45s/.exec(await page.locator(".pair-waiting").innerText())?.[1]);
+    assert.ok(counted >= 2, `the count keeps moving while a probe is in flight, got ${counted}s`);
+    await page.evaluate(() => window.__RELEASE_PROBE__());
+    for (let i = 0; i < 40 && (await page.locator(".pair-waiting").count()) > 0; i++) {
+      await page.clock.runFor(1500);
+    }
+    await page.getByText("No connect port appeared within 45 seconds.", { exact: true }).waitFor();
+    await page.getByText(
+      "Enter the port shown on the TV or phone's main Wireless debugging screen, then Add by IP.",
+      { exact: true },
+    ).waitFor();
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    const addByIp = page.locator(".connect-form").getByRole("button", { name: "Add by IP" });
+    assert.equal(await addByIp.isDisabled(), true, "a bare host is not dialled on the default port");
+    await connectBox(page).pressSequentially(CONNECT_ADDRESS.split(":")[1]);
+    assert.equal(await addByIp.isEnabled(), true);
+    assert.equal((await calls(page, "connect_device")).length + (await calls(page, "connect_paired")).length, 0);
+    await page.close();
+  }
+
+  // 6c. Built-in engine, the device gave no usable name while pairing:
+  // nothing advertised can be tied to it, so the manual connect port is asked
+  // for at once and nothing is probed.
+  {
+    const page = await freshPage(browser, base, { builtin: true });
+    await installBridge(page, { probeReplies: [{ state: "waiting" }], pairInstance: null });
+    await openAndPair(page);
+    await page.getByText(
+      "Enter the port shown on the TV or phone's main Wireless debugging screen, then Add by IP.",
+      { exact: true },
+    ).waitFor();
+    assert.equal(await page.locator(".pair-waiting").count(), 0);
+    assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
+    assert.equal(await page.locator(".connect-form").getByRole("button", { name: "Add by IP" }).isDisabled(), true);
+    await page.waitForTimeout(500);
+    assert.equal((await calls(page, "probe_paired_connect")).length, 0);
+    assert.equal((await calls(page, "connect_paired")).length, 0);
+    await page.close();
+  }
+
   console.log(
-    "Pairing flow passed: auto-connect to the advertised port (and to adb's own attach) closes the panel and highlights the row, a 45 s timeout and Cancel fall back to the pre-filled focused connect box without dialling, pair/connect failures are explained with raw Details, the typo warning fires off-subnet, and the home callout's actions work.",
+    "Pairing flow passed: auto-connect to the advertised port (and to adb's own attach) closes the panel and highlights the row under both engines, a 45 s timeout and Cancel fall back to the pre-filled focused connect box without dialling, the built-in engine asks for the connect port at once when the device gave no name, pair/connect failures are explained with raw Details, the typo warning fires off-subnet, and the home callout's actions work.",
   );
 }
 

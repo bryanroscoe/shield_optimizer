@@ -1,9 +1,9 @@
 //! Desktop subprocess-backed ADB driver.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -34,6 +34,58 @@ pub struct SubprocessAdb {
     repair_cut_off: bool,
     reach: ReachProbe,
     repairs: Arc<RepairGate>,
+    /// The built-in engine's key, offered to an adb server this driver's
+    /// commands start. See [`offer_builtin_key_to_adb_server`].
+    vendor_key: Option<PathBuf>,
+}
+
+/// Where the built-in engine keeps its key, set once at launch.
+static BUILTIN_KEY: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Have every adb this app runs name the built-in engine's key at `path` in
+/// `ADB_VENDOR_KEYS`, so a TV that allowed only the built-in engine needs no
+/// new prompt under platform-tools.
+///
+/// adb reads `ADB_VENDOR_KEYS` only in the server, once, when it starts
+/// (`adb_auth_init` in AOSP `client/auth.cpp`): a list split on the OS path
+/// separator whose files are loaded as keys (PEM read by
+/// `PEM_read_RSAPrivateKey`, which takes the PKCS#8 our key is in) and whose
+/// folders contribute their `*.adb_key` files. So it takes effect only when one
+/// of this app's adb commands is what starts the server; a server already
+/// running, started by another tool or an earlier session, keeps the keys it
+/// has. Nothing restarts a server to change that. The key is named only while
+/// its file exists; nothing creates it for this.
+pub fn offer_builtin_key_to_adb_server(path: Option<PathBuf>) {
+    let _ = BUILTIN_KEY.set(path);
+}
+
+const VENDOR_KEYS: &str = "ADB_VENDOR_KEYS";
+#[cfg(windows)]
+const PATH_LIST_SEPARATOR: &str = ";";
+#[cfg(not(windows))]
+const PATH_LIST_SEPARATOR: &str = ":";
+
+/// `existing` with `key` appended, or `None` to leave the inherited value as
+/// it is: when it already names `key`, or when `key` contains the separator,
+/// which adb's plain split could not keep together.
+fn vendor_keys_value(existing: Option<&OsStr>, key: &Path) -> Option<OsString> {
+    if key
+        .as_os_str()
+        .to_string_lossy()
+        .contains(PATH_LIST_SEPARATOR)
+    {
+        return None;
+    }
+    let Some(existing) = existing.filter(|value| !value.is_empty()) else {
+        return Some(key.as_os_str().to_owned());
+    };
+    if std::env::split_paths(existing).any(|entry| entry == key) {
+        return None;
+    }
+    let mut value = existing.to_owned();
+    value.push(PATH_LIST_SEPARATOR);
+    value.push(key);
+    Some(value)
 }
 
 impl SubprocessAdb {
@@ -46,7 +98,26 @@ impl SubprocessAdb {
             repair_cut_off: cfg!(target_os = "macos"),
             reach: ReachProbe::Network,
             repairs: Arc::clone(super::server_repairs()),
+            vendor_key: BUILTIN_KEY.get().cloned().flatten(),
         }
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_vendor_key(mut self, key: Option<PathBuf>) -> Self {
+        self.vendor_key = key;
+        self
+    }
+
+    /// An adb command for this driver's binary, offering the built-in key to
+    /// a server it starts.
+    fn adb_command(&self) -> Command {
+        let mut command = Command::new(&self.binary);
+        if let Some(key) = self.vendor_key.as_deref().filter(|key| key.is_file()) {
+            if let Some(value) = vendor_keys_value(std::env::var_os(VENDOR_KEYS).as_deref(), key) {
+                command.env(VENDOR_KEYS, value);
+            }
+        }
+        command
     }
 
     /// Locate `adb` using the same priority order as `discover_adb_binary`.
@@ -184,7 +255,7 @@ impl SubprocessAdb {
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -606,7 +677,7 @@ impl AdbDriver for SubprocessAdb {
     }
 
     async fn shell_bounded(&self, serial: &str, command: &str) -> AdbResult<BoundedShellOutput> {
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(["-s", serial, "shell", command]);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -657,7 +728,7 @@ impl AdbDriver for SubprocessAdb {
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke (binary)");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -721,7 +792,7 @@ impl AdbDriver for SubprocessAdb {
 
         debug!(adb = ?self.binary, args = ?redact_args(args), "adb spawn (long-lived)");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args).kill_on_drop(true);
         // Verified on device: the device-side `app_process` aborts at startup
         // (exit 134, no Java output) when the adb client's stdin is fully
@@ -747,7 +818,7 @@ impl AdbDriver for SubprocessAdb {
         if !self.binary.exists() {
             return ServerStop::Skipped(format!("adb binary at {} is gone", self.binary.display()));
         }
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.arg("kill-server")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -1295,6 +1366,10 @@ mod tests {
         }
 
         const SLEEPER: &str = "echo $$ > \"$PID_FILE\"; exec sleep 30";
+        /// Long enough for the sleeper to write its pid first: macOS can take
+        /// over 150 ms to start a script written moments ago, more under a
+        /// parallel test run.
+        const SLEEPER_DEADLINE: Duration = Duration::from_secs(2);
 
         #[tokio::test]
         async fn inherited_output_pipes_respect_timeout_after_direct_child_exit() {
@@ -1335,7 +1410,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
-                .with_timeout(Duration::from_millis(300))
+                .with_timeout(SLEEPER_DEADLINE)
                 .with_child_leases(Arc::clone(&children));
             let result = driver.raw(&["devices"]).await;
             assert!(matches!(result, Err(AdbError::Timeout { .. })));
@@ -1349,12 +1424,26 @@ mod tests {
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
                 .with_child_leases(Arc::clone(&children));
-            let call = driver.raw(&["devices"]);
-            let gave_up = tokio::time::timeout(Duration::from_millis(300), call).await;
-            assert!(gave_up.is_err());
-            let pid = pid_of(dir.path()).await;
+            let call = tokio::spawn(async move { driver.raw(&["devices"]).await });
+            let ready = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Ok(text) = std::fs::read_to_string(dir.path().join("pid")) {
+                        if let Ok(pid) = text.trim().parse::<u32>() {
+                            break pid;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await;
+            let active_before_cancel = children.active();
+            call.abort();
+            let cancelled = call.await;
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             assert!(children.wait_idle(deadline).await);
+            let pid = ready.expect("the fake adb never became ready before cancellation");
+            assert_eq!(active_before_cancel, 1);
+            assert!(cancelled.unwrap_err().is_cancelled());
             assert!(!alive(pid));
         }
 
@@ -1404,7 +1493,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER));
             assert_eq!(
-                driver.stop_server(Duration::from_millis(300)).await,
+                driver.stop_server(SLEEPER_DEADLINE).await,
                 ServerStop::Unknown
             );
             assert!(!alive(pid_of(dir.path()).await));
@@ -1828,6 +1917,67 @@ mod tests {
                 assert!(path.contains("nonexistent"));
             }
             other => panic!("expected BinaryMissing, got {other:?}"),
+        }
+    }
+
+    mod vendor_keys {
+        use super::*;
+
+        const SEP: &str = PATH_LIST_SEPARATOR;
+
+        #[test]
+        fn the_builtin_key_joins_any_vendor_keys_already_set() {
+            let key = Path::new("/fixture/data/native-adb/identity.pkcs8.pem");
+            assert_eq!(vendor_keys_value(None, key), Some(OsString::from(key)));
+            assert_eq!(
+                vendor_keys_value(Some(OsStr::new("")), key),
+                Some(OsString::from(key))
+            );
+            let existing = format!("/fixture/vendor.adb_key{SEP}/fixture/keys");
+            assert_eq!(
+                vendor_keys_value(Some(OsStr::new(&existing)), key),
+                Some(OsString::from(format!("{existing}{SEP}{}", key.display())))
+            );
+            // Already named: the inherited value stays as it is.
+            let named = format!("/fixture/vendor.adb_key{SEP}{}", key.display());
+            assert_eq!(vendor_keys_value(Some(OsStr::new(&named)), key), None);
+            // adb would split such a path in two, so it is not named.
+            let split = PathBuf::from(format!("/fixture/odd{SEP}name/identity.pkcs8.pem"));
+            assert_eq!(vendor_keys_value(None, &split), None);
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn adb_runs_with_the_builtin_key_only_while_it_exists() {
+            let dir = tempfile::tempdir().unwrap();
+            let adb = dir.path().join("adb");
+            crate::adb::write_script(&adb, "printf '%s' \"${ADB_VENDOR_KEYS-unset}\"");
+            let inherited = std::env::var_os(VENDOR_KEYS);
+            let unchanged = inherited.as_ref().map_or("unset".to_string(), |value| {
+                value.to_string_lossy().into_owned()
+            });
+            let seen = |key: Option<PathBuf>| {
+                let driver = SubprocessAdb::new(adb.clone()).with_vendor_key(key);
+                async move { driver.raw(&["start-server"]).await.unwrap().stdout }
+            };
+
+            let key = dir.path().join("native-adb").join("identity.pkcs8.pem");
+            assert_eq!(
+                seen(Some(key.clone())).await,
+                unchanged,
+                "no key file, nothing named"
+            );
+            assert!(!key.exists(), "the key is never created for this");
+
+            std::fs::create_dir(key.parent().unwrap()).unwrap();
+            std::fs::write(&key, b"fixture key bytes").unwrap();
+            let expected = vendor_keys_value(inherited.as_deref(), &key)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert_eq!(seen(Some(key.clone())).await, expected);
+            assert_eq!(std::fs::read(&key).unwrap(), b"fixture key bytes");
+            assert_eq!(seen(None).await, unchanged);
         }
     }
 }
