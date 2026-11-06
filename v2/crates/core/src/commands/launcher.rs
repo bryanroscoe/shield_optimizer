@@ -53,8 +53,8 @@ pub async fn list_launchers_impl(
     // serializes every shell behind one connection.
     let adb = state.adb_snapshot().await;
     let cmd = crate::adb::checked_batch_command(&[
-        "pm list packages",
-        "pm list packages -d",
+        super::LIST_PACKAGES,
+        super::LIST_DISABLED_PACKAGES,
         HOME_HANDLER_QUERY,
     ]);
     let out = adb
@@ -107,33 +107,7 @@ pub async fn disable_launcher(
     serial: String,
     package: String,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let outcome = async {
-        let adb = state.adb_snapshot().await;
-        let enabled_handlers = adb
-            .shell(&serial, HOME_HANDLER_QUERY)
-            .await
-            .map(|out| parse_home_handler_packages(&out.stdout))
-            .map_err(|e| format!("query-activities: {e}"))?;
-        if is_last_enabled_home_handler(&package, &enabled_handlers, launchers()) {
-            return Ok(crate::commands::apps::ActionResult {
-                ok: false,
-                message: format!(
-                    "Refusing to disable {package}: it's the only enabled launcher left on this \
-                     device. Enable another launcher first."
-                ),
-            });
-        }
-
-        let data_dir = state.data_dir.clone();
-        let result =
-            crate::commands::apps::disable_package(state, serial.clone(), package.clone()).await?;
-
-        if result.ok && !launchers().contains(&package) {
-            home_tracking::record(&data_dir, &serial, &package).await;
-        }
-        Ok(result)
-    }
-    .await;
+    let outcome = disable_launcher_impl(state.inner(), &serial, &package).await;
     match &outcome {
         Ok(r) => tracing::info!(%serial, %package, ok = r.ok, "disable launcher finished"),
         Err(e) => {
@@ -141,6 +115,50 @@ pub async fn disable_launcher(
         }
     }
     outcome
+}
+
+pub async fn disable_launcher_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<crate::commands::apps::ActionResult, String> {
+    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
+    let adb = state.adb_snapshot().await;
+    let Some(enabled_handlers) = read_enabled_home_handlers(&*adb, serial).await else {
+        return refuse(format!(
+            "Refusing to disable {package}: this TV's Home apps couldn't be read, so it can't \
+             be proven another launcher stays enabled. Nothing was disabled."
+        ));
+    };
+    if is_last_enabled_home_handler(package, &enabled_handlers, launchers()) {
+        return refuse(format!(
+            "Refusing to disable {package}: it's the only enabled launcher left on this \
+             device. Enable another launcher first."
+        ));
+    }
+
+    let result = crate::commands::apps::disable_package_impl(state, serial, package).await?;
+
+    if result.ok && !launchers().contains(package) {
+        home_tracking::record(&state.data_dir, serial, package).await;
+    }
+    Ok(result)
+}
+
+/// The enabled HOME handlers, or `None` when the device didn't answer: a
+/// failed or refused query, failure text, or an empty list. Android 8 has no
+/// `query-activities` and answers "Unknown command", which lists nothing.
+/// Every last-Home guard reads `None` as "can't be proven safe".
+pub(crate) async fn read_enabled_home_handlers(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Option<Vec<String>> {
+    let out = adb.shell(serial, HOME_HANDLER_QUERY).await.ok()?;
+    if !out.success() || out.shell_reported_failure() {
+        return None;
+    }
+    let handlers = parse_home_handler_packages(&out.stdout);
+    (!handlers.is_empty()).then_some(handlers)
 }
 
 /// What `set_home_any` observed. It never disables anything, so a refusal
@@ -241,7 +259,7 @@ async fn stock_is_disabled_with_helper(state: &AppState, serial: &str, package: 
     }
     let adb = state.adb_snapshot().await;
     match adb
-        .shell(serial, &format!("pm list packages -d {package}"))
+        .shell(serial, &super::list_disabled_package(package))
         .await
     {
         Ok(out) if out.success() && !out.shell_reported_failure() => out
@@ -262,7 +280,7 @@ async fn restore_helper_if_stock_enabled(
 ) -> Option<String> {
     let adb = state.adb_snapshot().await;
     let stock_now_enabled = match adb
-        .shell(serial, &format!("pm list packages -d {stock}"))
+        .shell(serial, &super::list_disabled_package(stock))
         .await
     {
         Ok(out) if out.success() && !out.shell_reported_failure() => Some(
@@ -902,7 +920,9 @@ pub async fn set_default_launcher_impl(
     Ok(result)
 }
 
-async fn set_default_launcher_core(
+/// The switch alone. Snapshot restore calls this directly: it only ever sets
+/// an enabled launcher, and must not re-enable a setup helper on the way.
+pub(crate) async fn set_default_launcher_core(
     state: &AppState,
     serial: &str,
     package: &str,
@@ -1376,7 +1396,7 @@ pub(crate) async fn reenable_paired_helpers(
     let mut failures = Vec::new();
     for holder in launchers().disable_with_for(stock) {
         let state = adb
-            .shell(serial, &format!("pm list packages -d {holder}"))
+            .shell(serial, &super::list_disabled_package(holder))
             .await;
         let disabled = match &state {
             Ok(out) if out.success() && !out.shell_reported_failure() => out
@@ -2039,7 +2059,10 @@ pub async fn channel_provider_disabled(
 ) -> Result<bool, String> {
     let adb = state.adb_snapshot().await;
     let out = adb
-        .shell(&serial, "pm list packages -d com.android.providers.tv")
+        .shell(
+            &serial,
+            &super::list_disabled_package("com.android.providers.tv"),
+        )
         .await
         .map_err(|e| format!("pm list packages -d: {e}"))?;
     Ok(out
@@ -2602,6 +2625,53 @@ mod tests {
             1,
             "installed + disabled + the HOME query must cost one round-trip: {calls:?}"
         );
+        // Same user as App List and every package action (#233).
+        assert!(calls[0].contains("(pm list packages --user 0)"));
+        assert!(calls[0].contains("(pm list packages -d --user 0)"));
+    }
+
+    #[tokio::test]
+    async fn disable_launcher_refuses_when_the_home_apps_cant_be_read() {
+        // Android 8 answers query-activities with "Unknown command" (#87), and
+        // the mobile transport returns a nonzero exit as Ok with its output.
+        for mock in [
+            MockAdb::default().on_shell("query-activities", "Unknown command: package"),
+            MockAdb::default().on_shell_exit(
+                "query-activities",
+                "  packageName=com.spocky.projengmenu\n  packageName=com.google.android.tvlauncher\n",
+                255,
+            ),
+            MockAdb::default().on_shell_err("query-activities", "device offline"),
+        ] {
+            let log = mock.shell_log();
+            let res = disable_launcher_impl(&state_with(mock), "serial", "com.spocky.projengmenu")
+                .await
+                .unwrap();
+            assert!(!res.ok);
+            assert!(res.message.contains("couldn't be read"), "{}", res.message);
+            assert!(
+                !log.lock().unwrap().iter().any(|c| c.contains("disable-user")),
+                "nothing may be disabled on an unreadable Home list"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn disable_launcher_disables_while_another_launcher_stays_enabled() {
+        let mock = MockAdb::default().on_shell(
+            "query-activities",
+            "  packageName=com.spocky.projengmenu\n  packageName=com.google.android.tvlauncher\n",
+        );
+        let log = mock.shell_log();
+        let res = disable_launcher_impl(&state_with(mock), "serial", "com.spocky.projengmenu")
+            .await
+            .unwrap();
+        assert!(res.ok, "{}", res.message);
+        assert!(log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == "pm disable-user --user 0 com.spocky.projengmenu"));
     }
 
     #[tokio::test]

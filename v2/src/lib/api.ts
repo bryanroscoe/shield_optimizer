@@ -222,8 +222,8 @@ export const api = {
     invoke<ActionResult>("set_app_op", { serial, package: pkg, op, allow }),
   getAppOp: (serial: string, pkg: string, op: string) =>
     invoke<string>("get_app_op", { serial, package: pkg, op }),
-  listOtherPackages: (serial: string) =>
-    invoke<OtherPackage[]>("list_other_packages", { serial }),
+  listOtherPackages: (serial: string, deviceType: DeviceType) =>
+    invoke<OtherPackage[]>("list_other_packages", { serial, deviceType }),
   /// Every installed package, catalogued ones included. Used to confirm that a
   /// process name from a memory report really is an installed package before
   /// the catalog's verdict is applied to it.

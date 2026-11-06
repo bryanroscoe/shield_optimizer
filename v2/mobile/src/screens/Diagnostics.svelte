@@ -531,12 +531,12 @@
                   {#if suggestion.kind === "recommendation"}
                     <span class="consumer-pkg">Safety: {safetyLabel(status)}</span>
                   {/if}
-                </span>
-                <span
-                  class="risk-badge {shownSuggestion.tone}"
-                  title={suggestion.kind === "checking" ? undefined : safetyReason(status)}
-                >
-                  {shownSuggestion.label}
+                  <span
+                    class="risk-badge {shownSuggestion.tone}"
+                    title={suggestion.kind === "checking" ? undefined : safetyReason(status)}
+                  >
+                    {shownSuggestion.label}
+                  </span>
                 </span>
                 <span class="mono consumer-mb">{Math.round(consumer.mb)} MB</span>
               </svelte:element>
@@ -792,16 +792,12 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--text);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .consumer-pkg {
     font-size: 10px;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .consumer-row.tappable {
     width: 100%;
@@ -811,15 +807,15 @@
     cursor: pointer;
   }
   .risk-badge {
+    align-self: flex-start;
+    margin-top: 4px;
+    max-width: 100%;
+    box-sizing: border-box;
     font-size: 11px;
     font-weight: 600;
     padding: 3px 8px;
     border-radius: 6px;
-    flex: none;
-    white-space: nowrap;
-    max-width: 46%;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: anywhere;
   }
   .risk-badge.act {
     color: var(--accent);

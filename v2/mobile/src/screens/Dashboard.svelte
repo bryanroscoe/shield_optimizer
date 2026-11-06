@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
-  import { listSavedDevices } from "../lib/savedDevices";
+  import { listSavedDevices, savedDeviceIsLiveConnection, savedDeviceKey } from "../lib/savedDevices";
   import type { Screen } from "../lib/router.svelte";
   import type { SavedDevice, ScreenshotResult } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
@@ -21,7 +21,7 @@
   let showDeviceMenu = $state(false);
   let busyAction = $state("");
   let rebootConfirm = $state(false);
-  let switchingHost = $state("");
+  let switchingKey = $state("");
   let savedTvs = $state<SavedDevice[]>([]);
   let screenshot = $state<ScreenshotResult | null>(null);
 
@@ -37,16 +37,41 @@
 
   onMount(() => {
     savedTvs = listSavedDevices();
-    session.loadHealth();
-    session.loadBloat();
     session.checkLiveness();
   });
 
+  // Stats belong to one connection, so load them whenever a connection goes
+  // live: first visit, banner Retry, a recovery onto another TV. Loads that
+  // are already cached or in flight return at once.
+  $effect(() => {
+    void session.generation;
+    if (session.liveness !== "live" || !session.serial) return;
+    untrack(() => {
+      void session.loadHealth();
+      void session.loadBloat();
+    });
+  });
+
+  // Same rule as Devices: a saved row is hidden only when it is verifiably
+  // the live connection, never because its address matches.
   const previousTvs = $derived(
     savedTvs.filter(
-      (d) => !(d.host === session.host && d.connectPort === session.connectPort),
+      (d) =>
+        !session.connectedDevice ||
+        !savedDeviceIsLiveConnection(
+          d,
+          savedTvs,
+          session.host,
+          session.connectPort,
+          session.connectedDevice.properties?.serial_number,
+        ),
     ),
   );
+
+  function toggleDeviceMenu() {
+    showDeviceMenu = !showDeviceMenu;
+    if (showDeviceMenu) savedTvs = listSavedDevices();
+  }
 
   const bloatKnown = $derived(
     session.bloatLoaded && !session.bloatLoading && !session.bloatError,
@@ -76,9 +101,10 @@
   let switchFailure = $state<{ title: string; error: unknown } | null>(null);
 
   async function switchDevice(device: SavedDevice) {
-    if (switchingHost) return;
+    // A screenshot or trim in flight belongs to this TV; finish it first.
+    if (switchingKey || busyAction) return;
     showDeviceMenu = false;
-    switchingHost = device.host;
+    switchingKey = savedDeviceKey(device);
     switchFailure = null;
     try {
       const result = await session.connect(device.host, device.connectPort);
@@ -89,15 +115,13 @@
         if (!session.identityNote) {
           showToast(`Connected to ${session.deviceLabel}.`, "success");
         }
-        session.loadHealth(true);
-        session.loadBloat(true);
       } else {
         switchFailure = { title: `Couldn't connect to ${device.name}`, error: result.message || "Couldn't connect." };
       }
     } catch (error) {
       switchFailure = { title: `Couldn't connect to ${device.name}`, error };
     } finally {
-      switchingHost = "";
+      switchingKey = "";
     }
   }
 
@@ -109,18 +133,22 @@
     await session.loadBloat(true);
   }
 
+  // Results from a connection that has since been replaced (a switch, a
+  // reconnect) describe another TV or a dead socket; they are dropped.
   async function handleTrimCaches() {
     if (busyAction) return;
     busyAction = "trim_caches";
+    const generation = session.generation;
     try {
       const result = await api.trimCaches(session.serial);
+      if (generation !== session.generation) return;
       showToast(result.message || (result.ok ? "Caches trimmed." : "Failed to trim caches."), result.ok ? "success" : "error");
       if (result.ok) {
         session.invalidateHealth();
         session.loadHealth(true);
       }
     } catch (e) {
-      showToast(String(e), "error");
+      if (generation === session.generation) showToast(String(e), "error");
     } finally {
       busyAction = "";
     }
@@ -129,10 +157,12 @@
   async function handleScreenshot() {
     if (busyAction) return;
     busyAction = "screenshot";
+    const generation = session.generation;
     try {
-      screenshot = await api.takeScreenshot(session.serial);
+      const shot = await api.takeScreenshot(session.serial);
+      if (generation === session.generation) screenshot = shot;
     } catch (e) {
-      showToast(String(e), "error");
+      if (generation === session.generation) showToast(String(e), "error");
     } finally {
       busyAction = "";
     }
@@ -165,8 +195,12 @@
 <div class="screen">
   <div class="topline">
     <div class="device-menu-wrap">
-      <button class="device-selector" onclick={() => (showDeviceMenu = !showDeviceMenu)}>
-        <span class="d-dot" class:lost={session.liveness === "lost"} class:pending={session.liveness === "reconnecting"}></span>
+      <button class="device-selector" onclick={toggleDeviceMenu}>
+        <span
+          class="d-dot"
+          class:lost={session.liveness === "lost" || session.liveness === "idle"}
+          class:pending={session.liveness === "reconnecting" || session.liveness === "connecting"}
+        ></span>
         <div class="device-details">
           <span class="device-name">{session.deviceLabel}</span>
           <span class="mono device-ip">{session.host}{androidRelease ? ` · Android ${androidRelease}` : ""}</span>
@@ -179,16 +213,16 @@
         <div class="device-dropdown">
           {#if previousTvs.length > 0}
             <span class="dropdown-label">Previous TVs</span>
-            {#each previousTvs as device (device.host)}
+            {#each previousTvs as device (savedDeviceKey(device))}
               <button
                 class="dropdown-item saved-tv"
-                disabled={switchingHost !== ""}
+                disabled={switchingKey !== "" || busyAction !== ""}
                 onclick={() => switchDevice(device)}
               >
                 <span class="msr">tv</span>
                 <span class="dropdown-device-copy">
                   <span>{device.name}</span>
-                  <span class="mono">{device.host}</span>
+                  <span class="mono">{device.host}:{device.connectPort}</span>
                 </span>
               </button>
             {/each}
@@ -273,12 +307,8 @@
     </div>
 
     {#if session.healthError}
-      <div class="error-card">
-        <span class="msr">error</span>
-        <div class="ec-body">
-          <span class="ec-title">Couldn't read device health</span>
-          <span class="ec-desc mono">{session.healthError}</span>
-        </div>
+      <div class="health-error">
+        <ErrorNotice error={session.healthError} title="Couldn't read device health" action="Read device health" />
         <button class="rb-btn" onclick={retryHealth}>Retry</button>
       </div>
     {:else}
@@ -579,37 +609,15 @@
     font-weight: 700;
     min-height: 36px;
   }
-  .error-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 18px;
-    border-radius: 22px;
-    background: color-mix(in srgb, var(--danger) 8%, #141519);
-    border: 1px solid color-mix(in srgb, var(--danger) 26%, transparent);
-    margin-bottom: 8px;
-  }
-  .error-card > .msr {
-    color: var(--danger);
-    font-size: 28px;
-    flex: none;
-  }
-  .ec-body {
-    flex: 1;
+  .health-error {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    min-width: 0;
+    gap: 8px;
+    margin-bottom: 8px;
   }
-  .ec-title {
-    font-size: 15px;
-    font-weight: 700;
-  }
-  .ec-desc {
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.4;
-    word-break: break-word;
+  .health-error .rb-btn {
+    align-self: flex-end;
+    min-height: 44px;
   }
 
   /* Optimize CTA card */
@@ -623,8 +631,11 @@
     border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
     margin-bottom: 8px;
   }
+  /* At large text sizes the copy drops below the count instead of pushing
+     the title out of the card. */
   .cta-top {
     display: flex;
+    flex-wrap: wrap;
     gap: 16px;
     align-items: center;
   }
@@ -654,10 +665,12 @@
     margin-top: 2px;
   }
   .health-details {
+    flex: 1 1 150px;
     display: flex;
     flex-direction: column;
     gap: 5px;
     min-width: 0;
+    overflow-wrap: break-word;
   }
   .cta-eyebrow {
     font-family: var(--mono);

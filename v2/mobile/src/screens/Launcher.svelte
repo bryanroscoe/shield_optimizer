@@ -207,6 +207,10 @@
 
   const anyBusy = $derived(busyPkg !== "" || homeBusy !== null);
   const currentPkg = $derived(current?.package ?? null);
+  // With the Home app unknown, any stock row could be the only Home screen.
+  const stockDisableBlocked = $derived(currentPkg === null);
+  const STOCK_DISABLE_BLOCKED =
+    "Disable is off until the TV reports its current Home app, so this can't remove the only Home screen. Tap Retry above.";
   const activeRow = $derived(
     currentPkg ? launchers.find((l) => l.entry.package === currentPkg) : undefined,
   );
@@ -254,6 +258,7 @@
     progress = "";
     clearNote();
     let locked = false;
+    let offer: { pkg: string; name: string } | null = null;
     try {
       const res = await api.setDefaultLauncher(
         serial,
@@ -271,7 +276,7 @@
         if (res.last_error) text += ` ${res.last_error}`;
         showToast(text, res.last_error ? "info" : "success");
       } else if (res.stock_takeover_available && !allowStockDisable) {
-        takeover = { pkg: l.entry.package, name };
+        offer = { pkg: l.entry.package, name };
       } else {
         const text = res.last_error || "Couldn't switch launcher.";
         showToast(text, "error");
@@ -293,6 +298,9 @@
       if (!valid(serial, connection)) return;
       busyPkg = "";
       progress = "";
+      // Offered only once the row is idle: a confirm during the re-read would
+      // otherwise hit the busy guard and be dropped without a word.
+      if (offer) takeover = offer;
     }
   }
 
@@ -301,7 +309,15 @@
     takeover = null;
     if (!t || !intentValid()) return;
     const row = launchers.find((l) => l.entry.package === t.pkg);
-    if (row && intentValid()) await setDefault(row, true);
+    if (!row) {
+      showToast(`${t.name} is no longer listed on this TV. Nothing was changed.`, "error");
+      return;
+    }
+    if (anyBusy) {
+      showToast("Another launcher action is still running. Nothing was changed; try again when it finishes.", "error");
+      return;
+    }
+    await setDefault(row, true);
   }
 
   async function doDisable(l: LauncherStatus) {
@@ -309,6 +325,10 @@
     const serial = session.serial;
     const connection = session.generation;
     if (!intentValid() || anyBusy || !serial) return;
+    if (l.stock && stockDisableBlocked) {
+      noteFailure(STOCK_DISABLE_BLOCKED);
+      return;
+    }
     busyPkg = l.entry.package;
     progress = l.setup_helper ? "Turning off Google TV's setup helper" : "Disabling";
     clearNote();
@@ -726,19 +746,24 @@
           {#each launchers as l (l.entry.package)}
             {@const isActive = l.entry.package === currentPkg}
             {@const busy = busyPkg === l.entry.package}
-            {@const host = !l.installed && !l.stock ? sourceSiteHost(l.entry.source_url) : null}
+            {@const host = sourceSiteHost(l.entry.source_url)}
+            {@const stockBlocked = l.stock && l.enabled && !isActive && stockDisableBlocked}
             <div class="launcher-row" class:active={isActive}>
               <div class="l-icon"><span class="msr">{iconFor(l)}</span></div>
               <div class="l-body">
                 <span class="l-name">{l.entry.name}</span>
                 <span class="l-sub">{subtitle(l)}</span>
+                {#if stockBlocked && !busy}
+                  <span class="l-reason" id={`stock-blocked-${l.entry.package}`}>{STOCK_DISABLE_BLOCKED}</span>
+                {/if}
                 {#if host}
                   <button
                     class="src-link"
                     onclick={() => openSourceSite(l)}
                     aria-label={`Source site for ${l.entry.name} (${host})`}
                   >
-                    <span class="msr">open_in_new</span>Source site · {host}
+                    <span class="msr" aria-hidden="true">open_in_new</span>
+                    <span class="src-text">Source site · {host}</span>
                   </button>
                 {/if}
               </div>
@@ -759,7 +784,12 @@
                   </button>
                 {/if}
               {:else if l.stock && l.enabled}
-                <button class="l-btn" disabled={anyBusy} onclick={() => (disableConfirm = l)}>
+                <button
+                  class="l-btn"
+                  disabled={anyBusy || stockBlocked}
+                  aria-describedby={stockBlocked ? `stock-blocked-${l.entry.package}` : undefined}
+                  onclick={() => (disableConfirm = l)}
+                >
                   Disable
                 </button>
               {:else}
@@ -830,14 +860,19 @@
       {/if}
 
       <div class="callout amber launcher-note">
-        <span class="msr">info</span>
+        <span class="msr" aria-hidden="true">warning</span>
         <span class="callout-text">
-          Changing the launcher is reversible — set stock back as default any time. Disabling the
-          current home app without setting a replacement first leaves the TV with no home screen,
-          so save a snapshot before you change this. A snapshot records which launcher was active;
-          it never re-enables or reinstalls anything on its own.
+          Disabling the current home app without setting a replacement first leaves the TV with no
+          home screen, so save a snapshot before you change this.
         </span>
       </div>
+      <details class="help-disclosure launcher-help">
+        <summary>About changing launchers</summary>
+        <p>
+          Changing the launcher is reversible: set stock back as default any time. A snapshot
+          records which launcher was active; it never re-enables or reinstalls anything on its own.
+        </p>
+      </details>
 
       <button
         class="adv-toggle"
@@ -1073,10 +1108,12 @@
     flex-direction: column;
     gap: 10px;
   }
+  /* The row's action wraps below the name when both don't fit (320px). */
   .launcher-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 13px;
+    gap: 10px 13px;
     padding: 14px;
     border-radius: 15px;
     background: var(--surface);
@@ -1099,7 +1136,7 @@
     color: var(--text-soft);
   }
   .l-body {
-    flex: 1;
+    flex: 1 1 120px;
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -1108,6 +1145,9 @@
   .l-name {
     font-size: 14px;
     font-weight: 600;
+  }
+  .launcher-row > :global(:last-child:not(.l-body)) {
+    margin-left: auto;
   }
   .l-sub {
     font-size: 11px;
@@ -1170,6 +1210,9 @@
   .launcher-note {
     margin-top: 4px;
   }
+  .launcher-help {
+    margin: -6px 0 0;
+  }
   .callout-text {
     flex: 1;
     font-size: 12px;
@@ -1192,6 +1235,7 @@
   }
   .src-link {
     align-self: flex-start;
+    max-width: 100%;
     margin-top: 4px;
     padding: 4px 0;
     min-height: 28px;
@@ -1201,13 +1245,26 @@
     font-family: var(--sans);
     font-size: 11px;
     font-weight: 600;
+    line-height: 1.35;
+    text-align: left;
     display: inline-flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 5px;
     cursor: pointer;
   }
   .src-link .msr {
+    flex: none;
     font-size: 14px;
+    line-height: 1.1;
+  }
+  .src-text {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+  .l-reason {
+    font-size: 11px;
+    line-height: 1.4;
+    color: var(--amber);
   }
   .muted-line {
     display: block;

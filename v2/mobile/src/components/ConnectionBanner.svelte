@@ -26,6 +26,11 @@
     <span class="msr pending">wifi_find</span>
     <span class="cb-text">{session.deviceLabel} stopped answering. Reconnecting…</span>
   </div>
+{:else if session.connectedDevice && reconnecting && session.liveness === "connecting"}
+  <div class="conn-banner" role="status">
+    <span class="msr pending">wifi_find</span>
+    <span class="cb-text">Reconnecting to {session.deviceLabel}…</span>
+  </div>
 {:else if session.connectedDevice && session.liveness === "lost"}
   <div class="conn-banner lost" role="alert">
     <span class="msr">wifi_off</span>
@@ -39,11 +44,6 @@
 
 <style>
   .conn-banner {
-    position: fixed;
-    left: 16px;
-    right: 16px;
-    bottom: calc(env(safe-area-inset-bottom) + 96px);
-    z-index: 30;
     display: flex;
     align-items: center;
     gap: 10px;

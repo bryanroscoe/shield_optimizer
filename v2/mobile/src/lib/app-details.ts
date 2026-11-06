@@ -3,8 +3,9 @@
 // measured, and a failed read is "unavailable", never zero. Ported from
 // desktop's v2/src/lib/app-details.ts; keep the two in step.
 
-import type { AppStorage, AppUsage } from "./types";
-import type { AppReportDevice } from "./app-report";
+import type { AppStorage, AppUsage, Device } from "./types";
+import { reportFamily, type AppReportDevice, type AppReportState } from "./app-report";
+import { normalizeHardwareId } from "./identity";
 
 export type MeasureStatus =
   | { status: "idle" }
@@ -67,6 +68,48 @@ export function reportLiveState(
   if (unreadAfterRun) return null;
   if (!inCatalog) return othersStale ? null : undefined;
   return resyncing ? null : (state ?? null);
+}
+
+/// The device context "Report this app" may share, or null with no device.
+export function reportDeviceOf(device: Device | null, sessionSerial: string): AppReportDevice | null {
+  if (!device) return null;
+  return {
+    family: reportFamily(device.device_type, device.tv_evidence),
+    androidVersion: device.properties?.android_release || null,
+    // A placeholder ro.serialno ("unknown") identifies nothing, and
+    // scrubbing it would eat that word from the user's note.
+    redact: [sessionSerial, device.serial, device.properties?.serial_number].filter(
+      (id): id is string => !!normalizeHardwareId(id),
+    ),
+  };
+}
+
+/// The measured figures a report may carry. A read that failed or has not
+/// answered is null, never zero. `apk` is the detail sheet's APK-size
+/// receipt, passed only once the caller has matched it to this package,
+/// connection and measurement batch.
+export function reportFigures(
+  measures: AppMeasurements,
+  memoryMb: number | undefined,
+  storage: AppStorage | undefined,
+  apk: ApkReportMeasurement | null,
+): Omit<AppReportState, "status"> {
+  const running = measures.memory.status === "ready" ? memoryMb !== undefined && memoryMb > 0 : null;
+  const storageSettled = measures.storage.status === "ready" || measures.storage.status === "unavailable";
+  const apkUsable =
+    apk && storageSettled && Number.isFinite(apk.appBytes) && apk.appBytes >= 0 && Number.isFinite(apk.at)
+      ? apk
+      : null;
+  return {
+    running,
+    ramMb: running ? (memoryMb ?? null) : null,
+    storage:
+      measures.storage.status === "ready" && hasStorage(storage)
+        ? { source: "diskstats", ...storage }
+        : apkUsable
+          ? { source: "apk_files", app_bytes: apkUsable.appBytes, data_bytes: null, cache_bytes: null }
+          : null,
+  };
 }
 
 export function idleMeasurements(): AppMeasurements {

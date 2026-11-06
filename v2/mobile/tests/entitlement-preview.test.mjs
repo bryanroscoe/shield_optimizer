@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, after, test } from "node:test";
 import { chromium } from "playwright";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { startViteServer } from "./helpers/vite-harness.mjs";
 import { SimulatedStore } from "./helpers/simulated-store.mjs";
 let server, origin, browser, model;
@@ -15,6 +15,27 @@ test("matrix covers every registered mobile command and opener exactly once", as
   assert.deepEqual(matrix.commands.map(x => x.command).sort(), commands.sort());
   assert.equal(new Set(commands).size, commands.length);
   for (const row of matrix.commands) { assert.ok(row.backend); assert.ok(row.gate); assert.ok(row.api); }
+});
+test("matrix callers are the real API call sites and the Markdown table mirrors them", async () => {
+  const root = new URL("../", import.meta.url);
+  const matrix = JSON.parse(await readFile(new URL("BILLING-COMMAND-MATRIX.json", root)));
+  const files = (await readdir(new URL("src", root), { recursive: true }))
+    .map(f => `src/${f.split("\\").join("/")}`)
+    .filter(f => /\.(ts|svelte)$/.test(f) && f !== "src/lib/api.ts");
+  const sources = new Map(await Promise.all(files.map(async f => [f, await readFile(new URL(f, root), "utf8")])));
+  const table = new Map();
+  for (const line of (await readFile(new URL("BILLING-COMMAND-MATRIX.md", root), "utf8")).split("\n")) {
+    const command = line.match(/^\| `([^`]+)` \|/)?.[1];
+    if (command) table.set(command, [...line.split(" | ").at(-1).matchAll(/`([^`]+)`/g)].map(x => x[1]).sort());
+  }
+  for (const row of matrix.commands) {
+    const call = new RegExp(`\\bapi\\s*\\.\\s*${row.api}\\b`);
+    const actual = files.filter(f => call.test(sources.get(f))).sort();
+    // The report commands are sent through `sendTelemetry` in api.ts (and wired up in main.ts), not an api.* call.
+    const direct = row.callers.filter(f => f !== "src/lib/api.ts" && f !== "src/main.ts").sort();
+    assert.deepEqual(actual, direct, `${row.command}: callers in BILLING-COMMAND-MATRIX.json`);
+    assert.deepEqual(table.get(row.command), [...row.callers].sort(), `${row.command}: BILLING-COMMAND-MATRIX.md row`);
+  }
 });
 test("store observations never unlock; stale, duplicate and ack events are isolated", () => {
   let s = model.initialPreview(); const store = new SimulatedStore(e => { s = model.reducePreview(s, e); });
