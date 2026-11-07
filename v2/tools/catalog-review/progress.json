@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-06",
+  "updated_at": "2026-11-07",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -678,6 +678,49 @@
       },
       "decision": "Optional Caution; Disable suggestion; review=true; both defaults=false; Keep initially. No automatic restore or model/firmware certification.",
       "independent_review": "Implementation and exactly one independent reviewer separately checked exact TCL Group listing, substantive viewing purpose, original warnings, dependency boundaries and recovery limits; both agree."
+    },
+    "com.tcl.browser": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-07",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-07.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.tcl.browser",
+        "https://support.tcl.com/en_US/us-googletv-setup-configuration/browsehere-on-tcl-google-tv",
+        "https://www.tcl.com/content/dam/brandsite/region/turkey/user-manual/tv/V6A-User-Manual.pdf"
+      ],
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55p7k/debloat.txt#L18",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L144",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-65x82l/debloat.txt#L127"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 26,
+        "commented_profiles": 7,
+        "note_profiles": 14
+      },
+      "decision": "Optional Caution; Disable suggestion; review=true; both defaults=false; initial Keep. Web shortcut and targeted-link loss disclosed; no model/firmware claims.",
+      "independent_review": "Implementation and exactly one read-only reviewer separately checked exact developer identity, substantive browsing functions, original keep observations, dependency/consequence/recovery boundaries and scope; both agree."
+    },
+    "com.xiaomi.mimusic2": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-07",
+      "reconsider_after": "2026-12-07",
+      "reason": "Exact Play listing inaccessible; bounded Xiaomi/MiCode primary searches did not establish sufficient package identity, media-service dependencies or recovery contract. Mi Music name and source disable choices do not establish optional action scope.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-07.md",
+      "primary_search": "Exact-ID queries on mi.com and github.com/MiCode; exact Play URL inaccessible. Search absence is not evidence of absence; third-party debloat lists excluded as primary proof.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/redmi-mitv-mftp0/debloat.txt#L87",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-axso1/debloat.txt#L50",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-astp0/debloat.txt#L74"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 27,
+        "commented_profiles": 1,
+        "note_profiles": 0
+      },
+      "independent_review": "Both agents independently agree HOLD until exact primary function/dependency/recovery evidence is available."
     }
   }
 }

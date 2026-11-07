@@ -1691,5 +1691,27 @@
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g03-google-tv/debloat.txt#L90",
       "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md. Optional streaming input only; common exact-ID lookup is not model/firmware certification. HDMI/tuner/system-TV authorities unchanged; hardware disable/recovery unverified."
     ]
+  },
+  {
+    "package": "com.tcl.browser",
+    "name": "BrowseHere",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops BrowseHere web browsing, web video, IPTV playlists and downloads. Its Web remote shortcut and links targeting this browser may stop working. Keep it if anyone uses these features or it is the selected browser.",
+    "restore_description": "Re-enables BrowseHere if still installed. Does not recover deleted bookmarks, logins, playlists or downloads, or reset browser and remote-link choices. Store availability and firmware recovery are unverified.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-07",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.tcl.browser",
+      "https://support.tcl.com/en_US/us-googletv-setup-configuration/browsehere-on-tcl-google-tv",
+      "https://www.tcl.com/content/dam/brandsite/region/turkey/user-manual/tv/V6A-User-Manual.pdf",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55p7k/debloat.txt#L18",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L144",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-65x82l/debloat.txt#L127",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-07.md. Optional browser functionality, shortcut/link losses and limited re-enable recovery assessed. Exact-ID lookup is not model/firmware/platform certification; no hardware verification."
+    ]
   }
 ]

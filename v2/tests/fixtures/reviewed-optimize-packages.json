@@ -80,5 +80,15 @@
       "Channel rows can remain blank",
       "shortcut may stop working"
     ]
+  },
+  {
+    "package": "com.tcl.browser",
+    "name": "BrowseHere",
+    "consequence_fragments": [
+      "web browsing",
+      "IPTV playlists",
+      "Web remote shortcut",
+      "links targeting this browser"
+    ]
   }
 ]
