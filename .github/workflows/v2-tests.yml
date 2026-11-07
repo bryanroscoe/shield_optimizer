@@ -110,7 +110,7 @@ jobs:
         github.event.label.name == 'skip-ci'))
     timeout-minutes: 20
     name: Frontend type check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -429,7 +429,7 @@ jobs:
         github.event.label.name == 'skip-ci'))
     timeout-minutes: 20
     name: Mobile frontend type check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
