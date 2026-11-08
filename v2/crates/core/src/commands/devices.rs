@@ -317,6 +317,13 @@ pub async fn connect_device(
     result
 }
 
+/// What Add by IP says when the built-in engine reached a TV that has not
+/// allowed this computer. It connected without offering a key, so nothing is
+/// on the TV's screen; the row's own button asks.
+pub fn native_not_allowed_message(target: &str) -> String {
+    format!("{target} hasn't allowed this computer yet. Use Request approval on its row.")
+}
+
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
     let target = normalize_connect_address(address)?;
     let adb = state.adb_snapshot().await;
@@ -327,13 +334,23 @@ pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<Conn
             if classify_connect_output(&message) == ConnectOutcome::Unauthorized {
                 return Ok(ConnectResult {
                     ok: true,
-                    message: format!("{message} — approve this computer on the TV, then refresh."),
+                    message: if adb.uses_host_server() {
+                        format!("{message} — approve this computer on the TV, then refresh.")
+                    } else {
+                        native_not_allowed_message(&target)
+                    },
                 });
             }
             return Err(format!("adb connect: {message}"));
         }
     };
     let mut result = connect_result_from(&out);
+    if !adb.uses_host_server()
+        && classify_connect_output(&result.message) == ConnectOutcome::Unauthorized
+    {
+        result.message = native_not_allowed_message(&target);
+        return Ok(result);
+    }
     if classify_connect_output(&result.message) == ConnectOutcome::Connected {
         match verify_connected_transport(&*adb, &target).await {
             Ok(TransportReadiness::Ready) => {}
@@ -628,19 +645,27 @@ pub async fn reprompt_device_impl(
         adb.raw(&["disconnect", serial])
             .await
             .map_err(|e| format!("disconnect: {e}"))?;
+        // The built-in engine retries quietly; only Request approval asks the TV.
         let outcome = adb
             .scan_connect(serial, std::time::Duration::from_secs(45))
             .await
             .map_err(|e| format!("connect: {e}"))?;
-        let ready = outcome == crate::adb::ScanConnectOutcome::Ready;
-        return Ok(RepromptResult {
-            ok: true,
-            status: if ready { "device" } else { "none" }.into(),
-            message: if ready {
-                "Connected and authorized."
-            } else {
-                "Reconnecting to this address. Check the device for a debugging prompt; this row updates automatically."
-            }.into(),
+        return Ok(match outcome {
+            crate::adb::ScanConnectOutcome::Ready => RepromptResult {
+                ok: true,
+                status: "device".into(),
+                message: "Connected and authorized.".into(),
+            },
+            crate::adb::ScanConnectOutcome::NotAllowed => RepromptResult {
+                ok: true,
+                status: "unauthorized".into(),
+                message: native_not_allowed_message(serial),
+            },
+            crate::adb::ScanConnectOutcome::Pending => RepromptResult {
+                ok: true,
+                status: "none".into(),
+                message: "Reconnecting to this address; this row updates automatically.".into(),
+            },
         });
     }
     let Some(entry) = entry else {
@@ -730,11 +755,84 @@ async fn native_scan_has_endpoint(adb: &dyn AdbDriver, serial: &str) -> bool {
         return false;
     }
     let progress = adb.scan_connection_progress().await;
-    progress.pending.iter().any(|address| address == serial)
+    progress
+        .pending
+        .iter()
+        .chain(&progress.not_allowed)
+        .chain(&progress.awaiting_authorization)
+        .any(|address| address == serial)
         || progress
             .failed
             .iter()
             .any(|failure| failure.address == serial)
+}
+
+#[derive(Serialize, Debug)]
+pub struct ApprovalResult {
+    pub ok: bool,
+    /// `waiting` (the TV may be showing its prompt), `device` (it already
+    /// allowed this computer) or `not_allowed`.
+    pub status: String,
+    pub message: String,
+}
+
+/// `request_device_approval` — built-in engine: ask one TV to allow this
+/// computer. This is the only action that shows the TV's prompt; scans,
+/// Add by IP and refreshes connect without offering a key.
+#[tauri::command]
+pub async fn request_device_approval(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ApprovalResult, String> {
+    let result = request_device_approval_impl(state.inner(), &serial).await;
+    match &result {
+        Ok(r) => tracing::info!(%serial, status = %r.status, "approval request started"),
+        Err(e) => tracing::info!(%serial, error = %e, "approval request failed"),
+    }
+    result
+}
+
+pub async fn request_device_approval_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<ApprovalResult, String> {
+    let adb = state.adb_snapshot().await;
+    let outcome = adb
+        .request_approval(serial)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(match outcome {
+        crate::adb::ApprovalRequestOutcome::Waiting => ApprovalResult {
+            ok: true,
+            status: "waiting".into(),
+            message: "Choose Allow on the TV.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::Ready => ApprovalResult {
+            ok: true,
+            status: "device".into(),
+            message: "Connected. This TV already allows this computer.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::NotApproved => ApprovalResult {
+            ok: false,
+            status: "not_allowed".into(),
+            message: "The TV ended the request without allowing this computer. Try again.".into(),
+        },
+    })
+}
+
+/// `cancel_device_approval` — stop waiting for one TV's answer.
+#[tauri::command]
+pub async fn cancel_device_approval(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<(), String> {
+    let adb = state.adb_snapshot().await;
+    let result = adb
+        .cancel_approval(&serial)
+        .await
+        .map_err(|error| error.to_string());
+    tracing::info!(%serial, ok = result.is_ok(), "approval request canceled");
+    result
 }
 
 fn status_name(status: Option<DeviceStatus>) -> &'static str {
@@ -1544,6 +1642,102 @@ mod tests {
                 "disconnect 192.0.2.1:5555",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn native_add_by_ip_never_claims_a_prompt_and_only_the_button_requests_one() {
+        use crate::adb::{AdbOutput, AdbResult, ApprovalRequestOutcome};
+        use std::sync::{Arc, Mutex};
+        struct NativeQuiet {
+            calls: Mutex<Vec<String>>,
+            outcome: Mutex<AdbResult<ApprovalRequestOutcome>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativeQuiet {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                self.calls.lock().unwrap().push(args.join(" "));
+                let ["connect", target] = args else {
+                    panic!("unexpected {args:?}");
+                };
+                Ok(AdbOutput {
+                    stdout: format!(
+                        "failed to authenticate to {target}: this TV has not allowed this computer yet"
+                    ),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn request_approval(&self, address: &str) -> AdbResult<ApprovalRequestOutcome> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("request {address}"));
+                std::mem::replace(
+                    &mut *self.outcome.lock().unwrap(),
+                    Ok(ApprovalRequestOutcome::Waiting),
+                )
+            }
+            async fn cancel_approval(&self, address: &str) -> AdbResult<()> {
+                self.calls.lock().unwrap().push(format!("cancel {address}"));
+                Ok(())
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("an unapproved TV has nothing to read")
+            }
+        }
+        let adb = Arc::new(NativeQuiet {
+            calls: Mutex::new(Vec::new()),
+            outcome: Mutex::new(Ok(ApprovalRequestOutcome::Waiting)),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let added = connect_device_impl(&state, "192.0.2.1").await.unwrap();
+        assert!(added.ok);
+        assert!(
+            added.message.contains("hasn't allowed this computer yet"),
+            "{}",
+            added.message
+        );
+        assert!(added.message.contains("Request approval"));
+        assert!(!added.message.contains("approve this computer on the TV"));
+        let waiting = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!((waiting.ok, waiting.status.as_str()), (true, "waiting"));
+        *adb.outcome.lock().unwrap() = Ok(ApprovalRequestOutcome::NotApproved);
+        let ended = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!((ended.ok, ended.status.as_str()), (false, "not_allowed"));
+        *adb.outcome.lock().unwrap() =
+            Err(crate::adb::AdbError::Transport("SIMULATED no route".into()));
+        let unreachable = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap_err();
+        assert!(unreachable.contains("SIMULATED no route"));
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "connect 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn platform_tools_has_no_separate_approval_request() {
+        let state = state_with(MockAdb::default());
+        assert!(request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

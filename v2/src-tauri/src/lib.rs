@@ -255,6 +255,8 @@ pub fn invoke_handler<R: tauri::Runtime>(
         devices::pair_device,
         devices::forget_device,
         devices::reprompt_device,
+        devices::request_device_approval,
+        devices::cancel_device_approval,
         devices::probe_paired_connect,
         devices::connect_paired,
         scan::local_address_for,

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use futures_util::{stream, Stream, StreamExt};
+use futures_util::{stream, stream::BoxStream, StreamExt};
 use serde::Serialize;
 use tauri::State;
 
@@ -514,45 +514,79 @@ async fn native_route_in_use(
     progress
         .awaiting_authorization
         .iter()
+        .chain(&progress.not_allowed)
         .chain(confirmed)
         .any(|address| address != target && native_route_group(address, services) == group)
+}
+
+/// One port-5555 sweep of the subnet, recording how it went in `stats`.
+trait Sweeper: Send + Sync {
+    fn sweep<'s>(&self, stats: &'s mut SweepStats) -> BoxStream<'s, String>;
+}
+
+struct SubnetSweeper([u8; 3]);
+
+impl Sweeper for SubnetSweeper {
+    fn sweep<'s>(&self, stats: &'s mut SweepStats) -> BoxStream<'s, String> {
+        scan_subnet_hits(self.0, stats).map(|hit| hit.ip).boxed()
+    }
+}
+
+/// Every probe failed at once with an error other than a refusal or a
+/// timeout. That is a host that cannot reach its network yet, not a quiet
+/// subnet: macOS refuses a new app's LAN connections with "No route to host"
+/// until Local Network access is granted, and sometimes for about a second
+/// after it is. A subnet without TVs refuses or times out instead.
+fn sweep_was_blocked(stats: &SweepStats) -> bool {
+    stats.probed > 0 && stats.open == 0 && stats.refused == 0 && stats.timeouts == 0
+}
+
+/// Sweep, starting a quiet connection to each responder as it answers.
+async fn admit_sweep(
+    adb: &dyn AdbDriver,
+    sweep: BoxStream<'_, String>,
+    started: Instant,
+    swept: &mut Vec<String>,
+) -> NativeAttempts {
+    sweep
+        .map(|host| {
+            if swept.is_empty() {
+                tracing::debug!(
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    "native scan first subnet responder"
+                );
+            }
+            swept.push(host.clone());
+            async move {
+                let target = format!("{host}:{ADB_NETWORK_PORT}");
+                let result = adb
+                    .scan_connect(&target, Duration::from_secs(45))
+                    .await
+                    .map_err(|error| bounded_detail(&error.to_string()));
+                (target, result)
+            }
+        })
+        .buffer_unordered(4)
+        .collect::<NativeAttempts>()
+        .await
 }
 
 async fn progressive_native_scan_with_facts(
     adb: &dyn AdbDriver,
     subnet_label: &str,
-    sweep: impl Stream<Item = String> + Send,
-) -> Result<(ScanResult, StageFacts), String> {
+    sweeper: &dyn Sweeper,
+) -> Result<(ScanResult, StageFacts, SweepStats), String> {
     let started = Instant::now();
-    let admit_sweep = async {
-        let mut swept = Vec::new();
-        let attempts = sweep
-            .map(|host| {
-                if swept.is_empty() {
-                    tracing::debug!(
-                        elapsed_ms = started.elapsed().as_millis() as u64,
-                        "native scan first subnet responder"
-                    );
-                }
-                swept.push(host.clone());
-                async move {
-                    let target = format!("{host}:{ADB_NETWORK_PORT}");
-                    let result = adb
-                        .scan_connect(&target, Duration::from_secs(45))
-                        .await
-                        .map_err(|error| bounded_detail(&error.to_string()));
-                    (target, result)
-                }
-            })
-            .buffer_unordered(4)
-            .collect::<NativeAttempts>()
-            .await;
+    let mut stats = SweepStats::default();
+    let mut swept = Vec::new();
+    let first_sweep = async {
+        let attempts = admit_sweep(adb, sweeper.sweep(&mut stats), started, &mut swept).await;
         tracing::debug!(
             elapsed_ms = started.elapsed().as_millis() as u64,
             responders = swept.len(),
             "native scan subnet admission complete"
         );
-        (swept, attempts)
+        attempts
     };
     let discovery = async {
         let result = native_discovery(adb).await;
@@ -563,8 +597,26 @@ async fn progressive_native_scan_with_facts(
         );
         result
     };
-    let ((swept, attempts), discovery) = tokio::join!(admit_sweep, discovery);
-    scan_command_stage_with_attempts(adb, subnet_label, &swept, Some(discovery), attempts).await
+    let (mut attempts, discovery) = tokio::join!(first_sweep, discovery);
+    // The browse gave the network time to open up; one more sweep then
+    // finds the TVs that do not advertise. It never repeats on a quiet subnet.
+    if swept.is_empty() && sweep_was_blocked(&stats) {
+        tracing::info!(
+            probed = stats.probed,
+            "native scan: every subnet probe failed at once; sweeping again after discovery"
+        );
+        stats = SweepStats::default();
+        attempts = admit_sweep(adb, sweeper.sweep(&mut stats), started, &mut swept).await;
+        tracing::debug!(
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            responders = swept.len(),
+            "native scan second subnet admission complete"
+        );
+    }
+    let (result, facts) =
+        scan_command_stage_with_attempts(adb, subnet_label, &swept, Some(discovery), attempts)
+            .await?;
+    Ok((result, facts, stats))
 }
 
 /// `scan_network` — sweep the local /24 for ADB-listening devices and try
@@ -584,12 +636,14 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
     let (result, stage) = if let Some(prefix) = prefix {
         let subnet_label = format!("{}.{}.{}", prefix[0], prefix[1], prefix[2]);
         if !adb.uses_host_server() {
-            progressive_native_scan_with_facts(
+            let (result, stage, stats) = progressive_native_scan_with_facts(
                 adb.as_ref(),
                 &subnet_label,
-                scan_subnet_hits(prefix, &mut sweep).map(|hit| hit.ip),
+                &SubnetSweeper(prefix),
             )
-            .await?
+            .await?;
+            sweep = stats;
+            (result, stage)
         } else {
             let (hits, stats) = scan_subnet_with_stats(prefix).await;
             sweep = stats;
@@ -851,6 +905,7 @@ async fn scan_command_stage_with_attempts(
                     match adb.scan_connect(transport, Duration::from_secs(45)).await {
                         Ok(ScanConnectOutcome::Ready) => connected.push(endpoint),
                         Ok(ScanConnectOutcome::Pending) => pending_connections.push(endpoint),
+                        Ok(ScanConnectOutcome::NotAllowed) => unauthorized.push(endpoint),
                         Err(error) => record_failure(
                             &mut failed,
                             &mut failure_details,
@@ -897,8 +952,9 @@ async fn scan_command_stage_with_attempts(
             .cloned()
             .collect();
         // Addresses on one advertisement are alternative routes, not new TVs.
-        // Keep fallback routes for an unreachable address, but do not issue
-        // another AUTH request once that service is ready or awaiting approval.
+        // Keep fallback routes for an unreachable address, but stop once that
+        // service answered: ready, or not allowed yet (another route would
+        // only list the same TV twice).
         let mut route_groups = std::collections::BTreeMap::<_, Vec<String>>::new();
         for target in new_targets {
             route_groups
@@ -908,7 +964,12 @@ async fn scan_command_stage_with_attempts(
         }
         let confirmed: Vec<_> = early_attempts
             .iter()
-            .filter(|(_, attempt)| matches!(attempt, Ok(ScanConnectOutcome::Ready)))
+            .filter(|(_, attempt)| {
+                matches!(
+                    attempt,
+                    Ok(ScanConnectOutcome::Ready | ScanConnectOutcome::NotAllowed)
+                )
+            })
             .map(|(target, _)| target.clone())
             .collect();
         let progress = adb.scan_connection_progress().await;
@@ -928,9 +989,12 @@ async fn scan_command_stage_with_attempts(
                     }
                     let attempt =
                         native_connect_attempt(adb, &target, attached, snapshot, swept).await;
-                    let ready = matches!(attempt, Ok(ScanConnectOutcome::Ready));
+                    let answered = matches!(
+                        attempt,
+                        Ok(ScanConnectOutcome::Ready | ScanConnectOutcome::NotAllowed)
+                    );
                     attempts.insert(target, attempt);
-                    if ready {
+                    if answered {
                         break;
                     }
                 }
@@ -959,6 +1023,10 @@ async fn scan_command_stage_with_attempts(
                     Ok(ScanConnectOutcome::Pending)
                 } else if progress.ready.contains(target) {
                     Ok(ScanConnectOutcome::Ready)
+                } else if progress.not_allowed.contains(target)
+                    || progress.awaiting_authorization.contains(target)
+                {
+                    Ok(ScanConnectOutcome::NotAllowed)
                 } else {
                     Err(
                         "Connection attempt was canceled or removed; use Add by IP to try again."
@@ -985,6 +1053,7 @@ async fn scan_command_stage_with_attempts(
             match attempt {
                 Ok(ScanConnectOutcome::Ready) => connected.push(target.clone()),
                 Ok(ScanConnectOutcome::Pending) => pending_connections.push(target.clone()),
+                Ok(ScanConnectOutcome::NotAllowed) => unauthorized.push(target.clone()),
                 Err(detail) => {
                     record_failure(&mut failed, &mut failure_details, target.clone(), &detail)
                 }
@@ -1150,12 +1219,16 @@ fn native_summary_message(
     }
     let mut message = format!("Connected {connected} of {found} network endpoints.");
     if pending > 0 {
-        message.push_str(&format!(" {pending} still connecting. If the TV asks to allow debugging, approve it; connected TVs appear automatically."));
+        message.push_str(&format!(
+            " {pending} still connecting; connected TVs appear automatically."
+        ));
     }
     if unauthorized > 0 {
-        message.push_str(&format!(
-            " {unauthorized} awaiting authorization; approve the prompt on the TV."
-        ));
+        message.push_str(&if unauthorized == 1 {
+            " 1 TV hasn't allowed this computer yet; use Request approval on its row.".to_string()
+        } else {
+            format!(" {unauthorized} TVs haven't allowed this computer yet; use Request approval on their rows.")
+        });
     }
     if pairing > 0 {
         message.push_str(&format!(
@@ -2259,7 +2332,8 @@ mod command_stage_tests {
             let result = adb_connect(self, address).await;
             match result.outcome {
                 ConnectOutcome::Connected => Ok(ScanConnectOutcome::Ready),
-                _ => Err(AdbError::Transport(result.detail)),
+                ConnectOutcome::Unauthorized => Ok(ScanConnectOutcome::NotAllowed),
+                ConnectOutcome::Failed => Err(AdbError::Transport(result.detail)),
             }
         }
 
@@ -2289,6 +2363,133 @@ mod command_stage_tests {
             cached: false,
             warning: None,
         }
+    }
+
+    /// Sweeps in order: each call records its stats and yields its hosts.
+    struct ScriptedSweeper {
+        sweeps: Mutex<std::collections::VecDeque<(SweepStats, BoxStream<'static, String>)>>,
+        calls: std::sync::atomic::AtomicUsize,
+    }
+
+    impl ScriptedSweeper {
+        fn new(sweeps: Vec<(SweepStats, BoxStream<'static, String>)>) -> Self {
+            Self {
+                sweeps: Mutex::new(sweeps.into()),
+                calls: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+    }
+
+    impl Sweeper for ScriptedSweeper {
+        fn sweep<'s>(&self, stats: &'s mut SweepStats) -> BoxStream<'s, String> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let (recorded, hosts) = self
+                .sweeps
+                .lock()
+                .unwrap()
+                .pop_front()
+                .expect("an unexpected extra sweep");
+            *stats = recorded;
+            hosts
+        }
+    }
+
+    fn sweep_stats(probed: usize, open: usize, refused: usize, timeouts: usize) -> SweepStats {
+        SweepStats {
+            probed,
+            open,
+            refused,
+            timeouts,
+            elapsed: Duration::from_millis(13),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_sweep_the_network_refused_outright_runs_once_more_after_discovery() {
+        let mut fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]),
+        );
+        fake.report.as_mut().unwrap().advertisements = vec![native_advertisement(
+            "192.0.2.2:40000",
+            NativeServiceKind::TlsPairing,
+        )];
+        // First launch: every probe failed at once (no route yet).
+        let sweeper = ScriptedSweeper::new(vec![
+            (sweep_stats(254, 0, 0, 0), stream::empty().boxed()),
+            (
+                sweep_stats(254, 1, 3, 250),
+                stream::iter(["192.0.2.1".to_string()]).boxed(),
+            ),
+        ]);
+        let (result, _, stats) = progressive_native_scan_with_facts(&fake, "192.0.2", &sweeper)
+            .await
+            .unwrap();
+        assert_eq!(sweeper.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert_eq!(result.connected, ["192.0.2.1:5555"]);
+        assert_eq!(stats.open, 1, "the report describes the sweep that counted");
+    }
+
+    #[tokio::test]
+    async fn a_quiet_subnet_is_swept_once() {
+        let fake = NativeScanFake::new(ScanFake::default());
+        for stats in [sweep_stats(254, 0, 4, 250), sweep_stats(254, 0, 0, 254)] {
+            let sweeper = ScriptedSweeper::new(vec![(stats, stream::empty().boxed())]);
+            let (result, _, _) = progressive_native_scan_with_facts(&fake, "192.0.2", &sweeper)
+                .await
+                .unwrap();
+            assert_eq!(sweeper.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+            assert!(result.found.is_empty());
+        }
+    }
+
+    #[tokio::test]
+    async fn a_tv_that_has_not_allowed_this_computer_is_unauthorized_on_one_route_only() {
+        let mut fake = NativeScanFake::new(
+            ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("failed to authenticate to 192.0.2.1:5555: this TV has not allowed this computer yet")],
+                )
+                .on(&["connect", "[fe80::1%7]:5555"], &[Ok("connected to [fe80::1%7]:5555")]),
+        );
+        fake.report.as_mut().unwrap().advertisements = ["192.0.2.1:5555", "[fe80::1%7]:5555"]
+            .map(|address| native_advertisement(address, NativeServiceKind::LegacyAdb))
+            .to_vec();
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        assert_eq!(result.unauthorized, ["192.0.2.1:5555"]);
+        assert!(result.failed.is_empty() && result.connected.is_empty());
+        assert_eq!(
+            fake.adb.count("connect [fe80::1%7]:5555"),
+            0,
+            "one row per TV route"
+        );
+        assert!(result.message.contains("hasn't allowed this computer yet"));
+        assert!(result.message.contains("Request approval"));
+        assert!(!result.message.contains("approve the prompt"));
+        assert_eq!(scan_report_reason(&result), None);
+    }
+
+    #[tokio::test]
+    async fn a_swept_tv_that_was_not_allowed_keeps_that_result_in_the_summary() {
+        let mut fake = NativeScanFake::new(ScanFake::default());
+        fake.progress.not_allowed.push("192.0.2.1:5555".into());
+        let result = scan_command_stage_with_attempts(
+            &fake,
+            "192.0.2",
+            &["192.0.2.1".into()],
+            None,
+            NativeAttempts::from([("192.0.2.1:5555".into(), Ok(ScanConnectOutcome::NotAllowed))]),
+        )
+        .await
+        .unwrap()
+        .0;
+        assert_eq!(result.unauthorized, ["192.0.2.1:5555"]);
+        assert!(result.failed.is_empty());
     }
 
     #[tokio::test]
@@ -2376,7 +2577,10 @@ mod command_stage_tests {
                         Some(("192.0.2.1".into(), (true, gate)))
                     }
                 });
-                progressive_native_scan_with_facts(worker.as_ref(), "192.0.2", sweep).await
+                let sweeper = ScriptedSweeper::new(vec![(SweepStats::default(), sweep.boxed())]);
+                progressive_native_scan_with_facts(worker.as_ref(), "192.0.2", &sweeper)
+                    .await
+                    .map(|(result, facts, _)| (result, facts))
             });
             tokio::time::timeout(Duration::from_secs(1), fake.discovery_started.notified())
                 .await

@@ -16,9 +16,9 @@ pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};
 pub use driver::{
     AdbByteStream, AdbDeviceBinding, AdbDriver, AdbError, AdbOutput, AdbOwnedService, AdbResult,
-    AdbServiceCancellation, BoundedShellOutput, NativeAdvertisement, NativeDiscoveryReport,
-    NativeServiceKind, ScanConnectOutcome, ScanConnectionFailure, ScanConnectionProgress,
-    ServerStop, ShellTermination,
+    AdbServiceCancellation, ApprovalRequestOutcome, BoundedShellOutput, NativeAdvertisement,
+    NativeDiscoveryReport, NativeServiceKind, ScanConnectOutcome, ScanConnectionFailure,
+    ScanConnectionProgress, ServerStop, ShellTermination,
 };
 pub use lifetimes::{Lease, Leases, TrackedChild};
 pub use parse::{

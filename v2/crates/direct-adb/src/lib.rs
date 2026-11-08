@@ -63,6 +63,45 @@ use atv_optimizer_core::commands::devices::normalize_connect_address;
 use serde::Serialize;
 
 const AUTHORIZATION_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// How a Network debugging (legacy AUTH) connection may authenticate. TLS
+/// (Wireless debugging) presents its certificate the same way under both:
+/// the TV never shows a prompt there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConnectAuth {
+    /// Sign with the known keys, then offer the first one's public key when
+    /// the TV refuses them all. That offer is what makes the TV show "Allow
+    /// debugging?". The Android app always connects this way.
+    OfferPublicKey,
+    /// Sign with the known keys only. A TV that refuses them all is
+    /// [`ConnectFailure::NotAllowed`] and shows nothing.
+    SignaturesOnly,
+}
+
+/// Why [`WirelessAdb::connect_with`] did not connect.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectFailure {
+    /// The TV answered and trusts none of the keys. Only
+    /// [`ConnectAuth::SignaturesOnly`] ends this way: no public key was
+    /// offered, so the TV showed no prompt.
+    NotAllowed,
+    /// The public key was offered and the attempt ended without approval:
+    /// its deadline passed, it was canceled, or the TV closed it. The message
+    /// is what [`WirelessAdb::connect`] reports for it.
+    NotApproved(String),
+    /// Anything else, as a message for the person.
+    Failed(String),
+}
+
+impl ConnectFailure {
+    /// The message [`WirelessAdb::connect`] returns for this failure.
+    pub fn into_message(self) -> String {
+        match self {
+            Self::NotAllowed => "This TV has not allowed this device yet.".into(),
+            Self::NotApproved(message) | Self::Failed(message) => message,
+        }
+    }
+}
 /// Inactivity bound for one shell response, matching the desktop driver's
 /// 30-second command timeout. A silently dropped socket surfaces as an error
 /// here instead of pinning the connection mutex forever.
@@ -135,14 +174,22 @@ impl Drop for ConnectionAttempt {
 struct AuthorizationObservation {
     requests: Arc<Mutex<ConnectionRequests>>,
     request_id: u64,
+    /// The public key was written, whatever became of the request since.
+    offered: std::sync::atomic::AtomicBool,
 }
 
 impl AuthorizationObservation {
     fn public_key_sent(&self) {
+        self.offered
+            .store(true, std::sync::atomic::Ordering::Release);
         let mut requests = lock_recovering(&self.requests);
         if requests.check(self.request_id).is_ok() {
             requests.awaiting_authorization = true;
         }
+    }
+
+    fn offered(&self) -> bool {
+        self.offered.load(std::sync::atomic::Ordering::Acquire)
     }
 }
 
@@ -510,6 +557,8 @@ impl WirelessAdb {
         .map_err(|e| format!("cancel connection: {e}"))
     }
 
+    /// Connect, offering the public key for approval when the TV trusts none
+    /// of the keys, within the 30-second handshake budget.
     pub async fn connect(&self, host: &str, port: u16, request_id: u64) -> Result<String, String> {
         self.connect_within(host, port, request_id, AUTHORIZATION_TIMEOUT)
             .await
@@ -524,12 +573,29 @@ impl WirelessAdb {
         request_id: u64,
         budget: Duration,
     ) -> Result<String, String> {
+        self.connect_with(host, port, request_id, ConnectAuth::OfferPublicKey, budget)
+            .await
+            .map_err(ConnectFailure::into_message)
+    }
+
+    /// Connect under `auth` within `budget`, the bound on the whole handshake
+    /// including any wait for the person to choose Allow on the TV.
+    pub async fn connect_with(
+        &self,
+        host: &str,
+        port: u16,
+        request_id: u64,
+        auth: ConnectAuth,
+        budget: Duration,
+    ) -> Result<String, ConnectFailure> {
         let _lifecycle = self.lifecycle.lock().await;
-        lock_recovering(&self.requests).check(request_id)?;
-        normalize_connect_address(&format!("{host}:{port}"))?;
-        let addr: SocketAddr = format!("{host}:{port}")
-            .parse()
-            .map_err(|e| format!("invalid device address {host}:{port}: {e}"))?;
+        lock_recovering(&self.requests)
+            .check(request_id)
+            .map_err(ConnectFailure::Failed)?;
+        normalize_connect_address(&format!("{host}:{port}")).map_err(ConnectFailure::Failed)?;
+        let addr: SocketAddr = format!("{host}:{port}").parse().map_err(|e| {
+            ConnectFailure::Failed(format!("invalid device address {host}:{port}: {e}"))
+        })?;
         let key_path = self.key_path.clone();
         let preferred = self.preferred_keys.clone();
         let allow_key_creation = self.allow_key_creation;
@@ -539,9 +605,9 @@ impl WirelessAdb {
         let host_owned = host.to_string();
         let serial = format!("{host}:{port}");
 
-        let operation = self.work()?;
+        let operation = self.work().map_err(ConnectFailure::Failed)?;
         let control = adb_client::tcp::BoundedShellControl::new(budget)
-            .map_err(|error| format!("Connection deadline: {error}"))?;
+            .map_err(|error| ConnectFailure::Failed(format!("Connection deadline: {error}")))?;
         let mut attempt = ConnectionAttempt {
             requests: requests.clone(),
             request_id,
@@ -550,31 +616,56 @@ impl WirelessAdb {
         };
         {
             let mut requests = lock_recovering(&requests);
-            requests.check(request_id)?;
+            requests.check(request_id).map_err(ConnectFailure::Failed)?;
             requests.control = Some(control.clone());
         }
-        let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+        let result = tokio::task::spawn_blocking(move || -> Result<String, ConnectFailure> {
             let _operation = operation;
-            control.remaining().map_err(|error| error.to_string())?;
-            ensure_adb_key(&key_path, allow_key_creation)?;
-            // First connect to a not-yet-authorized device triggers the TV's
-            // "Allow debugging?" prompt; the persisted key is remembered after.
-            let observation = AuthorizationObservation {
-                requests: requests.clone(),
-                request_id,
+            control
+                .remaining()
+                .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
+            ensure_adb_key(&key_path, allow_key_creation).map_err(ConnectFailure::Failed)?;
+            let device = match auth {
+                ConnectAuth::OfferPublicKey => {
+                    // Offering the public key is what shows the TV's "Allow
+                    // debugging?" prompt; the persisted key is remembered after.
+                    let observation = AuthorizationObservation {
+                        requests: requests.clone(),
+                        request_id,
+                        offered: std::sync::atomic::AtomicBool::new(false),
+                    };
+                    let device = ADBTcpDevice::new_with_keys_control_and_auth_observer(
+                        addr,
+                        &key_path,
+                        &preferred,
+                        !allow_key_creation,
+                        control.clone(),
+                        &|| observation.public_key_sent(),
+                    );
+                    let offered = observation.offered();
+                    drop(observation);
+                    device.map_err(|error| (error, offered))
+                }
+                ConnectAuth::SignaturesOnly => ADBTcpDevice::new_with_keys_and_control_signing_only(
+                    addr,
+                    &key_path,
+                    &preferred,
+                    !allow_key_creation,
+                    control.clone(),
+                )
+                .map_err(|error| (error, false)),
             };
-            let device = ADBTcpDevice::new_with_keys_control_and_auth_observer(
-                addr,
-                &key_path,
-                &preferred,
-                !allow_key_creation,
-                control.clone(),
-                &|| observation.public_key_sent(),
-            );
-            drop(observation);
-            let mut device = device.map_err(|e| {
-                tracing::warn!(serial = %serial, error = %e, "wireless connect failed");
-                connect_error_message(&e)
+            let mut device = device.map_err(|(error, offered)| {
+                if matches!(error, RustADBError::KeyNotAllowed) {
+                    tracing::info!(serial = %serial, "wireless connect: the TV has not allowed these keys yet");
+                    ConnectFailure::NotAllowed
+                } else if offered {
+                    tracing::info!(serial = %serial, error = %error, "wireless connect ended without approval");
+                    ConnectFailure::NotApproved(connect_error_message(&error))
+                } else {
+                    tracing::warn!(serial = %serial, error = %error, "wireless connect failed");
+                    ConnectFailure::Failed(connect_error_message(&error))
+                }
             })?;
             if !preferred.is_empty() {
                 tracing::debug!(
@@ -587,7 +678,9 @@ impl WirelessAdb {
             // A previous command may still own the connection mutex. Keep this
             // wait inside the handshake budget without interrupting that command.
             let mut guard = loop {
-                control.remaining().map_err(|error| error.to_string())?;
+                control
+                    .remaining()
+                    .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
                 match conn.try_lock() {
                     Ok(guard) => break guard,
                     Err(std::sync::TryLockError::Poisoned(error)) => break error.into_inner(),
@@ -599,10 +692,10 @@ impl WirelessAdb {
             // Cancellation and publication share this short lock. No socket
             // I/O holds it, so a pending handshake can be invalidated promptly.
             let requests = lock_recovering(&requests);
-            requests.check(request_id)?;
+            requests.check(request_id).map_err(ConnectFailure::Failed)?;
             device
                 .finish_connection()
-                .map_err(|e| connect_error_message(&e))?;
+                .map_err(|e| ConnectFailure::Failed(connect_error_message(&e)))?;
             // Replacing the handle drops the previous device, which closes
             // its socket. Publish the identity only once the swap is done.
             *guard = Some(Connection {
@@ -618,7 +711,7 @@ impl WirelessAdb {
             Ok(format!("Connected to {serial}."))
         })
         .await
-        .map_err(|e| format!("wireless-adb task failed: {e}"))?;
+        .map_err(|e| ConnectFailure::Failed(format!("wireless-adb task failed: {e}")))?;
         attempt.complete = result.is_ok();
         result
     }
@@ -1299,6 +1392,7 @@ mod tests {
         let first = AuthorizationObservation {
             requests: driver.requests.clone(),
             request_id: 1,
+            offered: Default::default(),
         };
         assert!(!driver.awaiting_authorization());
         first.public_key_sent();
@@ -1310,6 +1404,7 @@ mod tests {
         let second = AuthorizationObservation {
             requests: driver.requests.clone(),
             request_id: 2,
+            offered: Default::default(),
         };
         second.public_key_sent();
         assert!(driver.awaiting_authorization());

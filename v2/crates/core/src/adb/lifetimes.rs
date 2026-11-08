@@ -228,6 +228,14 @@ impl AdbDriver for LeasedAdb {
         self.inner.scan_connection_progress().await
     }
 
+    async fn request_approval(&self, address: &str) -> AdbResult<super::ApprovalRequestOutcome> {
+        self.inner.request_approval(address).await
+    }
+
+    async fn cancel_approval(&self, address: &str) -> AdbResult<()> {
+        self.inner.cancel_approval(address).await
+    }
+
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         self.inner.raw(args).await
     }
@@ -308,6 +316,14 @@ impl AdbDriver for ClosedAdb {
     }
 
     async fn scan_connect(&self, _: &str, _: Duration) -> AdbResult<super::ScanConnectOutcome> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn request_approval(&self, _: &str) -> AdbResult<super::ApprovalRequestOutcome> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn cancel_approval(&self, _: &str) -> AdbResult<()> {
         Err(AdbError::ShuttingDown)
     }
 
@@ -508,6 +524,17 @@ mod tests {
             self.note("scan_connection_progress");
             super::super::ScanConnectionProgress::default()
         }
+        async fn request_approval(
+            &self,
+            _: &str,
+        ) -> AdbResult<super::super::ApprovalRequestOutcome> {
+            self.note("request_approval");
+            Ok(super::super::ApprovalRequestOutcome::Waiting)
+        }
+        async fn cancel_approval(&self, _: &str) -> AdbResult<()> {
+            self.note("cancel_approval");
+            Ok(())
+        }
 
         async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
             self.note("raw");
@@ -568,6 +595,8 @@ mod tests {
         let _ = driver.discover_network().await;
         let _ = driver.scan_connect("s", Duration::from_secs(1)).await;
         let _ = driver.scan_connection_progress().await;
+        let _ = driver.request_approval("s").await;
+        let _ = driver.cancel_approval("s").await;
         let _ = driver.raw(&[]).await;
         let _ = driver.raw_transfer(&[]).await;
         let _ = driver.pull_limited("s", "r", path, 1).await;
@@ -594,6 +623,8 @@ mod tests {
                 "discover_network",
                 "scan_connect",
                 "scan_connection_progress",
+                "request_approval",
+                "cancel_approval",
                 "raw",
                 "raw_transfer",
                 "pull_limited",
@@ -620,6 +651,14 @@ mod tests {
             closed.scan_connection_progress().await,
             super::super::ScanConnectionProgress::default()
         );
+        assert!(matches!(
+            closed.request_approval("s").await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert!(matches!(
+            closed.cancel_approval("s").await,
+            Err(AdbError::ShuttingDown)
+        ));
         let binding = super::super::AdbDeviceBinding {
             serial: "s".into(),
             hardware_id: "fixture".into(),

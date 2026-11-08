@@ -792,3 +792,196 @@ fn external_identities_load_from_pkcs8_or_pkcs1_and_refuse_anything_else() {
         );
     }
 }
+
+/// The device's side of a TV that trusts none of the host's keys: one token
+/// per key, each answered with a signature, then the token a host that may
+/// ask for approval answers with its public key.
+fn refuse_every_signature(socket: &mut TcpStream, keys: usize) {
+    for round in 0..keys {
+        send(socket, b"AUTH", 1, 0, &[40 + round as u8; 20]);
+        let (command, kind, _) = receive(socket);
+        assert_eq!((command.as_slice(), kind), (b"AUTH".as_slice(), 2));
+    }
+    send(socket, b"AUTH", 1, 0, &[50; 20]);
+}
+
+#[tokio::test]
+async fn a_quiet_connect_never_offers_the_key_and_reports_not_allowed() {
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        refuse_every_signature(&mut socket, 1);
+        // No AUTH_RSAPUBLICKEY (or anything else) may follow: the host hangs up.
+        assert_closed(&mut socket);
+    });
+    driver.begin_request(1).unwrap();
+    let started = std::time::Instant::now();
+    let result = driver
+        .connect_with(
+            "127.0.0.1",
+            port,
+            1,
+            ConnectAuth::SignaturesOnly,
+            Duration::from_secs(10),
+        )
+        .await;
+    assert_eq!(result, Err(ConnectFailure::NotAllowed));
+    assert!(
+        started.elapsed() < Duration::from_secs(3),
+        "no wait for a person"
+    );
+    assert!(!driver.awaiting_authorization());
+    assert!(driver.info().is_none());
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_quiet_connect_succeeds_once_the_tv_trusts_the_key() {
+    use rsa::pkcs8::DecodePrivateKey;
+    let own = fixture_key();
+    let own_private =
+        rsa::RsaPrivateKey::from_pkcs8_pem(&std::fs::read_to_string(own.path()).unwrap()).unwrap();
+    let driver = WirelessAdb::with_existing_key(own.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let rounds = vec![([7; 20], 2, Some(auth_signature(&own_private, &[7; 20])))];
+    let peer = std::thread::spawn(move || serve_auth(listener, rounds));
+    driver.begin_request(1).unwrap();
+    driver
+        .connect_with(
+            "127.0.0.1",
+            port,
+            1,
+            ConnectAuth::SignaturesOnly,
+            Duration::from_secs(10),
+        )
+        .await
+        .unwrap();
+    assert_eq!(driver.info().unwrap().0, format!("127.0.0.1:{port}"));
+    drop(driver);
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn an_approval_request_offers_the_key_and_waits_for_allow_within_its_budget() {
+    let key = fixture_key();
+    let driver = Arc::new(WirelessAdb::with_existing_key(
+        key.path().into(),
+        Leases::new(),
+    ));
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (offered_tx, offered_rx) = tokio::sync::oneshot::channel();
+    let (allow_tx, allow_rx) = std::sync::mpsc::channel::<()>();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        refuse_every_signature(&mut socket, 1);
+        let (command, kind, payload) = receive(&mut socket);
+        assert_eq!((command.as_slice(), kind), (b"AUTH".as_slice(), 3));
+        assert!(payload.starts_with(b"QAAAA"));
+        offered_tx.send(()).unwrap();
+        // The person reads the prompt and chooses Allow some time later.
+        allow_rx.recv().unwrap();
+        send(&mut socket, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let _ = std::io::copy(&mut socket, &mut std::io::sink());
+    });
+    driver.begin_request(1).unwrap();
+    let requesting = driver.clone();
+    let task = tokio::spawn(async move {
+        requesting
+            .connect_with(
+                "127.0.0.1",
+                port,
+                1,
+                ConnectAuth::OfferPublicKey,
+                Duration::from_secs(20),
+            )
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(3), offered_rx)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(driver.awaiting_authorization());
+    // Longer than a quiet connect would ever wait for an answer.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    assert!(
+        !task.is_finished(),
+        "the request keeps waiting for the person"
+    );
+    allow_tx.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(3), task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!driver.awaiting_authorization());
+    assert!(driver.info().is_some());
+    drop(driver);
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_canceled_or_closed_approval_request_is_not_approved() {
+    for cancel in [true, false] {
+        let key = fixture_key();
+        let driver = Arc::new(WirelessAdb::with_existing_key(
+            key.path().into(),
+            Leases::new(),
+        ));
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = std::thread::spawn(move || {
+            let mut socket = accept(&listener);
+            assert_eq!(receive(&mut socket).0, b"CNXN");
+            refuse_every_signature(&mut socket, 1);
+            assert_eq!(receive(&mut socket).1, 3);
+            if cancel {
+                assert_closed(&mut socket);
+            }
+            // Otherwise the TV ends the connection itself, as a deny can.
+        });
+        driver.begin_request(1).unwrap();
+        let requesting = driver.clone();
+        let task = tokio::spawn(async move {
+            requesting
+                .connect_with(
+                    "127.0.0.1",
+                    port,
+                    1,
+                    ConnectAuth::OfferPublicKey,
+                    Duration::from_secs(20),
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(3), async {
+            while !driver.awaiting_authorization() && !task.is_finished() {
+                tokio::time::sleep(Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        if cancel {
+            driver.begin_request(2).unwrap();
+        }
+        let result = tokio::time::timeout(Duration::from_secs(3), task)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            matches!(result, Err(ConnectFailure::NotApproved(_))),
+            "{result:?}"
+        );
+        assert!(!driver.awaiting_authorization());
+        assert!(driver.info().is_none());
+        peer.join().unwrap();
+    }
+}

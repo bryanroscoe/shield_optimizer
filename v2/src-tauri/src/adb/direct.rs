@@ -1,16 +1,16 @@
 //! Opt-in network transport using the same sessions as the Android app.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use atv_direct_adb::{Paired, PreferredKeys, WirelessAdb};
+use atv_direct_adb::{ConnectAuth, ConnectFailure, Paired, PreferredKeys, WirelessAdb};
 use atv_optimizer_core::adb::{
     native_mdns_services, render_mdns_services, AdbByteStream, AdbDriver, AdbError, AdbOutput,
-    AdbResult, Leases, NativeDiscoveryReport, ScanConnectOutcome, ScanConnectionFailure,
-    ScanConnectionProgress, ServerStop,
+    AdbResult, ApprovalRequestOutcome, Leases, NativeDiscoveryReport, ScanConnectOutcome,
+    ScanConnectionFailure, ScanConnectionProgress, ServerStop,
 };
 use atv_optimizer_core::commands::devices::normalize_connect_address;
 use std::time::Duration;
@@ -18,13 +18,44 @@ use tokio::sync::{watch, Mutex, Semaphore};
 
 const MAX_SESSIONS: usize = 32;
 
+/// How long Request approval keeps the connection open for the person to
+/// choose Allow on the TV. Cancel, Forget, an engine switch or quit end it
+/// sooner.
+pub const APPROVAL_WAIT: Duration = Duration::from_secs(10 * 60);
+
+/// Bound on a connection that offers no public key. It never waits for a
+/// person, only for the TV to answer.
+const QUIET_CONNECT_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// How long Request approval waits to learn that the TV was asked, or why it
+/// could not be, before leaving the rest of the wait to the background.
+const APPROVAL_START_WAIT: Duration = QUIET_CONNECT_TIMEOUT;
+
+/// What `adb connect` prints for a TV that refused every key, the way
+/// platform-tools words it, so the shared connect command reads it as
+/// unauthorized.
+fn not_allowed_output(serial: &str) -> AdbOutput {
+    output(format!(
+        "failed to authenticate to {serial}: this TV has not allowed this computer yet"
+    ))
+}
+
 #[cfg(all(test, unix))]
 #[path = "direct_comparison.rs"]
 mod comparison;
 
 #[async_trait]
 trait NetworkSession: AdbDriver {
-    async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String>;
+    /// Connect under `auth`; `budget` bounds the whole handshake, including
+    /// any wait for the person to choose Allow on the TV.
+    async fn connect(
+        &self,
+        host: &str,
+        port: u16,
+        request: u64,
+        auth: ConnectAuth,
+        budget: Duration,
+    ) -> Result<String, ConnectFailure>;
     async fn pair(&self, host: &str, port: u16, code: &str) -> Result<Paired, String>;
     async fn ready(&self) -> bool;
     fn awaiting_authorization(&self) -> bool {
@@ -36,9 +67,17 @@ trait NetworkSession: AdbDriver {
 
 #[async_trait]
 impl NetworkSession for WirelessAdb {
-    async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String> {
-        self.begin_request(request)?;
-        WirelessAdb::connect(self, host, port, request).await
+    async fn connect(
+        &self,
+        host: &str,
+        port: u16,
+        request: u64,
+        auth: ConnectAuth,
+        budget: Duration,
+    ) -> Result<String, ConnectFailure> {
+        self.begin_request(request)
+            .map_err(ConnectFailure::Failed)?;
+        WirelessAdb::connect_with(self, host, port, request, auth, budget).await
     }
     async fn pair(&self, host: &str, port: u16, code: &str) -> Result<Paired, String> {
         WirelessAdb::pair_reporting_instance(self, host, port, code).await
@@ -73,12 +112,33 @@ struct ConnectionPool {
     factory: Arc<Factory>,
     operations: Arc<Leases>,
     lifecycle: Mutex<BTreeMap<String, Weak<Mutex<()>>>>,
+    /// Endpoints whose TV answered but trusts none of the keys. Listed as
+    /// `unauthorized` until a later connection there succeeds or fails, or
+    /// Forget drops it. Nothing was shown on those TVs.
+    not_allowed: std::sync::Mutex<BTreeSet<String>>,
+    /// Request approval waits, at most one per endpoint.
+    approvals: std::sync::Mutex<BTreeMap<String, ApprovalJob>>,
+    approval_ids: AtomicU64,
+    approval_wait: Duration,
+}
+
+/// What a connection that finished without a transport error found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reached {
+    Ready,
+    /// The TV answered but has not allowed this computer.
+    NotAllowed,
 }
 
 struct ScanJob {
     canceling: bool,
     task: tokio::task::JoinHandle<()>,
-    result: watch::Receiver<Option<Result<(), String>>>,
+    result: watch::Receiver<Option<Result<Reached, String>>>,
+}
+
+struct ApprovalJob {
+    id: u64,
+    task: tokio::task::JoinHandle<()>,
 }
 
 pub struct DirectNetworkAdb {
@@ -144,6 +204,10 @@ impl DirectNetworkAdb {
                 factory,
                 operations,
                 lifecycle: Mutex::new(BTreeMap::new()),
+                not_allowed: std::sync::Mutex::new(BTreeSet::new()),
+                approvals: std::sync::Mutex::new(BTreeMap::new()),
+                approval_ids: AtomicU64::new(0),
+                approval_wait: APPROVAL_WAIT,
             }),
             scan_jobs: std::sync::Mutex::new(BTreeMap::new()),
             scan_slots: Arc::new(Semaphore::new(4)),
@@ -163,6 +227,10 @@ impl DirectNetworkAdb {
 
     async fn connect_foreground(&self, address: &str) -> AdbResult<AdbOutput> {
         let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
+        // A request already holds this TV's connection open for its answer.
+        if self.pool.approval_active(&serial) {
+            return Ok(not_allowed_output(&serial));
+        }
         let pending = {
             let jobs = self.jobs();
             if jobs.get(&serial).is_some_and(|job| job.canceling) {
@@ -175,12 +243,22 @@ impl DirectNetworkAdb {
                 .map(|job| job.result.clone())
         };
         if let Some(mut result) = pending {
-            wait_scan_result(&mut result)
+            return match wait_scan_result(&mut result)
                 .await
-                .map_err(AdbError::Transport)?;
-            return Ok(output(format!("connected to {serial}")));
+                .map_err(AdbError::Transport)?
+            {
+                Reached::Ready => Ok(output(format!("connected to {serial}"))),
+                Reached::NotAllowed => Ok(not_allowed_output(&serial)),
+            };
         }
-        self.pool.connect(&serial, None).await
+        match self
+            .pool
+            .connect(&serial, None, ConnectAuth::SignaturesOnly)
+            .await?
+        {
+            Reached::Ready => Ok(output(format!("connected to {serial}"))),
+            Reached::NotAllowed => Ok(not_allowed_output(&serial)),
+        }
     }
 
     async fn start_scan_connect(
@@ -200,6 +278,11 @@ impl DirectNetworkAdb {
         let deadline = tokio::time::Instant::now()
             .checked_add(valid_for)
             .ok_or_else(|| AdbError::Transport("Invalid scan connection deadline.".into()))?;
+        // Waiting on the person already; a quiet attempt could only queue
+        // behind that wait.
+        if self.pool.approval_active(&serial) {
+            return Ok(ScanConnectOutcome::NotAllowed);
+        }
         let mut result = {
             let mut jobs = self.jobs();
             if self.closing.load(Ordering::Acquire) {
@@ -240,13 +323,12 @@ impl DirectNetworkAdb {
                             .map_err(|_| "Native scan is shutting down.".to_string())?;
                         tokio::time::timeout(
                             Duration::from_secs(45),
-                            pool.connect(&target, Some(deadline)),
+                            pool.connect(&target, Some(deadline), ConnectAuth::SignaturesOnly),
                         )
                         .await
                         .map_err(|_| {
                             "Connection timed out; check the TV and scan again.".to_string()
                         })?
-                        .map(|_| ())
                         .map_err(|error| error.to_string())
                     }
                     .await;
@@ -265,10 +347,124 @@ impl DirectNetworkAdb {
         };
         match tokio::time::timeout(Duration::from_millis(250), wait_scan_result(&mut result)).await
         {
-            Ok(Ok(())) => Ok(ScanConnectOutcome::Ready),
+            Ok(Ok(Reached::Ready)) => Ok(ScanConnectOutcome::Ready),
+            Ok(Ok(Reached::NotAllowed)) => Ok(ScanConnectOutcome::NotAllowed),
             Ok(Err(message)) => Err(AdbError::Transport(message)),
             Err(_) => Ok(ScanConnectOutcome::Pending),
         }
+    }
+
+    /// Start the one connection allowed to offer the public key, and keep
+    /// it open for up to the pool's approval wait. Returns once the TV was
+    /// asked, or once it is clear it could not be.
+    async fn request_approval_impl(&self, address: &str) -> AdbResult<ApprovalRequestOutcome> {
+        let operation = self
+            .pool
+            .operations
+            .try_acquire()
+            .ok_or(AdbError::ShuttingDown)?;
+        let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
+        serial.parse::<std::net::SocketAddr>().map_err(|_| {
+            AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
+        })?;
+        if self.closing.load(Ordering::Acquire) {
+            return Err(AdbError::ShuttingDown);
+        }
+        if let Ok(session) = self.pool.session(&serial).await {
+            if session.ready().await {
+                return Ok(ApprovalRequestOutcome::Ready);
+            }
+        }
+        // A quiet scan attempt holds this endpoint's connection lock; the
+        // request replaces it rather than queueing behind it.
+        let replaced = {
+            let mut jobs = self.jobs();
+            if jobs.get(&serial).is_some_and(|job| job.canceling) {
+                return Err(AdbError::Transport(
+                    "This endpoint is being disconnected.".into(),
+                ));
+            }
+            jobs.remove(&serial)
+        };
+        if let Some(job) = replaced {
+            job.task.abort();
+            let _ = job.task.await;
+        }
+        let (mut done, started) = {
+            let mut approvals = self.pool.lock_approvals();
+            if self.closing.load(Ordering::Acquire) {
+                return Err(AdbError::ShuttingDown);
+            }
+            if approvals
+                .get(&serial)
+                .is_some_and(|job| !job.task.is_finished())
+            {
+                return Ok(ApprovalRequestOutcome::Waiting);
+            }
+            let id = self.pool.approval_ids.fetch_add(1, Ordering::Relaxed) + 1;
+            let (sender, receiver) = watch::channel(None);
+            let pool = self.pool.clone();
+            let target = serial.clone();
+            let task = tokio::spawn(async move {
+                let _operation = operation;
+                let result = pool
+                    .connect(&target, None, ConnectAuth::OfferPublicKey)
+                    .await
+                    .map_err(|error| error.to_string());
+                if result.is_err() {
+                    // It could not reach the TV to ask; the row keeps its button.
+                    pool.mark_not_allowed(&target);
+                }
+                pool.finish_approval(&target, id);
+                sender.send_replace(Some(result));
+            });
+            approvals.insert(serial.clone(), ApprovalJob { id, task });
+            (receiver, tokio::time::Instant::now())
+        };
+        tracing::info!(serial = %serial, "approval request started");
+        loop {
+            if let Some(result) = done.borrow().clone() {
+                return match result {
+                    Ok(Reached::Ready) => Ok(ApprovalRequestOutcome::Ready),
+                    Ok(Reached::NotAllowed) => Ok(ApprovalRequestOutcome::NotApproved),
+                    Err(message) => Err(AdbError::Transport(message)),
+                };
+            }
+            if self.pool.awaiting_authorization(&serial).await
+                || started.elapsed() >= APPROVAL_START_WAIT
+            {
+                return Ok(ApprovalRequestOutcome::Waiting);
+            }
+            tokio::select! {
+                changed = done.changed() => {
+                    if changed.is_err() {
+                        return Ok(ApprovalRequestOutcome::NotApproved);
+                    }
+                }
+                () = tokio::time::sleep(Duration::from_millis(50)) => {}
+            }
+        }
+    }
+
+    /// End a request's wait. The TV goes back to not allowed yet.
+    async fn cancel_approval_impl(&self, address: &str) -> AdbResult<()> {
+        let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
+        let job = self.pool.lock_approvals().remove(&serial);
+        if let Some(job) = job {
+            job.task.abort();
+            let _ = job.task.await;
+            self.pool.mark_not_allowed(&serial);
+            tracing::info!(serial = %serial, "approval request canceled");
+        }
+        Ok(())
+    }
+
+    fn abort_approvals(&self) -> Vec<ApprovalJob> {
+        let jobs = std::mem::take(&mut *self.pool.lock_approvals());
+        for job in jobs.values() {
+            job.task.abort();
+        }
+        jobs.into_values().collect()
     }
 
     async fn cancel_scan_jobs(&self) {
@@ -280,7 +476,11 @@ impl DirectNetworkAdb {
         for job in jobs.values() {
             job.task.abort();
         }
+        let approvals = self.abort_approvals();
         for (_, job) in jobs {
+            let _ = job.task.await;
+        }
+        for job in approvals {
             let _ = job.task.await;
         }
     }
@@ -311,16 +511,82 @@ impl DirectNetworkAdb {
                 probes.spawn(ready_entry(entry));
             }
         }
-        ready.sort();
+        // A TV that answered but allows none of the keys is listed the way
+        // adb lists one: unauthorized, under its exact endpoint. It claims no
+        // identity; a ready transport for the same endpoint takes its place.
+        let mut listed: BTreeMap<String, &'static str> = ready.into_iter().collect();
+        for serial in self.pool.unauthorized() {
+            if listed.get(&serial) != Some(&"device") {
+                listed.insert(serial, "unauthorized");
+            }
+        }
         let mut stdout = "List of devices attached\n".to_string();
-        for line in ready {
-            stdout.push_str(&line);
+        for (serial, status) in listed {
+            stdout.push_str(&format!("{serial}\t{status}\n"));
         }
         Ok(output(stdout))
     }
 }
 
 impl ConnectionPool {
+    fn lock_approvals(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, ApprovalJob>> {
+        self.approvals
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn lock_not_allowed(&self) -> std::sync::MutexGuard<'_, BTreeSet<String>> {
+        self.not_allowed
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn approval_active(&self, serial: &str) -> bool {
+        self.lock_approvals()
+            .get(serial)
+            .is_some_and(|job| !job.task.is_finished())
+    }
+
+    /// Endpoints with an approval request still waiting.
+    fn approvals_waiting(&self) -> Vec<String> {
+        self.lock_approvals()
+            .iter()
+            .filter(|(_, job)| !job.task.is_finished())
+            .map(|(serial, _)| serial.clone())
+            .collect()
+    }
+
+    /// Every endpoint listed as unauthorized: not allowed yet, or waiting on
+    /// a request.
+    fn unauthorized(&self) -> BTreeSet<String> {
+        let mut serials = self.lock_not_allowed().clone();
+        serials.extend(self.approvals_waiting());
+        serials
+    }
+
+    fn mark_not_allowed(&self, serial: &str) {
+        self.lock_not_allowed().insert(serial.to_string());
+    }
+
+    fn clear_not_allowed(&self, serial: &str) -> bool {
+        self.lock_not_allowed().remove(serial)
+    }
+
+    fn finish_approval(&self, serial: &str, id: u64) {
+        let mut approvals = self.lock_approvals();
+        if approvals.get(serial).is_some_and(|job| job.id == id) {
+            approvals.remove(serial);
+        }
+    }
+
+    /// Whether the request for `serial` has offered its key, so the TV may be
+    /// showing its prompt now.
+    async fn awaiting_authorization(&self, serial: &str) -> bool {
+        self.sessions.lock().await.get(serial).is_some_and(|slot| {
+            slot.pending.load(Ordering::Acquire) && slot.session.awaiting_authorization()
+        })
+    }
+
     async fn session(&self, serial: &str) -> AdbResult<Session> {
         self.sessions
             .lock()
@@ -351,11 +617,16 @@ impl ConnectionPool {
         lock.lock_owned().await
     }
 
+    /// Connect to `address`. Only [`ConnectAuth::OfferPublicKey`] may show the
+    /// TV's prompt, and only it waits for the person, for up to the approval
+    /// wait. A TV that allows none of the keys is [`Reached::NotAllowed`] and
+    /// is remembered as such; a transport failure forgets that it was.
     async fn connect(
         &self,
         address: &str,
         valid_until: Option<tokio::time::Instant>,
-    ) -> AdbResult<AdbOutput> {
+        auth: ConnectAuth,
+    ) -> AdbResult<Reached> {
         let _operation = self
             .operations
             .try_acquire()
@@ -376,7 +647,7 @@ impl ConnectionPool {
         if valid_until.is_some() {
             if let Ok(session) = self.session(&serial).await {
                 if session.ready().await {
-                    return Ok(output(format!("connected to {serial}")));
+                    return Ok(Reached::Ready);
                 }
             }
         }
@@ -416,14 +687,35 @@ impl ConnectionPool {
             active_attempt,
             complete: false,
         };
+        let budget = match auth {
+            ConnectAuth::SignaturesOnly => QUIET_CONNECT_TIMEOUT,
+            ConnectAuth::OfferPublicKey => self.approval_wait,
+        };
         let result = session
-            .connect(serial.rsplit_once(':').unwrap().0, endpoint.port(), request)
+            .connect(
+                serial.rsplit_once(':').unwrap().0,
+                endpoint.port(),
+                request,
+                auth,
+                budget,
+            )
             .await;
-        if let Err(message) = result {
+        if let Err(failure) = result {
             if !session.ready().await {
                 self.sessions.lock().await.remove(&serial);
             }
-            return Err(AdbError::Transport(message));
+            return match failure {
+                ConnectFailure::NotAllowed | ConnectFailure::NotApproved(_) => {
+                    self.mark_not_allowed(&serial);
+                    Ok(Reached::NotAllowed)
+                }
+                ConnectFailure::Failed(message) => {
+                    if auth == ConnectAuth::SignaturesOnly {
+                        self.clear_not_allowed(&serial);
+                    }
+                    Err(AdbError::Transport(message))
+                }
+            };
         }
         if !session.ready().await {
             self.sessions.lock().await.remove(&serial);
@@ -431,15 +723,16 @@ impl ConnectionPool {
                 "Direct ADB did not confirm {serial} is ready."
             )));
         }
+        self.clear_not_allowed(&serial);
         published.store(true, Ordering::Release);
         pending.complete = true;
-        Ok(output(format!("connected to {serial}")))
+        Ok(Reached::Ready)
     }
 }
 
 async fn wait_scan_result(
-    result: &mut watch::Receiver<Option<Result<(), String>>>,
-) -> Result<(), String> {
+    result: &mut watch::Receiver<Option<Result<Reached, String>>>,
+) -> Result<Reached, String> {
     loop {
         if let Some(done) = result.borrow().clone() {
             return done;
@@ -451,13 +744,13 @@ async fn wait_scan_result(
     }
 }
 
-async fn ready_entry((serial, session): (String, Session)) -> String {
+async fn ready_entry((serial, session): (String, Session)) -> (String, &'static str) {
     let status = if session.ready().await {
         "device"
     } else {
         "offline"
     };
-    format!("{serial}\t{status}\n")
+    (serial, status)
 }
 
 struct PendingConnect {
@@ -535,6 +828,7 @@ impl Drop for DirectNetworkAdb {
         for job in self.jobs().values() {
             job.task.abort();
         }
+        self.abort_approvals();
     }
 }
 
@@ -571,7 +865,9 @@ impl AdbDriver for DirectNetworkAdb {
         {
             for (address, job) in self.jobs().iter() {
                 match job.result.borrow().clone() {
-                    Some(Ok(())) => progress.ready.push(address.clone()),
+                    Some(Ok(Reached::Ready)) => progress.ready.push(address.clone()),
+                    // Listed below with every other TV that has not allowed this computer.
+                    Some(Ok(Reached::NotAllowed)) => {}
                     Some(Err(message)) => progress.failed.push(ScanConnectionFailure {
                         address: address.clone(),
                         message,
@@ -584,22 +880,30 @@ impl AdbDriver for DirectNetworkAdb {
                 }
             }
         }
-        let sessions = self.pool.sessions.lock().await;
-        progress.awaiting_authorization = progress
-            .pending
+        // Scans never offer a key, so only an explicit request waits on the
+        // person. An endpoint is in one list at a time.
+        progress.awaiting_authorization = self.pool.approvals_waiting();
+        progress.not_allowed = self
+            .pool
+            .lock_not_allowed()
             .iter()
-            .filter(|address| {
-                sessions.get(*address).is_some_and(|slot| {
-                    slot.pending.load(Ordering::Acquire) && slot.session.awaiting_authorization()
-                })
-            })
+            .filter(|serial| !progress.awaiting_authorization.contains(serial))
             .cloned()
             .collect();
         progress
     }
 
+    async fn request_approval(&self, address: &str) -> AdbResult<ApprovalRequestOutcome> {
+        self.request_approval_impl(address).await
+    }
+
+    async fn cancel_approval(&self, address: &str) -> AdbResult<()> {
+        self.cancel_approval_impl(address).await
+    }
+
     async fn stop_server(&self, timeout: std::time::Duration) -> ServerStop {
         self.pool.operations.close();
+        // Ends request waits too.
         self.cancel_scan_jobs().await;
         self.discovery.cancel();
         if self.discovery.cleanup_pending() && !timeout.is_zero() {
@@ -656,10 +960,18 @@ impl AdbDriver for DirectNetworkAdb {
                         false
                     }
                 };
+                // Forget ends a request's wait and what the scan learned.
+                let approval = self.pool.lock_approvals().remove(*serial);
+                let canceled_approval = approval.is_some();
+                if let Some(job) = approval {
+                    job.task.abort();
+                    let _ = job.task.await;
+                }
+                let was_not_allowed = self.pool.clear_not_allowed(serial);
                 let _lifecycle = self.pool.lock_target(serial).await;
                 let result = match self.pool.session(serial).await {
                     Ok(session) => session.raw(&["disconnect", serial]).await.map(|_| ()),
-                    Err(_) if canceled_scan => Ok(()),
+                    Err(_) if canceled_scan || canceled_approval || was_not_allowed => Ok(()),
                     Err(error) => Err(error),
                 };
                 self.jobs().remove(*serial);
@@ -809,6 +1121,15 @@ mod tests {
         probe_failed: AtomicBool,
         probe_held: AtomicBool,
         authorization_pending: AtomicBool,
+        /// The TV allows none of the keys until a request is approved.
+        untrusted: AtomicBool,
+        /// The person chooses Allow (with "Always allow") on the TV.
+        approve: tokio::sync::Notify,
+        /// The person chooses Deny, which ends the connection.
+        deny: tokio::sync::Notify,
+        auths: StdMutex<Vec<(ConnectAuth, Duration)>>,
+        /// Every connect fails like this before reaching the TV.
+        unreachable: StdMutex<Option<String>>,
         started: Arc<tokio::sync::Notify>,
         release: Arc<tokio::sync::Notify>,
         completed: Arc<tokio::sync::Notify>,
@@ -875,8 +1196,38 @@ mod tests {
     }
     #[async_trait]
     impl NetworkSession for FakeSession {
-        async fn connect(&self, host: &str, port: u16, request: u64) -> Result<String, String> {
+        async fn connect(
+            &self,
+            host: &str,
+            port: u16,
+            request: u64,
+            auth: ConnectAuth,
+            budget: Duration,
+        ) -> Result<String, ConnectFailure> {
             self.generation.store(request, Ordering::Release);
+            self.auths.lock().unwrap().push((auth, budget));
+            if let Some(message) = self.unreachable.lock().unwrap().clone() {
+                return Err(ConnectFailure::Failed(message));
+            }
+            if self.untrusted.load(Ordering::Acquire) {
+                if auth == ConnectAuth::SignaturesOnly {
+                    return Err(ConnectFailure::NotAllowed);
+                }
+                self.authorization_pending.store(true, Ordering::Release);
+                let answer = tokio::time::timeout(budget, async {
+                    tokio::select! {
+                        () = self.approve.notified() => true,
+                        () = self.deny.notified() => false,
+                    }
+                })
+                .await;
+                self.authorization_pending.store(false, Ordering::Release);
+                match answer {
+                    Ok(true) => self.untrusted.store(false, Ordering::Release),
+                    Ok(false) => return Err(ConnectFailure::NotApproved("denied".into())),
+                    Err(_) => return Err(ConnectFailure::NotApproved("timed out".into())),
+                }
+            }
             if self.hold.load(Ordering::Acquire) {
                 let (generation, started, release, completed, ready, serial) = (
                     self.generation.clone(),
@@ -901,10 +1252,11 @@ mod tests {
                     result
                 })
                 .await
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| ConnectFailure::Failed(e.to_string()))?
+                .map_err(ConnectFailure::Failed);
             }
             if self.generation.load(Ordering::Acquire) != request {
-                return Err("canceled".into());
+                return Err(ConnectFailure::Failed("canceled".into()));
             }
             *self.serial.lock().unwrap() = format!("{host}:{port}");
             self.ready.store(true, Ordering::Release);
@@ -956,7 +1308,7 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
-    async fn progress_distinguishes_neutral_pending_observed_authorization_and_timeout() {
+    async fn a_pending_quiet_scan_is_never_reported_as_waiting_for_approval() {
         let session = Arc::new(FakeSession::default());
         session.hold.store(true, Ordering::Release);
         let captured = session.clone();
@@ -969,23 +1321,367 @@ mod tests {
             .scan_connect(target, Duration::from_secs(30))
             .await
             .unwrap();
+        // Even a session that says so: a scan never offers the key.
+        session.authorization_pending.store(true, Ordering::Release);
         let progress = driver.scan_connection_progress().await;
         assert_eq!(progress.pending, [target]);
         assert!(progress.awaiting_authorization.is_empty());
-        session.authorization_pending.store(true, Ordering::Release);
-        let progress = driver.scan_connection_progress().await;
-        assert_eq!(progress.awaiting_authorization, [target]);
-        assert_eq!(progress.pending, [target]);
-        assert!(progress.ready.is_empty());
+        assert!(progress.not_allowed.is_empty());
+        assert_eq!(
+            *session.auths.lock().unwrap(),
+            [(ConnectAuth::SignaturesOnly, QUIET_CONNECT_TIMEOUT)]
+        );
         tokio::time::advance(Duration::from_secs(45)).await;
         tokio::task::yield_now().await;
         let progress = driver.scan_connection_progress().await;
         assert!(progress.pending.is_empty());
-        assert!(progress.awaiting_authorization.is_empty());
         assert_eq!(progress.failed[0].address, target);
         session.release.notify_one();
         session.completed.notified().await;
         assert!(!session.ready.load(Ordering::Acquire));
+    }
+
+    fn untrusted_driver() -> (DirectNetworkAdb, Arc<FakeSession>) {
+        let session = Arc::new(FakeSession::default());
+        session.untrusted.store(true, Ordering::Release);
+        let captured = session.clone();
+        let driver = DirectNetworkAdb::with_factory(
+            PathBuf::from("unused"),
+            Arc::new(move |_, _| captured.clone()),
+        );
+        (driver, session)
+    }
+
+    async fn request_settles(driver: &DirectNetworkAdb, target: &str) {
+        while driver.pool.approval_active(target) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }
+
+    fn offered_keys(session: &FakeSession) -> usize {
+        session
+            .auths
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(auth, _)| *auth == ConnectAuth::OfferPublicKey)
+            .count()
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn scans_and_add_by_ip_list_an_unapproved_tv_as_unauthorized_without_offering_its_key() {
+        let (driver, session) = untrusted_driver();
+        let target = "192.0.2.1:5555";
+        for _ in 0..2 {
+            assert_eq!(
+                driver
+                    .scan_connect(target, Duration::from_secs(30))
+                    .await
+                    .unwrap(),
+                ScanConnectOutcome::NotAllowed
+            );
+        }
+        let added = driver.raw(&["connect", target]).await.unwrap();
+        assert!(added.stdout.starts_with("failed to authenticate"));
+        assert_eq!(offered_keys(&session), 0, "nothing may show on the TV");
+        assert!(session
+            .auths
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|(_, budget)| *budget == QUIET_CONNECT_TIMEOUT));
+        let devices = driver.raw(&["devices"]).await.unwrap().stdout;
+        assert!(
+            devices.contains("192.0.2.1:5555\tunauthorized"),
+            "{devices}"
+        );
+        let progress = driver.scan_connection_progress().await;
+        assert_eq!(progress.not_allowed, [target]);
+        assert!(progress.awaiting_authorization.is_empty());
+        assert!(progress.failed.is_empty() && progress.pending.is_empty());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_waits_well_past_a_minute_for_allow_then_later_scans_connect_quietly() {
+        let (driver, session) = untrusted_driver();
+        let target = "192.0.2.1:5555";
+        driver
+            .scan_connect(target, Duration::from_secs(30))
+            .await
+            .unwrap();
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Waiting
+        );
+        assert_eq!(
+            session.auths.lock().unwrap().last(),
+            Some(&(ConnectAuth::OfferPublicKey, APPROVAL_WAIT))
+        );
+        assert!(APPROVAL_WAIT >= Duration::from_secs(600));
+        // Asking again while it waits sends nothing new.
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Waiting
+        );
+        // A scan meanwhile neither dials it again nor drops its row.
+        assert_eq!(
+            driver
+                .scan_connect(target, Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::NotAllowed
+        );
+        assert_eq!(session.auths.lock().unwrap().len(), 2);
+        for wait in [31, 30, 240] {
+            tokio::time::advance(Duration::from_secs(wait)).await;
+            tokio::task::yield_now().await;
+            let progress = driver.scan_connection_progress().await;
+            assert_eq!(progress.awaiting_authorization, [target]);
+            assert!(progress.not_allowed.is_empty() && progress.failed.is_empty());
+            assert!(driver
+                .raw(&["devices"])
+                .await
+                .unwrap()
+                .stdout
+                .contains("192.0.2.1:5555\tunauthorized"));
+        }
+        session.approve.notify_one();
+        request_settles(&driver, target).await;
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.awaiting_authorization.is_empty() && progress.not_allowed.is_empty());
+        assert!(driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1:5555\tdevice"));
+        // After Forget, a scan connects with a signature: no second request.
+        driver.raw(&["disconnect", target]).await.unwrap();
+        assert_eq!(
+            driver
+                .scan_connect(target, Duration::from_secs(30))
+                .await
+                .unwrap(),
+            ScanConnectOutcome::Ready
+        );
+        assert_eq!(offered_keys(&session), 1);
+        assert_eq!(
+            session.auths.lock().unwrap().last().unwrap().0,
+            ConnectAuth::SignaturesOnly
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn cancel_deny_or_the_wait_limit_return_the_tv_quietly_to_not_allowed() {
+        for ending in ["cancel", "deny", "limit"] {
+            let (driver, session) = untrusted_driver();
+            let target = "192.0.2.1:5555";
+            assert_eq!(
+                driver.request_approval(target).await.unwrap(),
+                ApprovalRequestOutcome::Waiting
+            );
+            match ending {
+                "cancel" => driver.cancel_approval(target).await.unwrap(),
+                "deny" => session.deny.notify_one(),
+                _ => {
+                    tokio::time::advance(APPROVAL_WAIT - Duration::from_secs(1)).await;
+                    tokio::task::yield_now().await;
+                    assert!(driver.pool.approval_active(target), "ended early");
+                    tokio::time::advance(Duration::from_secs(2)).await;
+                }
+            }
+            request_settles(&driver, target).await;
+            let progress = driver.scan_connection_progress().await;
+            assert_eq!(progress.not_allowed, [target], "{ending}");
+            assert!(progress.awaiting_authorization.is_empty(), "{ending}");
+            assert!(progress.failed.is_empty(), "{ending}: no transport error");
+            assert!(!session.authorization_pending.load(Ordering::Acquire));
+            assert!(driver
+                .raw(&["devices"])
+                .await
+                .unwrap()
+                .stdout
+                .contains("192.0.2.1:5555\tunauthorized"));
+            // The button works again.
+            assert_eq!(
+                driver.request_approval(target).await.unwrap(),
+                ApprovalRequestOutcome::Waiting,
+                "{ending}"
+            );
+            assert_eq!(offered_keys(&session), 2);
+            // Forget ends that wait and drops the row.
+            driver.raw(&["disconnect", target]).await.unwrap();
+            let progress = driver.scan_connection_progress().await;
+            assert!(progress.awaiting_authorization.is_empty() && progress.not_allowed.is_empty());
+            assert!(!driver
+                .raw(&["devices"])
+                .await
+                .unwrap()
+                .stdout
+                .contains("192.0.2.1"));
+            assert!(!session.authorization_pending.load(Ordering::Acquire));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_request_that_cannot_reach_the_tv_says_why_and_keeps_its_button() {
+        let (driver, session) = untrusted_driver();
+        let target = "192.0.2.1:5555";
+        driver
+            .scan_connect(target, Duration::from_secs(30))
+            .await
+            .unwrap();
+        *session.unreachable.lock().unwrap() = Some("SIMULATED no route".into());
+        let error = driver.request_approval(target).await.unwrap_err();
+        assert!(error.to_string().contains("SIMULATED no route"));
+        assert_eq!(
+            driver.scan_connection_progress().await.not_allowed,
+            [target]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_already_allowed_tv_connects_without_a_request() {
+        let (driver, session) = fake_driver();
+        let target = "192.0.2.1:5555";
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Ready
+        );
+        assert!(driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1:5555\tdevice"));
+        // Its signature was accepted; no prompt was needed.
+        let session = session.lock().unwrap()[0].clone();
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Ready
+        );
+        assert_eq!(session.auths.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn an_engine_switch_ends_a_request_wait() {
+        let (driver, session) = untrusted_driver();
+        let target = "192.0.2.1:5555";
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Waiting
+        );
+        assert!(session.authorization_pending.load(Ordering::Acquire));
+        let pool = Arc::downgrade(&driver.pool);
+        drop(driver);
+        while pool.upgrade().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        assert!(!session.authorization_pending.load(Ordering::Acquire));
+    }
+
+    async fn settle_quiet_scan(driver: &DirectNetworkAdb, address: &str) -> ScanConnectionProgress {
+        loop {
+            let progress = driver.scan_connection_progress().await;
+            if !progress.pending.iter().any(|pending| pending == address) {
+                return progress;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    // Live, against a TV or emulator that has not allowed `KEY` (a throwaway
+    // PKCS#8 key: never the platform-tools adbkey). Ignored in CI; run by hand:
+    //   ATV_OPTIMIZER_LIVE_APPROVAL_ADDR=127.0.0.1:5555 \
+    //   ATV_OPTIMIZER_LIVE_APPROVAL_KEY=/path/throwaway.pem \
+    //   ATV_OPTIMIZER_LIVE_APPROVAL_MODE=allow|cancel|watch \
+    //     cargo test -p atv-optimizer live_quiet_scan_then_request_approval -- --ignored --nocapture
+    // Scans twice (the TV must show nothing), then Request approval. `allow`
+    // waits for Allow, forgets the TV and scans again, which must connect with
+    // no request. `cancel` cancels 10 seconds after asking. `watch` reports
+    // the state each second for 90 seconds (for Deny).
+    #[tokio::test(flavor = "multi_thread")]
+    #[ignore]
+    async fn live_quiet_scan_then_request_approval() {
+        let (Ok(address), Ok(key)) = (
+            std::env::var("ATV_OPTIMIZER_LIVE_APPROVAL_ADDR"),
+            std::env::var("ATV_OPTIMIZER_LIVE_APPROVAL_KEY"),
+        ) else {
+            panic!("set ATV_OPTIMIZER_LIVE_APPROVAL_ADDR and ATV_OPTIMIZER_LIVE_APPROVAL_KEY");
+        };
+        let mode = std::env::var("ATV_OPTIMIZER_LIVE_APPROVAL_MODE").unwrap_or_default();
+        let driver = DirectNetworkAdb::new(PathBuf::from(key));
+        let started = std::time::Instant::now();
+        let at = || format!("{:.1}s", started.elapsed().as_secs_f64());
+        for scan in 1..=2 {
+            let outcome = driver
+                .scan_connect(&address, Duration::from_secs(45))
+                .await
+                .unwrap();
+            let progress = settle_quiet_scan(&driver, &address).await;
+            eprintln!("{} scan {scan}: {outcome:?}, {progress:?}", at());
+            assert!(progress.not_allowed.contains(&address), "{progress:?}");
+        }
+        let devices = driver.raw(&["devices"]).await.unwrap().stdout;
+        assert!(
+            devices.contains(&format!("{address}\tunauthorized")),
+            "{devices}"
+        );
+        let asked = std::time::Instant::now();
+        let outcome = driver.request_approval(&address).await.unwrap();
+        eprintln!(
+            "{} request_approval returned {outcome:?} after {:?}",
+            at(),
+            asked.elapsed()
+        );
+        assert_eq!(outcome, ApprovalRequestOutcome::Waiting);
+        match mode.as_str() {
+            "cancel" => {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+                driver.cancel_approval(&address).await.unwrap();
+                let progress = driver.scan_connection_progress().await;
+                eprintln!("{} canceled: {progress:?}", at());
+                assert!(progress.not_allowed.contains(&address));
+                assert!(progress.awaiting_authorization.is_empty());
+            }
+            "watch" => {
+                for _ in 0..90 {
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    let progress = driver.scan_connection_progress().await;
+                    eprintln!("{} {progress:?}", at());
+                    if progress.awaiting_authorization.is_empty() {
+                        break;
+                    }
+                }
+            }
+            _ => {
+                eprintln!("{} choose Allow (with Always allow) on the TV", at());
+                loop {
+                    let progress = driver.scan_connection_progress().await;
+                    if !progress.awaiting_authorization.contains(&address) {
+                        eprintln!(
+                            "{} request ended after {:.1}s: {progress:?}",
+                            at(),
+                            asked.elapsed().as_secs_f64()
+                        );
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                }
+                let devices = driver.raw(&["devices"]).await.unwrap().stdout;
+                assert!(devices.contains(&format!("{address}\tdevice")), "{devices}");
+                driver.raw(&["disconnect", &address]).await.unwrap();
+                let outcome = driver
+                    .scan_connect(&address, Duration::from_secs(45))
+                    .await
+                    .unwrap();
+                let progress = settle_quiet_scan(&driver, &address).await;
+                eprintln!("{} scan after Allow: {outcome:?}, {progress:?}", at());
+                assert!(progress.ready.contains(&address), "{progress:?}");
+                driver.raw(&["disconnect", &address]).await.unwrap();
+            }
+        }
+        driver.stop_server(Duration::from_secs(2)).await;
     }
 
     #[tokio::test(start_paused = true)]

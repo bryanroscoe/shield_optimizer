@@ -189,6 +189,22 @@ pub struct NativeDiscoveryReport {
 pub enum ScanConnectOutcome {
     Ready,
     Pending,
+    /// The TV answered but has not allowed this computer's keys. The
+    /// built-in engine connects without offering a key, so it showed nothing.
+    NotAllowed,
+}
+
+/// What asking a TV to allow this computer started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalRequestOutcome {
+    /// The TV was asked and may be showing its prompt; the wait goes on in
+    /// the background until the person answers, it is canceled or it ends.
+    Waiting,
+    /// The TV already allows this computer, so it connected without asking.
+    Ready,
+    /// The TV ended the request without allowing this computer.
+    NotApproved,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -200,9 +216,13 @@ pub struct ScanConnectionFailure {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ScanConnectionProgress {
     pub pending: Vec<String>,
-    /// Active attempts that sent their public key and are waiting for approval.
+    /// Explicit approval requests whose TV may be showing its prompt.
     #[serde(default)]
     pub awaiting_authorization: Vec<String>,
+    /// TVs that answered but have not allowed this computer yet. Nothing was
+    /// shown on them.
+    #[serde(default)]
+    pub not_allowed: Vec<String>,
     /// Completed successful scan attempts, without another liveness probe.
     #[serde(default)]
     pub ready: Vec<String>,
@@ -244,6 +264,24 @@ pub trait AdbDriver: Send + Sync {
 
     async fn scan_connection_progress(&self) -> ScanConnectionProgress {
         ScanConnectionProgress::default()
+    }
+
+    /// Ask the TV at `address` to allow this computer, which shows its "Allow
+    /// debugging?" prompt. Only this offers the public key; every other
+    /// built-in connection signs quietly. The wait is the driver's own and
+    /// ends at its limit, [`AdbDriver::cancel_approval`], Forget or quit.
+    async fn request_approval(&self, _address: &str) -> AdbResult<ApprovalRequestOutcome> {
+        Err(AdbError::Unsupported {
+            operation: "request_approval",
+        })
+    }
+
+    /// Stop waiting on a request [`AdbDriver::request_approval`] started. The
+    /// TV goes back to not allowed yet.
+    async fn cancel_approval(&self, _address: &str) -> AdbResult<()> {
+        Err(AdbError::Unsupported {
+            operation: "cancel_approval",
+        })
     }
 
     /// Run `adb <args...>` (no `-s` prefix).
