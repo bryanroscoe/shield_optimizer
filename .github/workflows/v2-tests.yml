@@ -110,7 +110,8 @@ jobs:
         github.event.label.name == 'skip-ci'))
     timeout-minutes: 20
     name: Frontend type check
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.60 can't install Chromium on ubuntu-latest's 26.04 image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
@@ -429,7 +430,8 @@ jobs:
         github.event.label.name == 'skip-ci'))
     timeout-minutes: 20
     name: Mobile frontend type check
-    runs-on: ubuntu-latest
+    # Pinned: Playwright 1.60 can't install Chromium on ubuntu-latest's 26.04 image.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
 
