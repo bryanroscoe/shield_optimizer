@@ -11,8 +11,9 @@
 #   mobile/src-tauri/Cargo.toml         -> [package] version
 #   v2/Cargo.lock                       -> via `cargo update -p atv-optimizer-mobile --offline`
 #
-# This script does NOT commit, tag, or push. Mobile has no release tag namespace
-# yet; see mobile/RELEASE.md.
+# This script does NOT commit, tag, or push. Mobile releases are `mobile-vX.Y.Z`
+# tags, built and uploaded by .github/workflows/mobile-play-release.yml; see
+# mobile/RELEASE.md "Automated release (CI)".
 #
 # Android versionCode
 # -------------------

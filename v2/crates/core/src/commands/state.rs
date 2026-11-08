@@ -55,6 +55,9 @@ pub struct AppState {
     /// Anonymous reports. A no-op unless the app attaches a configured hub
     /// with [`AppState::with_telemetry`] and the user leaves it on.
     pub telemetry: Arc<Telemetry>,
+    /// Names for listed TVs adb cannot query yet. Off unless the app enables
+    /// it, so tests and the simulated-device harness never reach the network.
+    cast_names: Option<Arc<crate::net::CastNames>>,
 }
 
 impl AppState {
@@ -75,7 +78,17 @@ impl AppState {
             remote_driver_swap: tokio::sync::Mutex::new(()),
             support_rules: std::sync::RwLock::new(crate::commands::loader::embedded_support_rules()),
             telemetry: Telemetry::disabled(),
+            cast_names: None,
         }
+    }
+
+    pub fn with_cast_names(mut self, cast_names: Arc<crate::net::CastNames>) -> Self {
+        self.cast_names = Some(cast_names);
+        self
+    }
+
+    pub fn cast_names(&self) -> Option<&Arc<crate::net::CastNames>> {
+        self.cast_names.as_ref()
     }
 
     pub fn with_telemetry(mut self, telemetry: Arc<Telemetry>) -> Self {

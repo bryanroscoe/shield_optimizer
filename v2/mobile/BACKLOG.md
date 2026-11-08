@@ -109,7 +109,8 @@ go-ahead; don't infer permission from a phone being powered on.
 See [`RELEASE.md`](RELEASE.md) for the full checklist. Open items:
 
 - The upload keystore exists and is backed up in the owner's vault. Still open: Play App Signing
-  enrollment, a verified signed AAB/APK, a measured release size, and Android release automation.
+  enrollment, a verified signed AAB/APK and a measured release size. Release automation exists
+  (`mobile-play-release.yml`, RELEASE.md "Automated release (CI)") but needs its one-time setup.
 - Compare the final Play candidate against the resolved Android runtime baseline and shipped
   notices ([`ANDROID-DEPENDENCIES.md`](ANDROID-DEPENDENCIES.md)); 94 modules and upstream archive
   notices were captured on 2026-11-03. Re-resolve after dependency changes.

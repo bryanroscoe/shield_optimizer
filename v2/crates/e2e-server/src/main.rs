@@ -47,6 +47,7 @@ fn intercepted(cmd: &str) -> Option<Value> {
             "url": "https://github.com/bryanroscoe/shield_optimizer/releases",
             "current_notes": null,
         }),
+        "update_channel" => json!("self"),
         "install_adb" => {
             json!({"ok": true, "path": "/simulated/platform-tools/adb", "message": "Simulated install."})
         }

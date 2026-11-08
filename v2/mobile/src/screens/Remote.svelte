@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -278,10 +279,9 @@
         <button class="dpad-center" onclick={() => sendKey("select")}>OK</button>
       </div>
     </div>
-    <details class="help-disclosure">
-      <summary>Remote controls</summary>
+    <HelpSheet title="Remote controls">
       <span class="helper-text">Tap direction to move · hold to repeat · center to select</span>
-    </details>
+    </HelpSheet>
 
     <div class="media-row">
       <button class="media-btn" onclick={() => sendKey("rewind")} aria-label="Rewind">

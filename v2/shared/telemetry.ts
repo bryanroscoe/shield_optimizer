@@ -54,6 +54,7 @@ export const ACTION_COMMANDS: Readonly<Record<string, TelemetryAction>> = {
 const QUIET_COMMANDS = new Set([
   "adb_status",
   "check_for_update",
+  "update_channel",
   "local_address_for",
   "probe_paired_connect",
   "resource_sample",

@@ -236,7 +236,10 @@ async fn default_state(
     };
     let state = control.app_state(driver, app_lists, data_dir).await;
     // The desktop app has no paywall; every feature is unlocked.
-    (state.with_entitlement(Entitlement::Pro), control)
+    let state = state
+        .with_entitlement(Entitlement::Pro)
+        .with_cast_names(Arc::new(atv_optimizer_core::net::CastNames::live()));
+    (state, control)
 }
 
 /// Every command the desktop frontend can invoke. One list, shared by the app
@@ -335,6 +338,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         optimize::prepare_optimize,
         optimize::apply_performance_settings,
         update::check_for_update,
+        update::update_channel,
         app_report::save_app_report,
         diagnostics::collect_diagnostics,
         diagnostics::upload_diagnostics,

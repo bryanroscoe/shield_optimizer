@@ -46,7 +46,7 @@ Choose the newest stable `v2-*` desktop release; `v0.*` releases contain the leg
 |----|------|
 | Windows | `.msi` or `_x64-setup.exe` |
 | macOS | `_universal.dmg` (Apple Silicon + Intel) |
-| Linux | `.AppImage`, `.deb`, or `.rpm` |
+| Linux | `.AppImage`, `.deb`, `.rpm`, or `_x86_64.flatpak` |
 
 ### First launch
 
@@ -58,6 +58,8 @@ only have to dismiss it once:
   **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/ATV Optimizer.app"`.
 - **Windows** (SmartScreen): **More info → Run anyway**.
 - **Linux**: `chmod +x ATV.Optimizer*.AppImage` before running the AppImage.
+  The Flatpak installs with `flatpak install --user ATV.Optimizer_*_x86_64.flatpak`. It doesn't
+  update itself: install the next release's `.flatpak` the same way.
 
 On macOS 15+, also click **Allow** when macOS asks whether ATV Optimizer can find devices on your
 local network. Without it, the app can't reach any TV.

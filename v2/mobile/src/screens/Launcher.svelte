@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -866,13 +867,12 @@
           home screen, so save a snapshot before you change this.
         </span>
       </div>
-      <details class="help-disclosure launcher-help">
-        <summary>About changing launchers</summary>
+      <HelpSheet title="About changing launchers">
         <p>
           Changing the launcher is reversible: set stock back as default any time. A snapshot
           records which launcher was active; it never re-enables or reinstalls anything on its own.
         </p>
-      </details>
+      </HelpSheet>
 
       <button
         class="adv-toggle"
@@ -1209,9 +1209,6 @@
 
   .launcher-note {
     margin-top: 4px;
-  }
-  .launcher-help {
-    margin: -6px 0 0;
   }
   .callout-text {
     flex: 1;

@@ -167,15 +167,19 @@ test("the report sheet keeps privacy visible and explains copying on demand", as
   const report = page.getByRole("dialog", { name: "Report this app", exact: true });
   await report.getByText(/Nothing is sent automatically/).waitFor();
   assert.ok(await report.getByText(/It carries no serial number, no IP address and no other installed packages/).isVisible());
-  const howTo = report.getByText(/Copy puts report text on your clipboard; it does not save a file/);
-  assert.equal(await howTo.count(), 1);
-  assert.equal(await howTo.isVisible(), false);
+  const howTo = page.getByRole("dialog", { name: "How reporting works" }).getByText(/Copy puts report text on your clipboard; it does not save a file/);
+  assert.equal(await howTo.count(), 0, "how-to is on demand");
   // The sheet moves focus inside itself on the next frame; wait for that.
   await page.waitForFunction(() => document.querySelector('[aria-labelledby="app-report-title"]').contains(document.activeElement));
-  const summary = report.getByText("How reporting works", { exact: true });
+  const summary = report.getByRole("button", { name: "How reporting works", exact: true });
   await summary.focus();
   await page.keyboard.press("Enter");
   await howTo.waitFor();
+  // Done returns to the report sheet, which stays open beneath.
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await howTo.waitFor({ state: "detached" });
+  assert.equal(await summary.evaluate((el) => el === document.activeElement), true);
+  assert.ok(await report.isVisible());
 });
 
 test("a recognised row's report carries the page's current state, and none while a run is changing it", async (t) => {

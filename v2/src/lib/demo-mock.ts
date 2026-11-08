@@ -684,6 +684,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         // from here. Null is what a failed or timed-out GitHub call returns.
         current_notes: null,
       };
+    case "update_channel":
+      return demoFlag("flatpak") ? "flatpak" : "self";
     case "list_devices":
       // The built-in engine is network-only, so it never lists a USB device.
       return adbEngineStatus().active === "builtin"

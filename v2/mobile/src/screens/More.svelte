@@ -130,6 +130,7 @@
 </script>
 
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
@@ -795,14 +796,13 @@
             </button>
           </div>
         {/if}
-        <details class="help-disclosure">
-          <summary>What's sent</summary>
+        <HelpSheet title="What's sent">
           <p class="card-desc">{MOBILE_NOTICE_TEXT}</p>
           <p class="card-desc">
             Reports go to a server the app's developer runs; raw reports are kept for 90 days.
             Turning reports back on starts a new random install ID.
           </p>
-        </details>
+        </HelpSheet>
         {#if telemetry.support_id}
           <p class="card-desc">Support ID: <code class="support-id">{telemetry.support_id}</code></p>
           <button class="ghost-btn" onclick={copySupportId}>Copy Support ID</button>
@@ -815,7 +815,7 @@
     <div class="more-card">
       <span class="card-label">Debug log</span>
       <p class="card-desc">Copy puts log text on your clipboard; it does not save a file.</p>
-      <details class="help-disclosure"><summary>About debug logs</summary><p class="card-desc">Recent app activity and the device transport log — useful for support.</p></details>
+      <HelpSheet title="About debug logs"><p class="card-desc">Recent app activity and the device transport log — useful for support.</p></HelpSheet>
       {#if !showLog}
         <button class="ghost-btn" onclick={loadLog}>
           <span class="msr">description</span>Show debug log

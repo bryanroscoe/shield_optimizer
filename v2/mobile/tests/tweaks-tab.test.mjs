@@ -713,10 +713,12 @@ test("display scaling, screensaver and cached-process help match desktop's visib
   ]) {
     const text = page.getByText(routine);
     assert.equal(await text.isVisible(), false, summary);
-    const toggle = page.locator("summary", { hasText: summary });
+    const toggle = page.getByRole("button", { name: summary, exact: true });
     await toggle.scrollIntoViewIfNeeded();
     await toggle.click();
-    await text.waitFor();
+    await page.getByRole("dialog", { name: summary }).getByText(routine).waitFor();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "detached" });
   }
   const legacy = page.getByText(/Removing this deletes only the stored value; it does not set the reported cap\./);
   assert.equal(await legacy.evaluate((el) => !!el.closest("details")), false);

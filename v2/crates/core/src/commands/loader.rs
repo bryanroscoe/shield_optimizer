@@ -793,6 +793,18 @@ mod tests {
                 "unreviewed lead {package} entered the action catalog"
             );
         }
+        let progress: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../tools/catalog-review/progress.json"
+        ))
+        .unwrap();
+        for (package, record) in progress["packages"].as_object().unwrap() {
+            if record["status"] == "held" {
+                assert!(
+                    lists.find(package).is_none(),
+                    "held research lead {package} entered the action catalog"
+                );
+            }
+        }
     }
 
     #[test]

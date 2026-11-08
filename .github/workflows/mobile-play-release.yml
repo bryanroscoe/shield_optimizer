@@ -1,0 +1,368 @@
+# ATV Optimizer for Android: build, verify and upload to Google Play.
+#
+# A separate release track from desktop (`v2-*`, v2-release.yml) and v1 (`v0.x`, release.sh).
+# Mobile tags are `mobile-vX.Y.Z[-pre]` and must match v2/mobile/src-tauri/tauri.conf.json.
+#
+# What runs:
+#   - push of a `mobile-v*` tag    -> release job, publish mode: internal track, DRAFT release
+#   - workflow_dispatch            -> mode `build` (signed + verified, no upload), `publish`
+#                                     (choose track and draft/completed) or `smoke`
+#   - pull_request touching this   -> smoke job: the full build and verification with a
+#     workflow or its scripts         throwaway key and license key; needs no secrets, uploads nothing
+#
+# A draft release does nothing until someone opens Play Console and rolls it out, so a tag never
+# reaches testers on its own. The release job refuses revisions that are not on main, a tag that
+# disagrees with tauri.conf.json, a keystore whose certificate is not the recorded upload
+# certificate, a versionCode that is not above every bundle, APK and track release on Play, and the
+# production track. Credentials are written only after the toolchain and npm dependencies are
+# installed, and each step gets only the secrets it uses.
+#
+# One-time setup (environment `google-play`, its secrets and variables, the Play service
+# account): v2/mobile/RELEASE.md "Automated release (CI)" and v2/mobile/scripts/setup-play-ci.sh.
+
+name: Mobile Play release
+
+on:
+  push:
+    tags:
+      - 'mobile-v*'
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
+    paths:
+      - '.github/workflows/mobile-play-release.yml'
+      - '.github/actions/android-release-toolchain/**'
+      - 'v2/mobile/scripts/build-play-release.py'
+      - 'v2/mobile/scripts/verify-play-bundle.py'
+      - 'v2/mobile/scripts/verify-release-apk.py'
+      - 'v2/mobile/scripts/play-publish.py'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'build = signed and verified, no upload; publish = also upload to Play; smoke = throwaway key, no secrets'
+        type: choice
+        options: [build, publish, smoke]
+        default: build
+      track:
+        description: 'Play track for publish: internal, alpha (the default Closed testing track) or a custom closed track id; production is refused (promote in Play Console)'
+        type: string
+        default: internal
+      status:
+        description: 'draft waits for a rollout in Play Console; completed rolls out at once (not allowed while the app is unpublished)'
+        type: choice
+        options: [draft, completed]
+        default: draft
+      version_code:
+        description: 'Override the versionCode (blank = tauri.conf.json bundle.android.versionCode, else derived from the version)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+# Releases queue rather than cancel each other. PR smoke runs cancel superseded ones; unrelated
+# label events neither start nor cancel a run.
+concurrency:
+  group: >-
+    ${{ github.workflow }}-${{ github.event_name == 'pull_request'
+    && format('pr-{0}-{1}', github.event.pull_request.number,
+       ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci') && github.run_id || 'ci')
+    || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  OUTPUTS: v2/mobile/src-tauri/gen/android/app/build/outputs
+
+jobs:
+  smoke:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.mode == 'smoke') ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    name: Smoke build (throwaway key, no upload)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Android release toolchain
+        id: toolchain
+        uses: ./.github/actions/android-release-toolchain
+
+      - name: Throwaway signing and license inputs
+        run: |
+          umask 077
+          dir="$RUNNER_TEMP/smoke"
+          mkdir "$dir"
+          pass="$(openssl rand -hex 24)"
+          echo "::add-mask::$pass"
+          keytool -genkeypair -noprompt -keystore "$dir/smoke.jks" -storetype PKCS12 -alias smoke \
+            -keyalg RSA -keysize 2048 -validity 2 -dname "CN=ATV Optimizer CI smoke" \
+            -storepass "$pass" -keypass "$pass"
+          openssl genrsa 2048 2>/dev/null | openssl rsa -pubout -outform DER 2>/dev/null | base64 -w0 > "$dir/license-key"
+          python3 -c 'import json, sys; json.dump({"storeFile": sys.argv[1], "storePassword": sys.argv[2], "keyAlias": "smoke", "keyPassword": sys.argv[2]}, open(sys.argv[3], "w"))' \
+            "$dir/smoke.jks" "$pass" "$dir/play-upload.json"
+          fingerprint="$(keytool -exportcert -keystore "$dir/smoke.jks" -alias smoke -storepass "$pass" | sha256sum | cut -d' ' -f1)"
+          {
+            echo "SIGNING_DIR=$dir"
+            echo "ATVOPT_KEYSTORE_PASSWORD=$pass"
+            echo "ATVOPT_KEYSTORE_KEY_PASSWORD=$pass"
+            echo "UPLOAD_CERT_SHA256=$fingerprint"
+          } >> "$GITHUB_ENV"
+
+      - name: Resolve version
+        id: version
+        run: |
+          python3 v2/mobile/scripts/play-publish.py version > "$RUNNER_TEMP/version.json"
+          cat "$RUNNER_TEMP/version.json"
+          echo "code=$(jq -r .version_code "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: v2/mobile
+        run: |
+          python3 scripts/build-play-release.py \
+            --signing-config "$SIGNING_DIR/play-upload.json" \
+            --license-key-file "$SIGNING_DIR/license-key" \
+            --version-code "${{ steps.version.outputs.code }}" \
+            --previous-version-code 0 --previous-version-source smoke \
+            --min-free-gib 15 --build-jobs 4
+
+      - name: Verify bundle and APKs
+        run: |
+          mkdir -p "$RUNNER_TEMP/verify"
+          python3 v2/mobile/scripts/verify-play-bundle.py \
+            --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
+            --apk "$OUTPUTS/apk/universal/release/app-universal-release.apk" \
+            --version-code "${{ steps.version.outputs.code }}" \
+            --expected-cert-sha256 "$UPLOAD_CERT_SHA256" \
+            --bundletool "${{ steps.toolchain.outputs.bundletool }}" \
+            --keystore "$SIGNING_DIR/smoke.jks" --key-alias smoke \
+            --output-dir "$RUNNER_TEMP/verify" --evidence "$OUTPUTS/play-verification.json"
+
+      - name: Keep receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-smoke-receipts
+          path: |
+            ${{ env.OUTPUTS }}/play-build-receipt.json
+            ${{ env.OUTPUTS }}/play-verification.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove throwaway credentials
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/smoke"
+
+  release:
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mobile-v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.mode != 'smoke')
+    name: Release (build, verify, upload when publishing)
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    environment: google-play
+    env:
+      MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
+      TRACK: ${{ github.event_name == 'push' && 'internal' || inputs.track }}
+      STATUS: ${{ github.event_name == 'push' && 'draft' || inputs.status }}
+      VERSION_CODE_OVERRIDE: ${{ inputs.version_code }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check the release revision
+        run: |
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
+            echo "::error::$GITHUB_SHA is not on main. Release only merged, CI-checked revisions."
+            exit 1
+          fi
+          if [[ "$TRACK" == production ]]; then
+            echo "::error::This workflow does not release to production. Upload to a testing track and promote the release to production in Play Console."
+            exit 1
+          fi
+          if [[ ! "$TRACK" =~ ^[a-z0-9:_-]+$ ]]; then
+            echo "::error::Unexpected track id '$TRACK'"
+            exit 1
+          fi
+
+      - name: Resolve version
+        id: version
+        run: |
+          args=()
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then args+=(--tag "$GITHUB_REF_NAME"); fi
+          if [[ -n "$VERSION_CODE_OVERRIDE" ]]; then args+=(--version-code "$VERSION_CODE_OVERRIDE"); fi
+          python3 v2/mobile/scripts/play-publish.py version "${args[@]}" > "$RUNNER_TEMP/version.json"
+          cat "$RUNNER_TEMP/version.json"
+          echo "version=$(jq -r .version "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
+          echo "code=$(jq -r .version_code "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
+
+      # Only whether each input is set; no credential value reaches this step.
+      - name: Check the release inputs are set
+        env:
+          KEYSTORE_B64: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_B64 != '' }}
+          KEYSTORE_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_PASSWORD != '' }}
+          KEY_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEY_PASSWORD != '' }}
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON != '' }}
+          KEY_ALIAS: ${{ vars.ATVOPT_UPLOAD_KEY_ALIAS != '' }}
+          LICENSE_KEY: ${{ vars.ATVOPT_PLAY_LICENSE_KEY != '' }}
+          CERT_SHA256: ${{ vars.ATVOPT_UPLOAD_CERT_SHA256 != '' }}
+        run: |
+          missing=()
+          for name in KEYSTORE_B64 KEYSTORE_PASSWORD KEY_PASSWORD SERVICE_ACCOUNT KEY_ALIAS LICENSE_KEY CERT_SHA256; do
+            [[ "${!name}" == true ]] || missing+=("$name")
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::The google-play environment is missing: ${missing[*]}. See v2/mobile/RELEASE.md \"Automated release (CI)\"."
+            exit 1
+          fi
+
+      # Installs third-party code (npm ci, actions), so it runs before any credential is written.
+      - name: Android release toolchain
+        id: toolchain
+        uses: ./.github/actions/android-release-toolchain
+
+      - name: Write the keystore and check its certificate
+        env:
+          KEYSTORE_B64: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_B64 }}
+          ATVOPT_KEYSTORE_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ vars.ATVOPT_UPLOAD_KEY_ALIAS }}
+          LICENSE_KEY: ${{ vars.ATVOPT_PLAY_LICENSE_KEY }}
+          CERT_SHA256: ${{ vars.ATVOPT_UPLOAD_CERT_SHA256 }}
+        run: |
+          umask 077
+          dir="$RUNNER_TEMP/play"
+          mkdir "$dir"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$dir/upload.jks"
+          printf '%s\n' "$LICENSE_KEY" > "$dir/play-license-key"
+          actual="$(keytool -exportcert -keystore "$dir/upload.jks" \
+            -alias "$KEY_ALIAS" -storepass:env ATVOPT_KEYSTORE_PASSWORD | sha256sum | cut -d' ' -f1)"
+          expected="$(echo "$CERT_SHA256" | tr -d ': ' | tr 'A-F' 'a-f')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "::error::The keystore's certificate is not the recorded upload certificate (ATVOPT_UPLOAD_CERT_SHA256)."
+            exit 1
+          fi
+          {
+            echo "PLAY_DIR=$dir"
+            echo "KEY_ALIAS=$KEY_ALIAS"
+            echo "UPLOAD_CERT_SHA256=$expected"
+          } >> "$GITHUB_ENV"
+
+      - name: Check Play's highest versionCode
+        id: play
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          account="$PLAY_DIR/service-account.json"
+          trap 'rm -f "$account"' EXIT
+          printf '%s' "$SERVICE_ACCOUNT" > "$account"
+          highest="$(python3 v2/mobile/scripts/play-publish.py highest --service-account "$account")"
+          echo "Highest versionCode on Play: $highest"
+          code="${{ steps.version.outputs.code }}"
+          if (( code <= highest )); then
+            echo "::error::versionCode $code is not above $highest, the highest on Play. Bump the version (mobile/scripts/bump-version.sh) or set bundle.android.versionCode."
+            exit 1
+          fi
+          echo "highest=$highest" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        working-directory: v2/mobile
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEY_PASSWORD }}
+        run: |
+          umask 077
+          signing="$PLAY_DIR/play-upload.json"
+          trap 'rm -f "$signing"' EXIT
+          python3 - "$PLAY_DIR" "$signing" <<'PY'
+          import json, os, sys
+          json.dump({'storeFile': f'{sys.argv[1]}/upload.jks', 'storePassword': os.environ['KEYSTORE_PASSWORD'],
+                     'keyAlias': os.environ['KEY_ALIAS'], 'keyPassword': os.environ['KEY_PASSWORD']},
+                    open(sys.argv[2], 'w'))
+          PY
+          python3 scripts/build-play-release.py \
+            --signing-config "$signing" \
+            --license-key-file "$PLAY_DIR/play-license-key" \
+            --version-code "${{ steps.version.outputs.code }}" \
+            --previous-version-code "${{ steps.play.outputs.highest }}" --previous-version-source play-api \
+            --min-free-gib 15 --build-jobs 4
+
+      - name: Verify bundle and APKs
+        env:
+          ATVOPT_KEYSTORE_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_PASSWORD }}
+          ATVOPT_KEYSTORE_KEY_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEY_PASSWORD }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/verify"
+          python3 v2/mobile/scripts/verify-play-bundle.py \
+            --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
+            --apk "$OUTPUTS/apk/universal/release/app-universal-release.apk" \
+            --version-code "${{ steps.version.outputs.code }}" \
+            --expected-cert-sha256 "$UPLOAD_CERT_SHA256" \
+            --bundletool "${{ steps.toolchain.outputs.bundletool }}" \
+            --keystore "$PLAY_DIR/upload.jks" --key-alias "$KEY_ALIAS" \
+            --output-dir "$RUNNER_TEMP/verify" --evidence "$OUTPUTS/play-verification.json"
+
+      - name: Remove the keystore
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/play"
+
+      - name: Keep the verified artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: atv-optimizer-android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.code }}
+          path: |
+            ${{ env.OUTPUTS }}/bundle/universalRelease/app-universal-release.aab
+            ${{ env.OUTPUTS }}/apk/universal/release/app-universal-release.apk
+            ${{ env.OUTPUTS }}/play-build-receipt.json
+            ${{ env.OUTPUTS }}/play-verification.json
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload to Google Play
+        if: env.MODE == 'publish'
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          set -o pipefail
+          umask 077
+          dir="$RUNNER_TEMP/play"
+          mkdir -p "$dir"
+          account="$dir/service-account.json"
+          trap 'rm -f "$account"' EXIT
+          printf '%s' "$SERVICE_ACCOUNT" > "$account"
+          python3 v2/mobile/scripts/play-publish.py upload \
+            --service-account "$account" \
+            --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
+            --track "$TRACK" --status "$STATUS" \
+            --version-code "${{ steps.version.outputs.code }}" \
+            --release-name "${{ steps.version.outputs.version }} (${{ steps.version.outputs.code }})" \
+            | tee "$RUNNER_TEMP/publish.json"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## ATV Optimizer for Android ${{ steps.version.outputs.version }} (versionCode ${{ steps.version.outputs.code }})"
+            echo
+            echo "- Mode: \`$MODE\`, source \`$GITHUB_SHA\`"
+            echo "- Highest versionCode on Play before this run: ${{ steps.play.outputs.highest || 'not checked' }}"
+            if [[ -f "$OUTPUTS/play-verification.json" ]]; then
+              echo "- AAB SHA-256: \`$(jq -r .aab_sha256 "$OUTPUTS/play-verification.json")\`"
+              echo "- Verified: $(jq -r '.verified | join(", ")' "$OUTPUTS/play-verification.json")"
+            fi
+            if [[ -f "$RUNNER_TEMP/publish.json" ]]; then
+              echo "- Uploaded to track \`$TRACK\` as a **$STATUS** release."
+              [[ "$STATUS" == draft ]] && echo "  Roll it out in Play Console → Test and release → the track → Edit release → Review release."
+            fi
+            echo
+            echo "Still manual: Play pre-launch report, actual 16 KB page-size runtime, the phone/TV and purchase matrices (v2/mobile/RELEASE.md)."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove release credentials
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/play"
