@@ -23,6 +23,14 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Manual retained-candidate runtime QA is implemented in `.github/workflows/mobile-16kb-runtime.yml`.
+It verifies a successful signed main build's provenance and APK/AAB hashes before testing the
+unchanged APK on an Android 16 x86_64 emulator reporting actual 16384-byte pages. It records native
+loading and rendered onboarding on cold launch/restart, without Play credentials or publication.
+The workflow itself is not a runtime pass; inspect a successful exact-candidate receipt. ARM64,
+Play splits, physical phone/TV and purchase gates remain separate. See `RELEASE.md` for dispatch,
+cost bounds and fail-closed KVM/disk/license prerequisites.
+
 Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
 `bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
 copyable installation Support ID while reports are on. `npm run store-assets` produces the

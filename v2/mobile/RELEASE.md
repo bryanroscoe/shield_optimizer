@@ -48,9 +48,11 @@ Both smoke and real release jobs run the Kotlin discovery/network JVM tests and 
 nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
 Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
 
-CI covers the build, signature and static artifact gates and the versionCode check. It does not
-cover the Play pre-launch report, actual 16 KB page-size runtime, the phone/TV matrix or the
-purchase script; those stay in [Testing-candidate gates](#testing-candidate-gates).
+Release CI covers the build, signature and static artifact gates and the versionCode check.
+The separate manual [16 KB runtime workflow](#retained-candidate-16-kb-runtime-qa) can record
+x86_64 startup evidence for an existing signed candidate. Neither workflow covers the Play
+pre-launch report, ARM64 runtime, the phone/TV matrix or the purchase script; those stay in
+[Testing-candidate gates](#testing-candidate-gates).
 
 ### One-time setup
 
@@ -84,6 +86,46 @@ If a run fails, read the step that failed: credential and versionCode problems s
 build, and a rejected artifact is never uploaded. Delete a wrong tag with
 `git push origin :refs/tags/mobile-vX.Y.Z` before re-tagging; a versionCode Play has already
 accepted can never be reused, even if its release is discarded.
+
+## Retained-candidate 16 KB runtime QA
+
+`mobile-16kb-runtime.yml` tests the existing signed Gradle universal APK without rebuilding,
+signing, uploading to Play or touching a physical device. Dispatch it from `main` with a
+successful manual `Mobile Play release` run ID, its full source SHA and the APK SHA-256 copied
+from its verified build receipt. Example for the retained build-only candidate 1003:
+
+```sh
+gh workflow run mobile-16kb-runtime.yml --ref main \
+  -f source_run_id=42518527075 \
+  -f source_sha=5e067e23c6319fc0b33b80e229c8a6573f2943c3 \
+  -f apk_sha256=8a53d0bcfdedb5208d7314700e4638bf2d95716ba4f66d1e1c11434b94e02b3b
+```
+
+This requires an unexpired release artifact from this repository and source still in main's
+history. The helper rejects PR/smoke/failed/foreign runs, ambiguous artifacts, changed bytes or
+receipt disagreements. It compares the APK's x86_64 native library byte-for-byte with the AAB,
+then repeats signature/certificate, manifest and static APK verification before installation.
+
+The job uses one standard `ubuntu-24.04` runner, a 35-minute limit and seven-day evidence
+retention. It is manual-only and restricted to the public repository: GitHub documents standard
+public-repository runners as free. It uses only read permissions and the ephemeral GitHub token,
+never the `google-play` environment or signing/Play credentials. It requires existing usable KVM
+access, sufficient disk and accepted Android SDK licenses. Missing prerequisites fail clearly;
+it does not change device permissions, accept new agreements or fall back to software emulation.
+
+Google's official `system-images;android-36;google_apis_ps16k;x86_64` image must report
+`getconf PAGE_SIZE` **16384**, API 36 and x86_64. A fresh emulator installs the pinned APK and
+checks its installed hash, native-loader success, foreground activity, rendered onboarding and
+stable process on both cold launch and restart. Review the retained screenshot/UI XML, bounded
+logs, image revision and runtime receipt; a successful install or emulator image name alone
+does not pass. A skipped or failed job never qualifies the candidate.
+
+This is **x86_64 emulator startup evidence**, not ARM64 runtime, Play-generated split APKs,
+TV pairing, purchases or the physical matrix. No runtime pass is implied merely by merging
+this workflow. Run it for the exact candidate and inspect its results before recording the gate.
+
+References: [Android 16 KB testing](https://developer.android.com/guide/practices/page-sizes)
+and [GitHub-hosted runner capabilities/costs](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 ## First install through Google Play
 
@@ -473,7 +515,7 @@ mocked SDK/Play responses. `mobile-play-release.yml` builds, signs, verifies and
 
 ### Current external requirements to verify at submission
 
-The configuration targets API36 (the mobile requirement effective August 31, 2026), with minSdk24.
+The configuration targets API 36 (the mobile requirement effective August 31, 2026), with minSdk24.
 Check current rules again before submission:
 
 - https://support.google.com/googleplay/android-developer/answer/11926878
