@@ -38,8 +38,11 @@ What exists, and how it deviates from the server design below:
 - **Support tiers** (owner decision 2026-11-08): besides `atvopt_pro` at US $4.99, two more
   non-consumable products, `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99),
   unlock exactly the same Pro. They are the in-app "Support me" option: the extra is support, with
-  no added feature, badge or benefit. The app lists only tiers Play returns a price for, and an
-  owned tier blocks buying another. Play has no buyer-entered price, so "pay what you want" is
+  no added feature, badge or benefit. The app lists only tiers Play returns a price for. Play
+  refuses a second copy of one product but not a different Pro product, so `billing_purchase`
+  queries owned purchases first and starts a purchase only when Play confirms the account owns
+  no Pro product (`purchase_gate`). Every unacknowledged Pro purchase is acknowledged, not just
+  the first. Play has no buyer-entered price, so "pay what you want" is
   these fixed tiers.
 - **Ko-fi stays out of the Play app.** Offering Pro codes for an outside donation inside the app
   would steer purchases of a digital unlock away from Play billing. The Ko-fi link and the

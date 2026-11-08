@@ -273,9 +273,10 @@ pub enum CacheAction {
 pub struct Reconciled {
     pub state: PlayState,
     pub cache: CacheAction,
-    /// A verified, granted purchase Play still needs acknowledged (within three
-    /// days, or Play refunds it). Only ever set alongside `Owned`.
-    pub acknowledge: Option<String>,
+    /// Verified, granted purchases Play still needs acknowledged (within three
+    /// days, or Play refunds them). An account can own more than one Pro
+    /// product, so every one is listed. Only ever non-empty alongside `Owned`.
+    pub acknowledge: Vec<String>,
     /// Purchases that claimed to be ours but failed verification.
     pub rejected: usize,
 }
@@ -331,7 +332,7 @@ pub fn reconcile(
             Reconciled {
                 state,
                 cache: CacheAction::Keep,
-                acknowledge: None,
+                acknowledge: Vec::new(),
                 rejected: 0,
             }
         }
@@ -360,14 +361,16 @@ fn reconcile_purchases(
     complete: bool,
 ) -> Reconciled {
     let mut rejected = 0;
-    let mut owned: Option<(&RawPurchase, VerifiedPurchase)> = None;
+    let mut owned: Option<&RawPurchase> = None;
+    let mut unacknowledged = Vec::new();
     let mut pending = false;
     for raw in purchases {
         match verifier.verify(raw) {
             Ok(p) => match p.state {
                 PurchaseState::Purchased => {
-                    if owned.is_none() {
-                        owned = Some((raw, p));
+                    owned.get_or_insert(raw);
+                    if !p.acknowledged {
+                        unacknowledged.push(p.purchase_token);
                     }
                 }
                 PurchaseState::Pending => pending = true,
@@ -377,10 +380,10 @@ fn reconcile_purchases(
             Err(_) => rejected += 1,
         }
     }
-    if let Some((raw, p)) = owned {
+    if let Some(raw) = owned {
         return Reconciled {
             state: PlayState::Owned {
-                acknowledged: p.acknowledged,
+                acknowledged: unacknowledged.is_empty(),
                 verified_at_ms: now_ms,
                 cached: false,
             },
@@ -389,7 +392,7 @@ fn reconcile_purchases(
                 signature: raw.signature.clone(),
                 verified_at_ms: now_ms,
             }),
-            acknowledge: (!p.acknowledged).then_some(p.purchase_token),
+            acknowledge: unacknowledged,
             rejected,
         };
     }
@@ -410,7 +413,7 @@ fn reconcile_purchases(
     Reconciled {
         state,
         cache: clear,
-        acknowledge: None,
+        acknowledge: Vec::new(),
         rejected,
     }
 }
@@ -586,7 +589,7 @@ mod tests {
         assert!(p.acknowledged);
         let r = reconcile(&verifier(), None, QueryOutcome::Owned(&[raw("promo")]), NOW);
         assert!(r.state.grants_pro());
-        assert_eq!(r.acknowledge, None);
+        assert!(r.acknowledge.is_empty());
     }
 
     #[derive(Deserialize)]
@@ -619,14 +622,30 @@ mod tests {
         let (v, raw) = tier("support_1");
         let r = reconcile(&v, None, QueryOutcome::Owned(&[raw]), NOW);
         assert!(r.state.grants_pro());
-        assert_eq!(r.acknowledge.as_deref(), Some("tok-support-1"));
+        assert_eq!(r.acknowledge, vec!["tok-support-1"]);
 
         let (v, raw) = tier("support_2_listed");
         let p = v.verify(&raw).expect("listed tier verifies");
         assert_eq!(p.state, PurchaseState::Purchased);
         let r = reconcile(&v, None, QueryOutcome::Owned(&[raw]), NOW);
         assert!(r.state.grants_pro());
-        assert_eq!(r.acknowledge, None);
+        assert!(r.acknowledge.is_empty());
+    }
+
+    #[test]
+    fn every_unacknowledged_pro_purchase_is_acknowledged_not_just_the_first() {
+        let (v, acked) = tier("support_2_listed");
+        let (_, unacked) = tier("support_1");
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[acked, unacked]), NOW);
+        assert!(r.state.grants_pro());
+        assert_eq!(r.acknowledge, vec!["tok-support-1"]);
+        assert!(matches!(
+            r.state,
+            PlayState::Owned {
+                acknowledged: false,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -656,7 +675,7 @@ mod tests {
                 cached: false
             }
         );
-        assert_eq!(r.acknowledge.as_deref(), Some("tok-purchased-1"));
+        assert_eq!(r.acknowledge, vec!["tok-purchased-1"]);
         assert!(matches!(r.cache, CacheAction::Store(ref c) if c.verified_at_ms == NOW));
         assert_eq!(effective_entitlement(false, &r.state), Entitlement::Pro);
     }
@@ -665,7 +684,7 @@ mod tests {
     fn acknowledged_purchase_is_not_acknowledged_again() {
         let r = reconcile(&verifier(), None, QueryOutcome::Owned(&[raw("acked")]), NOW);
         assert!(r.state.grants_pro());
-        assert_eq!(r.acknowledge, None);
+        assert!(r.acknowledge.is_empty());
     }
 
     #[test]
@@ -677,7 +696,7 @@ mod tests {
             NOW,
         );
         assert_eq!(r.state, PlayState::Pending);
-        assert_eq!(r.acknowledge, None);
+        assert!(r.acknowledge.is_empty());
         assert_eq!(r.cache, CacheAction::Clear);
         assert_eq!(effective_entitlement(false, &r.state), Entitlement::Free);
     }
@@ -716,7 +735,7 @@ mod tests {
         let r = reconcile(&verifier(), None, QueryOutcome::Owned(&[forged]), NOW);
         assert!(matches!(r.state, PlayState::Error { .. }));
         assert_eq!(r.rejected, 1);
-        assert_eq!(r.acknowledge, None);
+        assert!(r.acknowledge.is_empty());
         assert_eq!(r.cache, CacheAction::Clear);
         assert_eq!(effective_entitlement(false, &r.state), Entitlement::Free);
     }
@@ -808,7 +827,7 @@ mod tests {
         assert_eq!(pending.cache, CacheAction::Keep);
         let bought = reconcile_flow(&v, &[raw("purchased")], NOW).unwrap();
         assert!(bought.state.grants_pro());
-        assert_eq!(bought.acknowledge.as_deref(), Some("tok-purchased-1"));
+        assert_eq!(bought.acknowledge, vec!["tok-purchased-1"]);
     }
 
     #[test]

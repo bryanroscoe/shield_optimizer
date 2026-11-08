@@ -31,6 +31,9 @@ use crate::play_billing::{
 /// Automatic refreshes (launch, resume) closer together than this reuse the
 /// last answer. Restore purchases and purchase flows always ask Play.
 const AUTO_REFRESH_MIN_INTERVAL_MS: i64 = 30_000;
+/// A support tier Play didn't return (inactive in Play Console, say) is asked
+/// for again at most this often. A missing standard Pro price is always retried.
+const OFFER_RETRY_MS: i64 = 10 * 60 * 1000;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 /// The purchase sheet stays open while the user decides; this only bounds an
 /// abandoned flow (for instance an activity destroyed mid-sheet).
@@ -110,6 +113,7 @@ struct Inner {
     cache: Option<CachedPurchase>,
     /// Offers Play returned, keyed by their Pro product id.
     offers: Vec<Offer>,
+    offers_checked_ms: Option<i64>,
     last_query_ms: Option<i64>,
     ack_pending: bool,
 }
@@ -129,7 +133,7 @@ pub struct BillingCore {
 #[derive(Debug, PartialEq, Eq)]
 pub struct Applied {
     pub cache: CacheAction,
-    pub acknowledge: Option<String>,
+    pub acknowledge: Vec<String>,
 }
 
 impl BillingCore {
@@ -175,6 +179,7 @@ impl BillingCore {
                 play,
                 cache,
                 offers: Vec::new(),
+                offers_checked_ms: None,
                 last_query_ms: None,
                 ack_pending: false,
             }),
@@ -234,6 +239,21 @@ impl BillingCore {
             .collect()
     }
 
+    /// The missing prices worth asking Play for now, recording the attempt.
+    pub fn offers_to_query(&self, now_ms: i64) -> Vec<&'static str> {
+        let missing = self.missing_offers();
+        let mut inner = self.lock();
+        let due = match inner.offers_checked_ms {
+            Some(last) => now_ms - last >= OFFER_RETRY_MS || now_ms < last,
+            None => true,
+        };
+        if missing.is_empty() || !(due || missing.contains(&PRO_PRODUCT_ID)) {
+            return Vec::new();
+        }
+        inner.offers_checked_ms = Some(now_ms);
+        missing
+    }
+
     /// Record Play's offer for a Pro product. Anything else is dropped.
     pub fn set_offer(&self, offer: Offer) {
         if !is_pro_product(&offer.product_id) {
@@ -255,7 +275,7 @@ impl BillingCore {
         let Some(verifier) = &self.verifier else {
             return Applied {
                 cache: CacheAction::Keep,
-                acknowledge: None,
+                acknowledge: Vec::new(),
             };
         };
         let succeeded = matches!(outcome, QueryOutcome::Owned(_));
@@ -270,7 +290,7 @@ impl BillingCore {
         inner.play = r.state;
         if succeeded {
             inner.last_query_ms = Some(now_ms);
-            inner.ack_pending = r.acknowledge.is_some();
+            inner.ack_pending = !r.acknowledge.is_empty();
         }
         Self::apply_cache(&mut inner, &r.cache);
         Applied {
@@ -286,7 +306,7 @@ impl BillingCore {
         let r = reconcile_flow(verifier, purchases, now_ms)?;
         let mut inner = self.lock();
         inner.play = r.state;
-        inner.ack_pending = r.acknowledge.is_some();
+        inner.ack_pending = !r.acknowledge.is_empty();
         Self::apply_cache(&mut inner, &r.cache);
         Some(Applied {
             cache: r.cache,
@@ -408,13 +428,21 @@ where
     }
 }
 
-async fn acknowledge(app: &AppHandle, core: &BillingCore, token: String) {
-    let result = plugin_call(app, QUERY_TIMEOUT, move |b| b.acknowledge(&token)).await;
-    let ok = matches!(&result, Ok(r) if r.response_code == response_code::OK);
-    if !ok {
-        tracing::warn!(?result, "acknowledgment failed; will retry on next refresh");
+/// Acknowledge every listed purchase; one failure leaves `ack_pending` set so
+/// the next refresh retries whatever Play still reports unacknowledged.
+async fn acknowledge(app: &AppHandle, core: &BillingCore, tokens: Vec<String>) {
+    if tokens.is_empty() {
+        return;
     }
-    core.acknowledged(ok);
+    let mut all_ok = true;
+    for token in tokens {
+        let result = plugin_call(app, QUERY_TIMEOUT, move |b| b.acknowledge(&token)).await;
+        if !matches!(&result, Ok(r) if r.response_code == response_code::OK) {
+            tracing::warn!(?result, "acknowledgment failed; will retry on next refresh");
+            all_ok = false;
+        }
+    }
+    core.acknowledged(all_ok);
 }
 
 fn finish(app: &AppHandle, core: &BillingCore, cache: &CacheAction) {
@@ -441,10 +469,8 @@ async fn refresh_locked(app: &AppHandle, core: &BillingCore) {
         }
     };
     finish(app, core, &applied.cache);
-    if let Some(token) = applied.acknowledge {
-        acknowledge(app, core, token).await;
-    }
-    for id in core.missing_offers() {
+    acknowledge(app, core, applied.acknowledge).await;
+    for id in core.offers_to_query(now_ms()) {
         match plugin_call(app, QUERY_TIMEOUT, move |b| b.query_product(id)).await {
             Ok(r) if r.response_code == response_code::OK => {
                 if let Some(product) = r.product.filter(|p| p.product_id == id) {
@@ -485,6 +511,28 @@ pub async fn billing_refresh(app: AppHandle, force: Option<bool>) -> Result<Bill
     Ok(refresh(&app, force.unwrap_or(false)).await)
 }
 
+/// Whether a purchase may start, given what Play just said about ownership.
+/// Only a confirmed "not owned" may: anything less certain could charge an
+/// existing Pro owner again for another Pro product.
+pub fn purchase_gate(play: &PlayState) -> Option<(PurchaseResult, String)> {
+    match play {
+        PlayState::NotOwned => None,
+        PlayState::Owned { .. } => Some((
+            PurchaseResult::AlreadyOwned,
+            "You already own ATV Optimizer Pro.".into(),
+        )),
+        PlayState::Pending => Some((
+            PurchaseResult::Pending,
+            "A purchase is already pending. Pro unlocks as soon as Google Play confirms the payment.".into(),
+        )),
+        PlayState::Unavailable { reason } => Some((PurchaseResult::Unavailable, reason.clone())),
+        PlayState::Error { .. } | PlayState::Unknown => Some((
+            PurchaseResult::Failed,
+            "Couldn't check your existing purchases with Google Play, so nothing was charged. Try again.".into(),
+        )),
+    }
+}
+
 /// `billing_purchase` — open Play's purchase sheet for Pro, or for one of the
 /// pay-more tiers when `product_id` names one, and verify the result. Pro is
 /// granted only from a verified PURCHASED purchase.
@@ -514,12 +562,11 @@ pub async fn billing_purchase(
         return Ok(reply(PurchaseResult::Unavailable, &reason, &core));
     }
     let _op = core.op.lock().await;
-    if matches!(core.play(), PlayState::Owned { cached: false, .. }) {
-        return Ok(reply(
-            PurchaseResult::AlreadyOwned,
-            "You already own ATV Optimizer Pro.",
-            &core,
-        ));
+    // Play refuses a second copy of the same product, but not a different Pro
+    // product, so ownership is confirmed with Play before every purchase.
+    refresh_locked(&app, &core).await;
+    if let Some((outcome, message)) = purchase_gate(&core.play()) {
+        return Ok(reply(outcome, &message, &core));
     }
     let response = match plugin_call(&app, PURCHASE_TIMEOUT, |b| b.launch_purchase(product)).await {
         Ok(r) => r,
@@ -533,9 +580,7 @@ pub async fn billing_purchase(
             match core.apply_flow(&response.purchases, now_ms()) {
                 Some(applied) => {
                     finish(&app, &core, &applied.cache);
-                    if let Some(token) = applied.acknowledge {
-                        acknowledge(&app, &core, token).await;
-                    }
+                    acknowledge(&app, &core, applied.acknowledge).await;
                 }
                 None => refresh_locked(&app, &core).await,
             }
@@ -643,7 +688,7 @@ mod tests {
         );
         // Nothing Play-shaped can unlock a build that cannot verify.
         let a = c.apply_query(QueryOutcome::Owned(&[raw("acked")]), NOW);
-        assert_eq!(a.acknowledge, None);
+        assert!(a.acknowledge.is_empty());
         assert_eq!(c.effective(), Entitlement::Free);
     }
 
@@ -711,12 +756,12 @@ mod tests {
         assert_eq!(c.effective(), Entitlement::Free);
 
         let a = c.apply_flow(&[raw("pending")], NOW).unwrap();
-        assert_eq!(a.acknowledge, None);
+        assert!(a.acknowledge.is_empty());
         assert_eq!(c.status().play, PlayState::Pending);
         assert_eq!(c.effective(), Entitlement::Free);
 
         let a = c.apply_query(QueryOutcome::Owned(&[raw("purchased")]), NOW);
-        assert_eq!(a.acknowledge.as_deref(), Some("tok-purchased-1"));
+        assert_eq!(a.acknowledge, vec!["tok-purchased-1"]);
         assert!(c.status().ack_pending);
         assert_eq!(c.effective(), Entitlement::Pro);
         assert_eq!(c.status().sources, vec!["play"]);
@@ -769,6 +814,49 @@ mod tests {
             .collect();
         assert_eq!(tiers, SUPPORT_PRODUCT_IDS.to_vec());
         assert!(c.missing_offers().is_empty());
+    }
+
+    #[test]
+    fn a_purchase_starts_only_when_play_confirms_pro_is_not_owned() {
+        assert_eq!(purchase_gate(&PlayState::NotOwned), None);
+        let owned = PlayState::Owned {
+            acknowledged: true,
+            verified_at_ms: NOW,
+            cached: true,
+        };
+        assert_eq!(
+            purchase_gate(&owned).unwrap().0,
+            PurchaseResult::AlreadyOwned
+        );
+        assert_eq!(
+            purchase_gate(&PlayState::Pending).unwrap().0,
+            PurchaseResult::Pending
+        );
+        for unsure in [
+            PlayState::Unknown,
+            PlayState::Error {
+                message: "offline".into(),
+            },
+        ] {
+            assert_eq!(purchase_gate(&unsure).unwrap().0, PurchaseResult::Failed);
+        }
+    }
+
+    #[test]
+    fn a_missing_tier_price_is_retried_sparingly_but_pro_always() {
+        let c = core(Distribution::Play, false);
+        assert_eq!(c.offers_to_query(NOW), PRO_PRODUCT_IDS.to_vec());
+        // Play returned nothing: the standard price is still always retried.
+        assert_eq!(c.offers_to_query(NOW + 1), PRO_PRODUCT_IDS.to_vec());
+        c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
+        assert!(c.offers_to_query(NOW + 2).is_empty());
+        assert_eq!(
+            c.offers_to_query(NOW + 2 + OFFER_RETRY_MS),
+            SUPPORT_PRODUCT_IDS.to_vec()
+        );
+        c.set_offer(offer(SUPPORT_PRODUCT_IDS[0], "$9.99"));
+        c.set_offer(offer(SUPPORT_PRODUCT_IDS[1], "$19.99"));
+        assert!(c.offers_to_query(NOW + 10 * OFFER_RETRY_MS).is_empty());
     }
 
     #[test]
