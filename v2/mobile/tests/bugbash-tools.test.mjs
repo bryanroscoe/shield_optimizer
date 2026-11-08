@@ -366,11 +366,11 @@ test("backup intro keeps limits and the restore warning visible, routine steps i
   const warning = page.locator(".system-note");
   assert.equal(await warning.evaluate((el) => !!el.closest("details")), false);
   assert.match(await warning.innerText(), /not a full-TV recovery backup/);
-  const help = page.locator("details.help-disclosure", { has: page.locator("summary", { hasText: "About APK backups" }) });
-  assert.equal(await help.getAttribute("open"), null);
-  const routine = help.getByText(/base APK and every installed split APK/);
-  assert.equal(await routine.isVisible(), false);
-  await help.locator("summary").focus();
+  const help = page.getByRole("button", { name: "About APK backups", exact: true });
+  assert.equal(await help.getAttribute("aria-expanded"), "false");
+  const routine = page.getByRole("dialog", { name: "About APK backups" }).getByText(/base APK and every installed split APK/);
+  assert.equal(await page.getByText(/base APK and every installed split APK/).count(), 0);
+  await help.focus();
   await page.keyboard.press("Enter");
   await routine.waitFor();
 });
@@ -384,8 +384,10 @@ test("Files keeps the private-storage consequence visible and the routine explai
   assert.equal(await visible.evaluate((el) => !!el.closest("details")), false);
   const routine = page.getByText(/Files transfer over your LAN/);
   assert.equal(await routine.isVisible(), false);
-  await page.getByText("About file transfers", { exact: true }).click();
+  await page.getByRole("button", { name: "About file transfers", exact: true }).click();
   await routine.waitFor();
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await routine.waitFor({ state: "detached" });
   await page.getByRole("button", { name: /Find app backups/ }).click();
   await page.getByText(/Then find it here and copy it off the TV\./).waitFor();
   assert.equal(await page.getByText(/this computer/).count(), 0);

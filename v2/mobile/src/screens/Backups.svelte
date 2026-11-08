@@ -6,6 +6,7 @@
 </script>
 
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -354,13 +355,12 @@
       A system APK restore may fail because of Android signatures, versions,
       or system dependencies. This is not a full-TV recovery backup.
     </p>
-    <details class="help-disclosure backup-help">
-      <summary>About APK backups</summary>
+    <HelpSheet title="About APK backups">
       <p class="card-desc">
         Choose exactly one installed app. Its base APK and every installed split APK are copied to
         this phone. System apps are hidden by default; you can reveal and copy them too.
       </p>
-    </details>
+    </HelpSheet>
     {#if backupOperation}
       <p class="operation-note" role="status">
         Backing up {backupOperation.label} ({backupOperation.package}) from
@@ -668,9 +668,6 @@
     margin: 0;
     padding: 0;
     accent-color: var(--accent);
-  }
-  .backup-help {
-    margin: -4px 0 0;
   }
   .center.small {
     min-height: 60px;
