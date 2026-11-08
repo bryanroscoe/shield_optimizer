@@ -17,7 +17,7 @@
   <div class="support-tiers">
     <div class="support-head">
       <span class="support-label">Support me <span class="support-note">· same Pro</span></span>
-      <HelpSheet title="About support prices">
+      <HelpSheet title="Why pay more?">
         <p class="support-help">
           These unlock exactly the same Pro as Buy Pro, nothing extra. The higher price is a way to
           help keep ATV Optimizer developed. Buy only one: any of them unlocks Pro for good.
