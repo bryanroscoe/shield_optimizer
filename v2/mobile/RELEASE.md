@@ -41,9 +41,12 @@ track is refused: promote a tested release to production in Play Console. `compl
 by Play while the app has never been published. A versionCode override is there for re-spinning
 one version; it must still be above everything on Play.
 
-The `smoke` job runs on every PR that touches the workflow, its toolchain action or these
-scripts: the same build and verification with a throwaway keystore and a random license key, no
-secrets and no upload. It proves the pipeline before a real tag depends on it.
+The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or their shared
+inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
+verification with a throwaway keystore and a random license key, no secrets and no upload.
+Both smoke and real release jobs run the Kotlin discovery/network JVM tests and require
+nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
+Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
 
 CI covers the build, signature and static artifact gates and the versionCode check. It does not
 cover the Play pre-launch report, actual 16 KB page-size runtime, the phone/TV matrix or the

@@ -267,7 +267,7 @@ A patch-notes viewer is deferred.
   `tauri android init`; it would overwrite them.
 - `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery and network-watch plugin (Kotlin
   `NsdManager`/`ConnectivityManager` + thin Rust). Its pure logic has JVM tests
-  (`android/src/test/`); CI does not run them.
+  (`android/src/test/`); Android smoke and release CI run them and retain JUnit reports.
 - `v2/mobile/tauri-plugin-atv-billing/` — the Google Play Billing adapter (Kotlin + thin Rust; no
   entitlement decisions).
 - `v2/vendor/adb_client/` — vendored MIT transport, outside the Cargo workspace.
@@ -294,8 +294,10 @@ cd vendor/adb_client && cargo test --lib      # the vendored crate is outside th
 From `v2/mobile/`: `npm run check` (0 errors / 0 warnings), `npm run build`, `npm test` (the
 browser suite: real screens, mocked Tauri). `node --test evidence/lifecycle/reproduce.mjs` runs the
 lifecycle matrix. CI (`.github/workflows/v2-tests.yml`) runs the Rust workspace, the vendored
-tests and the mobile check/build/test; **it never compiles the Kotlin or builds an APK**, so a
-Gradle or manifest error only shows up in a local Android build.
+tests and the mobile check/build/test. The separate `mobile-play-release.yml` smoke job builds
+the four-ABI Android artifacts and runs Kotlin JVM tests for mobile/shared input changes on
+PRs and `main`. It uses throwaway signing inputs and never uploads. Real release jobs repeat
+the Kotlin tests before upload; neither workflow replaces physical-device or Play billing QA.
 
 Android-target clippy works with the NDK clang exported as `CC_aarch64_linux_android` /
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`. If you add a Material Symbols icon name, rerun
