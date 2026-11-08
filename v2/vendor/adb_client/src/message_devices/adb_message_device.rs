@@ -37,6 +37,20 @@ pub(crate) const DEFAULT_AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 /// key is not going to accept us. With one key that is four tokens in all.
 const PUBLIC_KEY_ROUNDS: usize = 3;
 
+/// What the AUTH exchange may do once the device has refused a signature from
+/// every key.
+#[derive(Clone, Copy)]
+pub(crate) enum PublicKeyOffer<'a> {
+    /// Offer the first key's public key, which is what makes the device show
+    /// its "Allow debugging?" prompt. The observer, when there is one, runs
+    /// once that write succeeded.
+    Offer(Option<&'a dyn Fn()>),
+    /// Never offer it: the next AUTH token ends the handshake with
+    /// [`RustADBError::KeyNotAllowed`] and the connection closes, so the device
+    /// shows nothing.
+    Never,
+}
+
 /// Which of a connection's keys the device accepted. Keys count from zero:
 /// any preferred keys in their order, then the key file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -81,7 +95,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             &PreferredKeys::none(),
             DEFAULT_AUTH_TIMEOUT,
             false,
-            None,
+            PublicKeyOffer::Offer(None),
         )
     }
 
@@ -99,7 +113,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             &PreferredKeys::none(),
             auth_timeout,
             false,
-            None,
+            PublicKeyOffer::Offer(None),
         )
     }
 
@@ -117,7 +131,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             &PreferredKeys::none(),
             auth_timeout,
             true,
-            None,
+            PublicKeyOffer::Offer(None),
         )
     }
 
@@ -135,7 +149,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             preferred,
             auth_timeout,
             true,
-            None,
+            PublicKeyOffer::Offer(None),
         )
     }
 
@@ -157,7 +171,28 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             preferred,
             auth_timeout,
             require_existing_key,
-            Some(public_key_sent),
+            PublicKeyOffer::Offer(Some(public_key_sent)),
+        )
+    }
+
+    /// Connect signing AUTH tokens with the known keys only. A device that
+    /// refuses every signature gets no public key: the handshake ends with
+    /// [`RustADBError::KeyNotAllowed`] and the device shows no prompt. TLS
+    /// connections are unchanged, since they never show one.
+    pub(crate) fn new_signing_only<P: AsRef<Path>>(
+        transport: T,
+        adb_private_key_path: P,
+        preferred: &PreferredKeys,
+        auth_timeout: Duration,
+        require_existing_key: bool,
+    ) -> Result<Self> {
+        Self::new_inner(
+            transport,
+            adb_private_key_path,
+            preferred,
+            auth_timeout,
+            require_existing_key,
+            PublicKeyOffer::Never,
         )
     }
 
@@ -180,7 +215,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         auth_timeout: Duration,
     ) -> Result<Self> {
         let mut device = Self::unconnected(transport);
-        device.connect(keys, auth_timeout, None)?;
+        device.connect(keys, auth_timeout, PublicKeyOffer::Offer(None))?;
         Ok(device)
     }
 
@@ -199,7 +234,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         preferred: &PreferredKeys,
         auth_timeout: Duration,
         require_existing_key: bool,
-        public_key_sent: Option<&dyn Fn()>,
+        offer: PublicKeyOffer<'_>,
     ) -> Result<Self> {
         let private_key = if let Some(private_key) = read_adb_private_key(&adb_private_key_path)? {
             private_key
@@ -219,7 +254,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         let mut keys: Vec<&ADBRsaKey> = preferred.keys().iter().map(|key| &key.auth).collect();
         keys.push(&private_key);
         let mut message_device = Self::unconnected(transport);
-        message_device.connect(&keys, auth_timeout, public_key_sent)?;
+        message_device.connect(&keys, auth_timeout, offer)?;
 
         Ok(message_device)
     }
@@ -304,7 +339,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         &mut self,
         keys: &[&ADBRsaKey],
         auth_timeout: Duration,
-        public_key_sent: Option<&dyn Fn()>,
+        offer: PublicKeyOffer<'_>,
     ) -> Result<()> {
         let deadline = Instant::now() + auth_timeout;
         let identities = self.transport.tls_identity_count();
@@ -315,7 +350,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             let error = match self.handshake(
                 keys,
                 deadline,
-                public_key_sent,
+                offer,
                 &mut public_key_reported,
                 refused.len(),
             ) {
@@ -350,7 +385,7 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
         &mut self,
         keys: &[&ADBRsaKey],
         deadline: Instant,
-        public_key_sent: Option<&dyn Fn()>,
+        offer: PublicKeyOffer<'_>,
         public_key_reported: &mut bool,
         refused_certificates: usize,
     ) -> Result<()> {
@@ -380,10 +415,10 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
                 }
                 MessageCommand::Auth => {
                     auth_tokens += 1;
-                    let offered_public_key = self.answer_auth(message, keys, auth_tokens)?;
+                    let offered_public_key = self.answer_auth(message, keys, auth_tokens, offer)?;
                     if offered_public_key
                         && !*public_key_reported
-                        && let Some(observe) = public_key_sent
+                        && let PublicKeyOffer::Offer(Some(observe)) = offer
                     {
                         *public_key_reported = true;
                         observe();
@@ -429,13 +464,16 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
     }
 
     /// Answer AUTH token number `auth_tokens`: a signature with the next key
-    /// while any remain, then the first key's public key. Returns whether the
-    /// answer was a public key.
+    /// while any remain, then the first key's public key unless `offer` is
+    /// [`PublicKeyOffer::Never`], which refuses with
+    /// [`RustADBError::KeyNotAllowed`] before writing anything. Returns
+    /// whether the answer was a public key.
     fn answer_auth(
         &mut self,
         message: ADBTransportMessage,
         keys: &[&ADBRsaKey],
         auth_tokens: usize,
+        offer: PublicKeyOffer<'_>,
     ) -> Result<bool> {
         if message.header().arg0() != AUTH_TOKEN {
             return Err(RustADBError::ADBRequestFailed(format!(
@@ -457,6 +495,9 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             }
             let sign = key.sign(message.into_payload())?;
             ADBTransportMessage::try_new(MessageCommand::Auth, AUTH_SIGNATURE, 0, &sign)?
+        } else if matches!(offer, PublicKeyOffer::Never) {
+            log::debug!("The device refused every key's signature; not offering a public key");
+            return Err(RustADBError::KeyNotAllowed);
         } else {
             // The device recognised none of our signatures; offer the first
             // key so it can show its "Allow USB debugging?" prompt.

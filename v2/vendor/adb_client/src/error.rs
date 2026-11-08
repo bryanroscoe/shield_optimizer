@@ -105,6 +105,12 @@ pub enum RustADBError {
     /// been paired with it.
     #[error("the device rejected this ADB key over TLS; pair it first ({0})")]
     TlsAuthRejected(String),
+    /// The device refused a signature from every key, and this connection was
+    /// not allowed to offer a public key, which is what would make it show
+    /// its "Allow debugging?" prompt. Nothing was shown on the device, and the
+    /// connection is closed.
+    #[error("the device has not allowed any of the offered ADB keys")]
+    KeyNotAllowed,
     /// An ADB key given in memory cannot be used: why, never the key itself.
     #[error("the ADB key cannot be used: {0}")]
     UnusableKey(String),

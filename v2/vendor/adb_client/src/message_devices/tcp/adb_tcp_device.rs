@@ -240,6 +240,38 @@ impl ADBTcpDevice {
         result.map(|inner| Self { inner })
     }
 
+    /// [`Self::new_with_keys_control_and_auth_observer`], but AUTH tokens are
+    /// only ever answered with signatures from the known keys. A device that
+    /// refuses them all is [`RustADBError::KeyNotAllowed`]: no public key is
+    /// written, so it shows no "Allow debugging?" prompt, and the socket
+    /// closes. TLS connections present certificates exactly as before.
+    pub fn new_with_keys_and_control_signing_only(
+        address: SocketAddr,
+        key: &Path,
+        preferred: &PreferredKeys,
+        require_existing_key: bool,
+        control: super::BoundedShellControl,
+    ) -> Result<Self> {
+        let transport = TcpTransport::with_shell_control(address, key, control.clone())
+            .with_preferred_keys(preferred);
+        let result = control
+            .remaining()
+            .map_err(RustADBError::from)
+            .and_then(|budget| {
+                ADBMessageDevice::new_signing_only(
+                    transport,
+                    key,
+                    preferred,
+                    budget,
+                    require_existing_key,
+                )
+            });
+        if result.is_err() {
+            let _finish = super::bounded_shell::Finish(control);
+        }
+        result.map(|inner| Self { inner })
+    }
+
     /// Detach the handshake deadline while transferring the live socket to
     /// its owner. Fails, and the connection must be dropped, once the
     /// control was cancelled or expired.
@@ -1525,6 +1557,94 @@ features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_
         assert_eq!(prompts.load(std::sync::atomic::Ordering::Relaxed), 1);
         drop(device);
         server.join().unwrap();
+    }
+
+    fn connect_signing_only(
+        address: SocketAddr,
+        preferred: &PreferredKeys,
+    ) -> Result<ADBTcpDevice> {
+        let control = BoundedShellControl::new(AUTH_TIMEOUT).unwrap();
+        let mut device = ADBTcpDevice::new_with_keys_and_control_signing_only(
+            address,
+            shared_test_key(),
+            preferred,
+            true,
+            control,
+        )?;
+        device.finish_connection()?;
+        Ok(device)
+    }
+
+    #[test]
+    fn signing_only_never_writes_a_public_key_and_reports_not_allowed() {
+        for preferred in [PreferredKeys::none(), two_keys().0] {
+            let signatures = 1 + preferred.len();
+            let (closed_tx, closed_rx) = mpsc::channel();
+            let (address, server) = fake_adbd(move |mut stream| {
+                expect_host_cnxn(&mut stream);
+                for _ in 0..signatures {
+                    assert_eq!(auth_round(&mut stream).header().arg0(), AUTH_SIGNATURE);
+                }
+                // The token a host that may ask for approval answers with its
+                // public key.
+                write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                let asked = Instant::now();
+                match read_message(&mut stream) {
+                    Ok(message) => panic!(
+                        "the host answered {} with arg0 {}",
+                        message.header().command(),
+                        message.header().arg0()
+                    ),
+                    Err(error) => assert_ne!(error.kind(), ErrorKind::WouldBlock, "still open"),
+                }
+                closed_tx.send(asked.elapsed()).unwrap();
+            });
+            let error = connect_signing_only(address, &preferred).unwrap_err();
+            assert!(matches!(error, RustADBError::KeyNotAllowed), "{error:?}");
+            server.join().unwrap();
+            assert!(
+                closed_rx.recv().unwrap() < Duration::from_secs(2),
+                "the socket must close at once, not at the deadline"
+            );
+        }
+    }
+
+    #[test]
+    fn signing_only_connects_with_a_key_the_device_trusts() {
+        let (preferred, _, second) = two_keys();
+        let (address, server) = fake_adbd(move |mut stream| {
+            expect_host_cnxn(&mut stream);
+            assert_eq!(auth_round(&mut stream).header().arg0(), AUTH_SIGNATURE);
+            let answer = auth_round(&mut stream);
+            assert!(signed_by(&second, answer.payload()));
+            send_device_cnxn(&mut stream, MAX_PAYLOAD);
+            drain(&mut stream);
+        });
+        let device = connect_signing_only(address, &preferred).unwrap();
+        assert_eq!(device.accepted_key(), Some(AcceptedKey::Signature(1)));
+        drop(device);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn signing_only_presents_tls_certificates_as_before() {
+        let (preferred, first, _) = two_keys();
+        let (address, server, presented) = tls_adbd(1, vec![spki(&first)], vec![[0x22; 32]]);
+        let device = connect_signing_only(address, &preferred).unwrap();
+        assert_eq!(
+            device.accepted_key(),
+            Some(AcceptedKey::Tls {
+                index: 0,
+                hinted: false,
+                refused: 0
+            })
+        );
+        drop(device);
+        server.join().unwrap();
+        assert!(carries(&presented.lock().unwrap()[0], &first));
     }
 
     type Presented = Arc<Mutex<Vec<Vec<u8>>>>;

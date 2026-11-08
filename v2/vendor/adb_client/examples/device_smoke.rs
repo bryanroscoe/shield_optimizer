@@ -40,6 +40,7 @@ usage:
   device_smoke latency   <addr> --key <pem> [--count <n>]
   device_smoke control   <addr> --key <pem>
   device_smoke approve   <addr> --key <pem> [--auth-timeout <secs>] [--cancel-after-prompt <secs>]
+  device_smoke quiet     <addr> --key <pem> [--auth-timeout <secs>] [--expect-not-allowed]
 
 <addr> is ip:port. <pem> is a PKCS#8 PEM RSA key; the device must trust it
 (or will prompt for it within --auth-timeout, default 10 s).
@@ -49,6 +50,9 @@ key before its own: AUTH signs with each in turn and then offers the first
 one's public key, TLS presents the key the device hints at (retrying a
 refused certificate with the others), and pair registers the first one.
 Extra keys are only read, and may be PKCS#8 or PKCS#1 RSA 2048 PEM.
+quiet connects signing only, as the desktop's scans do: it never sends a
+public key, so the device must show no prompt. It passes on a connection, or
+with --expect-not-allowed only on KeyNotAllowed.
 With --expect-failure, install passes only on InstallFailed carrying the
 package manager's `Failure [...]` reason.
 uninstall only accepts packages starting with com.atvoptimizer.devtest.
@@ -121,7 +125,7 @@ fn parse_args(raw: &[String]) -> Result<Args, String> {
             }
             "--opt" => args.options.push(value("--opt")?),
             "--framebuffer" => args.framebuffer = true,
-            "--expect-failure" => args.expect_failure = true,
+            "--expect-failure" | "--expect-not-allowed" => args.expect_failure = true,
             "--cancel-after-prompt" => {
                 let secs: f64 = value("--cancel-after-prompt")?
                     .parse()
@@ -507,6 +511,7 @@ fn control(seconds: f64) -> Result<BoundedShellControl, String> {
 /// handoff, bounded identity reads, controlled shell/exec/sync, the dedicated
 /// bounded shell and identity-bound services. Prints the hardware ID's length,
 /// never its value. Device files only under `DEVICE_TMP_PREFIX`.
+#[allow(clippy::too_many_lines)]
 fn cmd_control(args: &Args) -> Result<ExitCode, String> {
     let [_, addr] = args.positional.as_slice() else {
         return Err("control <addr> --key <pem>".into());
@@ -735,7 +740,7 @@ fn cmd_control(args: &Args) -> Result<ExitCode, String> {
         format!(
             "{:?} text={text:?}",
             read.as_ref()
-                .map(|r| r.as_ref().map(|_| ()).map_err(|e| e.kind()))
+                .map(|r| r.as_ref().map(|_| ()).map_err(std::io::Error::kind))
         ),
     );
     let wrong_service = open_bound_service_with_keys(
@@ -888,6 +893,62 @@ fn cmd_approve(args: &Args) -> Result<ExitCode, String> {
                     prompt_at.is_some(),
                     describe(&error)
                 ),
+            );
+        }
+    }
+    Ok(report.finish())
+}
+
+fn cmd_quiet(args: &Args) -> Result<ExitCode, String> {
+    let [_, addr] = args.positional.as_slice() else {
+        return Err("quiet <addr> --key <pem>".into());
+    };
+    let addr = parse_addr(addr)?;
+    let key = args.key.clone().ok_or("--key is required")?;
+    let mut report = Report::default();
+    let control = BoundedShellControl::new(args.auth_timeout).map_err(|e| e.to_string())?;
+    let started = Instant::now();
+    let result = ADBTcpDevice::new_with_keys_and_control_signing_only(
+        addr,
+        &key,
+        &args.preferred,
+        true,
+        control,
+    );
+    let elapsed = started.elapsed();
+    match (result, args.expect_failure) {
+        (Ok(mut device), false) => {
+            let handoff = device.finish_connection();
+            report.check(
+                "quiet.connected",
+                handoff.is_ok(),
+                format!(
+                    "after {} accepted_key={:?}",
+                    ms(elapsed),
+                    device.accepted_key()
+                ),
+            );
+        }
+        (Ok(device), true) => {
+            report.check(
+                "quiet.not_allowed",
+                false,
+                format!(
+                    "connected after {} with {:?}",
+                    ms(elapsed),
+                    device.accepted_key()
+                ),
+            );
+        }
+        (Err(error), expect_not_allowed) => {
+            report.check(
+                if expect_not_allowed {
+                    "quiet.not_allowed"
+                } else {
+                    "quiet.connected"
+                },
+                expect_not_allowed && matches!(error, RustADBError::KeyNotAllowed),
+                format!("after {}: {}", ms(elapsed), describe(&error)),
             );
         }
     }
@@ -1409,6 +1470,7 @@ fn main() -> ExitCode {
         Some("latency") => cmd_latency(&args),
         Some("control") => cmd_control(&args),
         Some("approve") => cmd_approve(&args),
+        Some("quiet") => cmd_quiet(&args),
         _ => Err("unknown subcommand".into()),
     };
     result.unwrap_or_else(|message| {

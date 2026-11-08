@@ -589,3 +589,43 @@ adbd's hint list matched OpenSSL's SPKI SHA-256 of the paired keys; `[adbkey, pa
 `[never-seen, paired]` both connected on the first certificate by hint (`Tls { hinted: true,
 refused: 0 }`, index 0 and 1), and two unpaired keys produced exactly two refused handshakes and
 `TlsAuthRejected`.
+
+## Signing-only AUTH: no public key unless asked (2026-11-08)
+
+Bryan's first hands-on test of the built-in engine: a scan put "Allow debugging?" on every TV that
+had not allowed this computer, because a connection answered the AUTH token after the last refused
+signature with `AUTH_RSAPUBLICKEY`. The desktop now offers its key only from an explicit Request
+approval, so the crate can connect without ever offering one.
+
+- `ADBTcpDevice::new_with_keys_and_control_signing_only` (the same keys, control and TLS behavior as
+  `new_with_keys_control_and_auth_observer`) answers AUTH tokens with a signature from each key in
+  turn and nothing else. When the device sends one more token after refusing every signature, the
+  handshake ends with the new `RustADBError::KeyNotAllowed` before anything is written, and the
+  socket closes. adbd shows its prompt only on receiving a public key (`adbd_auth_verify` sends a
+  fresh token after a bad signature), so the device shows nothing.
+- `ADBMessageDevice` threads a `PublicKeyOffer` (`Offer(observer)` or `Never`) where it took an
+  optional observer; every existing constructor passes `Offer`, so they behave exactly as before
+  (the Android app still offers its key on connect).
+- TLS (Wireless debugging) is unchanged: it presents certificates, never shows a prompt, and a
+  refused certificate is still `TlsAuthRejected`.
+
+Tests (fake adbd over loopback): `signing_only_never_writes_a_public_key_and_reports_not_allowed`
+(one and two keys: every token signed, no `AUTH_RSAPUBLICKEY`, the socket closed at once rather than
+at the deadline), `signing_only_connects_with_a_key_the_device_trusts`,
+`signing_only_presents_tls_certificates_as_before`. `examples/device_smoke.rs` gains `quiet <addr>
+--key <pem> [--expect-not-allowed]`.
+
+On the Android TV 14 emulator (`device_smoke`, legacy port, throwaway keys; logs and screenshots
+kept locally): `quiet` with a never-seen key ended `KeyNotAllowed` in about 30 ms, twice, with no
+prompt on screen; adbd's log shows only its repeated `send_auth_request` and the host hanging up.
+`approve` with a 600-second bound then raised "Allow USB debugging?" with that key's fingerprint
+and connected 83.6 s later, after "Always allow" and Allow (`PublicKey(0)`); `quiet` with the same
+key then connected at once with `Signature(0)`. A cancel 5 s after the prompt closed the socket in
+8 ms, but the prompt stayed on screen, and allowing it then still let the next `quiet` connect.
+Choosing Cancel on the TV (Deny) logged `adbd_auth: received packet: NO` and sent the host nothing:
+the request waited out its 40-second bound.
+
+Clippy 1.98 also flagged older code under `--all-targets -D warnings`; fixed without changing
+behavior: `framebuffer_info.rs` reads its words with `as_chunks::<4>()`, `adb_emulator_device.rs`
+uses `unwrap_or`, the pairing test modules allow `cast_possible_truncation` and `format_collect`
+for their fixtures, and `device_smoke`'s `cmd_control` allows `too_many_lines`.
