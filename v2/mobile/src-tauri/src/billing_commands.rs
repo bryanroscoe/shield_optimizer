@@ -23,9 +23,9 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_atv_billing::{response_code, BillingExt, ProductInfo, RawPurchase};
 
 use crate::play_billing::{
-    cached_owned_state, effective_entitlement, reconcile, reconcile_flow, response_message,
-    CacheAction, CachedPurchase, Distribution, PlayState, PlayVerifier, QueryOutcome,
-    is_pro_product, PLAY_LICENSE_KEY, PRO_PRODUCT_ID, PRO_PRODUCT_IDS, SUPPORT_PRODUCT_IDS,
+    cached_owned_state, effective_entitlement, is_pro_product, reconcile, reconcile_flow,
+    response_message, CacheAction, CachedPurchase, Distribution, PlayState, PlayVerifier,
+    QueryOutcome, PLAY_LICENSE_KEY, PRO_PRODUCT_ID, PRO_PRODUCT_IDS, SUPPORT_PRODUCT_IDS,
 };
 
 /// Automatic refreshes (launch, resume) closer together than this reuse the
@@ -521,11 +521,7 @@ pub async fn billing_purchase(
             &core,
         ));
     }
-    let response = match plugin_call(&app, PURCHASE_TIMEOUT, |b| {
-        b.launch_purchase(product)
-    })
-    .await
-    {
+    let response = match plugin_call(&app, PURCHASE_TIMEOUT, |b| b.launch_purchase(product)).await {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!(error = %e, "purchase flow failed");
