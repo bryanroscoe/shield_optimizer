@@ -16,6 +16,9 @@ pub fn allowed(command: &str) -> bool {
             | "pair_device"
             | "forget_device"
             | "reprompt_device"
+            // The simulator has no native engine, so both answer Unsupported.
+            | "request_device_approval"
+            | "cancel_device_approval"
             | "probe_paired_connect"
             | "connect_paired"
             | "local_address_for"
@@ -102,6 +105,8 @@ pub fn allowed(command: &str) -> bool {
             | "prepare_optimize"
             | "apply_performance_settings"
             | "check_for_update"
+            // Answered by `intercepted`.
+            | "update_channel"
             | "save_app_report"
             | "collect_diagnostics"
             | "set_debug_logging"
