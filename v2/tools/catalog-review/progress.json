@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-07",
+  "updated_at": "2026-11-08",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -721,6 +721,84 @@
         "note_profiles": 0
       },
       "independent_review": "Both agents independently agree HOLD until exact primary function/dependency/recovery evidence is available."
+    },
+    "com.canal.android.canal": {
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-08",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "status": "accepted_optional_caution",
+      "primary_evidence": "https://play.google.com/store/apps/details?id=com.canal.android.canal",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L74",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L73",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-mogo-4/debloat.txt#L110"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 1,
+        "commented_profiles": 1,
+        "note_profiles": 1
+      },
+      "decision": "Caution/Disable/Review; both defaults false; initial Keep; no compatibility or default-action promotion.",
+      "independent_review": "Both agents independently checked developer identity/function, original keep/comment/disable observations, consequences, dependencies, installed-package recovery and region/DRM boundaries; agree accept."
+    },
+    "fr.tf1.mytf1": {
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-08",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "status": "held",
+      "reconsider_after": "2026-12-08",
+      "reason": "Exact e-TF1 Play listing establishes streaming function, but pinned source contains zero active-disable observations. Preserve no-active queue boundary; do not promote comment-only leads as Disable candidates in this batch.",
+      "primary_evidence": "https://play.google.com/store/apps/details?id=fr.tf1.mytf1",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g10-google-tv/debloat.txt#L192",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L74"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 0,
+        "commented_profiles": 2,
+        "note_profiles": 0
+      },
+      "independent_review": "Both agree procedural HOLD. Functional identity is not removal-safety proof or permission to bypass active-candidate boundary. Revisit only with material source/inventory/scope evidence or due date."
+    },
+    "com.tcl.ocean.instructions": {
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-08",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "status": "held",
+      "reconsider_after": "2026-12-08",
+      "reason": "Exact Play URL inaccessible and bounded TCL exact-ID search found no primary dependency/recovery contract. Generic vendor manual/Help documentation does not bind this package; source labels include on-TV manual and onboarding/tips, so scope remains unresolved.",
+      "primary_search": "Exact-ID site:tcl.com query and exact Play URL; no sufficient exact primary identity/caller/recovery evidence. No-result search is not absence proof.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43c645/debloat.txt#L74",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55q6cx1/debloat.txt#L53",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-65c735/debloat.txt#L132"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 34,
+        "commented_profiles": 2,
+        "note_profiles": 0
+      },
+      "independent_review": "Both agents independently agree HOLD; manual label and frequency do not establish optional action safety."
+    },
+    "com.tcl.repairguide": {
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-08",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "status": "held",
+      "reconsider_after": "2026-12-08",
+      "reason": "Exact Play URL inaccessible and bounded TCL exact-ID search found no primary implementation, diagnostic/support dependency or recovery contract. Generic troubleshooting advice does not map to disabling this exact package.",
+      "primary_search": "Exact-ID site:tcl.com query and exact Play URL; no sufficient primary dependency/recovery evidence. No-result search is not absence proof.",
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c745/debloat.txt#L65",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55a300w/debloat.txt#L6",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-75p8k/debloat.txt#L89"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 27,
+        "commented_profiles": 1,
+        "note_profiles": 1
+      },
+      "independent_review": "Both agents independently agree HOLD; support/diagnostic callers and firmware-specific applicability remain unresolved."
     }
   }
 }

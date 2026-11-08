@@ -1715,6 +1715,26 @@
     ]
   },
   {
+    "package": "com.canal.android.canal",
+    "name": "CANAL+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops CANAL+ live, replay and offline viewing through this app. Keep it if anyone uses it. Disabling does not cancel your subscription.",
+    "restore_description": "Re-enables CANAL+ if still installed. Does not restore account access, app settings or download rights. Regional availability and DRM compatibility remain unverified.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-08",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.canal.android.canal",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L74",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L73",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-mogo-4/debloat.txt#L110",
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md. Optional viewing loss and limited installed-package recovery assessed; subscription/region/DRM limits preserved. Exact identity is not model/firmware certification; hardware removal/recovery unverified."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",
