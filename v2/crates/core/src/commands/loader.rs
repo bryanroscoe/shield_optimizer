@@ -592,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn reported_packages_have_reviewed_safety_without_default_removal() {
+    fn reported_packages_have_reviewed_safety_and_review_without_default_removal() {
         let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
             "../../../../tests/fixtures/reported-package-names.json"
         ))
@@ -611,7 +611,8 @@ mod tests {
                 let entry = lists.find(package).unwrap();
                 assert_eq!(entry.name, item["name"].as_str().unwrap());
                 assert!(!names.contains_key(package));
-                assert!(!entry.default_optimize && !entry.default_restore && !entry.review);
+                // Apps people install by choice: remove only if unused, never by default.
+                assert!(!entry.default_optimize && !entry.default_restore && entry.review);
                 assert_eq!(entry.method, crate::engine::ActionMethod::Disable);
                 assert!(entry.reviewed_at.is_some());
                 assert!(!entry.sources.is_empty());
@@ -897,6 +898,29 @@ mod tests {
                     assert!(
                         !e.default_optimize,
                         "{} is both review and default_optimize — pick one",
+                        e.package
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn safe_apps_outside_the_default_bloat_are_review() {
+        // A Safe entry that is not default bloat is an app someone installed or
+        // uses by choice, so it must read "remove only if unused". Preinstalled
+        // components nobody chooses are the named exceptions.
+        const PREINSTALLED: &[&str] = &["com.android.printspooler", "com.android.gallery3d"];
+        let bundle = load_embedded_app_lists().expect("parse");
+        for list in [&bundle.common, &bundle.shield, &bundle.googletv] {
+            for e in list {
+                if e.risk == crate::engine::types::RiskTier::Safe
+                    && !e.default_optimize
+                    && !PREINSTALLED.contains(&e.package.as_str())
+                {
+                    assert!(
+                        e.review,
+                        "{} is Safe, not default bloat and not preinstalled, so it needs review: true",
                         e.package
                     );
                 }

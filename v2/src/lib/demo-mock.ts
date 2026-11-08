@@ -507,7 +507,7 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         // plan has to carry a row whose verdict the wizard must still resolve
         // even though it proposes no action on it — plus one enabled
         // medium-risk app, so the plan has a Caution row that is actionable
-        // and "Select all safe" has something it must leave alone — plus one
+        // and starts at Keep — plus one
         // uninstall-method app with no store listing, which Optimize must
         // offer Disable for and never Uninstall — plus TV Recommendations, for
         // tests/tvrecommendations-safety.mjs.
@@ -922,6 +922,24 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return { ok: true, message: "Private DNS updated.", reverted: false };
     case "list_snapshots":
       return [...snapshots];
+    case "save_snapshot": {
+      const label = typeof args.label === "string" ? args.label : null;
+      const filename = "shield-living-room-2026-06-02.json";
+      const saved: SnapshotFile = {
+        path: `/Users/you/Library/Application Support/ATVOptimizer/snapshots/${filename}`,
+        filename,
+        saved_at: "2026-06-02T14:52:10Z",
+        label,
+        device_name: "NVIDIA SHIELD Android TV",
+        device_serial: SERIAL,
+        device_type: "shield",
+        disabled_count: DISABLED.size,
+        settings_count: 6,
+        launcher: "com.spocky.projengmenu",
+      };
+      snapshots.unshift(saved);
+      return saved;
+    }
     case "delete_snapshot": {
       const index = snapshots.findIndex((snapshot) => snapshot.path === args.snapshotPath);
       if (index === -1) throw new Error("Snapshot not found");

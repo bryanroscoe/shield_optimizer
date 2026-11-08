@@ -3,12 +3,12 @@
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
   import type { DeviceType, OptimizeMode, OptimizePlan, OptimizePlanItem, AppUsage, Safety } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
   import type { AppDetailInputs } from "$lib/app-details";
-  import { isStaleUsage, usageLabel } from "$lib/usage";
   import {
     CHECKING_LABEL,
     UNAVAILABLE_LABEL,
@@ -37,6 +37,7 @@
     onRunStarted,
     onStatesChanged,
     onPlanLoaded,
+    onSaveSnapshot = null,
     support = null,
   }: {
     serial: string;
@@ -57,6 +58,9 @@
     onRunStarted: () => void;
     onStatesChanged: () => void;
     onPlanLoaded: () => void;
+    /// Saves a snapshot of the TV as it is now, offered after a run changed
+    /// it. Null when the save could not start (one is already in progress).
+    onSaveSnapshot?: (() => Promise<{ ok: boolean; message: string } | null>) | null;
     /// The TV's support tier: adds a warning before an Optimize run on an
     /// unsupported TV. Never applied to Restore.
     support?: SupportInfo | null;
@@ -82,6 +86,11 @@
   let optimizeAbort = $state(false);
   let optimizeSummary = $state<string>("");
   let optimizePerfApplied = $state<boolean>(false);
+  /// Changes the last Optimize run applied. A snapshot taken before a run
+  /// cannot undo it, so saving one is offered only after a run changed the TV.
+  let lastOptimizeApplied = $state(0);
+  let snapshotSaving = $state(false);
+  let snapshotResult = $state<{ ok: boolean; message: string } | null>(null);
   type RunItem = {
     package: string;
     name: string;
@@ -139,6 +148,7 @@
       optimizeRunning = false;
       optimizeCurrent = null;
       safetyByPackage = {};
+      resetSnapshotOffer();
     }
     seenContext = contextKey;
   });
@@ -175,6 +185,7 @@
     optimizeFailureMessages = {};
     optimizeSummary = "";
     optimizePerfApplied = false;
+    resetSnapshotOffer();
     safetyByPackage = {};
     try {
       const plan = await api.prepareOptimize(context.serial, context.deviceType, mode);
@@ -267,20 +278,9 @@
     return canOfferUninstall(item.entry) ? ["skip", "disable", "uninstall"] : ["skip", "disable"];
   }
 
-  /// Set every row we can vouch for to the action the plan chose for it, and
-  /// leave the rest alone. Only rows rated Safe to remove — Caution, Unknown,
-  /// Protected and unresolved rows stay as they are, because "all safe" has
-  /// to mean safe, or the phrase is a trap.
-  function selectAllSafe() {
-    if (!optimizePlan || optimizeRunning) return;
-    for (const item of optimizePlan.items) {
-      const natural = naturalAction(item);
-      if (!natural) continue;
-      const safety = safetyByPackage[item.entry.package];
-      if (safety?.status !== "ready" || safety.verdict.kind !== "safe") continue;
-      setOptimizeAction(item.entry.package, natural);
-    }
-  }
+  // There is deliberately no "arm everything safe": most Safe rows are apps
+  // someone here chose to install, and only they know whether anyone uses
+  // them. Each one is armed by hand.
 
   function keepAll() {
     if (!optimizePlan || optimizeRunning) return;
@@ -390,6 +390,7 @@
     optimizeProgress = {};
     optimizeFailureMessages = {};
     runFailure = null;
+    resetSnapshotOffer();
     onRunStarted();
 
     let done = 0, skipped = 0, failed = 0;
@@ -459,6 +460,7 @@
       : optimizeAbort
       ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
       : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
+    if (mode === "optimize") lastOptimizeApplied = done;
     const firstFailed = runItems.find((item) => optimizeProgress[item.package] === "failed");
     runFailure = firstFailed
       ? { name: firstFailed.name, message: optimizeFailureMessages[firstFailed.package] ?? "failed" }
@@ -493,6 +495,26 @@
       optimizeSummary = optimizeSummary
         ? `${optimizeSummary} Performance failed: ${e}.`
         : `Performance failed: ${e}.`;
+    }
+  }
+
+  function resetSnapshotOffer() {
+    lastOptimizeApplied = 0;
+    snapshotSaving = false;
+    snapshotResult = null;
+  }
+
+  async function saveSetupSnapshot() {
+    if (!onSaveSnapshot || snapshotSaving || optimizeRunning) return;
+    const context = captureContext();
+    snapshotSaving = true;
+    snapshotResult = null;
+    try {
+      const result = await onSaveSnapshot();
+      if (!contextIsCurrent(context)) return;
+      snapshotResult = result;
+    } finally {
+      if (contextIsCurrent(context)) snapshotSaving = false;
     }
   }
 
@@ -627,12 +649,6 @@
           </p>
           <div class="plan-bulk">
             <button
-              class="small-action"
-              data-tip="Arm every row rated Safe to remove"
-              onclick={selectAllSafe}
-              disabled={optimizeRunning}
-            >Select all safe</button>
-            <button
               class="small-action subtle"
               data-tip="Set every row back to Keep"
               onclick={keepAll}
@@ -650,34 +666,6 @@
         </div>
       </li>
     </ol>
-    {#if optimizeMode === "optimize"}
-      {@const reviewItems = optimizePlan.items.filter((i) => i.entry.review && rowState(i) === "enabled")}
-      {@const removalReviewItems = reviewItems.filter(removalReviewIsAvailable)}
-      {@const usageLoaded = Object.keys(appUsage).length > 0}
-      {@const staleReview = usageLoaded ? reviewItems.filter((i) => isStaleUsage(appUsage[i.entry.package])) : []}
-      {#if reviewItems.length > 0}
-        <!-- The wizard's real value-add: the catalog can't know which streaming
-             apps YOU use, so these rows need a human call — and the usage data
-             says where to look first. -->
-        <div class="review-callout">
-          <strong>{reviewItems.length}</strong> app{reviewItems.length === 1 ? "" : "s"} flagged for usage review. Check whether you use them and review their safety status.
-          {#if removalReviewItems.length > 0}
-            <span class="stale-line">
-              <strong>{removalReviewItems.length}</strong> of these can be removed if you don't use them.
-            </span>
-          {/if}
-          {#if staleReview.length > 0}
-            <span class="stale-line">
-              <strong>{staleReview.length}</strong> show no recent use:
-              {staleReview
-                .slice(0, 5)
-                .map((i) => `${i.entry.name} (${usageLabel(appUsage[i.entry.package])})`)
-                .join(", ")}{staleReview.length > 5 ? `, +${staleReview.length - 5} more` : ""}.
-            </span>
-          {/if}
-        </div>
-      {/if}
-    {/if}
     {#if optimizeRunning}
       {@const done = Object.values(optimizeProgress).filter((v) => v !== "pending").length}
       <!-- The current package lives in this panel, not in a button label, so
@@ -694,18 +682,6 @@
         <button class="run-cancel" onclick={cancelOptimize}>Cancel remaining</button>
       </div>
     {/if}
-
-    <!-- A run writes no snapshot first, so the callout says so rather than
-         implying one exists. -->
-    <div class="callout callout-warn optimize-note">
-      <Icon name="warning" size={16} />
-      <span>
-        No snapshot is written automatically, and a snapshot is not a full undo:
-        restoring one re-disables its apps and puts back its Home app and
-        settings, but never re-enables or reinstalls an app. Restore mode
-        re-enables only what the catalog knows about.
-      </span>
-    </div>
 
     <div class="app-toolbar">
       <label class="inline-check">
@@ -841,13 +817,27 @@
 
     <!-- The action sits after the list it acts on, so Run is not reachable
          before the plan has been read. -->
-    <div class="apply-row apply-foot">
+    <div class="apply-foot">
+    {#if optimizeMode === "optimize"}
+      <!-- What can be taken back, said once, where the run starts. -->
+      <p class="undo-line small">
+        <Icon name="restore" size={15} />
+        <span>Disable can be undone from Restore. Uninstall removes an app you installed; get it back from the Play Store.</span>
+      </p>
+      <HelpDetails label="Undoing a run">
+        <p><strong>Disable:</strong> switch Mode to Restore and run it. Restore re-enables catalog apps that are disabled.</p>
+        <p><strong>Uninstall of an app that came with the TV:</strong> Reinstall in the App List puts it back.</p>
+        <p><strong>Uninstall of an app you installed:</strong> it is removed. Get it back from the Play Store, or from wherever you got it if you sideloaded it.</p>
+        <p><strong>Snapshots don't undo a run.</strong> Restoring one disables apps and puts back the Home app and settings; it never re-enables or reinstalls an app.</p>
+      </HelpDetails>
+    {/if}
+    <div class="apply-row">
       <!-- A disabled button never gets :hover, so the reason it is disabled has
            to hang off something that does. -->
       <span
         class="tip-wrap"
         data-tip={actionable === 0
-          ? "Nothing is armed — use Select all safe, or arm a row"
+          ? "Nothing is armed — choose an action on a row"
           : `Apply ${actionable} change${actionable === 1 ? "" : "s"} to this TV`}
       >
       <button
@@ -870,8 +860,30 @@
         </button>
       {/if}
     </div>
+    </div>
     {#if optimizeSummary}
       <p class="muted small mono action-message">{optimizeSummary}</p>
+    {/if}
+    {#if onSaveSnapshot && optimizeMode === "optimize" && lastOptimizeApplied > 0 && !optimizeRunning}
+      <!-- Offered after the run, not before: a snapshot records the result,
+           so it can set up the same TV again but never take this run back. -->
+      <div class="snapshot-offer">
+        <div class="snapshot-offer-row">
+          <button onclick={saveSetupSnapshot} disabled={snapshotSaving || snapshotResult?.ok === true}>
+            <Icon name="save" size={16} />
+            {snapshotSaving ? "Saving…" : snapshotResult?.ok ? "Snapshot saved" : "Save this setup as a snapshot"}
+          </button>
+          <span class="muted small">Re-apply this setup after a reset or on another TV.</span>
+        </div>
+        <HelpDetails label="What a snapshot is for">
+          <p>A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.</p>
+          <p>Applying it from the Snapshot tab, on this TV after a reset or on another TV, disables those apps again and puts back the Home app and settings.</p>
+          <p>It records disabled apps only: apps this run uninstalled aren't in it. Applying it never re-enables or reinstalls an app, so it can't undo this run. Use Restore for that.</p>
+        </HelpDetails>
+        {#if snapshotResult}
+          <p class="small snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
+        {/if}
+      </div>
     {/if}
     {#if runFailure && !optimizeRunning}
       <ErrorNotice error={runFailure.message} action={`${runFailure.name}`} {support} />
@@ -1021,13 +1033,48 @@
   .header-sub {
     margin: 0 0 0.3rem;
   }
-  .optimize-note {
-    margin: 0.6rem 0 0.2rem;
-  }
   .apply-foot {
     margin-top: 1.2rem;
-    padding-top: 1.2rem;
+    padding-top: 1rem;
     border-top: 1px solid var(--border);
+  }
+  .apply-foot .apply-row {
+    margin-top: 0.6rem;
+  }
+  .undo-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    margin: 0;
+    color: var(--fg-secondary);
+  }
+  .undo-line > :first-child {
+    flex: none;
+    margin-top: 0.1rem;
+  }
+  .snapshot-offer {
+    margin-top: 0.8rem;
+    padding: 0.7rem 0.9rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--bg-inset);
+  }
+  .snapshot-offer-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.8rem;
+  }
+  .snapshot-offer :global(.help-details) {
+    margin: 0.5rem 0 0;
+  }
+  .snapshot-result {
+    margin: 0.5rem 0 0;
+    color: var(--fg-secondary);
+    overflow-wrap: anywhere;
+  }
+  .snapshot-result.failed {
+    color: var(--danger-text);
   }
   /* The guided strip. Numbered, because the order matters and the Run button
      is a screen away from the table it applies. */
@@ -1141,19 +1188,6 @@
     justify-content: center;
   }
 
-  .review-callout {
-    margin: 0.4rem 0;
-    padding: 0.5rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--warn);
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
-  }
-  .review-callout .stale-line {
-    display: block;
-    margin-top: 0.2rem;
-    color: var(--warn);
-  }
   /* Width-capped to the action pills' footprint so the text centers under the
      control rather than the (wider) table cell. */
   .review-hint {

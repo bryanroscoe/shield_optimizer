@@ -1783,6 +1783,14 @@
     }
   }
 
+  /// The Optimize tab's post-run offer. Null when a save or delete is already
+  /// in progress, so the tab doesn't report someone else's result.
+  async function saveSnapshotAfterOptimize(): Promise<{ ok: boolean; message: string } | null> {
+    if (!device || saveBusy || snapshotDeletePath) return null;
+    await saveSnapshot();
+    return { ok: saveResult.startsWith("Saved"), message: saveResult };
+  }
+
   async function previewSnapshot(path: string) {
     if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
     previewBusy = true;
@@ -3760,6 +3768,7 @@
         onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
+        onSaveSnapshot={saveSnapshotAfterOptimize}
         support={device.support ?? null}
       />
     </div>
