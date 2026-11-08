@@ -641,7 +641,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           available: true,
           path: null,
           last_probe: "Built-in ADB (demo); no host adb server",
-          connections: { pending: [], awaiting_authorization: [], ready: [], failed: [] },
+          connections: { pending: [], awaiting_authorization: [], not_allowed: [], ready: [], failed: [] },
         };
       }
       return { backend: "subprocess", available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
@@ -1093,6 +1093,11 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         message:
           'Approval requested again. Check the device for the debugging prompt, select "Always allow from this computer" if offered, and choose Allow.',
       };
+    // Built-in engine: the demo TVs already allow this computer.
+    case "request_device_approval":
+      return { ok: true, status: "device", message: "Connected. This TV already allows this computer." };
+    case "cancel_device_approval":
+      return null;
     case "forget_device":
       return {
         ok: true,

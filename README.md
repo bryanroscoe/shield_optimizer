@@ -72,12 +72,14 @@ Turn on ADB on the TV. You only do this once:
 2. **Settings → Developer Options →** turn on **Network debugging**, or **Wireless debugging** if
    that's what your TV offers. Many Google TV devices only have Wireless debugging.
 
-The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
+The TV has to allow this computer once. A TV that hasn't yet is listed as **Not allowed yet**:
+click **Request approval**, then on the TV tick **Always allow from this computer** and choose
+**Allow**.
 
 ## Using it
 
 1. Launch the app. It scans your network and lists the Android TV devices it finds.
-2. Accept the debugging prompt on the TV if one appears.
+2. For a TV marked **Not allowed yet**, click **Request approval** and choose **Allow** on the TV.
 3. Click your device. Each tab is a feature:
 
 | Tab | What it does |
@@ -99,9 +101,12 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**A TV that has never allowed this computer asks "Allow USB debugging?"** the first time the app
-connects. Tick **Always allow** and choose Allow. TVs that already allow Google's `adb` on this
-computer connect without asking again.
+**A TV that has never allowed this computer** is listed as **Not allowed yet**. Scanning never
+shows anything on the TV. Click **Request approval** on its row: the TV asks "Allow debugging?"
+(some say "Allow USB debugging?"). Tick **Always allow from this computer** and choose Allow. The
+app waits up to 10 minutes; **Cancel** stops waiting. TVs that already allow Google's `adb` on this
+computer connect without asking. With Google platform-tools chosen in Settings, the TV asks by
+itself the first time the app connects instead.
 
 **On a Mac, if nothing is found even by IP,** macOS may be blocking the app: open System Settings →
 Privacy & Security → **Local Network** and turn ATV Optimizer on. If it already looks on, turn it

@@ -132,6 +132,15 @@ export interface RepromptResult {
   message: string;
 }
 
+/// Built-in engine: what Request approval started. "waiting" means the TV was
+/// asked and may be showing its prompt; "device" means it already allowed
+/// this computer; "not_allowed" means it ended the request without allowing.
+export interface ApprovalResult {
+  ok: boolean;
+  status: "waiting" | "device" | "not_allowed";
+  message: string;
+}
+
 export interface ForgetResult {
   ok: boolean;
   /// Every adb transport key dropped for this device, the requested one first.
@@ -445,7 +454,10 @@ export interface FileTransferResult {
 export interface ScanConnectionProgress {
   pending: string[];
   failed: { address: string; message: string }[];
+  /// Request approval is waiting for the person to choose Allow on these TVs.
   awaiting_authorization?: string[];
+  /// TVs that answered but haven't allowed this computer. Nothing was shown on them.
+  not_allowed?: string[];
   ready?: string[];
 }
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import HelpTip from "$lib/components/HelpTip.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
@@ -22,7 +23,7 @@
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
   import { nativeScanRows, type DeviceRow } from "$lib/native-scan-rows";
-  import { discoveryAddressUsable } from "$lib/native-discovery-rows";
+  import { buildNativeDiscoveryRows, discoveryAddressUsable } from "$lib/native-discovery-rows";
   import NativeConnectionChoices from "$lib/components/NativeConnectionChoices.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
@@ -59,9 +60,13 @@
   const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed" || d.discoveryState === "offline");
   const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
   const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
-  const isNativeApproval = (d: DeviceRow) => adbBackend === "direct" && d.status === "unauthorized" && !d.properties;
-  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && (d.status === "unauthorized" || d.discoveryState === "failed" || d.discoveryState === "offline");
-  const firstApproval = $derived(visibleDevices.find(isNativeApproval)?.serial);
+  /// Built-in engine: a TV that answered but hasn't allowed this computer.
+  /// Nothing shows on it until Request approval asks.
+  const isNativeUnapproved = (d: DeviceRow) => adbBackend === "direct" && d.status === "unauthorized" && !d.properties;
+  const isAwaitingApproval = (d: DeviceRow) => isNativeUnapproved(d) && d.discoveryState === "approval";
+  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && !isNativeUnapproved(d) && (d.status === "unauthorized" || d.discoveryState === "failed" || d.discoveryState === "offline");
+  /// Endpoints the main list already shows, so Scan details doesn't offer them again.
+  const listedEndpoints = $derived(visibleDevices.filter(d => d.status === "device" || d.status === "unauthorized").map(d => d.serial));
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -98,7 +103,10 @@
         if (disposed || token !== nativeMonitorToken) return;
         if (!refreshInFlight) await startRefresh(true);
         if (disposed || token !== nativeMonitorToken) return;
-        if (!backendUnavailable && (scanBusy || nativeConnections.pending.length > 0) && Date.now() < deadline) schedule();
+        // A request waits for the person (the backend bounds it); a scan's quiet
+        // attempts are watched for 90 seconds.
+        const connecting = (scanBusy || nativeConnections.pending.length > 0) && Date.now() < deadline;
+        if (!backendUnavailable && (connecting || waitingForApproval())) schedule();
         else nativeMonitoring = false;
       }, 1000);
     };
@@ -106,6 +114,8 @@
   }
 
   let scanError = $state<string | null>(null);
+
+  const waitingForApproval = () => (nativeConnections.awaiting_authorization?.length ?? 0) > 0;
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -145,7 +155,9 @@
   let adbMissing = $state(false);
   let backendUnavailable = $state(false);
   const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
-  const hasScanDetails = $derived(!backendUnavailable && !!(scanDetails.length || scanAttempts.length || nativeDiscovery?.advertisements.some(row => row.service_kind !== "tls_pairing")));
+  const hasConnectionChoices = $derived(!!nativeDiscovery && buildNativeDiscoveryRows(nativeDiscovery.advertisements.filter(row => row.service_kind !== "tls_pairing"))
+    .some(row => !row.addresses.some(address => !!address.connect_address && listedEndpoints.includes(address.connect_address))));
+  const hasScanDetails = $derived(!backendUnavailable && !!(scanDetails.length || scanAttempts.length || hasConnectionChoices));
   $effect(() => {
     if (!hasScanDetails) scanDetailsOpen = false;
   });
@@ -186,7 +198,7 @@
       }
       adbMissing = false;
       const progress = status.connections ?? { pending: [], failed: [] };
-      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
+      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.not_allowed ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
       const changed = progressKey !== lastNativeProgress;
       nativeConnections = progress;
       if (adbBackend === "direct" && nativeScanSummary && !scanBusy) {
@@ -204,7 +216,7 @@
         devices = list;
         lastNativeProgress = progressKey;
       }
-      if (!background && progress.pending.length > 0 && !nativeMonitoring) monitorNativeConnections();
+      if (!background && (progress.pending.length > 0 || (progress.awaiting_authorization?.length ?? 0) > 0) && !nativeMonitoring) monitorNativeConnections();
     } catch (e) {
       if (!disposed && !background) error = String(e);
     } finally {
@@ -250,7 +262,7 @@
     const address = connectAddress.trim();
     if (directUnavailable || connectBusy || scanBusy || restartBusy || !address || nativePairNeedsPort) return;
     connectBusy = true;
-    connectMessage = adbBackend === "direct" ? "Connecting… Look for Allow debugging on the TV and approve it if it asks." : "";
+    connectMessage = adbBackend === "direct" ? "Connecting…" : "";
     connectDetail = "";
     connectError = null;
     try {
@@ -340,7 +352,7 @@
     nativeScanSummary = "";
     nativeDiscovery = null;
     if (adbBackend === "direct") monitorNativeConnections();
-    scanMessage = adbBackend === "direct" ? "Scanning local network… Approve debugging on your device if prompted." : "Scanning local network…";
+    scanMessage = "Scanning local network…";
     try {
       const r = await api.scanNetwork();
       if (disposed) return;
@@ -493,7 +505,11 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
-    if (canRetryConnection(d)) {
+    if (isNativeUnapproved(d)) {
+      items.push(isAwaitingApproval(d)
+        ? { label: "Cancel approval request", disabled: cancelBusy === d.serial, run: () => cancelApproval(d) }
+        : { label: "Request approval", disabled: approvalBusy === d.serial, run: () => requestApproval(d) });
+    } else if (canRetryConnection(d)) {
       items.push({
         label: d.status === "unauthorized" ? "Retry approval" : "Retry connection",
         disabled: repromptBusy === d.serial,
@@ -834,6 +850,44 @@
 
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
+  let approvalBusy = $state<string | null>(null);
+  let cancelBusy = $state<string | null>(null);
+
+  /// Built-in engine: the only action that shows the TV's prompt. The row
+  /// shows the wait; the backend keeps it open for up to 10 minutes.
+  async function requestApproval(d: DeviceRow) {
+    if (approvalBusy === d.serial) return;
+    approvalBusy = d.serial;
+    connectMessage = "";
+    connectDetail = "";
+    let failure: string | null = null;
+    try {
+      const r = await api.requestDeviceApproval(d.serial);
+      if (r.status !== "waiting") connectMessage = r.message;
+    } catch (e) {
+      failure = `Couldn't ask ${d.name} for approval: ${e}`;
+    } finally {
+      approvalBusy = null;
+    }
+    await refresh();
+    if (failure) connectMessage = failure;
+    else monitorNativeConnections();
+  }
+
+  async function cancelApproval(d: DeviceRow) {
+    if (cancelBusy === d.serial) return;
+    cancelBusy = d.serial;
+    connectMessage = "";
+    connectDetail = "";
+    try {
+      await api.cancelDeviceApproval(d.serial);
+    } catch (e) {
+      connectMessage = `Couldn't cancel the request for ${d.name}: ${e}`;
+    } finally {
+      cancelBusy = null;
+    }
+    await refresh();
+  }
 
   // A fresh connection resends authorization; only the device can display its prompt.
   async function repromptDevice(d: Device) {
@@ -948,7 +1002,7 @@
       {:else if adbBackend === "direct"}
         {devices.filter((d) => d.status === "device").length} connected
         {#if visibleDevices.some(d => d.status === "unauthorized")}
-          · {visibleDevices.filter(d => d.status === "unauthorized").length} awaiting approval
+          · {visibleDevices.filter(d => d.status === "unauthorized").length} not allowed yet
         {/if}
       {:else if sortedDevices.length === 0}
         no TV connected
@@ -1057,13 +1111,13 @@
     <p class="connect-message muted">{scanMessage}</p>
   {/if}
   {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
-    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses. Approve debugging on the device if prompted; ready devices appear automatically.</p>
+    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses; ready TVs appear automatically.</p>
   {/if}
   {#if hasScanDetails}
     <details class="adb-details connect-details" bind:open={scanDetailsOpen}>
       <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection {scanAttempts.length === 1 ? "attempt" : "attempts"}{/if}</summary>
       {#if scanDetailsOpen && nativeDiscovery}
-        <NativeConnectionChoices report={nativeDiscovery} receivedAt={discoveryReceivedAt} busy={scanBusy || connectBusy || pairBusy || restartBusy || backendUnavailable} onChoose={connectUsingAdvertisement} />
+        <NativeConnectionChoices report={nativeDiscovery} receivedAt={discoveryReceivedAt} listed={listedEndpoints} busy={scanBusy || connectBusy || pairBusy || restartBusy || backendUnavailable} onChoose={connectUsingAdvertisement} />
       {/if}
       {#if scanAttempts.length}
         <p class="muted small">These addresses aren't connected. They may include multiple routes to one device.</p>
@@ -1247,16 +1301,6 @@
   <ul class="device-list">
     {#each visibleDevices as d (d.serial)}
       {@const href = deviceHref(d)}
-      {#if d.serial === firstApproval}
-        <li class="approval-guidance">
-          <p class="muted small">Approval was requested automatically. Check the device for an <strong>Allow debugging</strong> prompt and select <strong>Always allow from this computer</strong> if offered. Connections update automatically.</p>
-          <details class="small">
-            <summary>No prompt on the device?</summary>
-            <p>Wake the device, then use <strong>Retry approval</strong> beside its address to reconnect and resend the request. Some devices call the prompt “Allow USB debugging” even over the network.</p>
-            <p>As a last resort, Developer options → Revoke USB debugging authorizations un-trusts every computer. Reconnect afterward.</p>
-          </details>
-        </li>
-      {/if}
       <li>
         {#if href}
           <a
@@ -1351,7 +1395,7 @@
           <div
             class="device-row not-clickable"
             class:discovered={!!d.discoveryState}
-            class:native-approval={isNativeApproval(d)}
+            class:native-unapproved={isNativeUnapproved(d)}
             class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
@@ -1363,8 +1407,10 @@
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
-                {#if d.status === "unauthorized"}
-                  <span class="status-tag unauthorized">{isNativeApproval(d) ? "Approval requested" : "UNAUTHORIZED"}</span>
+                {#if isNativeUnapproved(d)}
+                  <span class="status-tag unauthorized">{isAwaitingApproval(d) ? "WAITING FOR ALLOW" : "NOT ALLOWED YET"}</span>
+                {:else if d.status === "unauthorized"}
+                  <span class="status-tag unauthorized">UNAUTHORIZED</span>
                 {:else if d.discoveryState === "connecting"}
                   <span class="status-tag">CONNECTING…</span>
                 {:else if d.discoveryState === "failed"}
@@ -1381,12 +1427,32 @@
                   >UNCONFIRMED TV</span>
                 {/if}
               </div>
-              {#if !isNativeApproval(d)}
+              {#if !isNativeUnapproved(d)}
               <div class="device-meta muted mono">
                 {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {:else if d.name !== d.serial}
+              <div class="device-meta muted mono">{d.serial}</div>
+              {/if}
+              {#if isAwaitingApproval(d)}
+                <div class="native-approval-status" role="status">
+                  <HelpTip label="Choose Allow on the TV.">
+                    <p>Look for “Allow debugging?” on the TV. Some TVs say “Allow USB debugging?” even over the network.</p>
+                    <p>Tick “Always allow from this computer”, then choose Allow. Without it, the TV asks again next time.</p>
+                    <p>The app waits up to 10 minutes. Chose Cancel on the TV? Cancel here too: the TV doesn't tell the app.</p>
+                    <p>No prompt? Wake the TV, then Cancel and Request approval again.</p>
+                  </HelpTip>
+                </div>
+              {:else if isNativeUnapproved(d)}
+                <div class="native-approval-status">
+                  <HelpTip label="This TV hasn't allowed this computer yet.">
+                    <p>Request approval shows “Allow debugging?” on the TV. Some TVs say “Allow USB debugging?” even over the network.</p>
+                    <p>Tick “Always allow from this computer”, then choose Allow. This row then opens like any other TV.</p>
+                    <p>Scanning never shows anything on the TV. As a last resort, Developer options → Revoke USB debugging authorizations un-trusts every computer.</p>
+                  </HelpTip>
+                </div>
               {/if}
               {#if d.discoveryState === "connecting"}
                 <p class="muted small">Found on the network. Connecting…</p>
@@ -1399,7 +1465,7 @@
                   Open anyway to try the tools.
                 </p>
               {/if}
-              {#if d.status === "unauthorized" && !isNativeApproval(d)}
+              {#if d.status === "unauthorized" && !isNativeUnapproved(d)}
                 <div class="unauthorized-help">
                   <strong>This device needs to be authorized:</strong>
                   <ol>
@@ -1459,6 +1525,24 @@
                   data-tip="Open the tools on this device even though it is not an Android TV"
                 >
                   Open anyway
+                </button>
+              {/if}
+              {#if isAwaitingApproval(d)}
+                <button
+                  class="row-action"
+                  onclick={() => cancelApproval(d)}
+                  disabled={cancelBusy === d.serial}
+                  aria-label={`Cancel the approval request for ${d.name}`}
+                >
+                  {cancelBusy === d.serial ? "Canceling…" : "Cancel"}
+                </button>
+              {:else if isNativeUnapproved(d)}
+                <button
+                  class="row-action primary"
+                  onclick={() => requestApproval(d)}
+                  disabled={approvalBusy === d.serial}
+                >
+                  {approvalBusy === d.serial ? "Requesting…" : "Request approval"}
                 </button>
               {/if}
               {#if canRetryConnection(d)}
@@ -1601,24 +1685,25 @@
     padding: 0;
     margin: 0;
   }
-  .approval-guidance {
-    margin: 1rem 0 0.75rem;
-  }
-  .approval-guidance p {
-    margin: 0.4rem 0;
-  }
-  .device-row.native-approval {
+  .device-row.native-unapproved {
     flex-wrap: wrap;
-    padding: 0.65rem 1rem;
   }
-  .native-approval .device-main {
+  .native-unapproved .device-main {
     flex: 1 1 18rem;
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  .native-approval .device-name,
-  .native-approval .row-actions {
+  .native-unapproved .device-name,
+  .native-unapproved .row-actions {
     flex-wrap: wrap;
+  }
+  .native-approval-status {
+    margin-top: 0.3rem;
+  }
+  .native-approval-status :global(.help-title) {
+    font-size: 0.85rem;
+    font-weight: 500;
+    color: var(--fg-secondary);
   }
   .scan-attempts {
     list-style: none;

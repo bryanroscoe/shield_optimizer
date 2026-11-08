@@ -60,7 +60,8 @@ try {
   const input = page.getByPlaceholder('IP[:port] — e.g. 192.168.42.71');
   await input.fill('192.0.2.71');
   await addByIp.click();
-  await page.getByText('Connecting… Look for Allow debugging', { exact: false }).waitFor();
+  await page.locator('p.connect-message').filter({ hasText: /^Connecting…$/ }).waitFor();
+  assert.equal(await page.getByText(/Allow debugging/).count(), 0, 'Add by IP never asks the TV for approval');
   await page.waitForFunction(() => !!window.finishNativeConnect);
   await input.press("Enter");
   assert.equal(await page.evaluate(() => window.nativeCalls.filter(c => c.command === "connect_device").length), 1);
@@ -89,7 +90,7 @@ try {
     await context.close();
     await video.saveAs(`${evidence}/native-existing-flow-simulated.webm`);
   } else await context.close();
-  console.log('PASS native backend label, existing scan flow, pending approval, retry, and separate pairing/connect ports when the device gave no name');
+  console.log('PASS native backend label, existing scan flow, quiet Add by IP, retry, and separate pairing/connect ports when the device gave no name');
 } finally {
   await browser?.close();
   await server?.close();

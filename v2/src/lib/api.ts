@@ -22,6 +22,7 @@ import type {
   ConnectResult,
   ForgetResult,
   RepromptResult,
+  ApprovalResult,
   PairedConnectProbe,
   PairResult,
   PairedConnectResult,
@@ -145,6 +146,10 @@ export const api = {
     invoke<ForgetResult>("forget_device", { serial }),
   repromptDevice: (serial: string) =>
     invoke<RepromptResult>("reprompt_device", { serial }),
+  requestDeviceApproval: (serial: string) =>
+    invoke<ApprovalResult>("request_device_approval", { serial }),
+  cancelDeviceApproval: (serial: string) =>
+    invoke<void>("cancel_device_approval", { serial }),
   probePairedConnect: (pairAddress: string, instance: string | null) =>
     invoke<PairedConnectProbe>("probe_paired_connect", { pairAddress, instance }),
   connectPaired: (address: string, instance: string) =>

@@ -45,6 +45,7 @@ try {
     let bridge;
     window.connectCalls = [];
     window.scanCalls = 0;
+    window.listedAt = null;
     Object.defineProperty(window, '__TAURI_INTERNALS__', {
       configurable: true, get: () => bridge,
       set(value) {
@@ -53,15 +54,15 @@ try {
           if (command === 'adb_status') return { backend: 'direct', available: true, path: null, connections: { pending: [], failed: [] } };
           if (command === 'list_devices') {
             const devices = await original(command, args);
-            return [{ ...devices[0], serial: ipv4, name: 'Fixture Shield' }];
+            return window.listedAt ? [{ ...devices[0], serial: window.listedAt, name: 'Fixture Shield' }] : [];
           }
           if (command === 'scan_network') {
             window.scanCalls++;
-            return { subnet: '192.0.2', found: [ipv4], connected: [ipv4], pending: [], unauthorized: [], failed: [], needs_pairing: [], details: [], message: 'SIMULATED: one verified TV; alternate advertised routes retained.', native_discovery: structuredClone(report) };
+            return { subnet: '192.0.2', found: [ipv4], connected: [], pending: [], unauthorized: [], failed: [ipv4], needs_pairing: [], details: [`${ipv4}: SIMULATED route unavailable.`], message: 'SIMULATED: one route failed; alternate advertised routes retained.', native_discovery: structuredClone(report) };
           }
           if (command === 'connect_device') {
             window.connectCalls.push(args.address);
-            return new Promise(resolve => { window.finishConnection = () => resolve({ ok: true, message: 'SIMULATED selected address connected.' }); });
+            return new Promise(resolve => { window.finishConnection = () => { window.listedAt = args.address; resolve({ ok: true, message: 'SIMULATED selected address connected.' }); }; });
           }
           return original(command, args);
         };
@@ -72,7 +73,7 @@ try {
   const page = await context.newPage();
   await page.clock.install();
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
-  await page.getByText('Fixture Shield', { exact: true }).waitFor();
+  await page.getByText('SIMULATED: one route failed', { exact: false }).waitFor();
   await page.getByRole('button', { name: 'Scan LAN', exact: true }).click();
   const details = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Scan details' }) });
   assert.equal(await page.getByRole('region', { name: 'Connection addresses' }).count(), 0, 'picker starts collapsed');
@@ -92,28 +93,32 @@ try {
   assert.equal(await selector.isDisabled(), true, 'address cannot change while the selected connection is pending');
   assert.deepEqual(await page.evaluate(() => window.connectCalls), [ipv6]);
   await page.evaluate(() => window.finishConnection());
-  await first.getByRole('button', { name: `Connect using ${ipv6}`, exact: true }).waitFor({ state: 'visible' });
+  await page.getByText('Fixture Shield', { exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.connection-choices select').disabled);
-  assert.equal(await page.locator('.device-list [data-serial]').count(), 1, 'the verified TV remains one row when a different route is chosen');
+  assert.equal(await page.locator('.device-list [data-serial]').count(), 1, 'the chosen route is one row');
+  assert.equal(await picker.locator('li').count(), 2, 'a service whose address is already a row is not offered again');
+  assert.equal(await picker.locator(`option[value="${ipv6}"]`).count(), 0);
   if (evidence) await page.screenshot({ path: `${evidence}/grouped-addresses-dark-simulated.png`, animations: 'disabled' });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.setViewportSize({ width: 720, height: 900 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   if (evidence) await page.screenshot({ path: `${evidence}/grouped-addresses-narrow-light-simulated.png`, animations: 'disabled' });
+  const remaining = picker.locator('li').first();
   await page.clock.fastForward(31_000);
-  await first.getByText('Expired — use Scan LAN to refresh these addresses.', { exact: true }).waitFor();
-  assert.equal(await first.getByRole('button', { name: /Connect using/ }).isDisabled(), true, 'expired observations must not be dialed');
+  await picker.getByText('Scan LAN again to connect using these addresses.', { exact: true }).waitFor();
+  assert.equal(await picker.getByText(/Expired/).count(), 0, 'rows never read as expired one by one');
+  assert.equal(await remaining.getByRole('button', { name: /Connect using/ }).isDisabled(), true, 'old observations must not be dialed');
   assert.deepEqual(await page.evaluate(() => window.connectCalls), [ipv6]);
   await page.getByRole('button', { name: 'Scan LAN', exact: true }).click();
   await details.locator('summary').click();
   await picker.waitFor();
   await page.waitForFunction(() => !document.querySelector('.connection-choices button').disabled);
-  assert.equal(await page.evaluate(() => window.scanCalls), 2, 'Scan LAN refreshes address choices through the existing scan');
+  assert.equal(await page.evaluate(() => window.scanCalls), 3, 'Scan LAN refreshes address choices through the existing scan (after the boot scan)');
   assert.deepEqual(await page.evaluate(() => window.connectCalls), [ipv6], 'refresh must not implicitly reuse a chosen endpoint');
   const recording = page.video();
   await context.close();
   if (evidence) await recording.saveAs(`${evidence}/grouped-address-choices-simulated.webm`);
-  console.log('PASS grouped IP/mDNS address choices, interface and pairing isolation, exact explicit selection, one verified TV row, cached/expired/scope guards and refresh');
+  console.log('PASS grouped IP/mDNS address choices, interface and pairing isolation, exact explicit selection, listed endpoints not offered again, cached/stale/scope guards without per-row expiry, and refresh');
 } finally {
   await context?.close();
   await browser?.close();

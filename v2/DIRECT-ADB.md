@@ -10,13 +10,64 @@ labeled owner-test bundle (`com.atvoptimizer.native-test`) comes from the PR's o
 
 Devices shows **Native Rust ADB · direct connection** when active. Add by IP and
 Scan LAN connect directly to the TV; Scan LAN combines fresh mDNS endpoints with
-the existing port-5555 sweep. Pair PIN connects by itself when the TV names itself
+the existing port-5555 sweep. When every sweep probe fails at once (no refusal, no
+timeout), the host could not reach its network yet: macOS does that to a new app until
+Local Network access is granted, and for about a second after. The scan then sweeps once
+more after the 6-second mDNS browse instead of reporting an empty subnet; a quiet subnet
+is never swept twice. mDNS endpoints are dialled only after that browse ends. Pair PIN connects by itself when the TV names itself
 while pairing (see **Pairing** below); otherwise it asks for the separate connect port.
 The private app identity is created once on supported Unix hosts. The built-in engine
 offers Google platform-tools' own key first when this computer has one, so a TV that
 already allows platform-tools connects without a new prompt (see **Keys**). No ADB key
 is imported, copied or replaced. Native mode does not expose Restart ADB or Stop ADB
 when quitting.
+
+Nothing the app does by itself puts a prompt on a TV: only **Request approval** on a
+TV's row does (see **Approval**).
+
+## Approval
+
+Network debugging (legacy AUTH, port 5555) shows the TV's "Allow debugging?" prompt
+when the host answers an AUTH token with its public key (`AUTH_RSAPUBLICKEY`). The
+built-in engine sends it from one place only.
+
+- **Quiet by default.** Scan LAN, Add by IP, Retry/Try again and the scan's reconnects
+  sign each AUTH token with the known keys and nothing else (vendored
+  `ADBTcpDevice::new_with_keys_and_control_signing_only`). When the TV asks again after
+  refusing every signature, the connection closes with `KeyNotAllowed` and the TV shows
+  nothing. Refresh only probes connections that already exist. A quiet connection is
+  bounded at 20 seconds (`QUIET_CONNECT_TIMEOUT`) because it never waits for a person.
+- **Not allowed yet.** Such an endpoint is listed by `adb devices` as `unauthorized`
+  under its exact `host:port`, so the Devices list names it by its Cast name when the TV
+  gives one (`unqueried_names`), else by the address. It has no verified hardware id,
+  so it is never merged with another row and claims nothing about the device. It stays
+  until a later connection there succeeds (it becomes a normal TV), fails to reach the TV
+  (it moves to Scan details), or Forget drops it. A later scan only retries quietly,
+  which succeeds once the TV allows the key.
+- **Request approval** (`request_device_approval`, `AdbDriver::request_approval`) is the
+  only connection that may offer the public key. It keeps that connection open for up to
+  10 minutes (`APPROVAL_WAIT` in `src-tauri/src/adb/direct.rs`) for the person to choose
+  Allow, and ends sooner on **Cancel** (`cancel_device_approval`), Forget, an engine
+  switch or quit. The command returns once the key was sent (at most 20 seconds), so the
+  row shows the wait. A wait that ends without approval, including a Deny that closes
+  the connection, quietly returns the row to not allowed yet with the button available;
+  it is never reported as a transport error. Android 14 (the Android TV emulator) does not
+  close it on Deny: the framework sends adbd `NO` and adbd sends the host nothing, so the
+  row keeps waiting until Cancel or the limit, and its help says so. Closing the
+  connection (Cancel) does not take the prompt off the TV there either; choosing Allow
+  with "Always allow" on that leftover prompt still stores the key, and the next quiet
+  scan connects. A scan or Add by IP during the wait does not dial that TV again. A
+  request that cannot reach the TV reports why and keeps the row.
+- **TLS** (Wireless debugging after PIN pairing) never shows a prompt, so it connects the
+  same way in both modes.
+- **Platform-tools** is unchanged: its adb server offers its public key whenever a TV
+  refuses its signatures, so under that engine any connection can show the prompt.
+- **The Android app** is unchanged and still offers the key on its own connect
+  (`WirelessAdb::connect`, 30 seconds). Moving it to the same quiet model is a follow-up.
+  So are the dedicated identity-checked connections both apps open for downloads, bound
+  services and installs (`connect_required` in the vendored crate): they are made only to
+  a TV that already allowed a key, but would offer it if the TV revoked that key
+  mid-session.
 
 ## Choosing the engine
 
@@ -97,8 +148,9 @@ there is a usable one, then the app's key (`<data folder>/native-adb/identity.pk
   engine starts with the app key alone, which stays required. `ATV_OPTIMIZER_DIRECT_KEY`
   replaces the app key and is then the only key offered.
 - **Legacy AUTH (port 5555).** Each AUTH token is signed with the next key, as adb signs
-  with each of its keys. Once both are refused, the platform-tools key's public key is
-  offered, so one approval on the TV covers both engines.
+  with each of its keys. Once both are refused, only Request approval offers a public
+  key (see **Approval**): the platform-tools key's, so one approval on the TV covers both
+  engines.
 - **TLS (Wireless debugging).** The client certificate is the key the TV names in its CA
   hints (`O=AdbKey-0, CN=<SHA-256 of the key's SubjectPublicKeyInfo>`, AOSP
   `tls/adb_ca_list.cpp`), else the first key, as adb's `adb_tls_set_certificate` does. A
@@ -119,8 +171,9 @@ Built-in is network-only: a TV connected by USB needs Google platform-tools, and
 connection help on Devices says so. Fast Remote uses the scrcpy control channel over its
 own verified connections to the TV, and shell input only if the channel fails before any
 input (see `NATIVE-REMOTE-ACCEPTANCE.md`); Android's keymap drops CJK and emoji text on
-both engines. A TV that allows neither key approves the platform-tools key once (the app key when
-there is no platform-tools key); neither key is ever imported or replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
+both engines. A TV that allows neither key approves the platform-tools key once, through Request
+approval (the app key when there is no platform-tools key); neither key is ever imported or
+replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
 N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
 ---

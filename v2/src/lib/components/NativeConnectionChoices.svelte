@@ -3,15 +3,20 @@
   import type { NativeAdvertisement, NativeDiscoveryReport } from "$lib/types";
   import { buildNativeDiscoveryRows, discoveryAddressUsable, discoveryEndpointUsable, type NativeDiscoveryRow } from "$lib/native-discovery-rows";
 
-  let { report, receivedAt, busy, onChoose }: {
+  /// `listed`: endpoints the Devices list already shows. An advertisement for
+  /// one of them is not offered again; this matches exact endpoints, never
+  /// devices.
+  let { report, receivedAt, busy, listed = [], onChoose }: {
     report: NativeDiscoveryReport;
     receivedAt: number;
     busy: boolean;
+    listed?: string[];
     onChoose: (address: NativeAdvertisement) => void;
   } = $props();
   let now = $state(performance.now());
   let selected = $state<Record<string, string>>({});
-  const rows = $derived(buildNativeDiscoveryRows(report.advertisements.filter(row => row.service_kind !== "tls_pairing")));
+  const rows = $derived(buildNativeDiscoveryRows(report.advertisements.filter(row => row.service_kind !== "tls_pairing"))
+    .filter(row => !row.addresses.some(address => !!address.connect_address && listed.includes(address.connect_address))));
   const protocol = { legacy_adb: "Network debugging", tls_connect: "Wireless debugging", tls_pairing: "Pairing" };
   const endpoint = (address: NativeAdvertisement) => address.connect_address ?? `${address.address} · port ${address.port}`;
   const usable = (address: NativeAdvertisement, time = now) => discoveryAddressUsable(address, time - receivedAt, report.observation_max_age_ms);
@@ -19,6 +24,8 @@
     return row.addresses.find(address => endpoint(address) === selected[row.key])
       ?? row.addresses.find(address => usable(address)) ?? row.addresses[0];
   }
+  /// Seen in this scan, but long enough ago that it must be seen again first.
+  const stale = (address: NativeAdvertisement) => discoveryEndpointUsable(address) && !address.cached && !usable(address);
   function connect(row: NativeDiscoveryRow) {
     const address = choice(row);
     if (!busy && usable(address, performance.now())) onChoose(address);
@@ -33,6 +40,7 @@
   <section class="connection-choices" aria-label="Connection addresses">
     <h3>Connection addresses</h3>
     <p class="muted small">Choose an address from the same advertised service. Names come from network announcements; connecting checks the device details.</p>
+    {#if rows.some(row => stale(choice(row)))}<p class="muted small" role="status">Scan LAN again to connect using these addresses.</p>{/if}
     <ul>
       {#each rows as row (row.key)}
         {@const address = choice(row)}
@@ -48,7 +56,7 @@
                 {/each}
               </select>
             </label>
-            {#if !available}<span class="muted small">{!discoveryEndpointUsable(address) ? "This address cannot be used on this interface." : address.cached ? "Not seen in this scan — use Scan LAN to refresh." : "Expired — use Scan LAN to refresh these addresses."}</span>{/if}
+            {#if !discoveryEndpointUsable(address)}<span class="muted small">This address cannot be used on this interface.</span>{:else if address.cached}<span class="muted small">Not seen in this scan.</span>{/if}
           </div>
           <button class="row-action" disabled={busy || !available} onclick={() => connect(row)} aria-label={`Connect using ${endpoint(address)}`}>Connect</button>
         </li>

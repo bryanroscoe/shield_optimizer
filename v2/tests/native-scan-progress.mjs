@@ -39,12 +39,27 @@ try {
                 const address = '[fe80::abcd:ef01:2345:6789%14]:5555';
                 result.push({ ...devices[0], serial: address, name: address, status: 'offline', model: '', device_type: 'unknown', tv_evidence: 'unknown', properties: null });
               }
+              if (window.castNamed) {
+                result.push({ ...devices[0], serial: '192.0.2.26:5555', name: 'SIMULATED Living Room TV', status: 'unauthorized', model: '', device_type: 'unknown', tv_evidence: 'unknown', properties: null });
+              }
               if (window.offlineKinds) {
                 result.push({ ...devices[0], serial: '192.0.2.87:5555', name: 'SIMULATED Known offline TV', status: 'offline' });
                 result.push({ ...devices[0], serial: 'SIMULATED-USB-OFFLINE', name: 'SIMULATED USB offline device', connection: 'usb', status: 'offline', properties: null });
               }
               return result;
             } finally { window.activeReads--; }
+          }
+          if (command === 'request_device_approval') {
+            window.requested = [...(window.requested ?? []), args.serial];
+            window.progress.not_allowed = (window.progress.not_allowed ?? []).filter(address => address !== args.serial);
+            window.progress.awaiting_authorization = [...(window.progress.awaiting_authorization ?? []), args.serial];
+            return { ok: true, status: 'waiting', message: 'Choose Allow on the TV.' };
+          }
+          if (command === 'cancel_device_approval') {
+            window.canceled = args.serial;
+            window.progress.awaiting_authorization = (window.progress.awaiting_authorization ?? []).filter(address => address !== args.serial);
+            window.progress.not_allowed = [...(window.progress.not_allowed ?? []), args.serial];
+            return null;
           }
           if (command === 'reprompt_device') {
             window.reprompted = args.serial;
@@ -56,6 +71,7 @@ try {
             window.forgotten = args.serial;
             window.progress.pending = window.progress.pending.filter(address => address !== args.serial);
             window.progress.awaiting_authorization = (window.progress.awaiting_authorization ?? []).filter(address => address !== args.serial);
+            window.progress.not_allowed = (window.progress.not_allowed ?? []).filter(address => address !== args.serial);
             if (args.serial === '[fe80::abcd:ef01:2345:6789%14]:5555') window.offlineRoute = false;
             return { ok: true, disconnected: [args.serial], still_advertised: false, message: 'SIMULATED forgotten.' };
           }
@@ -88,25 +104,46 @@ try {
   await untrusted.getByText('Connecting…', { exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'No devices connected.' }).count(), 0);
   assert.equal(await page.getByText('Online', { exact: true }).count(), 0, 'unapproved discoveries must not appear online');
-  await page.evaluate(() => { window.progress.awaiting_authorization = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']; });
-  await untrusted.getByText('Approval requested', { exact: true }).waitFor();
-  assert.equal(await untrusted.evaluate(el => !!el.closest('.device-list')), true, 'observed AUTH stays in the main list');
-  await untrusted.getByRole('button', { name: 'Retry approval', exact: true }).waitFor();
-  assert.match(await page.locator('.approval-guidance').innerText(), /Approval was requested automatically/,
-    'the first request must be explicit before the user retries');
-  assert.doesNotMatch(await page.locator('.approval-guidance').innerText(), /on the TV|TV shows/,
-    'an unprofiled endpoint might be a phone, tablet or TV');
+  // The quiet connect found a TV that hasn't allowed this computer: a normal
+  // row in the main list, nothing requested, and the request is a button.
   await page.evaluate(() => {
-    window.progress.pending.push('192.0.2.25:5555');
-    window.progress.awaiting_authorization.push('192.0.2.25:5555');
+    window.progress.pending = ['192.0.2.4:5555'];
+    window.progress.not_allowed = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
+  });
+  await untrusted.getByText('NOT ALLOWED YET', { exact: true }).waitFor();
+  assert.equal(await untrusted.evaluate(el => !!el.closest('.device-list')), true, 'an unapproved TV keeps a normal row');
+  await untrusted.getByText("This TV hasn't allowed this computer yet.", { exact: true }).waitFor();
+  assert.equal(await page.getByText(/requested automatically/).count(), 0, 'nothing is requested automatically');
+  assert.equal(await untrusted.getByRole('button', { name: 'Retry approval', exact: true }).count(), 0);
+  const help = untrusted.getByRole('button', { name: "About This TV hasn't allowed this computer yet.", exact: true });
+  await help.click();
+  const helpText = await page.getByRole('region', { name: "This TV hasn't allowed this computer yet." }).innerText();
+  assert.match(helpText, /Allow debugging\?/);
+  assert.match(helpText, /Always allow from this computer/);
+  await capture('not-allowed-help');
+  await page.keyboard.press('Escape');
+  await untrusted.getByRole('button', { name: 'Request approval', exact: true }).click();
+  await untrusted.getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
+  await untrusted.getByText('Choose Allow on the TV.', { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => window.requested), ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']);
+  await capture('approval-waiting');
+  await untrusted.getByRole('button', { name: /^Cancel the approval request for / }).click();
+  await untrusted.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.canceled), '[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555');
+  assert.equal(await page.getByText(/transport error|timed out during setup/).count(), 0, 'a canceled wait is not an error');
+  await page.evaluate(() => {
+    window.castNamed = true;
+    window.progress.not_allowed.push('192.0.2.25:5555', '192.0.2.26:5555');
   });
   const secondApproval = page.locator('[data-serial="192.0.2.25:5555"]');
-  await secondApproval.getByRole('button', { name: 'Retry approval', exact: true }).waitFor();
-  assert.equal(await page.locator('.device-list .native-approval').count(), 2,
+  const castNamed = page.locator('[data-serial="192.0.2.26:5555"]');
+  await secondApproval.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  await castNamed.getByText('SIMULATED Living Room TV', { exact: true }).waitFor();
+  await castNamed.getByText('192.0.2.26:5555', { exact: true }).waitFor();
+  assert.equal(await page.locator('.device-list .native-unapproved').count(), 3,
     'unidentified endpoints remain distinct until hardware identity is verified');
-  assert.equal(await page.locator('.approval-guidance').count(), 1,
-    'approval instructions appear once for the whole list');
-  assert.equal(await page.locator('.native-approval .unauthorized-help').count(), 0,
+  assert.equal(await page.locator('.approval-guidance').count(), 0);
+  assert.equal(await page.locator('.native-unapproved .unauthorized-help').count(), 0,
     'each address must not repeat a full authorization guide');
   for (const row of [untrusted, secondApproval]) {
     const address = await row.getAttribute('data-serial');
@@ -120,11 +157,16 @@ try {
   await capture('compact-approval-rows-narrow');
   await page.emulateMedia({ colorScheme: 'light' });
   await capture('compact-approval-rows-narrow-light');
+  await page.evaluate(() => { document.documentElement.style.fontSize = '125%'; });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'larger text still fits the minimum width');
+  await capture('compact-approval-rows-narrow-large-text');
+  await page.evaluate(() => { document.documentElement.style.fontSize = ''; });
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.setViewportSize({ width: 1100, height: 760 });
   await page.evaluate(() => {
-    window.progress.pending = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
-    window.progress.awaiting_authorization = [...window.progress.pending];
+    window.castNamed = false;
+    window.progress.pending = [];
+    window.progress.not_allowed = ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555'];
     window.progress.failed = [{ address: '192.0.2.4:5555', message: 'SIMULATED connection timeout; check the TV and try again.' }];
   });
   await failed.getByText("Didn't connect", { exact: true }).waitFor();
@@ -140,7 +182,7 @@ try {
   await failed.waitFor({ state: 'detached' });
   assert.equal(await page.evaluate(() => window.forgotten), '192.0.2.4:5555');
   await page.evaluate(() => { window.ready = true; window.progress = { pending: ['192.168.1.77:5555'], awaiting_authorization: ['192.168.1.77:5555'], failed: [] }; });
-  await page.locator('[data-serial="192.168.1.77:5555"]').getByText('Approval requested', { exact: true }).waitFor();
+  await page.locator('[data-serial="192.168.1.77:5555"]').getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
   await page.getByText('NVIDIA SHIELD Android TV', { exact: true }).first().waitFor();
   await page.waitForFunction(() => window.activeReads === 0);
   assert.equal(await page.getByRole('button', { name: 'Scanning…', exact: true }).count(), 1);
@@ -210,9 +252,10 @@ try {
   await disconnected.getByRole('button', { name: 'Retry connection', exact: true }).click();
   await disconnected.getByText('Connecting…', { exact: true }).waitFor();
   assert.equal(await page.evaluate(() => window.reprompted), '[fe80::abcd:ef01:2345:6789%14]:5555');
-  await page.evaluate(() => { window.progress.awaiting_authorization = [...window.progress.pending]; });
-  await disconnected.getByText('Approval requested', { exact: true }).waitFor();
-  await disconnected.getByRole('button', { name: 'Retry approval', exact: true }).waitFor();
+  await page.evaluate(() => { window.progress.not_allowed = [...window.progress.pending]; window.progress.pending = []; });
+  await disconnected.getByText('NOT ALLOWED YET', { exact: true }).waitFor();
+  await disconnected.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  assert.equal(await disconnected.evaluate(el => !!el.closest('.device-list')), true, 'a quiet retry that was not allowed returns to the main list');
   assert.equal(await page.locator('.device-list .clickable').count(), 2,
     'retry and approval retain both existing ready TV cards');
   await disconnected.getByRole('button', { name: 'Forget', exact: true }).click();
@@ -251,5 +294,5 @@ try {
     await context.close();
     await video.saveAs(`${evidence}/native-scan-progress-simulated.webm`);
   } else await context.close();
-  console.log('PASS explicit first approval request, endpoint-only retry/Forget, unprofiled offline route recovery without extra device cards, known offline and USB preservation, ready rows during scan, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
+  console.log('PASS no automatic approval request, explicit Request approval and Cancel, endpoint-only retry/Forget, unprofiled offline route recovery without extra device cards, known offline and USB preservation, ready rows during scan, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
 } finally { await browser?.close(); await server?.close(); }
