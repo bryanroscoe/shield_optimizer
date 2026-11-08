@@ -985,3 +985,123 @@ async fn a_canceled_or_closed_approval_request_is_not_approved() {
         peer.join().unwrap();
     }
 }
+
+#[tokio::test]
+async fn a_tv_that_no_longer_allows_the_key_fails_quiet_downloads_with_how_to_fix_it() {
+    // Desktop (signatures only) and the Android app (offers the key).
+    for quiet in [true, false] {
+        let key = fixture_key();
+        let mut driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+        if quiet {
+            driver = driver.with_dedicated_connections(ConnectAuth::SignaturesOnly);
+        }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let peer = std::thread::spawn(move || {
+            let mut selected = accept(&listener);
+            assert_eq!(receive(&mut selected).0, b"CNXN");
+            send(&mut selected, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+            serve_download_identity(&mut selected);
+            // Trust was revoked (or Allow was chosen without Always allow).
+            let mut transfer = accept(&listener);
+            assert_eq!(receive(&mut transfer).0, b"CNXN");
+            refuse_every_signature(&mut transfer, 1);
+            if quiet {
+                assert_closed(&mut transfer);
+            } else {
+                assert_eq!(
+                    receive(&mut transfer).1,
+                    3,
+                    "the Android app still offers its key"
+                );
+            }
+        });
+        driver.begin_request(1).unwrap();
+        driver.connect("127.0.0.1", port, 1).await.unwrap();
+        let serial = format!("127.0.0.1:{port}");
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("fixture");
+        let error = driver
+            .raw_transfer(&["-s", &serial, "pull", "/fixture", local.to_str().unwrap()])
+            .await
+            .unwrap_err()
+            .to_string();
+        assert_eq!(error.contains(NO_LONGER_ALLOWED), quiet, "{error}");
+        assert!(!local.exists());
+        peer.join().unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_approval_request_that_runs_out_its_deadline_is_not_approved() {
+    // The budget is the approval wait; a short one stands in for ten minutes.
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        refuse_every_signature(&mut socket, 1);
+        assert_eq!(receive(&mut socket).1, 3);
+        // Nobody answers the prompt.
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        assert_closed(&mut socket);
+    });
+    driver.begin_request(1).unwrap();
+    let started = std::time::Instant::now();
+    let result = driver
+        .connect_with(
+            "127.0.0.1",
+            port,
+            1,
+            ConnectAuth::OfferPublicKey,
+            Duration::from_millis(1500),
+        )
+        .await;
+    assert!(
+        matches!(result, Err(ConnectFailure::NotApproved(_))),
+        "{result:?}"
+    );
+    assert!(started.elapsed() >= Duration::from_millis(1400));
+    peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_quiet_handshake_timeout_is_a_failure_that_mentions_no_prompt() {
+    let key = fixture_key();
+    let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        // Open but silent: no AUTH, no CNXN.
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        assert_closed(&mut socket);
+    });
+    driver.begin_request(1).unwrap();
+    let result = driver
+        .connect_with(
+            "127.0.0.1",
+            port,
+            1,
+            ConnectAuth::SignaturesOnly,
+            Duration::from_millis(800),
+        )
+        .await;
+    match result {
+        Err(ConnectFailure::Failed(message)) => {
+            assert!(
+                !message.contains("prompt") && !message.contains("Allow"),
+                "{message}"
+            );
+        }
+        other => panic!("{other:?}"),
+    }
+    peer.join().unwrap();
+}

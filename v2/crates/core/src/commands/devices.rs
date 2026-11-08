@@ -49,7 +49,8 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     for e in &entries {
         state.telemetry.note_transport(&e.serial);
     }
-    let cast_names = unqueried_names(state, &entries).await;
+    let current = current_unauthorized(&*adb).await;
+    let cast_names = unqueried_names(state, &entries, current.as_ref()).await;
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
@@ -143,13 +144,29 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(out)
 }
 
+/// Unauthorized endpoints the built-in engine has current evidence for: a
+/// recent quiet refusal, or a request whose key reached the TV. `None` under
+/// platform-tools, whose server holds a live connection to every one.
+async fn current_unauthorized(adb: &dyn AdbDriver) -> Option<Vec<String>> {
+    if adb.uses_host_server() {
+        return None;
+    }
+    let progress = adb.scan_connection_progress().await;
+    let mut current = progress.not_allowed;
+    current.extend(progress.awaiting_authorization);
+    Some(current)
+}
+
 /// Cast names for unauthorized network transports, when the app has lookups
-/// enabled. Only unauthorized: adb holds a live connection to that address, so
-/// the answer comes from the same TV. An offline transport's address may since
-/// belong to another device. Display only: rows still match on hardware id.
+/// enabled. Only unauthorized with current evidence: adb holds a live
+/// connection to that address (platform-tools), or the built-in engine was
+/// refused there recently (`current`), so the answer comes from the same TV.
+/// An offline transport's address, or an old refusal's, may since belong to
+/// another device. Display only: rows still match on hardware id.
 async fn unqueried_names(
     state: &AppState,
     entries: &[crate::adb::parse::DeviceListEntry],
+    current: Option<&Vec<String>>,
 ) -> HashMap<Ipv4Addr, String> {
     let Some(cast_names) = state.cast_names() else {
         return HashMap::new();
@@ -159,6 +176,7 @@ async fn unqueried_names(
         .filter(|e| {
             e.status == DeviceStatus::Unauthorized && e.connection == ConnectionType::Network
         })
+        .filter(|e| current.map_or(true, |current| current.contains(&e.serial)))
         .filter_map(|e| serial_lookup_target(&e.serial))
         .collect();
     if hosts.is_empty() {
@@ -771,7 +789,8 @@ async fn native_scan_has_endpoint(adb: &dyn AdbDriver, serial: &str) -> bool {
 pub struct ApprovalResult {
     pub ok: bool,
     /// `waiting` (the TV may be showing its prompt), `device` (it already
-    /// allowed this computer) or `not_allowed`.
+    /// allowed this computer), `not_allowed` (the TV ended it) or `canceled`
+    /// (stopped here before the TV was asked).
     pub status: String,
     pub message: String,
 }
@@ -816,6 +835,11 @@ pub async fn request_device_approval_impl(
             ok: false,
             status: "not_allowed".into(),
             message: "The TV ended the request without allowing this computer. Try again.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::Canceled => ApprovalResult {
+            ok: true,
+            status: "canceled".into(),
+            message: String::new(),
         },
     })
 }
@@ -1715,6 +1739,14 @@ mod tests {
             .await
             .unwrap();
         assert_eq!((ended.ok, ended.status.as_str()), (false, "not_allowed"));
+        *adb.outcome.lock().unwrap() = Ok(ApprovalRequestOutcome::Canceled);
+        let canceled = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!(
+            (canceled.status.as_str(), canceled.message.as_str()),
+            ("canceled", "")
+        );
         *adb.outcome.lock().unwrap() =
             Err(crate::adb::AdbError::Transport("SIMULATED no route".into()));
         let unreachable = request_device_approval_impl(&state, "192.0.2.1:5555")
@@ -1725,6 +1757,7 @@ mod tests {
             *adb.calls.lock().unwrap(),
             [
                 "connect 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
                 "request 192.0.2.1:5555",
                 "request 192.0.2.1:5555",
                 "request 192.0.2.1:5555",
@@ -2263,6 +2296,47 @@ mod tests {
             crate::engine::types::DeviceStatus::Unauthorized
         );
         assert!(devices[1].properties.is_none());
+    }
+
+    #[tokio::test]
+    async fn the_built_in_engine_names_only_tvs_it_has_current_evidence_for() {
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let cast_names = crate::net::CastNames::with_lookup(std::sync::Arc::new(move |ip| {
+            seen.lock().unwrap().push(ip);
+            Box::pin(async move { Some(format!("TV at {ip}")) })
+        }));
+        // (RFC 1918 addresses: only those are ever looked up.) .10 refused recently, .11 is waiting on a request whose key
+        // reached it, .12 refused long ago: listed, but by address only.
+        let mock = MockAdb::default()
+            .without_host_server()
+            .with_progress(crate::adb::ScanConnectionProgress {
+                not_allowed: vec!["10.0.50.10:5555".into()],
+                awaiting_authorization: vec!["10.0.50.11:5555".into()],
+                ..Default::default()
+            })
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 10.0.50.10:5555\tunauthorized\n\
+                 10.0.50.11:5555\tunauthorized\n\
+                 10.0.50.12:5555\tunauthorized\n",
+            );
+        let state = state_with(mock).with_cast_names(std::sync::Arc::new(cast_names));
+        let devices = list_devices_impl(&state).await.unwrap();
+        let names: Vec<_> = devices.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["TV at 10.0.50.10", "TV at 10.0.50.11", "10.0.50.12:5555"]
+        );
+        let mut asked = asked.lock().unwrap().clone();
+        asked.sort_unstable();
+        assert_eq!(
+            asked,
+            [Ipv4Addr::new(10, 0, 50, 10), Ipv4Addr::new(10, 0, 50, 11)],
+            "no lookup without current evidence"
+        );
+        assert!(devices.iter().all(|d| d.properties.is_none()));
     }
 
     #[tokio::test]

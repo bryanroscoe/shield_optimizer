@@ -110,12 +110,18 @@ pub mod test_support {
         shell_log: Arc<Mutex<Vec<String>>>,
         raw_log: Arc<Mutex<Vec<String>>>,
         no_host_server: bool,
+        progress: crate::adb::ScanConnectionProgress,
     }
 
     impl MockAdb {
         /// Report no host server, as the built-in engine does.
         pub fn without_host_server(mut self) -> Self {
             self.no_host_server = true;
+            self
+        }
+        /// What `scan_connection_progress` reports.
+        pub fn with_progress(mut self, progress: crate::adb::ScanConnectionProgress) -> Self {
+            self.progress = progress;
             self
         }
         /// Like `on_shell`, but only for calls against `serial`. Checked before
@@ -250,6 +256,9 @@ pub mod test_support {
 
     #[async_trait]
     impl AdbDriver for MockAdb {
+        async fn scan_connection_progress(&self) -> crate::adb::ScanConnectionProgress {
+            self.progress.clone()
+        }
         fn uses_host_server(&self) -> bool {
             !self.no_host_server
         }

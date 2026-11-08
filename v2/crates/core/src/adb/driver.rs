@@ -205,6 +205,9 @@ pub enum ApprovalRequestOutcome {
     Ready,
     /// The TV ended the request without allowing this computer.
     NotApproved,
+    /// Canceled or forgotten here before the TV was asked. Says nothing
+    /// about the TV.
+    Canceled,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
@@ -219,8 +222,9 @@ pub struct ScanConnectionProgress {
     /// Explicit approval requests whose TV may be showing its prompt.
     #[serde(default)]
     pub awaiting_authorization: Vec<String>,
-    /// TVs that answered but have not allowed this computer yet. Nothing was
-    /// shown on them.
+    /// TVs that refused this computer's keys recently (the driver's bound),
+    /// so a name looked up at that address belongs to them. Nothing was shown
+    /// on them. An older refusal is still listed by `adb devices`, by address.
     #[serde(default)]
     pub not_allowed: Vec<String>,
     /// Completed successful scan attempts, without another liveness probe.

@@ -97,14 +97,16 @@ impl WirelessAdb {
         let operation = self.work().map_err(AdbError::Transport)?;
         let control = BoundedShellControl::new(remaining)?;
         let key = self.key_path.clone();
-        let preferred = self.preferred_keys.clone();
+        let preferred = self.dedicated_keys();
         let service = service.to_owned();
         open_worker(operation, control, move |control| {
             let stream = open_bound_service_with_keys(
                 address, &key, &preferred, &expected, &service, control,
             )
             .map_err(|error| match error {
-                BoundServiceError::BeforeOpen(error) => AdbError::Transport(error.to_string()),
+                BoundServiceError::BeforeOpen(error) => {
+                    AdbError::Transport(crate::dedicated_error(&error))
+                }
                 BoundServiceError::Rejected(_) => AdbError::ServiceRejected {
                     operation: "device service OPEN",
                 },

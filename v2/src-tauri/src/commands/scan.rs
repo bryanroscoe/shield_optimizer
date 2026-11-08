@@ -2477,6 +2477,38 @@ mod command_stage_tests {
     }
 
     #[tokio::test]
+    async fn only_a_recent_refusal_on_a_sibling_route_skips_the_other_route() {
+        // The driver reports a refusal in `not_allowed` only while it is
+        // recent; an older one is left out, and must not hide a working route.
+        for recent in [true, false] {
+            let mut fake = NativeScanFake::new(
+                ScanFake::default()
+                    .on(&["connect", "192.0.2.1:5555"], &[Err("route unavailable")])
+                    .on(
+                        &["connect", "[fe80::1%7]:5555"],
+                        &[Ok("connected to [fe80::1%7]:5555")],
+                    )
+                    .on(&["-s", "[fe80::1%7]:5555", "get-state"], &[Ok("device")]),
+            );
+            if recent {
+                fake.progress.not_allowed.push("192.0.2.1:5555".into());
+            }
+            fake.report.as_mut().unwrap().advertisements = ["192.0.2.1:5555", "[fe80::1%7]:5555"]
+                .map(|address| native_advertisement(address, NativeServiceKind::LegacyAdb))
+                .to_vec();
+            let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+            assert_eq!(
+                fake.adb.count("connect [fe80::1%7]:5555"),
+                usize::from(!recent),
+                "recent: {recent}"
+            );
+            if !recent {
+                assert_eq!(result.connected, ["[fe80::1%7]:5555"]);
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn a_swept_tv_that_was_not_allowed_keeps_that_result_in_the_summary() {
         let mut fake = NativeScanFake::new(ScanFake::default());
         fake.progress.not_allowed.push("192.0.2.1:5555".into());

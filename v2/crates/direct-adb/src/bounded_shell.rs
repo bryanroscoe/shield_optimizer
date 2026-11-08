@@ -42,12 +42,12 @@ impl WirelessAdb {
         )?;
         let command = command.to_owned();
         let key = self.key_path.clone();
-        let preferred = self.preferred_keys.clone();
+        let preferred = self.dedicated_keys();
         run_worker(operation, control, move |control| {
             let output = run_identity_bound_shell_with_keys(
                 address, &key, &preferred, &command, &expected, control,
             )
-            .map_err(|e| AdbError::Transport(e.to_string()))?;
+            .map_err(|e| AdbError::Transport(crate::dedicated_error(&e)))?;
             Ok(BoundedShellOutput {
                 stdout: bounded_utf8(&output.stdout),
                 stderr: bounded_utf8(&output.stderr),

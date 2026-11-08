@@ -249,6 +249,10 @@ pub struct WirelessAdb {
     key_path: PathBuf,
     /// Offered before `key_path`; none unless [`Self::with_preferred_keys`].
     preferred_keys: PreferredKeys,
+    /// How the dedicated connections opened beside the main one (downloads,
+    /// installs, bounded shells, bound services) authenticate. The Android
+    /// app keeps [`ConnectAuth::OfferPublicKey`].
+    dedicated_auth: ConnectAuth,
     operations: Arc<Leases>,
     allow_key_creation: bool,
     /// `adb_client` is blocking and `ADBTcpDevice` is not shareable across
@@ -286,6 +290,7 @@ impl WirelessAdb {
             operations,
             key_path,
             preferred_keys: PreferredKeys::none(),
+            dedicated_auth: ConnectAuth::OfferPublicKey,
             conn: Arc::new(Mutex::new(None)),
             identity: Arc::new(Mutex::new(None)),
             lifecycle: tokio::sync::Mutex::new(()),
@@ -307,6 +312,25 @@ impl WirelessAdb {
     /// How many keys are offered before this driver's own.
     pub fn preferred_key_count(&self) -> usize {
         self.preferred_keys.len()
+    }
+
+    /// Authenticate the dedicated connections opened beside the main one
+    /// (downloads, installs, bounded shells, Remote and screen services)
+    /// this way. With [`ConnectAuth::SignaturesOnly`] a TV that no longer
+    /// allows the keys fails them with [`NO_LONGER_ALLOWED`] and shows
+    /// nothing. The default offers the public key, as the main connect does.
+    #[must_use]
+    pub fn with_dedicated_connections(mut self, auth: ConnectAuth) -> Self {
+        self.dedicated_auth = auth;
+        self
+    }
+
+    /// The keys a dedicated connection offers, under the dedicated policy.
+    pub(crate) fn dedicated_keys(&self) -> PreferredKeys {
+        match self.dedicated_auth {
+            ConnectAuth::OfferPublicKey => self.preferred_keys.clone(),
+            ConnectAuth::SignaturesOnly => self.preferred_keys.clone().signing_only(),
+        }
     }
 
     pub fn close_idle_session(&self) -> Result<(), String> {
@@ -664,7 +688,10 @@ impl WirelessAdb {
                     ConnectFailure::NotApproved(connect_error_message(&error))
                 } else {
                     tracing::warn!(serial = %serial, error = %error, "wireless connect failed");
-                    ConnectFailure::Failed(connect_error_message(&error))
+                    ConnectFailure::Failed(match auth {
+                        ConnectAuth::OfferPublicKey => connect_error_message(&error),
+                        ConnectAuth::SignaturesOnly => quiet_connect_error_message(&error),
+                    })
                 }
             })?;
             if !preferred.is_empty() {
@@ -846,13 +873,13 @@ impl AdbDriver for WirelessAdb {
         let remote = remote.to_owned();
         let local = local.to_path_buf();
         let key = self.key_path.clone();
-        let preferred = self.preferred_keys.clone();
+        let preferred = self.dedicated_keys();
         let download = crate::bounded_shell::run_worker(operation, control, move |control| {
             control.remaining()?;
             let mut device = ADBTcpDevice::new_with_required_keys_and_control(
                 address, &key, &preferred, &control,
             )
-            .map_err(|error| AdbError::Transport(error.to_string()))?;
+            .map_err(|error| AdbError::Transport(dedicated_error(&error)))?;
             let probe = adb_client::tcp::BoundedShellControl::new(
                 control.remaining()?.min(Duration::from_secs(5)),
             )?;
@@ -1124,6 +1151,20 @@ impl std::io::Write for CountedStream {
 
 pub type SharedWirelessAdb = Arc<WirelessAdb>;
 
+/// Why a dedicated connection failed when the TV refused every key and no
+/// public key may be offered on it.
+pub const NO_LONGER_ALLOWED: &str = "This TV no longer allows this computer. In Devices, use Request approval on its row, then tick \u{201c}Always allow from this computer\u{201d} on the TV and choose Allow.";
+
+/// The message for a dedicated connection's failure: [`NO_LONGER_ALLOWED`]
+/// when the TV refused every key, otherwise the error itself.
+pub(crate) fn dedicated_error(error: &RustADBError) -> String {
+    if matches!(error, RustADBError::KeyNotAllowed) {
+        NO_LONGER_ALLOWED.to_string()
+    } else {
+        error.to_string()
+    }
+}
+
 /// Errors that mean the socket or its framing is unusable, as opposed to a
 /// request adbd answered with a failure. `PayloadTooLarge` is refused before
 /// anything reaches the socket, so it leaves the connection intact, as do a
@@ -1253,6 +1294,42 @@ fn connect_error_message(error: &RustADBError) -> String {
             "Connection refused: nothing at that address accepts ADB connections on this port. Check the port, and that Network debugging is enabled on the TV.".to_string()
         }
         _ => "Couldn't finish the ADB connection. Check the TV's current IP and debugging settings. Approve an Allow debugging prompt on the TV if one appears, then try again.".to_string(),
+    }
+}
+
+/// [`connect_error_message`] for a connection that offered no public key:
+/// the TV cannot be showing a prompt, so the wording never mentions one.
+fn quiet_connect_error_message(error: &RustADBError) -> String {
+    match error {
+        RustADBError::IOError(io) if is_timeout(io) && is_handshake_timeout(io) => {
+            "The TV stopped answering during setup. Check that it's awake and on the same network, then try again. If this keeps happening, restart the TV.".to_string()
+        }
+        RustADBError::IOError(io)
+            if matches!(
+                io.kind(),
+                std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::UnexpectedEof
+            ) =>
+        {
+            "The TV closed the connection before setup finished. Check the TV's current IP and debugging settings, then try again.".to_string()
+        }
+        RustADBError::TlsConnectionClosed(_) | RustADBError::TlsAuthRejected(_) => {
+            connect_error_message(error)
+        }
+        _ if error.is_client_identity_rejected() => connect_error_message(error),
+        RustADBError::IOError(io)
+            if is_timeout(io)
+                || matches!(
+                    io.kind(),
+                    std::io::ErrorKind::NetworkUnreachable
+                        | std::io::ErrorKind::HostUnreachable
+                        | std::io::ErrorKind::ConnectionRefused
+                ) =>
+        {
+            connect_error_message(error)
+        }
+        _ => "Couldn't finish the ADB connection. Check the TV's current IP and debugging settings, then try again.".to_string(),
     }
 }
 
@@ -1472,6 +1549,48 @@ mod tests {
         assert!(message.contains("If no prompt appears"));
         assert!(!message.contains("didn't approve"));
         assert!(!message.contains("handshake"));
+    }
+
+    #[test]
+    fn a_quiet_connection_failure_never_mentions_a_prompt() {
+        for error in [
+            RustADBError::IOError(Error::new(
+                ErrorKind::TimedOut,
+                "ADB connection handshake timed out",
+            )),
+            RustADBError::IOError(Error::from(ErrorKind::TimedOut)),
+            RustADBError::IOError(Error::from(ErrorKind::ConnectionReset)),
+            RustADBError::IOError(Error::from(ErrorKind::UnexpectedEof)),
+            RustADBError::IOError(Error::from(ErrorKind::ConnectionAborted)),
+            RustADBError::IOError(Error::from(ErrorKind::ConnectionRefused)),
+            RustADBError::IOError(Error::from(ErrorKind::HostUnreachable)),
+            RustADBError::ProtocolError("bad".into()),
+            RustADBError::TlsConnectionClosed(Error::from(ErrorKind::ConnectionReset)),
+        ] {
+            let message = super::quiet_connect_error_message(&error);
+            assert!(!message.contains("prompt"), "{error:?}: {message}");
+            assert!(!message.contains("Allow"), "{error:?}: {message}");
+            assert!(!message.contains("approve"), "{error:?}: {message}");
+        }
+        assert!(
+            super::quiet_connect_error_message(&RustADBError::IOError(Error::new(
+                ErrorKind::TimedOut,
+                "ADB connection handshake timed out",
+            )))
+            .contains("stopped answering")
+        );
+    }
+
+    #[test]
+    fn a_dedicated_connection_the_tv_no_longer_allows_says_how_to_fix_it() {
+        let message = super::dedicated_error(&RustADBError::KeyNotAllowed);
+        assert!(message.contains("no longer allows this computer"));
+        assert!(message.contains("Request approval"));
+        assert!(message.contains("Always allow from this computer"));
+        assert_eq!(
+            super::dedicated_error(&RustADBError::ShellExitUnknown),
+            RustADBError::ShellExitUnknown.to_string()
+        );
     }
 
     #[test]
