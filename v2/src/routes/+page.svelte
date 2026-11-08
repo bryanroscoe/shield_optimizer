@@ -155,8 +155,8 @@
   let adbMissing = $state(false);
   let backendUnavailable = $state(false);
   const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
-  const hasConnectionChoices = $derived(!!nativeDiscovery && buildNativeDiscoveryRows(nativeDiscovery.advertisements.filter(row => row.service_kind !== "tls_pairing"))
-    .some(row => !row.addresses.some(address => !!address.connect_address && listedEndpoints.includes(address.connect_address))));
+  const hasConnectionChoices = $derived(!!nativeDiscovery && buildNativeDiscoveryRows(nativeDiscovery.advertisements
+    .filter(row => row.service_kind !== "tls_pairing" && !(row.connect_address && listedEndpoints.includes(row.connect_address)))).length > 0);
   const hasScanDetails = $derived(!backendUnavailable && !!(scanDetails.length || scanAttempts.length || hasConnectionChoices));
   $effect(() => {
     if (!hasScanDetails) scanDetailsOpen = false;
@@ -860,10 +860,12 @@
     approvalBusy = d.serial;
     connectMessage = "";
     connectDetail = "";
+    const pressed = document.activeElement;
     let failure: string | null = null;
     try {
       const r = await api.requestDeviceApproval(d.serial);
-      if (r.status !== "waiting") connectMessage = r.message;
+      // A cancel here is the person's own doing; the TV ended nothing.
+      if (r.status !== "waiting" && r.status !== "canceled") connectMessage = r.message;
     } catch (e) {
       failure = `Couldn't ask ${d.name} for approval: ${e}`;
     } finally {
@@ -872,10 +874,22 @@
     await refresh();
     if (failure) connectMessage = failure;
     else monitorNativeConnections();
+    await focusApprovalAction(d.serial, pressed);
+  }
+
+  /// Request approval and Cancel replace each other in the row; keep focus on
+  /// whichever is there now, unless the person already moved it elsewhere.
+  async function focusApprovalAction(serial: string, pressed: Element | null) {
+    await tick();
+    const current = document.activeElement;
+    if (current && current !== document.body && current !== pressed) return;
+    const replacement = document.querySelector<HTMLElement>(`[data-serial="${CSS.escape(serial)}"] [data-approval-action]`);
+    replacement?.focus();
   }
 
   async function cancelApproval(d: DeviceRow) {
     if (cancelBusy === d.serial) return;
+    const pressed = document.activeElement;
     cancelBusy = d.serial;
     connectMessage = "";
     connectDetail = "";
@@ -887,6 +901,7 @@
       cancelBusy = null;
     }
     await refresh();
+    await focusApprovalAction(d.serial, pressed);
   }
 
   // A fresh connection resends authorization; only the device can display its prompt.
@@ -1436,8 +1451,11 @@
               {:else if d.name !== d.serial}
               <div class="device-meta muted mono">{d.serial}</div>
               {/if}
+              {#if isNativeUnapproved(d)}
+                <span class="sr-only" role="status">{isAwaitingApproval(d) ? `${d.name}: choose Allow on the TV.` : ""}</span>
+              {/if}
               {#if isAwaitingApproval(d)}
-                <div class="native-approval-status" role="status">
+                <div class="native-approval-status">
                   <HelpTip label="Choose Allow on the TV.">
                     <p>Look for “Allow debugging?” on the TV. Some TVs say “Allow USB debugging?” even over the network.</p>
                     <p>Tick “Always allow from this computer”, then choose Allow. Without it, the TV asks again next time.</p>
@@ -1533,6 +1551,7 @@
                   onclick={() => cancelApproval(d)}
                   disabled={cancelBusy === d.serial}
                   aria-label={`Cancel the approval request for ${d.name}`}
+                  data-approval-action
                 >
                   {cancelBusy === d.serial ? "Canceling…" : "Cancel"}
                 </button>
@@ -1541,6 +1560,8 @@
                   class="row-action primary"
                   onclick={() => requestApproval(d)}
                   disabled={approvalBusy === d.serial}
+                  aria-label={`Request approval from ${d.name}`}
+                  data-approval-action
                 >
                   {approvalBusy === d.serial ? "Requesting…" : "Request approval"}
                 </button>
@@ -1699,6 +1720,14 @@
   }
   .native-approval-status {
     margin-top: 0.3rem;
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .native-approval-status :global(.help-title) {
     font-size: 0.85rem;

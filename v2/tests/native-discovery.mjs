@@ -61,7 +61,7 @@ try {
   await input.fill('192.0.2.71');
   await addByIp.click();
   await page.locator('p.connect-message').filter({ hasText: /^Connecting…$/ }).waitFor();
-  assert.equal(await page.getByText(/Allow debugging/).count(), 0, 'Add by IP never asks the TV for approval');
+  assert.equal(await page.getByText(/Allow debugging/).count(), 0, 'Add by IP copy says nothing about a prompt on the TV (the backend side is covered by the Rust tests)');
   await page.waitForFunction(() => !!window.finishNativeConnect);
   await input.press("Enter");
   assert.equal(await page.evaluate(() => window.nativeCalls.filter(c => c.command === "connect_device").length), 1);

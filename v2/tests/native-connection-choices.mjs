@@ -96,14 +96,15 @@ try {
   await page.getByText('Fixture Shield', { exact: true }).waitFor();
   await page.waitForFunction(() => !document.querySelector('.connection-choices select').disabled);
   assert.equal(await page.locator('.device-list [data-serial]').count(), 1, 'the chosen route is one row');
-  assert.equal(await picker.locator('li').count(), 2, 'a service whose address is already a row is not offered again');
-  assert.equal(await picker.locator(`option[value="${ipv6}"]`).count(), 0);
+  assert.equal(await picker.locator('li').count(), 3, 'the service keeps its other addresses');
+  assert.equal(await picker.locator(`option[value="${ipv6}"]`).count(), 0, 'exactly the listed address is not offered again');
+  assert.deepEqual(await first.getByRole('combobox').locator('option').allInnerTexts(), [`${ipv4} (IPv4)`]);
   if (evidence) await page.screenshot({ path: `${evidence}/grouped-addresses-dark-simulated.png`, animations: 'disabled' });
   await page.emulateMedia({ colorScheme: 'light' });
   await page.setViewportSize({ width: 720, height: 900 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   if (evidence) await page.screenshot({ path: `${evidence}/grouped-addresses-narrow-light-simulated.png`, animations: 'disabled' });
-  const remaining = picker.locator('li').first();
+  const remaining = picker.locator('li').nth(1);
   await page.clock.fastForward(31_000);
   await picker.getByText('Scan LAN again to connect using these addresses.', { exact: true }).waitFor();
   assert.equal(await picker.getByText(/Expired/).count(), 0, 'rows never read as expired one by one');
@@ -118,7 +119,7 @@ try {
   const recording = page.video();
   await context.close();
   if (evidence) await recording.saveAs(`${evidence}/grouped-address-choices-simulated.webm`);
-  console.log('PASS grouped IP/mDNS address choices, interface and pairing isolation, exact explicit selection, listed endpoints not offered again, cached/stale/scope guards without per-row expiry, and refresh');
+  console.log('PASS grouped IP/mDNS address choices, interface and pairing isolation, exact explicit selection, exactly the listed endpoint not offered again while its siblings stay, cached/stale/scope guards without per-row expiry, and refresh');
 } finally {
   await context?.close();
   await browser?.close();

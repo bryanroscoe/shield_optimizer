@@ -51,6 +51,8 @@ try {
           }
           if (command === 'request_device_approval') {
             window.requested = [...(window.requested ?? []), args.serial];
+            // What the backend answers when Cancel or Forget beat the TV being asked.
+            if (window.cancelBeforeAsked) return { ok: true, status: 'canceled', message: '' };
             window.progress.not_allowed = (window.progress.not_allowed ?? []).filter(address => address !== args.serial);
             window.progress.awaiting_authorization = [...(window.progress.awaiting_authorization ?? []), args.serial];
             return { ok: true, status: 'waiting', message: 'Choose Allow on the TV.' };
@@ -122,22 +124,41 @@ try {
   assert.match(helpText, /Always allow from this computer/);
   await capture('not-allowed-help');
   await page.keyboard.press('Escape');
-  await untrusted.getByRole('button', { name: 'Request approval', exact: true }).click();
+  const request = untrusted.getByRole('button', { name: /^Request approval from / });
+  assert.equal(await request.getAttribute('aria-label'), 'Request approval from [fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555',
+    'each row names its own TV');
+  await request.focus();
+  await page.keyboard.press('Enter');
   await untrusted.getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
   await untrusted.getByText('Choose Allow on the TV.', { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.requested), ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']);
+  const cancel = untrusted.getByRole('button', { name: /^Cancel the approval request for / });
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Cancel the approval request for'));
+  assert.equal(await untrusted.locator('[role="status"] button').count(), 0, 'no control inside a live region');
+  assert.match(await untrusted.locator('[role="status"]').innerText(), /choose Allow on the TV/);
   await capture('approval-waiting');
-  await untrusted.getByRole('button', { name: /^Cancel the approval request for / }).click();
-  await untrusted.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  await page.keyboard.press('Enter');
+  await untrusted.getByRole('button', { name: /^Request approval from / }).waitFor();
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Request approval from'),
+    null, { timeout: 5000 });
   assert.equal(await page.evaluate(() => window.canceled), '[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555');
-  assert.equal(await page.getByText(/transport error|timed out during setup/).count(), 0, 'a canceled wait is not an error');
+  assert.equal(await cancel.count(), 0);
+  assert.deepEqual(await page.locator('p.connect-message').allInnerTexts(), ['Scanning local network…'],
+    'a cancel the person chose adds no message (only the running scan\'s line is there)');
+  // Cancel won the race against the TV being asked: still no message, never blame the TV.
+  await page.evaluate(() => { window.cancelBeforeAsked = true; });
+  await untrusted.getByRole('button', { name: /^Request approval from / }).click();
+  await page.waitForFunction(() => window.requested.length === 2);
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByText(/ended the request|without allowing/).count(), 0, 'a cancel never blames the TV');
+  await page.evaluate(() => { window.cancelBeforeAsked = false; });
   await page.evaluate(() => {
     window.castNamed = true;
     window.progress.not_allowed.push('192.0.2.25:5555', '192.0.2.26:5555');
   });
   const secondApproval = page.locator('[data-serial="192.0.2.25:5555"]');
   const castNamed = page.locator('[data-serial="192.0.2.26:5555"]');
-  await secondApproval.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  await secondApproval.getByRole('button', { name: 'Request approval from 192.0.2.25:5555', exact: true }).waitFor();
   await castNamed.getByText('SIMULATED Living Room TV', { exact: true }).waitFor();
   await castNamed.getByText('192.0.2.26:5555', { exact: true }).waitFor();
   assert.equal(await page.locator('.device-list .native-unapproved').count(), 3,
@@ -254,7 +275,7 @@ try {
   assert.equal(await page.evaluate(() => window.reprompted), '[fe80::abcd:ef01:2345:6789%14]:5555');
   await page.evaluate(() => { window.progress.not_allowed = [...window.progress.pending]; window.progress.pending = []; });
   await disconnected.getByText('NOT ALLOWED YET', { exact: true }).waitFor();
-  await disconnected.getByRole('button', { name: 'Request approval', exact: true }).waitFor();
+  await disconnected.getByRole('button', { name: /^Request approval from / }).waitFor();
   assert.equal(await disconnected.evaluate(el => !!el.closest('.device-list')), true, 'a quiet retry that was not allowed returns to the main list');
   assert.equal(await page.locator('.device-list .clickable').count(), 2,
     'retry and approval retain both existing ready TV cards');
@@ -294,5 +315,5 @@ try {
     await context.close();
     await video.saveAs(`${evidence}/native-scan-progress-simulated.webm`);
   } else await context.close();
-  console.log('PASS no automatic approval request, explicit Request approval and Cancel, endpoint-only retry/Forget, unprofiled offline route recovery without extra device cards, known offline and USB preservation, ready rows during scan, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
+  console.log('PASS no automatic approval request, explicit Request approval and Cancel with per-row names, focus kept on the swapped control and a live region without controls, a cancel never blaming the TV, endpoint-only retry/Forget, unprofiled offline route recovery without extra device cards, known offline and USB preservation, ready rows during scan, serialized refresh, no repeated metadata, backend failure and unmount cleanup');
 } finally { await browser?.close(); await server?.close(); }

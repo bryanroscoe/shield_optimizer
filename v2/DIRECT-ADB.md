@@ -36,38 +36,56 @@ built-in engine sends it from one place only.
   `ADBTcpDevice::new_with_keys_and_control_signing_only`). When the TV asks again after
   refusing every signature, the connection closes with `KeyNotAllowed` and the TV shows
   nothing. Refresh only probes connections that already exist. A quiet connection is
-  bounded at 20 seconds (`QUIET_CONNECT_TIMEOUT`) because it never waits for a person.
+  bounded at 20 seconds (`QUIET_CONNECT_TIMEOUT`) because it never waits for a person,
+  and its failure messages never mention a prompt.
+- **Dedicated connections are quiet too.** Downloads, installs, bounded shells (Device
+  Logs, Expert shell) and the identity-bound services Remote and screen use open their
+  own connections. On desktop they sign only (`WirelessAdb::with_dedicated_connections`,
+  `PreferredKeys::signing_only` in the vendored crate). A TV that no longer allows the
+  key there (trust revoked, or Allow chosen without "Always allow" and the session since
+  reconnected) fails the operation with "This TV no longer allows this computer. In
+  Devices, use Request approval on its row, then tick “Always allow from this computer”".
 - **Not allowed yet.** Such an endpoint is listed by `adb devices` as `unauthorized`
-  under its exact `host:port`, so the Devices list names it by its Cast name when the TV
-  gives one (`unqueried_names`), else by the address. It has no verified hardware id,
-  so it is never merged with another row and claims nothing about the device. It stays
-  until a later connection there succeeds (it becomes a normal TV), fails to reach the TV
-  (it moves to Scan details), or Forget drops it. A later scan only retries quietly,
-  which succeeds once the TV allows the key.
+  under its exact `host:port`, with the time it last refused. It has no verified hardware
+  id, so it is never merged with another row and claims nothing about the device. For 5
+  minutes after a refusal (`NOT_ALLOWED_RECENT`) it counts as current evidence:
+  `scan_connection_progress().not_allowed` reports it, the Devices list may name it by its
+  Cast name (`unqueried_names` asks only for those, and for requests whose key reached the
+  TV), and a scan skips that service's other routes. After that it is still listed, by
+  its address only. It stays until a later connection there succeeds (it becomes a normal
+  TV), a scan reaches for it and gets no answer or an error (it moves to Scan details),
+  or Forget drops it. A later scan only retries quietly, which succeeds once the TV
+  allows the key.
 - **Request approval** (`request_device_approval`, `AdbDriver::request_approval`) is the
   only connection that may offer the public key. It keeps that connection open for up to
   10 minutes (`APPROVAL_WAIT` in `src-tauri/src/adb/direct.rs`) for the person to choose
   Allow, and ends sooner on **Cancel** (`cancel_device_approval`), Forget, an engine
-  switch or quit. The command returns once the key was sent (at most 20 seconds), so the
-  row shows the wait. A wait that ends without approval, including a Deny that closes
-  the connection, quietly returns the row to not allowed yet with the button available;
-  it is never reported as a transport error. Android 14 (the Android TV emulator) does not
-  close it on Deny: the framework sends adbd `NO` and adbd sends the host nothing, so the
-  row keeps waiting until Cancel or the limit, and its help says so. Closing the
-  connection (Cancel) does not take the prompt off the TV there either; choosing Allow
-  with "Always allow" on that leftover prompt still stores the key, and the next quiet
-  scan connects. A scan or Add by IP during the wait does not dial that TV again. A
-  request that cannot reach the TV reports why and keeps the row.
+  switch or quit. The command returns once the key was written to the TV, and only then
+  does the row say to choose Allow (`awaiting_authorization`). If the TV hasn't been
+  asked within 20 seconds (`APPROVAL_START_WAIT`: an adbd that accepts the socket but
+  never answers, or a handshake that times out first), the request stops and reports a
+  connection failure with its reason; it never turns into "not allowed". A wait that ends
+  without approval after the TV was asked, including a Deny that closes the connection,
+  quietly returns the row to not allowed yet with the button available; it is never
+  reported as a transport error. A Cancel or Forget before the TV was asked returns
+  `canceled`, which shows nothing. A Cancel that races the person's Allow checks how the
+  request ended: a connection that authenticated is published as the TV, anything else
+  is closed. Android 14 (the Android TV emulator) does not close the connection on Deny:
+  the framework sends adbd `NO` and adbd sends the host nothing, so the row keeps
+  waiting until Cancel or the limit, and its help says so. Closing the connection
+  (Cancel) does not take the prompt off the TV there either; choosing Allow with "Always
+  allow" on that leftover prompt still stores the key, and the next quiet scan connects.
+  A scan or Add by IP during the wait does not dial that TV again: a quiet attempt that
+  finds the request holding the TV reports it as not allowed at once. Add by IP waits at
+  most 20 seconds (`FOREGROUND_LOCK_WAIT`) behind another connection to the same address,
+  then says so.
 - **TLS** (Wireless debugging after PIN pairing) never shows a prompt, so it connects the
   same way in both modes.
 - **Platform-tools** is unchanged: its adb server offers its public key whenever a TV
   refuses its signatures, so under that engine any connection can show the prompt.
-- **The Android app** is unchanged and still offers the key on its own connect
-  (`WirelessAdb::connect`, 30 seconds). Moving it to the same quiet model is a follow-up.
-  So are the dedicated identity-checked connections both apps open for downloads, bound
-  services and installs (`connect_required` in the vendored crate): they are made only to
-  a TV that already allowed a key, but would offer it if the TV revoked that key
-  mid-session.
+- **The Android app** is unchanged: it still offers the key on its own connect
+  (`WirelessAdb::connect`, 30 seconds) and on its dedicated connections. Moving it to the
+  same quiet model is a follow-up.
 
 ## Choosing the engine
 
@@ -173,7 +191,10 @@ own verified connections to the TV, and shell input only if the channel fails be
 input (see `NATIVE-REMOTE-ACCEPTANCE.md`); Android's keymap drops CJK and emoji text on
 both engines. A TV that allows neither key approves the platform-tools key once, through Request
 approval (the app key when there is no platform-tools key); neither key is ever imported or
-replaced. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
+replaced. Nothing the built-in engine opens by itself, including the dedicated connections
+for downloads, installs, shells and Remote, ever offers a key; a TV that stops allowing it
+fails those with a message pointing at Request approval. The TV does not tell the host about
+a Deny, so a denied request waits until Cancel or its 10-minute limit. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
 N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
 
 ---

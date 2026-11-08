@@ -3,9 +3,9 @@
   import type { NativeAdvertisement, NativeDiscoveryReport } from "$lib/types";
   import { buildNativeDiscoveryRows, discoveryAddressUsable, discoveryEndpointUsable, type NativeDiscoveryRow } from "$lib/native-discovery-rows";
 
-  /// `listed`: endpoints the Devices list already shows. An advertisement for
-  /// one of them is not offered again; this matches exact endpoints, never
-  /// devices.
+  /// `listed`: endpoints the Devices list already shows. Exactly those
+  /// addresses are not offered again; the service's other addresses still
+  /// are. This matches endpoints, never devices.
   let { report, receivedAt, busy, listed = [], onChoose }: {
     report: NativeDiscoveryReport;
     receivedAt: number;
@@ -15,8 +15,8 @@
   } = $props();
   let now = $state(performance.now());
   let selected = $state<Record<string, string>>({});
-  const rows = $derived(buildNativeDiscoveryRows(report.advertisements.filter(row => row.service_kind !== "tls_pairing"))
-    .filter(row => !row.addresses.some(address => !!address.connect_address && listed.includes(address.connect_address))));
+  const rows = $derived(buildNativeDiscoveryRows(report.advertisements
+    .filter(row => row.service_kind !== "tls_pairing" && !(row.connect_address && listed.includes(row.connect_address)))));
   const protocol = { legacy_adb: "Network debugging", tls_connect: "Wireless debugging", tls_pairing: "Pairing" };
   const endpoint = (address: NativeAdvertisement) => address.connect_address ?? `${address.address} · port ${address.port}`;
   const usable = (address: NativeAdvertisement, time = now) => discoveryAddressUsable(address, time - receivedAt, report.observation_max_age_ms);

@@ -137,7 +137,7 @@ export interface RepromptResult {
 /// this computer; "not_allowed" means it ended the request without allowing.
 export interface ApprovalResult {
   ok: boolean;
-  status: "waiting" | "device" | "not_allowed";
+  status: "waiting" | "device" | "not_allowed" | "canceled";
   message: string;
 }
 
