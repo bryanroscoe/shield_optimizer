@@ -30,8 +30,24 @@ const KEY_BITS: usize = 2048;
 ///
 /// With none, every connection behaves exactly as with the key file alone.
 /// Nothing here is ever written to disk, and `Debug` shows only the count.
-#[derive(Clone, Default)]
-pub struct PreferredKeys(Arc<Vec<PreferredKey>>);
+///
+/// [`Self::signing_only`] makes every connection given these keys answer
+/// AUTH with signatures only, never with a public key, so the device never
+/// shows its "Allow debugging?" prompt for it.
+#[derive(Clone)]
+pub struct PreferredKeys {
+    keys: Arc<Vec<PreferredKey>>,
+    offer_public_key: bool,
+}
+
+impl Default for PreferredKeys {
+    fn default() -> Self {
+        Self {
+            keys: Arc::default(),
+            offer_public_key: true,
+        }
+    }
+}
 
 pub(crate) struct PreferredKey {
     pub(crate) auth: ADBRsaKey,
@@ -58,23 +74,42 @@ impl PreferredKeys {
             .into_iter()
             .map(PreferredKey::from_pem)
             .collect::<Result<Vec<_>>>()?;
-        Ok(Self(Arc::new(keys)))
+        Ok(Self {
+            keys: Arc::new(keys),
+            offer_public_key: true,
+        })
     }
 
     /// How many identities there are.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.0.len()
+        self.keys.len()
     }
 
     /// Whether there are none.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
+        self.keys.is_empty()
     }
 
     pub(crate) fn keys(&self) -> &[PreferredKey] {
-        &self.0
+        &self.keys
+    }
+
+    /// The same keys, but a connection made with them never offers a public
+    /// key: a device that refuses every signature ends the handshake with
+    /// [`RustADBError::KeyNotAllowed`] and shows nothing.
+    #[must_use]
+    pub fn signing_only(mut self) -> Self {
+        self.offer_public_key = false;
+        self
+    }
+
+    /// Whether a connection may offer the first key's public key once every
+    /// signature was refused.
+    #[must_use]
+    pub const fn offers_public_key(&self) -> bool {
+        self.offer_public_key
     }
 }
 

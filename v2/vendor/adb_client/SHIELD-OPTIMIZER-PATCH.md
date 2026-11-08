@@ -625,6 +625,13 @@ key then connected at once with `Signature(0)`. A cancel 5 s after the prompt cl
 Choosing Cancel on the TV (Deny) logged `adbd_auth: received packet: NO` and sent the host nothing:
 the request waited out its 40-second bound.
 
+`PreferredKeys::signing_only()` carries the same policy to every other connection made with
+those keys, including the dedicated ones behind `connect_required` (identity-bound shells,
+bound services, streamed installs, `new_with_required_keys_and_control`): `ADBMessageDevice`
+never offers a public key for signing-only keys. Plain `PreferredKeys` (and `none()`) still
+offer it, so the Android app is unchanged.
+`signing_only_keys_keep_dedicated_connections_quiet_and_default_keys_unchanged` pins both.
+
 Clippy 1.98 also flagged older code under `--all-targets -D warnings`; fixed without changing
 behavior: `framebuffer_info.rs` reads its words with `as_chunks::<4>()`, `adb_emulator_device.rs`
 uses `unwrap_or`, the pairing test modules allow `cast_possible_truncation` and `format_collect`

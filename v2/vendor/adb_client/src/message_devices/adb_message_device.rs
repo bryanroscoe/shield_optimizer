@@ -253,6 +253,11 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
 
         let mut keys: Vec<&ADBRsaKey> = preferred.keys().iter().map(|key| &key.auth).collect();
         keys.push(&private_key);
+        let offer = if preferred.offers_public_key() {
+            offer
+        } else {
+            PublicKeyOffer::Never
+        };
         let mut message_device = Self::unconnected(transport);
         message_device.connect(&keys, auth_timeout, offer)?;
 

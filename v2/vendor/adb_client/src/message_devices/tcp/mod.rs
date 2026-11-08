@@ -35,6 +35,7 @@ pub(crate) use tcp_transport::is_untrusted_key_alert;
 
 /// A dedicated connection under `control` that needs the key file to exist
 /// and offers `preferred` before it. The handshake gets at most `budget`.
+/// With [`PreferredKeys::signing_only`] it never offers a public key.
 pub(crate) fn connect_required(
     address: std::net::SocketAddr,
     key: &std::path::Path,

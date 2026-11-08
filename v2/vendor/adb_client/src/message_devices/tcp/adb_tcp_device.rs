@@ -1613,6 +1613,82 @@ features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,apex,abb,abb_exec,sendrecv_
     }
 
     #[test]
+    fn signing_only_keys_keep_dedicated_connections_quiet_and_default_keys_unchanged() {
+        // 0: required-keys constructor, 1: identity-bound shell, 2: bound
+        // service, all with signing-only keys; 3: the default still offers.
+        for case in 0..4 {
+            let quiet = case < 3;
+            let (address, server) = fake_adbd(move |mut stream| {
+                expect_host_cnxn(&mut stream);
+                assert_eq!(auth_round(&mut stream).header().arg0(), AUTH_SIGNATURE);
+                write_message(&mut stream, MessageCommand::Auth, AUTH_TOKEN, 0, &TOKEN).unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(3)))
+                    .unwrap();
+                match read_message(&mut stream) {
+                    Ok(answer) => {
+                        assert!(
+                            !quiet,
+                            "case {case}: the host offered {}",
+                            answer.header().arg0()
+                        );
+                        assert_eq!(answer.header().arg0(), AUTH_RSAPUBLICKEY);
+                    }
+                    Err(error) => {
+                        assert!(quiet, "case {case}: no public key was offered");
+                        assert_ne!(error.kind(), ErrorKind::WouldBlock, "still open");
+                    }
+                }
+            });
+            let keys = if quiet {
+                PreferredKeys::none().signing_only()
+            } else {
+                PreferredKeys::none()
+            };
+            let control = BoundedShellControl::new(AUTH_TIMEOUT).unwrap();
+            let error = match case {
+                1 => super::super::run_identity_bound_shell_with_keys(
+                    address,
+                    shared_test_key(),
+                    &keys,
+                    "id",
+                    "SERIAL",
+                    control,
+                )
+                .unwrap_err(),
+                2 => match super::super::open_bound_service_with_keys(
+                    address,
+                    shared_test_key(),
+                    &keys,
+                    "SERIAL",
+                    "shell:id",
+                    control,
+                ) {
+                    Err(super::super::BoundServiceError::BeforeOpen(error)) => error,
+                    Err(other) => panic!("{other:?}"),
+                    Ok(_) => panic!("opened a service"),
+                },
+                _ => ADBTcpDevice::new_with_required_keys_and_control(
+                    address,
+                    shared_test_key(),
+                    &keys,
+                    &control,
+                )
+                .unwrap_err(),
+            };
+            if quiet {
+                assert!(
+                    matches!(error, RustADBError::KeyNotAllowed),
+                    "case {case}: {error:?}"
+                );
+            } else {
+                assert!(!matches!(error, RustADBError::KeyNotAllowed), "{error:?}");
+            }
+            server.join().unwrap();
+        }
+    }
+
+    #[test]
     fn signing_only_connects_with_a_key_the_device_trusts() {
         let (preferred, _, second) = two_keys();
         let (address, server) = fake_adbd(move |mut stream| {
