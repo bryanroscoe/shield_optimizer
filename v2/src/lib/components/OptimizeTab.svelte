@@ -826,8 +826,7 @@
       </p>
       <HelpDetails label="Undoing a run">
         <p><strong>Disable:</strong> switch Mode to Restore and run it. Restore re-enables catalog apps that are disabled.</p>
-        <p><strong>Uninstall of an app that came with the TV:</strong> Reinstall in the App List puts it back.</p>
-        <p><strong>Uninstall of an app you installed:</strong> it is removed. Get it back from the Play Store, or from wherever you got it if you sideloaded it.</p>
+        <p><strong>Uninstall:</strong> removes the app from this TV. Get it back from the Play Store, or from wherever you got it if you sideloaded it. Some apps that came with the TV show Reinstall in the App List.</p>
         <p><strong>Snapshots don't undo a run.</strong> Restoring one disables apps and puts back the Home app and settings; it never re-enables or reinstalls an app.</p>
       </HelpDetails>
     {/if}
@@ -875,14 +874,14 @@
           </button>
           <span class="muted small">Re-apply this setup after a reset or on another TV.</span>
         </div>
+        {#if snapshotResult}
+          <p class="small snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
+        {/if}
         <HelpDetails label="What a snapshot is for">
           <p>A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.</p>
           <p>Applying it from the Snapshot tab, on this TV after a reset or on another TV, disables those apps again and puts back the Home app and settings.</p>
           <p>It records disabled apps only: apps this run uninstalled aren't in it. Applying it never re-enables or reinstalls an app, so it can't undo this run. Use Restore for that.</p>
         </HelpDetails>
-        {#if snapshotResult}
-          <p class="small snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
-        {/if}
       </div>
     {/if}
     {#if runFailure && !optimizeRunning}
