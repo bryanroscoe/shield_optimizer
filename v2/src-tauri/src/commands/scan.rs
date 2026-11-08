@@ -2418,6 +2418,8 @@ mod command_stage_tests {
             "192.0.2.2:40000",
             NativeServiceKind::TlsPairing,
         )];
+        // What the driver reports for a finished scan job.
+        fake.progress.ready.push("192.0.2.1:5555".into());
         // First launch: every probe failed at once (no route yet).
         let sweeper = ScriptedSweeper::new(vec![
             (sweep_stats(254, 0, 0, 0), stream::empty().boxed()),

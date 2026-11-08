@@ -84,7 +84,19 @@ impl AdbDriver for ScriptedSession {
 
 #[async_trait]
 impl NetworkSession for ScriptedSession {
-    async fn connect(&self, host: &str, port: u16, _request: u64) -> Result<String, String> {
+    async fn connect(
+        &self,
+        host: &str,
+        port: u16,
+        _request: u64,
+        auth: ConnectAuth,
+        _budget: Duration,
+    ) -> Result<String, ConnectFailure> {
+        assert_eq!(
+            auth,
+            ConnectAuth::SignaturesOnly,
+            "connecting must never offer the public key by itself"
+        );
         *self.serial.lock().unwrap() = format!("{host}:{port}");
         self.ready.store(true, Ordering::Release);
         Ok("connected".into())
