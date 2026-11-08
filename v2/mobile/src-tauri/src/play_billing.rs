@@ -7,7 +7,7 @@
 //! Trust model (v1, no backend): Play signs every purchase's JSON with the
 //! app's RSA key (SHA1withRSA). The public half is compiled in from
 //! `ATVOPT_PLAY_LICENSE_KEY`. A purchase counts only if that signature verifies
-//! and the signed JSON names this package, the Pro product and the PURCHASED
+//! and the signed JSON names this package, a Pro product and the PURCHASED
 //! state. A patched APK can bypass on-device checks; that is the accepted
 //! trade-off for a one-time unlock at this price, and a server verifier can
 //! later sit behind the same source without changing the UX.
@@ -23,9 +23,27 @@ use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use tauri_plugin_atv_billing::{response_code, RawPurchase};
 
-/// The one Play product that unlocks Pro: a non-consumable one-time product.
-/// The owner creates it in Play Console with exactly this id.
+/// The standard Pro product: a non-consumable one-time product. The owner
+/// creates it in Play Console with exactly this id.
 pub const PRO_PRODUCT_ID: &str = "atvopt_pro";
+
+/// Optional pay-more tiers, in the order the app offers them. Each is its own
+/// non-consumable one-time product and unlocks exactly the same Pro as
+/// [`PRO_PRODUCT_ID`]; the extra is support, not a feature. The ids are
+/// permanent in Play and deliberately don't name a price.
+pub const SUPPORT_PRODUCT_IDS: [&str; 2] = ["atvopt_pro_support_1", "atvopt_pro_support_2"];
+
+/// Every product that unlocks Pro: the standard one first, then the tiers.
+pub const PRO_PRODUCT_IDS: [&str; 3] = [
+    PRO_PRODUCT_ID,
+    SUPPORT_PRODUCT_IDS[0],
+    SUPPORT_PRODUCT_IDS[1],
+];
+
+/// Whether a Play product id is one of ours that unlocks Pro.
+pub fn is_pro_product(id: &str) -> bool {
+    PRO_PRODUCT_IDS.contains(&id)
+}
 
 /// The app's Play licensing public key (Play Console → Monetization setup),
 /// base64 DER, supplied at build time. Absent means this build cannot verify
@@ -79,7 +97,7 @@ pub enum PurchaseState {
 }
 
 /// A purchase whose signature verified and whose signed JSON names this app
-/// and the Pro product.
+/// and a Pro product.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedPurchase {
     pub purchase_token: String,
@@ -153,13 +171,16 @@ impl PlayVerifier {
         if json.get("packageName").and_then(|v| v.as_str()) != Some(self.package_name.as_str()) {
             return Err(VerifyError::WrongPackage);
         }
-        let single = json.get("productId").and_then(|v| v.as_str());
+        let single = json
+            .get("productId")
+            .and_then(|v| v.as_str())
+            .is_some_and(is_pro_product);
         let listed = json
             .get("productIds")
             .and_then(|v| v.as_array())
-            .map(|ids| ids.iter().any(|id| id.as_str() == Some(PRO_PRODUCT_ID)))
+            .map(|ids| ids.iter().any(|id| id.as_str().is_some_and(is_pro_product)))
             .unwrap_or(false);
-        if single != Some(PRO_PRODUCT_ID) && !listed {
+        if !single && !listed {
             return Err(VerifyError::OtherProduct);
         }
         let purchase_token = json
@@ -566,6 +587,57 @@ mod tests {
         let r = reconcile(&verifier(), None, QueryOutcome::Owned(&[raw("promo")]), NOW);
         assert!(r.state.grants_pro());
         assert_eq!(r.acknowledge, None);
+    }
+
+    #[derive(Deserialize)]
+    struct TierVectors {
+        play_public_key: String,
+        purchases: std::collections::HashMap<String, Vector>,
+    }
+
+    fn tier_vectors() -> TierVectors {
+        let all: serde_json::Value =
+            serde_json::from_str(include_str!("../test-fixtures/play-billing-vectors.json"))
+                .expect("vectors parse");
+        serde_json::from_value(all["support_tiers"].clone()).expect("tier vectors parse")
+    }
+
+    fn tier(name: &str) -> (PlayVerifier, RawPurchase) {
+        let t = tier_vectors();
+        let v = &t.purchases[name];
+        (
+            PlayVerifier::from_base64(&t.play_public_key, PACKAGE).unwrap(),
+            RawPurchase {
+                original_json: v.original_json.clone(),
+                signature: v.signature.clone(),
+            },
+        )
+    }
+
+    #[test]
+    fn support_tiers_unlock_the_same_pro() {
+        let (v, raw) = tier("support_1");
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[raw]), NOW);
+        assert!(r.state.grants_pro());
+        assert_eq!(r.acknowledge.as_deref(), Some("tok-support-1"));
+
+        let (v, raw) = tier("support_2_listed");
+        let p = v.verify(&raw).expect("listed tier verifies");
+        assert_eq!(p.state, PurchaseState::Purchased);
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[raw]), NOW);
+        assert!(r.state.grants_pro());
+        assert_eq!(r.acknowledge, None);
+    }
+
+    #[test]
+    fn a_lookalike_product_id_is_not_a_tier() {
+        let (v, raw) = tier("lookalike");
+        assert_eq!(v.verify(&raw), Err(VerifyError::OtherProduct));
+        assert!(!is_pro_product("atvopt_pro_support_3"));
+        assert!(!is_pro_product(""));
+        for id in PRO_PRODUCT_IDS {
+            assert!(is_pro_product(id));
+        }
     }
 
     #[test]

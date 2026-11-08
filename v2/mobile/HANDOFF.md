@@ -236,10 +236,13 @@ A patch-notes viewer is deferred.
   against public keys compiled in; `crates/core/src/license.rs`, `tools/atvopt-license`). The dev
   key `ATVOPT-PRO-2025` works in **debug builds only**. Private signing keys live in `~/.atvopt/`
   outside the repo; back up `~/.atvopt/license-signing-key.prod`. See `LICENSING.md`.
-- Play submission (2026-11-01): Pro is $4.99, past Ko-fi supporters get Play promo codes, and the
+- Play submission (2026-11-01): Pro is $4.99, with $9.99 and $19.99 "Support me" tiers for the
+  same Pro (2026-11-08). Ko-fi stays out of the Play app; the README offers a Pro promo code to
+  Ko-fi donors. Past Ko-fi supporters get Play promo codes, and the
   new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
   `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
-- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro`) through
+- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro` or a
+  support tier in `SUPPORT_PRODUCT_IDS`) through
   `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
   verification in `src-tauri/src/play_billing.rs` and the two-source entitlement in
   `billing_commands.rs`. Play builds (`ATVOPT_DISTRIBUTION=play`) hide offline key entry and the

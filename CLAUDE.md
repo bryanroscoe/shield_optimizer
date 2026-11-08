@@ -43,9 +43,12 @@ Shipped in 2.5.0 or live on the server side:
   workflow rewrites the "Device support report" issue with suggested tier moves. A tier changes
   only by a PR to that file. Process, criteria and the evidence rule:
   [`docs/DEVICE-SUPPORT.md`](docs/DEVICE-SUPPORT.md).
-- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, with the purchase
-  signature checked on the phone (no server).
-  Past Ko-fi supporters get Pro through Play promo codes.
+- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, plus "Support me"
+  tiers `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99) that unlock the same Pro
+  and nothing more, with the purchase signature checked on the phone (no server).
+  Past Ko-fi supporters get Pro through Play promo codes. **Keep Ko-fi out of the Play app**:
+  offering Pro for an outside donation in-app breaks Play's payments policy. The Ko-fi link and the
+  "donate, get a Pro code" offer live on the root README.
 
 Play submission path: the developer account is personal and new, so Google requires a closed test
 with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi

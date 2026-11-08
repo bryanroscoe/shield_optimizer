@@ -10,12 +10,12 @@ link is configured in the repo. Sideload/dev builds keep the signed offline lice
 What exists, and how it deviates from the server design below:
 
 - **Native adapter**: `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0). Connect,
-  `ProductDetails` for `atvopt_pro`, purchase sheet, `queryPurchasesAsync(INAPP)`, acknowledge.
+  `ProductDetails` for each Pro product, purchase sheet, `queryPurchasesAsync(INAPP)`, acknowledge.
   It never consumes and makes no entitlement decision; it returns Play's signed `originalJson` and
   `signature` untouched. No JS-invokable plugin commands.
 - **Verification is on the phone**, in Rust (`src-tauri/src/play_billing.rs`): SHA1withRSA against
   the app's Play license public key compiled in from `ATVOPT_PLAY_LICENSE_KEY`, then package name,
-  product id and `purchaseState == 0` from the signed JSON. No key in the build means purchases
+  product id (one of the Pro products below) and `purchaseState == 0` from the signed JSON. No key in the build means purchases
   show as unavailable and Play never grants Pro. A patched APK can bypass on-device checks; accepted
   for a one-time unlock at this price. A server verifier can later sit behind the same source.
 - **Entitlement**: `billing_commands.rs` keeps two independent sources (Play, license key) and
@@ -35,13 +35,23 @@ What exists, and how it deviates from the server design below:
 - **Policy**: Play builds (`ATVOPT_DISTRIBUTION=play`) hide key entry in the UI and the backend
   refuses `activate_license`. Ko-fi supporters get Pro through Play promo codes; redemption arrives
   as a normal purchase (verified tests cover a promo-shaped purchase with no `orderId`).
+- **Support tiers** (owner decision 2026-11-08): besides `atvopt_pro` at US $4.99, two more
+  non-consumable products, `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99),
+  unlock exactly the same Pro. They are the in-app "Support me" option: the extra is support, with
+  no added feature, badge or benefit. The app lists only tiers Play returns a price for, and an
+  owned tier blocks buying another. Play has no buyer-entered price, so "pay what you want" is
+  these fixed tiers.
+- **Ko-fi stays out of the Play app.** Offering Pro codes for an outside donation inside the app
+  would steer purchases of a digital unlock away from Play billing. The Ko-fi link and the
+  "donate and get a Pro code" offer live on the GitHub README only; codes are Play promo codes
+  for `atvopt_pro`.
 - **Not built**: server verification, RTDN, Voided Purchases reconciliation, account linking, tips.
   Free settings/Home/snapshot undo is still unbuilt, so all copy promises only that re-enabling
   apps and emergency recovery are always free.
 
 ## Approved product direction
 
-- Free compatibility checks before purchase; one-time non-consumable Pro, intended US price $4.99 (owner decision 2026-10-31; was $2.99).
+- Free compatibility checks before purchase; one-time non-consumable Pro, intended US price $4.99 (owner decision 2026-10-31; was $2.99), plus optional $9.99 and $19.99 support tiers for the same Pro (2026-11-08).
 - No timed trial, subscription or recurring charge.
 - Complimentary Pro for existing Ko-fi supporters uses the normal Google Play one-time-product
   promo redemption flow and the same verification/restore logic. No separate APK, client-only

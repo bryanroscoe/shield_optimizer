@@ -25,7 +25,7 @@ use tauri_plugin_atv_billing::{response_code, BillingExt, ProductInfo, RawPurcha
 use crate::play_billing::{
     cached_owned_state, effective_entitlement, reconcile, reconcile_flow, response_message,
     CacheAction, CachedPurchase, Distribution, PlayState, PlayVerifier, QueryOutcome,
-    PLAY_LICENSE_KEY, PRO_PRODUCT_ID,
+    is_pro_product, PLAY_LICENSE_KEY, PRO_PRODUCT_ID, PRO_PRODUCT_IDS, SUPPORT_PRODUCT_IDS,
 };
 
 /// Automatic refreshes (launch, resume) closer together than this reuse the
@@ -40,9 +40,10 @@ const NO_KEY_REASON: &str = "Purchases aren't available in this build of the app
 const NOT_ANDROID_REASON: &str = "Google Play purchases are only available in the Android app.";
 const UNREACHABLE: &str = "Couldn't reach Google Play. Check your connection and try again.";
 
-/// Play's localized offer for Pro, for display only.
+/// Play's localized offer for one Pro product, for display only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Offer {
+    pub product_id: String,
     pub formatted_price: String,
     pub title: String,
     pub name: String,
@@ -52,6 +53,7 @@ pub struct Offer {
 impl From<ProductInfo> for Offer {
     fn from(p: ProductInfo) -> Self {
         Offer {
+            product_id: p.product_id,
             formatted_price: p.formatted_price,
             title: p.title,
             name: p.name,
@@ -71,7 +73,11 @@ pub struct BillingStatus {
     /// Whether Buy / Restore purchases can work in this build on this device.
     pub available: bool,
     pub play: PlayState,
+    /// The standard Pro product.
     pub offer: Option<Offer>,
+    /// Pay-more tiers Play returned, in display order. Each unlocks the same
+    /// Pro as `offer`.
+    pub support_offers: Vec<Offer>,
     /// A granted purchase Play has not yet confirmed as acknowledged; retried
     /// on the next refresh.
     pub ack_pending: bool,
@@ -102,7 +108,8 @@ struct Inner {
     license_pro: bool,
     play: PlayState,
     cache: Option<CachedPurchase>,
-    offer: Option<Offer>,
+    /// Offers Play returned, keyed by their Pro product id.
+    offers: Vec<Offer>,
     last_query_ms: Option<i64>,
     ack_pending: bool,
 }
@@ -167,7 +174,7 @@ impl BillingCore {
                 license_pro: license_pro && distribution.allows_license_keys(),
                 play,
                 cache,
-                offer: None,
+                offers: Vec::new(),
                 last_query_ms: None,
                 ack_pending: false,
             }),
@@ -218,12 +225,23 @@ impl BillingCore {
         self.lock().license_pro = pro && self.distribution.allows_license_keys();
     }
 
-    pub fn has_offer(&self) -> bool {
-        self.lock().offer.is_some()
+    /// Pro products whose price Play hasn't returned yet this run.
+    pub fn missing_offers(&self) -> Vec<&'static str> {
+        let inner = self.lock();
+        PRO_PRODUCT_IDS
+            .into_iter()
+            .filter(|id| !inner.offers.iter().any(|o| o.product_id == *id))
+            .collect()
     }
 
-    pub fn set_offer(&self, offer: Option<Offer>) {
-        self.lock().offer = offer;
+    /// Record Play's offer for a Pro product. Anything else is dropped.
+    pub fn set_offer(&self, offer: Offer) {
+        if !is_pro_product(&offer.product_id) {
+            return;
+        }
+        let mut inner = self.lock();
+        inner.offers.retain(|o| o.product_id != offer.product_id);
+        inner.offers.push(offer);
     }
 
     pub fn should_auto_refresh(&self, now_ms: i64) -> bool {
@@ -310,7 +328,15 @@ impl BillingCore {
             license_key_entry: self.distribution.allows_license_keys(),
             available: self.verifier.is_some(),
             play: inner.play.clone(),
-            offer: inner.offer.clone(),
+            offer: inner
+                .offers
+                .iter()
+                .find(|o| o.product_id == PRO_PRODUCT_ID)
+                .cloned(),
+            support_offers: SUPPORT_PRODUCT_IDS
+                .iter()
+                .filter_map(|id| inner.offers.iter().find(|o| o.product_id == *id).cloned())
+                .collect(),
             ack_pending: inner.ack_pending,
             product_id: PRO_PRODUCT_ID,
         }
@@ -418,13 +444,15 @@ async fn refresh_locked(app: &AppHandle, core: &BillingCore) {
     if let Some(token) = applied.acknowledge {
         acknowledge(app, core, token).await;
     }
-    if !core.has_offer() {
-        match plugin_call(app, QUERY_TIMEOUT, |b| b.query_product(PRO_PRODUCT_ID)).await {
+    for id in core.missing_offers() {
+        match plugin_call(app, QUERY_TIMEOUT, move |b| b.query_product(id)).await {
             Ok(r) if r.response_code == response_code::OK => {
-                core.set_offer(r.product.map(Offer::from));
+                if let Some(product) = r.product.filter(|p| p.product_id == id) {
+                    core.set_offer(Offer::from(product));
+                }
             }
-            Ok(r) => tracing::info!(code = r.response_code, "Pro product details unavailable"),
-            Err(e) => tracing::info!(error = %e, "Pro product details unavailable"),
+            Ok(r) => tracing::info!(id, code = r.response_code, "product details unavailable"),
+            Err(e) => tracing::info!(id, error = %e, "product details unavailable"),
         }
     }
 }
@@ -457,10 +485,21 @@ pub async fn billing_refresh(app: AppHandle, force: Option<bool>) -> Result<Bill
     Ok(refresh(&app, force.unwrap_or(false)).await)
 }
 
-/// `billing_purchase` — open Play's purchase sheet for Pro and verify the
-/// result. Pro is granted only from a verified PURCHASED purchase.
+/// `billing_purchase` — open Play's purchase sheet for Pro, or for one of the
+/// pay-more tiers when `product_id` names one, and verify the result. Pro is
+/// granted only from a verified PURCHASED purchase.
 #[tauri::command]
-pub async fn billing_purchase(app: AppHandle) -> Result<PurchaseOutcome, String> {
+pub async fn billing_purchase(
+    app: AppHandle,
+    product_id: Option<String>,
+) -> Result<PurchaseOutcome, String> {
+    let product = match product_id.as_deref() {
+        None => PRO_PRODUCT_ID,
+        Some(id) => match PRO_PRODUCT_IDS.into_iter().find(|p| *p == id) {
+            Some(p) => p,
+            None => return Err(format!("Unknown product: {id}")),
+        },
+    };
     let core = app.state::<BillingCore>();
     let reply = |outcome, message: &str, core: &BillingCore| PurchaseOutcome {
         outcome,
@@ -483,7 +522,7 @@ pub async fn billing_purchase(app: AppHandle) -> Result<PurchaseOutcome, String>
         ));
     }
     let response = match plugin_call(&app, PURCHASE_TIMEOUT, |b| {
-        b.launch_purchase(PRO_PRODUCT_ID)
+        b.launch_purchase(product)
     })
     .await
     {
@@ -699,6 +738,41 @@ mod tests {
         assert_eq!(a.cache, CacheAction::Clear);
         assert_eq!(c.status().play, PlayState::NotOwned);
         assert_eq!(c.effective(), Entitlement::Free);
+    }
+
+    fn offer(id: &str, price: &str) -> Offer {
+        Offer {
+            product_id: id.into(),
+            formatted_price: price.into(),
+            title: String::new(),
+            name: String::new(),
+            description: String::new(),
+        }
+    }
+
+    #[test]
+    fn offers_split_into_pro_and_ordered_support_tiers() {
+        let c = core(Distribution::Play, false);
+        assert_eq!(c.missing_offers(), PRO_PRODUCT_IDS.to_vec());
+        c.set_offer(offer(SUPPORT_PRODUCT_IDS[1], "$19.99"));
+        c.set_offer(offer("someone_elses_item", "$1.00"));
+        c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
+        let s = c.status();
+        assert_eq!(s.offer.unwrap().formatted_price, "$4.99");
+        assert_eq!(s.support_offers.len(), 1);
+        assert_eq!(c.missing_offers(), vec![SUPPORT_PRODUCT_IDS[0]]);
+
+        c.set_offer(offer(SUPPORT_PRODUCT_IDS[0], "$9.99"));
+        c.set_offer(offer(PRO_PRODUCT_ID, "$5.49"));
+        let s = c.status();
+        assert_eq!(s.offer.unwrap().formatted_price, "$5.49");
+        let tiers: Vec<_> = s
+            .support_offers
+            .iter()
+            .map(|o| o.product_id.as_str())
+            .collect();
+        assert_eq!(tiers, SUPPORT_PRODUCT_IDS.to_vec());
+        assert!(c.missing_offers().is_empty());
     }
 
     #[test]

@@ -102,6 +102,47 @@ test("Play build on Free shows Play's localized price, Restore and the free-reco
   assert.ok((await count(page, "billing_refresh")) >= 1, "purchases are checked on launch");
 });
 
+const TIERS = [
+  { product_id: "atvopt_pro_support_1", formatted_price: "€9,99", title: "", name: "", description: "" },
+  { product_id: "atvopt_pro_support_2", formatted_price: "€19,99", title: "", name: "", description: "" },
+];
+
+test("support tiers buy the same Pro through their own Play product, and Buy Pro sends none", async (t) => {
+  const page = await open(t, { ...status(), support_offers: TIERS });
+  await page.evaluate(() => {
+    window.handlers.billing_purchase = () => {
+      window.billingStatus = {
+        ...window.billingStatus,
+        entitlement: "pro",
+        sources: ["play"],
+        play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false },
+      };
+      return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: window.billingStatus };
+    };
+  });
+  const card = licensing(page);
+  await card.getByText("Support me").waitFor();
+  await card.getByRole("button", { name: "Support me with €9,99" }).waitFor();
+  await card.getByRole("button", { name: "Support me with €19,99" }).click();
+  await card.locator(".license-badge", { hasText: "Pro" }).waitFor();
+  const buy = await page.evaluate(() => window.calls.filter((c) => c.command === "billing_purchase").map((c) => c.args));
+  assert.deepEqual(buy, [{ productId: "atvopt_pro_support_2" }]);
+  assert.equal(await card.getByText("Support me").count(), 0, "tiers disappear once Pro is owned");
+});
+
+test("Buy Pro sends no product, and no tiers from Play means no Support me row", async (t) => {
+  const page = await open(t, status());
+  await page.evaluate(() => {
+    window.handlers.billing_purchase = () => ({ outcome: "canceled", message: "", status: window.billingStatus });
+  });
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Buy Pro · €3,49" }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "billing_purchase"));
+  const args = await page.evaluate(() => window.calls.find((c) => c.command === "billing_purchase").args);
+  assert.deepEqual(args, {});
+  assert.equal(await card.getByText("Support me").count(), 0);
+});
+
 test("a pending purchase never unlocks and blocks a second purchase", async (t) => {
   const page = await open(t, status());
   await page.evaluate(() => {
@@ -276,4 +317,25 @@ test("a pending purchase that completes while the app stays open unlocks without
   const after = await count(page, "billing_refresh");
   await page.clock.runFor(61_000);
   assert.equal(await count(page, "billing_refresh"), after, "polling stops once the purchase is no longer pending");
+});
+
+test("a support tier bought from the paywall closes it and reports no product or price", async (t) => {
+  const page = await open(t, { ...status(), support_offers: TIERS }, "optimize");
+  await page.evaluate(() => {
+    window.handlers.billing_purchase = () => {
+      window.billingStatus = {
+        ...window.billingStatus,
+        entitlement: "pro",
+        sources: ["play"],
+        play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false },
+      };
+      return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: window.billingStatus };
+    };
+  });
+  await page.getByRole("button", { name: "Unlock Pro" }).click();
+  const paywall = page.getByRole("dialog", { name: "ATV Optimizer Pro" });
+  await paywall.getByRole("button", { name: "Support me with €9,99" }).click();
+  await paywall.waitFor({ state: "detached" });
+  const report = await page.evaluate(() => window.calls.find(purchaseReport)?.args);
+  assert.deepEqual(report, { action: "other", serial: null, ok: true, errorCode: null, message: null });
 });

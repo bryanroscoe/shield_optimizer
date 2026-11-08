@@ -6,7 +6,7 @@
 import { api, sendTelemetry } from "./api";
 import { recordAction } from "../../../shared/telemetry";
 import { session } from "./session.svelte";
-import type { BillingStatus, PurchaseOutcome, PurchaseResultKind } from "./types";
+import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind } from "./types";
 
 export const FREE_RECOVERY_PROMISE = "Re-enabling apps and emergency recovery are always free.";
 
@@ -40,6 +40,8 @@ const PENDING_POLL_MS = 30_000;
 class BillingStore {
   status = $state<BillingStatus | null>(null);
   purchasing = $state(false);
+  /// The product whose purchase sheet is open, so only its button says so.
+  purchasingId = $state<string | null>(null);
   restoring = $state(false);
   message = $state("");
   tone = $state<Tone>("info");
@@ -56,6 +58,10 @@ class BillingStore {
 
   get ownsViaPlay(): boolean {
     return this.status?.sources.includes("play") ?? false;
+  }
+
+  get supportOffers(): PlayOffer[] {
+    return this.status?.support_offers ?? [];
   }
 
   get pending(): boolean {
@@ -132,12 +138,14 @@ class BillingStore {
     }
   }
 
-  async purchase(): Promise<PurchaseOutcome | null> {
+  /// Buy Pro. A support tier's product id buys the same Pro at its higher price.
+  async purchase(productId?: string): Promise<PurchaseOutcome | null> {
     if (this.purchasing || this.restoring) return null;
     this.purchasing = true;
+    this.purchasingId = productId ?? this.status?.offer?.product_id ?? null;
     this.say("", "info");
     try {
-      const outcome = await api.billingPurchase();
+      const outcome = await api.billingPurchase(productId);
       this.apply(outcome?.status);
       reportPurchaseOutcome(outcome?.outcome);
       switch (outcome?.outcome) {
@@ -160,6 +168,7 @@ class BillingStore {
       return null;
     } finally {
       this.purchasing = false;
+      this.purchasingId = null;
     }
   }
 }

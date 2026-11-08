@@ -211,6 +211,18 @@ in testing now and hasn't been released.
 
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
+The Android app will be free to try, with Pro as a one-time Google Play purchase: US $4.99, or $9.99
+or $19.99 if you'd like to chip in more. Every price unlocks the same Pro.
+
+## Support the project
+
+The desktop app is free. If it saved you an afternoon of fiddling, you can
+[buy me a coffee on Ko-fi](https://ko-fi.com/bryanroscoe).
+
+**Donated on Ko-fi? You get the Android app's Pro for free.** Leave a note with your donation (or
+message me on Ko-fi afterwards) and I'll send you a Google Play code that unlocks Pro once the app
+is out.
+
 ## Legacy: PowerShell script (v1)
 
 This project started as a PowerShell script, `Shield-Optimizer.ps1`. It's now **legacy**: it still
