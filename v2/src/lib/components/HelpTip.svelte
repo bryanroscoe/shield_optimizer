@@ -114,7 +114,7 @@
   <button type="button" class="help-close" aria-label="Close" onclick={() => close(true)}>
     <span aria-hidden="true">×</span>
   </button>
-  <div class="help-body">
+  <div class="help-content">
     {@render children()}
   </div>
 </div>
@@ -148,9 +148,9 @@
     overflow-wrap: anywhere;
   }
   .help-popover[hidden] { display: none; }
-  .help-body :global(p) { margin: 0.5rem 0; }
-  .help-body :global(p:first-child) { margin-top: 0; }
-  .help-body :global(p:last-child) { margin-bottom: 0; }
+  .help-content :global(p) { margin: 0.5rem 0; }
+  .help-content :global(p:first-child) { margin-top: 0; }
+  .help-content :global(p:last-child) { margin-bottom: 0; }
   .help-close {
     position: absolute;
     top: 0.35rem;
