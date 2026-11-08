@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -468,14 +469,13 @@
         not the phone's public Downloads. Sharing and export to other apps are not available yet.
       </span>
     </div>
-    <details class="help-disclosure">
-      <summary>About file transfers</summary>
+    <HelpSheet title="About file transfers">
       <p>
         Tap a file to copy it. Files transfer over your LAN, with no cloud round-trip. Copied this
         session lists the copies made since you opened Files. Items under /sdcard can be deleted
         from the TV with the bin icon.
       </p>
-    </details>
+    </HelpSheet>
 
     {#if pulled.length > 0}
       <span class="section-label">Copied this session</span>

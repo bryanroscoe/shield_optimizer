@@ -651,7 +651,7 @@ test("the no-Home-screen warning stays visible; routine launcher notes are in he
   assert.equal(await warning.evaluate((el) => !!el.closest("details")), false);
   const routine = page.getByText(/Changing the launcher is reversible/);
   assert.equal(await routine.isVisible(), false);
-  const summary = page.locator("summary", { hasText: "About changing launchers" });
+  const summary = page.getByRole("button", { name: "About changing launchers", exact: true });
   await summary.focus();
   await page.keyboard.press("Enter");
   await routine.waitFor();

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "./HelpSheet.svelte";
   import { modal } from "../lib/modal";
   // "Report this app" (#100), the phone's version of desktop's
   // AppReportDialog. The preview is the report: the text shown is exactly
@@ -164,10 +165,9 @@
     </div>
 
     <p class="lede">Nothing is sent automatically. Any GitHub issue is one you review and submit yourself.</p>
-    <details class="help-disclosure report-help">
-      <summary>How reporting works</summary>
+    <HelpSheet title="How reporting works">
       <p>Copy the report, or open a GitHub issue with it filled in. A report asks for a review; it never changes how the app rates this package. Copy puts report text on your clipboard; it does not save a file. Opening a long report may also copy its text before the GitHub form opens.</p>
-    </details>
+    </HelpSheet>
 
     {#if !report}
       <p class="alert" role="alert">This package id can't be carried by a report.</p>
@@ -301,9 +301,6 @@
   }
   .close .msr {
     font-size: 22px;
-  }
-  .report-help {
-    margin: 0;
   }
   .lede,
   .fine,

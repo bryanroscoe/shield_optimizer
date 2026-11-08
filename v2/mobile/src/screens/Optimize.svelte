@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -786,7 +787,7 @@
     {#if mode === "optimize" && activeTab === "optional"}
       <p class="tab-hint">Keep anything you use. Nothing changes until you confirm.</p>
     {:else}
-      <details class="help-disclosure"><summary>About this plan</summary><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></details>
+      <HelpSheet title="About this plan"><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></HelpSheet>
     {/if}
     {#if sharedUnknownReason}
       <p class="tab-hint">
