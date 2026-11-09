@@ -57,8 +57,10 @@ internal class ShareFileArgs {
 class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val service by lazy { AdbService(activity.applicationContext) }
-  // The file the open create-document picker will receive. Rust allows one export at a time.
-  @Volatile private var pendingSave: SaveCopyArgs? = null
+  // The request the open create-document picker belongs to. Rust allows one export at a time,
+  // but gives up on a picker that never answers (e.g. the activity was recreated); the next save
+  // then rejects that stale request so its waiting Rust thread is released.
+  @Volatile private var pendingSave: Pair<Invoke, SaveCopyArgs>? = null
 
   @Command
   fun discover(invoke: Invoke) = scope.launch {
@@ -101,7 +103,8 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
         type = args.mime
         putExtra(Intent.EXTRA_TITLE, args.name)
       }
-      pendingSave = args
+      pendingSave?.first?.reject("Replaced by a newer save.")
+      pendingSave = Pair(invoke, args)
       startActivityForResult(invoke, intent, "saveCopyResult")
     } catch (error: Throwable) {
       pendingSave = null
@@ -111,13 +114,14 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
 
   @ActivityCallback
   fun saveCopyResult(invoke: Invoke, result: ActivityResult) {
-    val args = pendingSave
-    pendingSave = null
-    val target = result.data?.data
-    if (args == null) {
+    val pending = pendingSave
+    if (pending == null || pending.first !== invoke) {
       invoke.reject("The save request was lost. Try again.")
       return
     }
+    pendingSave = null
+    val args = pending.second
+    val target = result.data?.data
     if (result.resultCode != Activity.RESULT_OK || target == null) {
       invoke.resolve(JSObject().put("saved", false))
       return

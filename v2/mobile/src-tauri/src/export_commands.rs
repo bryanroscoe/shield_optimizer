@@ -292,12 +292,13 @@ pub async fn export_file(
                 .map_err(|e| format!("prepare share: {e}"))?
                 .join(EXPORTS_DIR);
             let mime = item.mime;
-            let staged = blocking(
-                SHARE_TIMEOUT,
-                "Preparing the file took too long.",
-                move || stage_for_share(&exports, &item, SystemTime::now()),
-            )
-            .await?;
+            // No timeout on the local copy (at most MAX_SHARE_BYTES), so the gate stays held
+            // until it ends and never overlaps another export.
+            let staged = tokio::task::spawn_blocking(move || {
+                stage_for_share(&exports, &item, SystemTime::now())
+            })
+            .await
+            .map_err(|e| e.to_string())??;
             let handle = app.clone();
             blocking(SHARE_TIMEOUT, "The share sheet didn't open.", move || {
                 handle

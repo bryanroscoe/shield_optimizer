@@ -115,8 +115,13 @@
     color: var(--muted);
     overflow-wrap: anywhere;
   }
+  /* Kept in the accessibility tree while empty, so screen readers announce the result. */
   .export-status:empty {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
   }
   .export-status.error {
     color: var(--danger, #ff6b6b);

@@ -85,7 +85,8 @@ One explicitly selected file, both actions, no export centre:
   `DISPLAY_NAME`. A dismissed picker resolves `canceled`. A failed write deletes the half-written
   document and reports the error. The original is never touched. The request gives up after
   15 minutes if Android never answers (e.g. the activity was destroyed), and says to check the
-  chosen folder.
+  chosen folder; the next Save a copy rejects that stale request on the Kotlin side. Share's
+  staging copy has no timeout, so it never overlaps another export.
 - **Share.** The file is copied to `<cache>/exports/share-<n>/<name>` (512 MiB cap; larger files
   are told to use Save a copy), and `ACTION_SEND` goes through `Intent.createChooser` with
   `EXTRA_STREAM`, `ClipData` and `FLAG_GRANT_READ_URI_PERMISSION`. `FileProvider.getUriForFile`
