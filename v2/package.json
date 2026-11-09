@@ -32,6 +32,7 @@
     "test:recommendation-labels": "node tests/recommendation-labels.mjs",
     "test:optimize-plan": "node tests/optimize-plan.mjs",
     "test:shell-bookmarks": "node tests/shell-bookmarks.mjs",
+    "test:catalog-uninstall": "node tests/catalog-uninstall.mjs",
     "test:app-state-filter": "node tests/app-state-filter.mjs",
     "test:snapshot-delete": "node tests/snapshot-delete.mjs",
     "test:native-dialogs": "node tests/native-dialogs.mjs",

@@ -31,12 +31,17 @@ pub async fn list_devices(state: State<'_, AppState>) -> Result<Vec<Device>, Str
 /// the `State<'_, T>` lifetime constraint getting in the way.
 pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(renumber(collapse_duplicate_transports(
-        list_transports(state).await?,
+        list_transports(state, None).await?,
     )))
 }
 
 /// One row per adb transport, before duplicates of one device are collapsed.
-async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
+/// `named_only` limits the Cast name lookups for unauthorized TVs to that
+/// serial; `None` looks up every one, as the device list does.
+async fn list_transports(
+    state: &AppState,
+    named_only: Option<&str>,
+) -> Result<Vec<Device>, String> {
     let adb = state.adb_snapshot().await;
     let raw = adb
         .raw(&["devices"])
@@ -50,7 +55,7 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
         state.telemetry.note_transport(&e.serial);
     }
     let current = current_unauthorized(&*adb).await;
-    let cast_names = unqueried_names(state, &entries, current.as_ref()).await;
+    let cast_names = unqueried_names(state, &entries, current.as_ref(), named_only).await;
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
@@ -167,6 +172,7 @@ async fn unqueried_names(
     state: &AppState,
     entries: &[crate::adb::parse::DeviceListEntry],
     current: Option<&Vec<String>>,
+    named_only: Option<&str>,
 ) -> HashMap<Ipv4Addr, String> {
     let Some(cast_names) = state.cast_names() else {
         return HashMap::new();
@@ -177,6 +183,7 @@ async fn unqueried_names(
             e.status == DeviceStatus::Unauthorized && e.connection == ConnectionType::Network
         })
         .filter(|e| current.map_or(true, |current| current.contains(&e.serial)))
+        .filter(|e| named_only.map_or(true, |serial| serial == e.serial))
         .filter_map(|e| serial_lookup_target(&e.serial))
         .collect();
     if hosts.is_empty() {
@@ -298,7 +305,9 @@ pub async fn device_profile(state: State<'_, AppState>, serial: String) -> Resul
 }
 
 pub async fn device_profile_impl(state: &AppState, serial: &str) -> Result<Device, String> {
-    let transports = list_transports(state).await?;
+    // Names are display only, and another TV that doesn't answer its Cast
+    // port would hold up every profile refresh, snapshot preview and apply.
+    let transports = list_transports(state, Some(serial)).await?;
     let devices = renumber(collapse_duplicate_transports(transports.clone()));
     resolve_profile(&transports, devices, serial)
         .ok_or_else(|| format!("device {serial} not found"))
@@ -1434,7 +1443,7 @@ fn property_batch_command() -> String {
 }
 
 /// The property reads, in the order `properties_from_sections` consumes them.
-const PROPERTY_READS: [&str; 13] = [
+pub(crate) const PROPERTY_READS: [&str; 13] = [
     "settings get global device_name",
     "getprop ro.product.brand",
     "getprop ro.product.model",
@@ -2444,6 +2453,46 @@ mod tests {
                 Ipv4Addr::new(192, 168, 42, 143)
             ],
             "only unauthorized network rows are looked up"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_single_device_profile_looks_up_no_other_tvs_name() {
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let cast_names = crate::net::CastNames::with_lookup(std::sync::Arc::new(move |ip| {
+            seen.lock().unwrap().push(ip);
+            Box::pin(async move { Some(format!("TV at {ip}")) })
+        }));
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 192.168.42.71:5555\tdevice\n\
+                 192.168.42.143:5555\tunauthorized\n\
+                 192.168.42.25:5555\tunauthorized\n",
+            )
+            .on_shell(
+                "settings get global device_name",
+                &batched_props(&["Living Room", "NVIDIA"]),
+            );
+        let state = state_with(mock).with_cast_names(std::sync::Arc::new(cast_names));
+        let device = device_profile_impl(&state, "192.168.42.71:5555")
+            .await
+            .unwrap();
+        assert_eq!(device.name, "Living Room");
+        assert!(
+            asked.lock().unwrap().is_empty(),
+            "profiling one TV must not wait on other TVs' Cast ports"
+        );
+        // An unauthorized TV's own profile still carries its name.
+        let device = device_profile_impl(&state, "192.168.42.143:5555")
+            .await
+            .unwrap();
+        assert_eq!(device.name, "TV at 192.168.42.143");
+        assert_eq!(
+            asked.lock().unwrap().clone(),
+            [Ipv4Addr::new(192, 168, 42, 143)]
         );
     }
 
