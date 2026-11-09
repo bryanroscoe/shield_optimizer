@@ -52,6 +52,7 @@
     type Recommendation,
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
+  import BreakableId from "$lib/components/BreakableId.svelte";
   import {
     idleMeasurements,
     loadingMeasurements,
@@ -2676,9 +2677,9 @@
                         class="mem-open"
                         onclick={(e) => { e.stopPropagation(); openInAppList(appPkg); }}
                         data-tip={appPkg === m.process ? "Open in the App List" : `Open ${appPkg} in the App List`}
-                      >{m.process}</button>
+                      ><BreakableId text={m.process} /></button>
                     {:else}
-                      {m.process}
+                      <span class="mem-process"><BreakableId text={m.process} /></span>
                       <span
                         class="unconfirmed"
                         title="No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."
@@ -3511,7 +3512,7 @@
             <span class="foot-label">Contents of selection</span>
             <dl class="snap-contents-list">
               <dt>Disabled apps</dt><dd class="mono">{chosen.disabled_count}</dd>
-              <dt>Launcher</dt><dd class="mono">{chosen.launcher ?? "—"}</dd>
+              <dt>Launcher</dt><dd class="mono"><BreakableId text={chosen.launcher ?? "—"} /></dd>
               <dt>Tweak values</dt><dd class="mono">{chosen.settings_count}</dd>
             </dl>
           </div>
@@ -3552,65 +3553,65 @@
         <div class="plan-box">
           <table class="plan-table">
             <thead>
-              <tr><th>Item</th><th>Now</th><th>Will become</th></tr>
+              <tr><th class="plan-item-col">Item</th><th class="plan-now-col">Now</th><th class="plan-next-col">Will become</th></tr>
             </thead>
             <tbody>
               {#each preview.packages_to_disable as pkg (pkg)}
-                <tr><td class="mono">{pkg}</td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
+                <tr><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
               {/each}
               {#if preview.launcher_to_set}
                 <tr data-plan-item="launcher">
                   <td class="mono">Home app</td>
-                  <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
-                  <td class="plan-next change mono">→ {preview.launcher_to_set}</td>
+                  <td class="plan-now mono"><BreakableId text={preview.current_launcher ?? "—"} /></td>
+                  <td class="plan-next change mono">→ <BreakableId text={preview.launcher_to_set} /></td>
                 </tr>
               {/if}
               {#each settingsToWrite as [key, value] (key)}
                 <tr>
-                  <td class="mono">{key}</td>
-                  <td class="plan-now mono">{nowValues[key] ?? "UNSET"}</td>
-                  <td class="plan-next mono change">→ {value}</td>
+                  <td class="mono"><BreakableId text={key} /></td>
+                  <td class="plan-now mono"><BreakableId text={nowValues[key] ?? "UNSET"} /></td>
+                  <td class="plan-next mono change">→ <BreakableId text={value} /></td>
                 </tr>
               {/each}
               {#each preview.settings_to_delete as key (key)}
                 <tr>
-                  <td class="mono">{key}</td>
-                  <td class="plan-now mono">{nowValues[key] ?? "—"}</td>
+                  <td class="mono"><BreakableId text={key} /></td>
+                  <td class="plan-now mono"><BreakableId text={nowValues[key] ?? "—"} /></td>
                   <td class="plan-next change">→ DEVICE DEFAULT</td>
                 </tr>
               {/each}
               {#if launcherUnchanged}
                 <tr class="plan-noop" data-plan-item="launcher">
                   <td class="mono">Home app</td>
-                  <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
-                  <td class="plan-next">→ {snapLauncher} (no change)</td>
+                  <td class="plan-now mono"><BreakableId text={preview.current_launcher ?? "—"} /></td>
+                  <td class="plan-next">→ <BreakableId text={snapLauncher ?? "—"} /> (no change)</td>
                 </tr>
               {:else if launcherSkip}
                 <tr class="plan-noop" data-plan-item="launcher">
                   <td class="mono">Home app</td>
-                  <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
+                  <td class="plan-now mono"><BreakableId text={preview.current_launcher ?? "—"} /></td>
                   <td class="plan-next">→ {launcherSkip}</td>
                 </tr>
               {/if}
               {#each preview.packages_kept as kept (kept.package)}
                 <tr class="plan-noop" data-plan-item="kept">
-                  <td class="mono">{kept.package}</td>
+                  <td class="mono"><BreakableId text={kept.package} /></td>
                   <td class="plan-now">ENABLED</td>
                   <td class="plan-next">→ kept on: {kept.reason}</td>
                 </tr>
               {/each}
               {#each preview.settings_already_set as key (key)}
                 <tr class="plan-noop">
-                  <td class="mono">{key}</td>
-                  <td class="plan-now mono">{nowValues[key] ?? "UNSET"}</td>
-                  <td class="plan-next mono">→ {nowValues[key] ?? "DEVICE DEFAULT"} (no change)</td>
+                  <td class="mono"><BreakableId text={key} /></td>
+                  <td class="plan-now mono"><BreakableId text={nowValues[key] ?? "UNSET"} /></td>
+                  <td class="plan-next mono">→ <BreakableId text={nowValues[key] ?? "DEVICE DEFAULT"} /> (no change)</td>
                 </tr>
               {/each}
               {#each preview.packages_already_disabled as pkg (pkg)}
-                <tr class="plan-noop"><td class="mono">{pkg}</td><td class="plan-now">DISABLED</td><td class="plan-next">→ DISABLED (no change)</td></tr>
+                <tr class="plan-noop"><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">DISABLED</td><td class="plan-next">→ DISABLED (no change)</td></tr>
               {/each}
               {#each preview.packages_not_installed as pkg (pkg)}
-                <tr class="plan-noop"><td class="mono">{pkg}</td><td class="plan-now">NOT INSTALLED</td><td class="plan-next">→ skipped</td></tr>
+                <tr class="plan-noop"><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">NOT INSTALLED</td><td class="plan-next">→ skipped</td></tr>
               {/each}
             </tbody>
           </table>
@@ -4358,6 +4359,39 @@
     display: block;
     width: 2rem;
   }
+  /* In a card narrower than 62rem (a window under ~1040px, the 720px
+     minimum, or larger text) the single-line Actions column (verbs, hairline,
+     three tools) took ~460px and left the App column a few letters wide, then
+     pushed the table past the card. Here the verbs wrap, the tools drop under
+     them and "Last used" takes two lines, so the name keeps the width. rem in
+     a container query follows the root font size, which a px media query
+     would not. The verbs' tooltips open leftward, since a wrapped verb can sit
+     at the card's right edge. */
+  #tabpanel-apps {
+    container-type: inline-size;
+  }
+  @container (max-width: 62rem) {
+    .app-table .actions-cell {
+      flex-wrap: wrap;
+      row-gap: 0.35rem;
+    }
+    .app-table .row-verbs {
+      flex: 1 1 auto;
+      flex-wrap: wrap;
+      row-gap: 0.35rem;
+    }
+    .app-table .tool-sep {
+      display: none;
+    }
+    .app-table th.right {
+      white-space: normal;
+    }
+    .app-table .row-verbs [data-tip]::after {
+      left: auto;
+      right: 0;
+      transform: none;
+    }
+  }
   /* The verb buttons keep their own spacing rule; inside a flex row their
      margin-right would double up with the gap. */
   .app-table .actions-cell .small-action {
@@ -4735,9 +4769,11 @@
   .snap-contents {
     margin-top: 1rem;
   }
+  /* The value column shrinks and wraps, so a long launcher id stays inside
+     the card at larger text sizes. */
   .snap-contents-list {
     display: grid;
-    grid-template-columns: 1fr auto;
+    grid-template-columns: auto minmax(0, 1fr);
     gap: 0.35rem 1rem;
     margin: 0;
   }
@@ -4747,6 +4783,7 @@
   .snap-contents-list dd {
     margin: 0;
     text-align: right;
+    overflow-wrap: anywhere;
   }
   /* Row per item: what it is now, what this snapshot makes it. */
   .plan-box {
@@ -4755,10 +4792,21 @@
     background: var(--bg-inset);
     overflow: hidden;
   }
+  /* Fixed columns: under auto layout one long value (a screensaver component,
+     a Home app id) claimed most of the width, squeezed Item to a few letters
+     and pushed Will become out of the box. Ids carry <wbr> after their dots,
+     so they wrap on those and break mid-word only as a last resort. */
   .plan-table {
     width: 100%;
+    table-layout: fixed;
     border-collapse: collapse;
     font-size: 0.8rem;
+  }
+  .plan-item-col {
+    width: 42%;
+  }
+  .plan-now-col {
+    width: 25%;
   }
   .plan-table th {
     padding: 0.5rem 0.9rem;
@@ -4774,17 +4822,8 @@
   }
   .plan-now,
   .plan-next {
-    width: 1%;
-    white-space: nowrap;
     font-size: 0.75rem;
     letter-spacing: 0.04em;
-  }
-  /* A package id in the Home app row would otherwise stretch both value
-     columns to its full width and squeeze every item id into a sliver. */
-  .plan-table tr[data-plan-item="launcher"] .plan-now,
-  .plan-table tr[data-plan-item="launcher"] .plan-next {
-    white-space: normal;
-    min-width: 9rem;
   }
   .plan-next.change {
     color: var(--ok);

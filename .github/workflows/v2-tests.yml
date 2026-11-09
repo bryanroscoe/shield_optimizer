@@ -494,6 +494,10 @@ jobs:
         working-directory: v2
         run: npm run test:icon-alignment
 
+      - name: Long ids and names fit their cells
+        working-directory: v2
+        run: npm run test:layout-clipping
+
       - name: Files drag and drop
         working-directory: v2
         run: npm run test:files-drop

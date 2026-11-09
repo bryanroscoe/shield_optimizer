@@ -179,7 +179,7 @@
        with the name rather than owning a column of its own. -->
   <td class="app-cell">
     <div class="app-name-row">
-      <span class="app-name">{name}</span>
+      <span class="app-name" title={name}>{name}</span>
       {#if pkgState}
         <StateBadge state={pkgState} />
       {:else}
@@ -382,14 +382,18 @@
     row-gap: 0.25rem;
     overflow: hidden;
   }
-  /* The name never wraps and never shrinks: it is the one thing you read to
-     decide, and `.app-cell`'s inherited `overflow-wrap: anywhere` will happily
-     break "Funimation" across two lines if the item is allowed to narrow. The
-     tags beside it wrap under it instead. */
+  /* The name never wraps: it is the one thing you read to decide, and
+     `.app-cell`'s inherited `overflow-wrap: anywhere` will happily break
+     "Funimation" across two lines. The tags beside it wrap under it first;
+     only a name wider than the whole row shrinks, and then it ends in an
+     ellipsis with the full name in `title`, never a mid-letter cut. */
   .app-name {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     white-space: nowrap;
     overflow-wrap: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   .app-desc {
     margin-top: 0.1rem;
