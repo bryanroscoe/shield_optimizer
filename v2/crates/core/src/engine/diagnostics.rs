@@ -88,6 +88,11 @@ fn leanback(value: Option<bool>) -> &'static str {
     }
 }
 
+static GOOGLE_ADB_RELEASE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"^Version [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?$")
+        .expect("constant Google ADB release pattern")
+});
+
 fn adb_version_text(output: Option<&str>) -> String {
     let mut lines = output.unwrap_or("").lines();
     let first = lines.next().unwrap_or("").trim();
@@ -96,9 +101,10 @@ fn adb_version_text(output: Option<&str>) -> String {
     }
     if first.starts_with("Android Debug Bridge version ") {
         // Only release/build numbers are useful here; extra lines can contain local paths.
-        let release = regex::Regex::new(r"^Version [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?$")
-            .expect("constant Google ADB release pattern");
-        if let Some(line) = lines.map(str::trim).find(|line| release.is_match(line)) {
+        if let Some(line) = lines
+            .map(str::trim)
+            .find(|line| GOOGLE_ADB_RELEASE.is_match(line))
+        {
             return format!("{first}\n  {line}");
         }
     }
@@ -248,6 +254,7 @@ mod tests {
             device: None,
             unreadable_device: None,
             log_tail: &[],
+            support_id: None,
         })
     }
 
