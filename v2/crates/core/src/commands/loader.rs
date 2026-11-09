@@ -809,6 +809,261 @@ mod tests {
     }
 
     #[test]
+    fn reported_content_clients_have_exact_evidence_and_keep_defaults() {
+        use crate::engine::{ActionMethod, DeviceType, RiskTier};
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| (301..=304).contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 4);
+        let lists = load_embedded_app_lists().unwrap();
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-05"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+            for family in [
+                DeviceType::Shield,
+                DeviceType::GoogleTv,
+                DeviceType::Unknown,
+            ] {
+                assert_eq!(
+                    lists
+                        .for_device(family)
+                        .iter()
+                        .filter(|e| e.package == package)
+                        .count(),
+                    1
+                );
+            }
+        }
+        assert!(lists.find("com.amcplus.amcfiretv").is_some());
+        assert!(!load_known_names().contains_key("com.amazon.music.tv"));
+    }
+
+    #[test]
+    fn followup_apps_are_optional_and_directv_stays_unreviewed() {
+        use crate::engine::{ActionMethod, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| [305, 306, 308].contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 3);
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-06"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+        }
+        assert!(lists
+            .find("com.aetnd.svod.historyvault.androidtv")
+            .is_some());
+        assert!(lists.find("com.britbox.us").is_some());
+        assert!(lists.find("com.att.tv").is_none());
+        assert!(matches!(
+            classify_with_catalog("com.att.tv", None),
+            Safety::Unknown { .. }
+        ));
+        let analiti = lists.find("com.analiti.fastest.android").unwrap();
+        assert!(analiti
+            .optimize_description
+            .contains("background connection tracking"));
+        assert!(analiti
+            .optimize_description
+            .contains("embedded test servers"));
+    }
+
+    #[test]
+    fn latest_reports_keep_exact_variants_and_never_default_to_removal() {
+        use crate::engine::{ActionMethod, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| (310..=312).contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 3);
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-06"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+        }
+        let tidal = lists.find("com.aspiro.tidal").unwrap();
+        assert_eq!(tidal.risk, RiskTier::Medium);
+        assert_eq!(tidal.method, ActionMethod::Disable);
+        assert!(tidal.review && !tidal.default_optimize && !tidal.default_restore);
+        assert_eq!(tidal.reviewed_at.as_deref(), Some("2026-11-05"));
+        assert_eq!(
+            lists
+                .common
+                .iter()
+                .filter(|e| e.package == "com.aspiro.tidal")
+                .count(),
+            1
+        );
+        assert_eq!(
+            lists.find("com.starz.starzplay.android").unwrap().name,
+            "LIONSGATE+"
+        );
+        assert_eq!(lists.find("com.cbs.ott").unwrap().name, "Paramount+");
+        assert!(lists.find("com.cbsnews.ott").is_some());
+        assert!(lists.find("com.att.tv").is_none());
+        assert!(matches!(
+            classify_with_catalog("com.att.tv", None),
+            Safety::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn radio_and_discovery_reports_preserve_variants_and_keep_defaults() {
+        use crate::engine::{ActionMethod, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| (314..=317).contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 4);
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-06"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+        }
+        let news = lists.find("com.cbsnews.ott").unwrap();
+        assert_eq!(news.risk, RiskTier::Medium);
+        assert_eq!(news.method, ActionMethod::Disable);
+        assert!(news.review && !news.default_optimize && !news.default_restore);
+        assert_eq!(
+            lists
+                .common
+                .iter()
+                .filter(|e| e.package == "com.cbsnews.ott")
+                .count(),
+            1
+        );
+        assert!(lists
+            .find("com.discovery.discoveryplus.androidtv")
+            .is_some());
+        assert!(lists.find("com.discovery.discoveryplus.mobile").is_some());
+        assert!(lists.find("com.att.tv").is_none());
+        assert!(matches!(
+            classify_with_catalog("com.att.tv", None),
+            Safety::Unknown { .. }
+        ));
+    }
+
+    #[test]
+    fn media_reports_preserve_legacy_identities_and_system_holds() {
+        use crate::engine::{ActionMethod, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
+            "../../../../tests/fixtures/reviewed-optimize-packages.json"
+        ))
+        .unwrap();
+        let reports: Vec<_> = fixture
+            .iter()
+            .filter(|e| {
+                e["issue"]
+                    .as_u64()
+                    .is_some_and(|n| (319..=322).contains(&n))
+            })
+            .collect();
+        assert_eq!(reports.len(), 3);
+        for report in reports {
+            let package = report["package"].as_str().unwrap();
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.name, report["name"].as_str().unwrap());
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-06"));
+            assert_eq!(entry.sources[0], report["source_url"].as_str().unwrap());
+            assert!(entry.sources[0].ends_with(&format!("id={package}")));
+            assert!(entry.sources.iter().any(|s| s.contains("Device/firmware")));
+            assert!(entry.restore_description.contains("if still installed"));
+        }
+        assert!(lists.find("com.epix.epixnow.google").unwrap().defunct);
+        for held in [
+            "com.disney.datg.videoplatforms.android.watchdc",
+            "com.google.android.tv",
+        ] {
+            assert!(lists.find(held).is_none());
+            assert!(matches!(
+                classify_with_catalog(held, None),
+                Safety::Unknown { .. }
+            ));
+        }
+        assert!(lists.find("com.att.tv").is_none());
+        assert!(matches!(
+            classify_with_catalog("com.att.tv", None),
+            Safety::Unknown { .. }
+        ));
+        // Live Channels keeps its descriptive name, and only that.
+        assert!(load_known_names().contains_key("com.google.android.tv"));
+    }
+
+    #[test]
     fn known_names_accept_a_bare_name_or_a_described_entry() {
         let parsed: HashMap<String, KnownName> = serde_json::from_str(
             r#"{
