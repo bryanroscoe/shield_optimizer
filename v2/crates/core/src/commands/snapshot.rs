@@ -658,17 +658,11 @@ async fn apply_snapshot_impl(
     let (settings_written, settings_deleted, settings_failed) =
         apply_settings_from_plan(adb.as_ref(), serial, &plan).await;
 
-    let launcher_summary = if launcher_set {
-        "set".to_string()
-    } else if let Some(launcher) = &plan.launcher_disabled {
-        format!("skipped ({launcher} is disabled; enable it first, then restore)")
-    } else {
-        "unchanged".to_string()
-    };
     let mut summary = format!(
-        "Disabled {} packages ({} failed). Launcher: {launcher_summary}. {} settings written, {} reset ({} failed).",
+        "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
         packages_disabled.len(),
-        packages_failed.len(),
+        real_failures(&packages_failed, &kept),
+        launcher_outcome(&plan, launcher_set),
         settings_written.len(),
         settings_deleted.len(),
         settings_failed.len()
@@ -694,6 +688,39 @@ async fn apply_snapshot_impl(
         settings_failed,
         summary,
     })
+}
+
+/// Packages kept on for Home ride in `packages_failed` as `pkg (kept: …)` so
+/// every client lists them, but keeping a Home app on is not a failure.
+fn real_failures(packages_failed: &[String], kept: &[String]) -> usize {
+    packages_failed
+        .iter()
+        .filter(|entry| {
+            !kept
+                .iter()
+                .any(|pkg| entry.starts_with(&format!("{pkg} (kept: ")))
+        })
+        .count()
+}
+
+/// The launcher half of the restore summary: set, skipped with the reason,
+/// failed, or unchanged when the snapshot named no Home app or Home already
+/// matched. A failure's detail is `launcher_message`, which every client shows
+/// beside the summary, so it is not repeated here.
+fn launcher_outcome(plan: &SnapshotApplyPlan, launcher_set: bool) -> String {
+    if launcher_set {
+        return "set".to_string();
+    }
+    if let Some(launcher) = &plan.launcher_to_set {
+        return format!("failed ({launcher} wasn't set as Home)");
+    }
+    if let Some(launcher) = &plan.launcher_disabled {
+        return format!("skipped ({launcher} is disabled; enable it first, then restore)");
+    }
+    if let Some(launcher) = &plan.launcher_not_installed {
+        return format!("skipped ({launcher} isn't installed)");
+    }
+    "unchanged".to_string()
 }
 
 async fn apply_settings_from_plan(
@@ -1215,7 +1242,74 @@ mod tests {
             "{}",
             res.summary
         );
+        // Keeping the only Home app on is not a failure, and a launcher that
+        // isn't on this TV was skipped, not left "unchanged".
+        assert!(
+            res.summary.starts_with(
+                "Disabled 1 packages (0 failed). Launcher: skipped (com.spocky.projengmenu isn't installed)."
+            ),
+            "{}",
+            res.summary
+        );
         assert!(!disabled_any(&log, STOCK));
+    }
+
+    fn launcher_plan(
+        to_set: Option<&str>,
+        disabled: Option<&str>,
+        not_installed: Option<&str>,
+    ) -> super::SnapshotApplyPlan {
+        super::SnapshotApplyPlan {
+            packages_to_disable: vec![],
+            packages_already_disabled: vec![],
+            packages_not_installed: vec![],
+            launcher_to_set: to_set.map(str::to_string),
+            current_launcher: None,
+            launcher_not_installed: not_installed.map(str::to_string),
+            launcher_disabled: disabled.map(str::to_string),
+            packages_kept: vec![],
+            cross_device_warning: None,
+            settings_already_set: vec![],
+            current_values: Default::default(),
+            settings_to_write: Default::default(),
+            settings_to_delete: vec![],
+        }
+    }
+
+    #[test]
+    fn the_summary_names_the_launcher_as_set_skipped_failed_or_unchanged() {
+        use super::launcher_outcome;
+        let to_set = launcher_plan(Some(PROJECTIVY), None, None);
+        assert_eq!(launcher_outcome(&to_set, true), "set");
+        assert_eq!(
+            launcher_outcome(&to_set, false),
+            format!("failed ({PROJECTIVY} wasn't set as Home)")
+        );
+        assert_eq!(
+            launcher_outcome(&launcher_plan(None, Some(PROJECTIVY), None), false),
+            format!("skipped ({PROJECTIVY} is disabled; enable it first, then restore)")
+        );
+        assert_eq!(
+            launcher_outcome(&launcher_plan(None, None, Some(PROJECTIVY)), false),
+            format!("skipped ({PROJECTIVY} isn't installed)")
+        );
+        assert_eq!(
+            launcher_outcome(&launcher_plan(None, None, None), false),
+            "unchanged"
+        );
+    }
+
+    #[test]
+    fn only_real_failures_are_counted_as_failed() {
+        let failed = [
+            format!("{STOCK} (kept: only Home app)"),
+            format!("{BLOAT} (refused: brick risk)"),
+            "com.example.gone".to_string(),
+            // Not in `kept`, so a look-alike entry still counts.
+            "com.example.other (kept: forged)".to_string(),
+        ];
+        assert_eq!(super::real_failures(&failed, &[STOCK.to_string()]), 3);
+        assert_eq!(super::real_failures(&[], &[STOCK.to_string()]), 0);
     }
 
     #[tokio::test]
