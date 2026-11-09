@@ -15,9 +15,12 @@
 
   // The one detail panel every app row opens — App List, "Everything else"
   // and the Optimize wizard all render it through AppRow, so a figure cannot
-  // read one way in one table and another way in the next. It is read-only:
-  // the row's own verbs are the only per-app actions, and they keep their
-  // existing guarded paths. "Re-measure" re-runs the same three reads.
+  // read one way in one table and another way in the next. Disable, enable
+  // and uninstall stay on the row, behind their existing guarded paths.
+  // "Force stop" is the one device action here, as on the phone's app sheet:
+  // nothing persists (the app starts again on next launch), so it needs no
+  // safety gate, and a stop re-measures so RAM reads "Not running".
+  // "Re-measure" re-runs the same three reads.
   // "Report this app" only builds text for the user to copy, save or paste;
   // it changes nothing on the device and nothing about the verdict.
   let {
@@ -60,6 +63,33 @@
   } = $props();
 
   let reportOpen = $state(false);
+
+  let stopBusy = $state(false);
+  let stopMessage = $state<{ ok: boolean; text: string } | null>(null);
+  // Hidden for a package the device says is not installed, and not offered
+  // until its state is known, matching the phone.
+  let offerForceStop = $derived(!!serial && appState !== "missing");
+
+  async function forceStop() {
+    if (!serial || stopBusy || appState == null) return;
+    const target = serial;
+    const name = appName || pkg;
+    stopBusy = true;
+    stopMessage = null;
+    try {
+      const r = await api.forceStop(target, pkg);
+      if (serial !== target) return;
+      stopMessage = r.ok
+        ? { ok: true, text: `Stopped ${name}.` }
+        : { ok: false, text: r.message || "Couldn't stop the app." };
+      if (r.ok) onRemeasure?.();
+    } catch (e) {
+      if (serial !== target) return;
+      stopMessage = { ok: false, text: String(e) };
+    } finally {
+      stopBusy = false;
+    }
+  }
 
   /// The figures the panel shows, and only those: a read that failed or never
   /// ran is null, while a successful read with no process is "not running".
@@ -250,12 +280,20 @@
           <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
         </button>
       {/if}
+      {#if offerForceStop}
+        <button class="remeasure force-stop" onclick={forceStop} disabled={stopBusy || appState == null}>
+          {stopBusy ? "Stopping…" : "Force stop"}
+        </button>
+      {/if}
       {#if reportDevice}
         <button class="remeasure report-app" onclick={() => (reportOpen = true)}>
           <Icon name="bug_report" size={14} /> Report this app
         </button>
       {/if}
     </div>
+    {#if stopMessage}
+      <p class="stop-status small" class:warn={!stopMessage.ok} role="status">{stopMessage.text}</p>
+    {/if}
 </div>
 {#if reportOpen && reportDevice}
   <AppReportDialog
@@ -360,6 +398,13 @@
   }
   .small {
     font-size: 0.82rem;
+  }
+  .stop-status {
+    margin: 0.35rem 0 0;
+    color: var(--fg-muted);
+  }
+  .stop-status.warn {
+    color: var(--warn);
   }
   .mono {
     font-family: var(--mono);

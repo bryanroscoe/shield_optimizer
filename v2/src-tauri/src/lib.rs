@@ -311,6 +311,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         input::send_text,
         input::send_key,
         input::open_settings,
+        input::find_remote,
         sideload::install_apk,
         sideload::list_apks_in_folder,
         sideload::inspect_apk,
