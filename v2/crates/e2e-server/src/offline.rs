@@ -77,6 +77,7 @@ pub fn allowed(command: &str) -> bool {
             | "send_text"
             | "send_key"
             | "open_settings"
+            | "find_remote"
             | "install_apk"
             | "list_apks_in_folder"
             | "inspect_apk"

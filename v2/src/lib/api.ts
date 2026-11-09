@@ -267,6 +267,7 @@ export const api = {
     invoke<SendTextResult>("send_key", { serial, key, forceShell, generation }),
   openSettings: (serial: string, generation?: string) =>
     invoke<SendTextResult>("open_settings", { serial, generation }),
+  findRemote: (serial: string) => invoke<ActionResult>("find_remote", { serial }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),
