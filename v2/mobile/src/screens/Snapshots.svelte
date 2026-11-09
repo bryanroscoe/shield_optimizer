@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -301,7 +302,7 @@
     <div class="spacer"></div>
   {:else}
     <p class="intro">Restoring disables the recorded apps and restores settings. It never re-enables anything or reinstalls apps.</p>
-    <details class="help-disclosure"><summary>What snapshots include</summary><p>A snapshot records disabled apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Restore to the same TV, or preview on another TV to copy its setup.</p></details>
+    <HelpSheet title="What snapshots include"><p>A snapshot records disabled apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Restore to the same TV, or preview on another TV to copy its setup.</p></HelpSheet>
 
     <!-- Create -->
     <div class="create-card">

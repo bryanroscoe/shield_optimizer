@@ -25,7 +25,7 @@ pub struct ADBEmulatorDevice {
 impl ADBEmulatorDevice {
     /// Instantiates a new [`ADBEmulatorDevice`]
     pub fn new(identifier: String, ip_address: Option<Ipv4Addr>) -> Result<Self> {
-        let ip_address = ip_address.map_or(Ipv4Addr::LOCALHOST, |ip_address| ip_address);
+        let ip_address = ip_address.unwrap_or(Ipv4Addr::LOCALHOST);
 
         let groups = EMULATOR_REGEX
             .captures(&identifier)

@@ -41,9 +41,12 @@ track is refused: promote a tested release to production in Play Console. `compl
 by Play while the app has never been published. A versionCode override is there for re-spinning
 one version; it must still be above everything on Play.
 
-The `smoke` job runs on every PR that touches the workflow, its toolchain action or these
-scripts: the same build and verification with a throwaway keystore and a random license key, no
-secrets and no upload. It proves the pipeline before a real tag depends on it.
+The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or their shared
+inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
+verification with a throwaway keystore and a random license key, no secrets and no upload.
+Both smoke and real release jobs run the Kotlin discovery/network JVM tests and require
+nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
+Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
 
 CI covers the build, signature and static artifact gates and the versionCode check. It does not
 cover the Play pre-launch report, actual 16 KB page-size runtime, the phone/TV matrix or the
@@ -263,7 +266,8 @@ export ATVOPT_PLAY_LICENSE_KEY='MIIBIjANBgkqh…'   # one line, from Play Consol
 npm run tauri android build -- --aab
 ```
 
-The product id is the constant `PRO_PRODUCT_ID = "atvopt_pro"` in `src-tauri/src/play_billing.rs`.
+The product ids are constants in `src-tauri/src/play_billing.rs`: `PRO_PRODUCT_ID = "atvopt_pro"`
+and the two pay-more tiers in `SUPPORT_PRODUCT_IDS` (`atvopt_pro_support_1`, `atvopt_pro_support_2`).
 
 Tauri drives Gradle, and the generated `RustPlugin` already defines one product flavor per ABI
 (`universal`, `arm64`, `arm`, `x86`, `x86_64`), so per-ABI output needs CLI flags, not Gradle edits.
@@ -347,7 +351,10 @@ uploaded to some track.
 7. **Product.** Monetize with Play → Products → **One-time products** → create product id
    **`atvopt_pro`** (exactly; it is permanent), name "ATV Optimizer Pro", one purchase option, buy
    (not rent), US price **$4.99** and let Play derive other countries' prices. Activate it. The app
-   shows Play's localized price, never a hard-coded one.
+   shows Play's localized price, never a hard-coded one. Then create the two optional **Support me**
+   tiers the same way: `atvopt_pro_support_1` at **$9.99** and `atvopt_pro_support_2` at **$19.99**.
+   They unlock exactly the same Pro, so their names and descriptions must not promise anything
+   extra. See [`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) §3.3.
 8. **License testers.** Settings → **License testing**: add the Google accounts of everyone testing
    purchases: the owner and closed-track testers who will try the purchase flow, so they can
    test-purchase Pro without being charged. Leave Ko-fi supporters who get a promo code (step 10)
@@ -393,7 +400,10 @@ Starting state: Free (the account doesn't own `atvopt_pro`).
 7. Refund the order with "Remove entitlement" in Order management, reopen the app: back to Free;
    More → Emergency recovery and Apps → re-enable still work. **Now Free.**
 8. Buy with "always approves": Pro unlocks at once; repeat the step 4 acknowledgment check.
-9. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
+9. Support tier: refund again as in step 7, then tap the $9.99 **Support me** price: Play's sheet
+   names the supporter product, Pro unlocks, and the Support me row and Buy Pro disappear. Repeat
+   the step 4 acknowledgment check for this order.
+10. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
    tester, or this one after another refund as in step 7): redeem in the Play Store app, then open
    the app: Pro unlocks.
 

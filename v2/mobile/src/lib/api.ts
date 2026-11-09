@@ -285,7 +285,8 @@ export const api = {
   licenseInfo: () => call<LicenseInfo | null>("license_info"),
   billingStatus: () => call<BillingStatus>("billing_status"),
   billingRefresh: (force = false) => call<BillingStatus>("billing_refresh", { force }),
-  billingPurchase: () => call<PurchaseOutcome>("billing_purchase"),
+  billingPurchase: (productId?: string) =>
+    call<PurchaseOutcome>("billing_purchase", productId ? { productId } : {}),
 
   // ---- File transfer (7.2) ----
   listRemoteDir: (serial: string, path: string) =>

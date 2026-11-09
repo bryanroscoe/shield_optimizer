@@ -592,7 +592,7 @@ mod tests {
     }
 
     #[test]
-    fn reported_packages_have_reviewed_safety_without_default_removal() {
+    fn reported_packages_have_reviewed_safety_and_review_without_default_removal() {
         let evidence: Vec<serde_json::Value> = serde_json::from_str(include_str!(
             "../../../../tests/fixtures/reported-package-names.json"
         ))
@@ -611,7 +611,8 @@ mod tests {
                 let entry = lists.find(package).unwrap();
                 assert_eq!(entry.name, item["name"].as_str().unwrap());
                 assert!(!names.contains_key(package));
-                assert!(!entry.default_optimize && !entry.default_restore && !entry.review);
+                // Apps people install by choice: remove only if unused, never by default.
+                assert!(!entry.default_optimize && !entry.default_restore && entry.review);
                 assert_eq!(entry.method, crate::engine::ActionMethod::Disable);
                 assert!(entry.reviewed_at.is_some());
                 assert!(!entry.sources.is_empty());
@@ -900,6 +901,81 @@ mod tests {
                         e.package
                     );
                 }
+            }
+        }
+    }
+
+    /// Components that ship with the TV and that nobody installs, so they are
+    /// neither default bloat nor "remove only if unused". Each one is listed in
+    /// docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md with its reason.
+    const PREINSTALLED_NOT_REVIEW: &[&str] = &[
+        "com.android.printspooler",
+        "com.android.gallery3d",
+        "com.android.dreams.basic",
+        "com.google.android.tv.remote.service",
+        "com.google.android.play.games",
+        "com.google.android.backdrop",
+        "com.nvidia.osc",
+        "com.nvidia.shieldtech.hooks",
+        "com.nvidia.nvgamecast",
+        "com.google.android.tungsten.overscan",
+        "com.droidlogic.launcher.provider",
+    ];
+
+    #[test]
+    fn chosen_apps_outside_the_default_bloat_are_review() {
+        // A Safe, Medium or Advanced entry that is not default bloat is an app
+        // someone installed or uses by choice (Surfshark is Medium, Plex Media
+        // Server is Advanced), so it must read "remove only if unused". High is
+        // for components the TV needs, which are never a person's choice.
+        use crate::engine::types::RiskTier;
+        let bundle = load_embedded_app_lists().expect("parse");
+        for (list, entries) in named_lists(&bundle) {
+            for e in entries {
+                if matches!(
+                    e.risk,
+                    RiskTier::Safe | RiskTier::Medium | RiskTier::Advanced
+                ) && !e.default_optimize
+                    && !PREINSTALLED_NOT_REVIEW.contains(&e.package.as_str())
+                {
+                    assert!(
+                        e.review,
+                        "{} in {list}.json is {:?}, not default bloat and not a listed preinstalled component, so it needs review: true",
+                        e.package, e.risk
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn preinstalled_exceptions_exist_and_are_not_review() {
+        // The exception list must not outlive its entries, and an exception that
+        // has since become review or default bloat no longer needs to be one.
+        let bundle = load_embedded_app_lists().expect("parse");
+        let all: Vec<&crate::engine::AppEntry> = named_lists(&bundle)
+            .into_iter()
+            .flat_map(|(_, entries)| entries.iter())
+            .collect();
+        for pkg in PREINSTALLED_NOT_REVIEW {
+            let matches: Vec<_> = all.iter().filter(|e| e.package == *pkg).collect();
+            assert!(
+                !matches.is_empty(),
+                "{pkg} is listed in PREINSTALLED_NOT_REVIEW but is in no app list; remove it"
+            );
+            for e in matches {
+                assert!(
+                    !e.review,
+                    "{pkg} is review: true, so it is not a preinstalled exception; remove it from PREINSTALLED_NOT_REVIEW"
+                );
+                assert!(
+                    !e.default_optimize,
+                    "{pkg} is default bloat, which the rule already skips; remove it from PREINSTALLED_NOT_REVIEW"
+                );
+                assert!(
+                    !e.defunct,
+                    "{pkg} is defunct, which is not a preinstalled component; remove it from PREINSTALLED_NOT_REVIEW"
+                );
             }
         }
     }

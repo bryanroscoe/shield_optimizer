@@ -558,6 +558,7 @@ export type PlayState =
 
 /// Play's localized offer for Pro. Display only; never a hard-coded price.
 export interface PlayOffer {
+  product_id: string;
   formatted_price: string;
   title: string;
   name: string;
@@ -575,7 +576,10 @@ export interface BillingStatus {
   /// Whether Buy and Restore purchases can work in this build on this phone.
   available: boolean;
   play: PlayState;
+  /// The standard Pro product.
   offer: PlayOffer | null;
+  /// Optional pay-more tiers. Each unlocks the same Pro as `offer`.
+  support_offers?: PlayOffer[];
   ack_pending: boolean;
   product_id: string;
 }

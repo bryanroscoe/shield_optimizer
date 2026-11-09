@@ -1,0 +1,13 @@
+{
+  "advertisements": [
+    {"service_kind":"legacy_adb","instance":"same-unverified-instance","address":"192.0.2.11","port":5555,"interface_name":"en0","interface_index":5,"scope_id":null,"connect_address":"192.0.2.11:5555","observed_age_ms":100,"cached":false,"warning":null},
+    {"service_kind":"tls_pairing","instance":"same-unverified-instance","address":"192.0.2.11","port":37111,"interface_name":"en0","interface_index":5,"scope_id":null,"connect_address":"192.0.2.11:37111","observed_age_ms":100,"cached":false,"warning":null},
+    {"service_kind":"tls_connect","instance":"same-unverified-instance","address":"192.0.2.11","port":37222,"interface_name":"en0","interface_index":5,"scope_id":null,"connect_address":"192.0.2.11:37222","observed_age_ms":100,"cached":false,"warning":null},
+    {"service_kind":"tls_connect","instance":"scoped-fixture","address":"fe80::1234","port":37333,"interface_name":"en7","interface_index":7,"scope_id":7,"connect_address":"[fe80::1234%7]:37333","observed_age_ms":100,"cached":false,"warning":null},
+    {"service_kind":"legacy_adb","instance":"ambiguous-fixture","address":"169.254.1.4","port":5555,"interface_name":"en8","interface_index":8,"scope_id":null,"connect_address":null,"observed_age_ms":100,"cached":false,"warning":"This IPv4 interface cannot be selected by the transport. Enter a unique TV address manually."},
+    {"service_kind":"tls_connect","instance":"cached-fixture","address":"198.51.100.8","port":41234,"interface_name":"en0","interface_index":5,"scope_id":null,"connect_address":null,"observed_age_ms":10000,"cached":true,"warning":"Not observed in this scan. Scan again or enter the TV address manually."},
+    {"service_kind":"tls_pairing","instance":"missing-scope-fixture","address":"fe80::abcd","port":44444,"interface_name":null,"interface_index":null,"scope_id":null,"connect_address":null,"observed_age_ms":100,"cached":false,"warning":"IPv6 scope is unavailable. Enter an address with a supported numeric scope manually."}
+  ],
+  "warnings": [],
+  "observation_max_age_ms": 30000
+}

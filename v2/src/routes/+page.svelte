@@ -1,10 +1,11 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import ApprovalDialog, { type ApprovalPhase } from "$lib/components/ApprovalDialog.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
-  import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
+  import type { Device, DeviceReport, PairedConnectProbe, ScanConnectionProgress, NativeAdvertisement, NativeDiscoveryReport } from "$lib/types";
   import {
     explainAdbFailure,
     hostOf,
@@ -21,6 +22,9 @@
   import LocalNetworkNotice from "$lib/components/LocalNetworkNotice.svelte";
   import { instanceSerial } from "$lib/mdns";
   import { deviceTypeLabel } from "$lib/types";
+  import { nativeScanRows, type DeviceRow } from "$lib/native-scan-rows";
+  import { buildNativeDiscoveryRows, discoveryAddressUsable } from "$lib/native-discovery-rows";
+  import NativeConnectionChoices from "$lib/components/NativeConnectionChoices.svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { getOpenNonTvIds, setOpenNonTv, idKey } from "$lib/prefs";
   import {
@@ -35,19 +39,38 @@
   import SupportBanner from "$lib/components/SupportBanner.svelte";
 
   let devices = $state<Device[]>([]);
+  let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
+  let nativeDiscovery = $state<NativeDiscoveryReport | null>(null);
+  let discoveryReceivedAt = $state(0);
+  let scanDetailsOpen = $state(false);
+  let adbBackend = $state<"direct" | "subprocess" | null>(null);
 
   /// Sort priority: authorized first (status === "device"), then unauthorized
   /// (the user can act on them via the inline guidance), then offline. Tiebreak
   /// by display name so the order doesn't shuffle on refresh.
   const STATUS_ORDER: Record<string, number> = { device: 0, unauthorized: 1, offline: 2 };
   let sortedDevices = $derived(
-    [...devices].sort((a, b) => {
+    (adbBackend === "direct" ? nativeScanRows(devices, nativeConnections) : [...devices] as DeviceRow[]).sort((a, b) => {
       const sa = STATUS_ORDER[a.status] ?? 9;
       const sb = STATUS_ORDER[b.status] ?? 9;
       if (sa !== sb) return sa - sb;
       return a.name.localeCompare(b.name);
     }),
   );
+  const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed" || d.discoveryState === "offline");
+  const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
+  const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
+  /// A device that hasn't allowed this computer, under either engine. The
+  /// built-in engine shows nothing on it until Request approval asks; under
+  /// platform-tools the adb server already offered its key, so it is probably
+  /// asking now.
+  const isUnapproved = (d: DeviceRow) => adbBackend !== null && d.status === "unauthorized" && !d.properties;
+  const isAwaitingApproval = (d: DeviceRow) =>
+    isUnapproved(d) &&
+    (adbBackend === "direct" ? d.discoveryState === "approval" : approvals[d.serial]?.phase === "waiting");
+  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && !isUnapproved(d) && (d.discoveryState === "failed" || d.discoveryState === "offline");
+  /// Endpoints the main list already shows, so Scan details doesn't offer them again.
+  const listedEndpoints = $derived(visibleDevices.filter(d => d.status === "device" || d.status === "unauthorized").map(d => d.serial));
   let loading = $state(true);
   let error = $state<string | null>(null);
 
@@ -62,7 +85,46 @@
 
   let scanBusy = $state(false);
   let scanMessage = $state("");
+  let scanDetails = $state<string[]>([]);
+  let nativeScanSummary = "";
+  let scanBaseDetails: string[] = [];
+  let lastNativeProgress = "";
+  let disposed = false;
+  let refreshInFlight: Promise<void> | null = null;
+  let nativeMonitorTimer: ReturnType<typeof setTimeout> | null = null;
+  let nativeMonitorToken = 0;
+  let nativeMonitoring = false;
+
+  function monitorNativeConnections() {
+    if (disposed || adbBackend !== "direct") return;
+    if (nativeMonitorTimer) clearTimeout(nativeMonitorTimer);
+    const token = ++nativeMonitorToken;
+    const deadline = Date.now() + 90_000;
+    nativeMonitoring = true;
+    const schedule = () => {
+      nativeMonitorTimer = setTimeout(async () => {
+        nativeMonitorTimer = null;
+        if (disposed || token !== nativeMonitorToken) return;
+        if (!refreshInFlight) await startRefresh(true);
+        if (disposed || token !== nativeMonitorToken) return;
+        // A request waits for the person (the backend bounds it); a scan's quiet
+        // attempts are watched for 90 seconds. An ended request still on
+        // screen is watched while it is shown, so a later listing that the
+        // TV allowed this computer corrects it.
+        const connecting = (scanBusy || nativeConnections.pending.length > 0) && Date.now() < deadline;
+        if (!backendUnavailable && (connecting || waitingForApproval() || endedRequestShown())) schedule();
+        else nativeMonitoring = false;
+      }, 1000);
+    };
+    schedule();
+  }
+
   let scanError = $state<string | null>(null);
+
+  const endedRequestShown = () =>
+    dialogState?.engine === "direct" && (dialogState.phase === "not_approved" || dialogState.phase === "error");
+  const waitingForApproval = () =>
+    (nativeConnections.awaiting_authorization?.length ?? 0) > 0 || (nativeConnections.requesting?.length ?? 0) > 0;
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -100,27 +162,76 @@
 
   // Triggers the install-platform-tools button rather than a generic error pane.
   let adbMissing = $state(false);
+  let backendUnavailable = $state(false);
+  const directUnavailable = $derived(adbBackend === "direct" && backendUnavailable);
+  const hasConnectionChoices = $derived(!!nativeDiscovery && buildNativeDiscoveryRows(nativeDiscovery.advertisements
+    .filter(row => row.service_kind !== "tls_pairing" && !(row.connect_address && listedEndpoints.includes(row.connect_address)))).length > 0);
+  const hasScanDetails = $derived(!backendUnavailable && !!(scanDetails.length || scanAttempts.length || hasConnectionChoices));
+  $effect(() => {
+    if (!hasScanDetails) scanDetailsOpen = false;
+  });
   let installBusy = $state(false);
   let installMessage = $state("");
 
   async function refresh() {
-    loading = true;
-    error = null;
+    while (refreshInFlight) await refreshInFlight;
+    if (!disposed) await startRefresh(false);
+  }
+
+  function startRefresh(background: boolean): Promise<void> {
+    const work = performRefresh(background).finally(() => {
+      if (refreshInFlight === work) refreshInFlight = null;
+    });
+    refreshInFlight = work;
+    return work;
+  }
+
+  async function performRefresh(background: boolean) {
+    if (!background) {
+      loading = true;
+      error = null;
+    }
     try {
-      // Structured probe first so we render the install pane on a clean
-      // signal instead of substring-matching a free-form error message.
       const status = await api.adbStatus();
+      if (disposed) return;
+      adbBackend = status.backend ?? null;
+      backendUnavailable = !status.available;
       if (!status.available) {
-        adbMissing = true;
+        nativeDiscovery = null;
+        adbMissing = adbBackend === "subprocess" && status.failure === "missing_binary";
         devices = [];
+        scanMessage = "";
+        scanDetails = [];
+        if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
         return;
       }
       adbMissing = false;
-      devices = await api.listDevices();
+      const progress = status.connections ?? { pending: [], failed: [] };
+      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.requesting ?? [])].sort(), [...(progress.not_allowed ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
+      const changed = progressKey !== lastNativeProgress;
+      nativeConnections = progress;
+      if (adbBackend === "direct" && nativeScanSummary && !scanBusy) {
+        scanMessage = nativeScanSummary;
+        scanDetails = [...new Set([...scanBaseDetails, ...progress.failed.map(f => `${f.address}: ${f.message}`)])];
+        if (progress.pending.length === 0 && progress.failed.length > 0) {
+          scanMessage += " Other connection attempts are in Scan details.";
+        }
+      }
+      // Pending status reads are cheap; unchanged progress must not repeatedly
+      // re-query properties from every connected TV.
+      if (!background || changed) {
+        const list = await api.listDevices();
+        if (disposed) return;
+        devices = list;
+        noteUnapproved(list);
+        lastNativeProgress = progressKey;
+      }
+      reconcileApprovals();
+      if (!background && (progress.pending.length > 0 || waitingForApproval()) && !nativeMonitoring) monitorNativeConnections();
     } catch (e) {
-      error = String(e);
+      if (!disposed && !background) error = String(e);
     } finally {
-      loading = false;
+      if (!background && !disposed) loading = false;
     }
   }
 
@@ -145,7 +256,7 @@
 
   async function showConnectFailure(address: string, raw: string) {
     const status = await freshLocalNetworkStatus(raw, address);
-    const explained = explainAdbFailure("connect", address, raw, status);
+    const explained = explainAdbFailure("connect", address, raw, status, adbBackend !== "direct");
     connectMessage = "";
     connectDetail = "";
     connectError = { raw: explained.raw, summary: explained.summary, localNetwork: explained.localNetwork };
@@ -160,9 +271,9 @@
 
   async function connect() {
     const address = connectAddress.trim();
-    if (!address) return;
+    if (directUnavailable || connectBusy || scanBusy || restartBusy || !address || nativePairNeedsPort) return;
     connectBusy = true;
-    connectMessage = "";
+    connectMessage = adbBackend === "direct" ? "Connecting…" : "";
     connectDetail = "";
     connectError = null;
     try {
@@ -205,22 +316,36 @@
     pairMessage = "";
     pairDetail = "";
     if (!row) return null;
-    justConnected = row.serial;
-    flashSerial = row.serial;
+    await highlightRow(row.serial);
+    return row;
+  }
+
+  /// Scroll to a row, outline it for a moment and give it its call to
+  /// action. Leaves the Pair panel and Add by IP alone.
+  async function highlightRow(serial: string) {
+    justConnected = serial;
+    flashSerial = serial;
     await tick();
-    const el = document.querySelector(`[data-serial="${CSS.escape(row.serial)}"]`);
+    const el = document.querySelector(`[data-serial="${CSS.escape(serial)}"]`);
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     el?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     setTimeout(() => {
-      if (flashSerial === row.serial) flashSerial = null;
+      if (flashSerial === serial) flashSerial = null;
     }, 2400);
-    return row;
   }
 
   let connectInput = $state<HTMLInputElement | null>(null);
   /// Set after a successful pair: the connect box holds the paired host and
   /// is waiting for the separate connect port (#88).
   let pairNextStep = $state(false);
+  const nativePairNeedsPort = $derived(adbBackend !== "subprocess" && pairNextStep && !explicitConnectPort(connectAddress.trim()));
+
+  function explicitConnectPort(address: string): boolean {
+    const port = address.startsWith("[")
+      ? /^\[[^\]]+\]:(\d+)$/.exec(address)?.[1]
+      : /^[^:\s]+:(\d+)$/.exec(address)?.[1];
+    return port !== undefined && Number(port) > 0 && Number(port) <= 65535;
+  }
 
   /// The host part of a pairing address, without its port. The connect port
   /// is a different one, so only the host carries over.
@@ -235,12 +360,30 @@
   }
 
   async function scan() {
+    if (disposed || directUnavailable) return;
+    if (adbBackend !== "subprocess" && scanBusy) return;
     scanBusy = true;
     scanError = null;
+    scanDetails = [];
+    scanBaseDetails = [];
+    nativeScanSummary = "";
+    nativeDiscovery = null;
+    if (adbBackend === "direct") monitorNativeConnections();
     scanMessage = "Scanning local network…";
     try {
       const r = await api.scanNetwork();
+      if (disposed) return;
       scanMessage = r.message;
+      scanDetails = r.details ?? [];
+      scanBaseDetails = r.details ?? [];
+      nativeDiscovery = adbBackend === "direct" ? r.native_discovery ?? null : null;
+      discoveryReceivedAt = performance.now();
+      if (adbBackend === "direct" && (r.pending?.length ?? 0) > 0) {
+        nativeScanSummary = "Scan finished.";
+        scanMessage = nativeScanSummary;
+        nativeConnections = { ...nativeConnections, pending: r.pending ?? [] };
+      }
+      scanBusy = false;
       // A device advertising only a pairing service cannot be connected to
       // until the user enters the code from its screen. Open the pairing form
       // on its real advertised port rather than making them read two
@@ -255,11 +398,20 @@
       // list is where that state is visible.
       await refresh();
     } catch (e) {
-      scanMessage = "";
-      scanError = String(e);
+      if (!disposed) {
+        scanMessage = "";
+        scanError = String(e);
+      }
     } finally {
       scanBusy = false;
     }
+  }
+
+  function connectUsingAdvertisement(address: NativeAdvertisement) {
+    if (adbBackend !== "direct" || !nativeDiscovery || !address.connect_address || scanBusy || connectBusy || pairBusy) return;
+    if (!discoveryAddressUsable(address, performance.now() - discoveryReceivedAt, nativeDiscovery.observation_max_age_ms)) return;
+    connectAddress = address.connect_address;
+    void connect();
   }
 
   /// Do we positively know this is not an Android TV?
@@ -343,7 +495,7 @@
     return `Copied ${what}`;
   }
 
-  function deviceMenu(d: Device): MenuItem[] {
+  function deviceMenu(d: DeviceRow): MenuItem[] {
     const href = deviceHref(d);
     const ip = ipOf(d);
     const serial = hardwareSerialOf(d);
@@ -370,9 +522,18 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
-    if (d.status === "unauthorized" && d.connection === "network") {
+    if (isUnapproved(d)) {
+      if (requestOpen(d)) {
+        items.push(
+          { label: "Show approval request", run: () => showApproval(d) },
+          { label: "Cancel approval request", run: () => cancelApprovalRequest(d.serial) },
+        );
+      } else {
+        items.push({ label: "Request approval", run: () => startApproval(d) });
+      }
+    } else if (canRetryConnection(d)) {
       items.push({
-        label: "Ask again on the TV",
+        label: "Retry connection",
         disabled: repromptBusy === d.serial,
         run: () => repromptDevice(d),
       });
@@ -411,25 +572,9 @@
     }
   }
 
-  /// Held under an Android 11+ Wireless debugging key, so it appears in that
-  /// screen's Paired devices list. Decided from the adb transport key alone:
-  /// a `:5555` address is legacy network debugging and never does.
-  function isWirelessDebuggingTransport(d: Device): boolean {
-    return d.serial.includes("._adb-tls-connect.");
-  }
-
-  /// What the authorization prompt is called on this device.
-  ///
-  /// Over USB it is reliably "Allow USB debugging?". Over the network the
-  /// title varies by Android version and OEM — plenty of TVs still show the
-  /// USB wording for a Wi-Fi connection — so don't swear to one.
-  function authPromptLabel(d: Device): string {
-    return d.connection === "usb" ? '"Allow USB debugging?"' : '"Allow debugging?"';
-  }
-
   async function showPairFailure(address: string, raw: string) {
     const status = await freshLocalNetworkStatus(raw, address);
-    const explained = explainAdbFailure("pair", address, raw, status);
+    const explained = explainAdbFailure("pair", address, raw, status, adbBackend !== "direct");
     pairMessage = explained.summary ?? explained.raw;
     pairDetail = explained.summary ? explained.raw : "";
     pairLocalNetwork = explained.localNetwork;
@@ -438,6 +583,10 @@
   $effect(() => {
     const host = hostOf(pairAddress);
     const token = ++pairWarnToken;
+    if (adbBackend !== "subprocess") {
+      pairWarning = null;
+      return;
+    }
     if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) {
       pairWarning = null;
       return;
@@ -453,6 +602,7 @@
   });
 
   async function pair() {
+    if (directUnavailable) return;
     const address = pairAddress.trim();
     if (!address || pairPin.length !== 6) return;
     cancelPairWait(false);
@@ -478,6 +628,17 @@
         // The manual fallback is ready from the start; the connect port is a
         // different one from the pairing port, so only the host carries over.
         if (host) connectAddress = `${host}:`;
+        // The built-in engine can only watch for the device it paired with
+        // when the device named itself while pairing.
+        const autoConnect = adbBackend === "subprocess" || (adbBackend === "direct" && !!r.instance);
+        if (!autoConnect) {
+          pairStage = "manual";
+          pairMessage = r.message;
+          pairNextStep = true;
+          await tick();
+          focusConnectBox();
+          return;
+        }
         await refresh();
         // The refresh is another await the user can cancel during.
         if (requestToken !== pairWaitToken || !pairOpen) return;
@@ -506,11 +667,25 @@
     pairStage = "waiting";
     pairElapsed = 0;
     const started = Date.now();
+    // A built-in engine probe is itself a multi-second mDNS browse, so the
+    // count ticks on its own instead of once per probe.
+    const ticker = setInterval(() => {
+      if (token === pairWaitToken) pairElapsed = Math.min(PAIR_CONNECT_WAIT_S, Math.floor((Date.now() - started) / 1000));
+    }, 1000);
+    try {
+      await pollPairedConnect(token, started, pairTarget, instance);
+    } finally {
+      clearInterval(ticker);
+    }
+  }
+
+  async function pollPairedConnect(token: number, started: number, pairTarget: string, instance: string | null) {
     const hardwareId = instanceSerial(instance);
     /// The endpoint was advertised but refused us: that, not discovery, is
     /// what the user has to fix if the wait runs out.
     let lastFailure: { address: string; message: string } | null = null;
     while (token === pairWaitToken) {
+      const probeStarted = Date.now();
       let probe: PairedConnectProbe;
       try {
         probe = await api.probePairedConnect(pairTarget, instance);
@@ -569,7 +744,7 @@
         if (lastFailure) {
           const status = await freshLocalNetworkStatus(lastFailure.message, lastFailure.address);
           if (token !== pairWaitToken) return;
-          const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status);
+          const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status, adbBackend !== "direct");
           pairLocalNetwork = explained.localNetwork;
           fallBackToManual(
             `It advertised ${lastFailure.address}, but connecting kept failing. ${explained.summary ?? ""}`.trim(),
@@ -580,7 +755,9 @@
         }
         return;
       }
-      await sleep(PAIR_PROBE_INTERVAL_MS);
+      // At most one probe per interval; a probe that browsed that long
+      // already waited.
+      await sleep(Math.max(0, PAIR_PROBE_INTERVAL_MS - (Date.now() - probeStarted)));
     }
   }
 
@@ -655,6 +832,7 @@
       restartMessage = r.message;
       await freshLocalNetworkStatus(r.message);
       await refresh();
+      restartBusy = false;
       if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
@@ -678,10 +856,343 @@
 
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
+  /// How long the app waits for Allow, under either engine. The built-in
+  /// engine enforces it itself (`APPROVAL_WAIT`); under platform-tools the
+  /// app watches the transport this long.
+  const APPROVAL_WAIT_MS = 10 * 60_000;
+  const APPROVED_CLOSE_MS = 1600;
+  const APPROVAL_POLL_MS = 2000;
+  /// Platform-tools: the adb server offers its key when a TV connects, so for
+  /// this long after a TV first appears unapproved it is probably asking.
+  const PROMPT_FRESH_MS = 2 * 60_000;
 
-  /// Drops this one TV's connection and dials it again, which is what makes
-  /// Android show the debugging prompt a second time. Nothing else is
-  /// redialled, so no other TV prompts.
+  type ApprovalState = {
+    serial: string;
+    name: string;
+    address: string | null;
+    usb: boolean;
+    wireless: boolean;
+    engine: "direct" | "subprocess";
+    phase: ApprovalPhase;
+    error: string | null;
+    /// When this window's wait ends; null when it doesn't know (a request
+    /// the built-in engine was already running when this window opened).
+    deadline: number | null;
+    /// Which Request approval this is. Results for an older one are dropped.
+    token: number;
+    /// It ended while the dialog was closed, so the row says how.
+    unseen: boolean;
+  };
+  /// Approval requests this window knows about, by transport key. The
+  /// built-in engine's wait lives in the backend; this is what the dialog
+  /// and the row show for it.
+  let approvals = $state<Record<string, ApprovalState>>({});
+  let dialogSerial = $state<string | null>(null);
+  const dialogState = $derived(dialogSerial ? approvals[dialogSerial] ?? null : null);
+  let approvalToken = 0;
+  let approvalPoll: ReturnType<typeof setInterval> | null = null;
+  let approvalPollBusy = false;
+  /// Requests whose outcome is being resolved, so it is resolved once.
+  const settling = new Set<string>();
+  /// Platform-tools: unapproved keys already listed, and when each newly
+  /// listed one appeared (the adb server offered its key then).
+  let seenUnapproved: Set<string> | null = null;
+  let freshPrompt = $state<Record<string, number>>({});
+
+  /// A request is being made or waits on the TV: the dialog is the way back
+  /// to it, and Request approval is not offered again meanwhile.
+  const requestOpen = (d: DeviceRow) => isAwaitingApproval(d) || approvals[d.serial]?.phase === "asking";
+  /// How a request ended while its dialog was closed.
+  const unseenResult = (d: DeviceRow): string | null => {
+    const state = approvals[d.serial];
+    if (!state?.unseen) return null;
+    if (state.phase === "error") return state.error ?? "Couldn't ask it.";
+    if (state.phase === "not_approved") return "The request ended without Allow.";
+    return null;
+  };
+
+  function approvalFor(d: DeviceRow, phase: ApprovalPhase, token: number, deadline: number | null): ApprovalState {
+    return {
+      serial: d.serial,
+      name: d.name,
+      address: d.name !== d.serial ? d.serial : null,
+      usb: d.connection === "usb",
+      wireless: d.serial.includes("._adb-tls-connect."),
+      engine: adbBackend === "direct" ? "direct" : "subprocess",
+      phase,
+      error: null,
+      deadline,
+      token,
+      unseen: false,
+    };
+  }
+
+  /// End a request in `phase`. Shown in the dialog when it is open, else on
+  /// the row.
+  function finish(serial: string, phase: "not_approved" | "error", error: string | null = null) {
+    const current = approvals[serial];
+    if (!current) return;
+    approvals[serial] = { ...current, phase, error, unseen: dialogSerial !== serial };
+    delete freshPrompt[serial];
+  }
+
+  /// Request approval: opens the dialog and asks. Built-in: the backend
+  /// offers the key once and waits. Platform-tools: the adb server asks by
+  /// itself; a network transport is redialled so the TV asks again, and the
+  /// app watches the transport. A USB device asks again when replugged.
+  async function startApproval(d: DeviceRow) {
+    const serial = d.serial;
+    if (approvals[serial]?.phase === "asking") {
+      dialogSerial = serial;
+      return;
+    }
+    const token = ++approvalToken;
+    approvals[serial] = approvalFor(d, "asking", token, null);
+    dialogSerial = serial;
+    const current = () => approvals[serial]?.token === token;
+    const waiting = () => {
+      approvals[serial] = { ...approvals[serial], phase: "waiting", deadline: Date.now() + APPROVAL_WAIT_MS };
+    };
+    if (adbBackend === "direct") {
+      let status: string;
+      try {
+        status = (await api.requestDeviceApproval(serial)).status;
+      } catch (e) {
+        if (current()) finish(serial, "error", String(e));
+        return;
+      }
+      if (!current()) return;
+      if (status === "canceled") {
+        delete approvals[serial];
+        if (dialogSerial === serial) closeApprovalDialog();
+        return;
+      }
+      if (status === "waiting") {
+        waiting();
+        monitorNativeConnections();
+      }
+      await refresh();
+      if (!current()) return;
+      if (status === "device") void settle(serial, token, "ended");
+      else if (status === "not_allowed") finish(serial, "not_approved");
+      return;
+    }
+    if (!approvals[serial].usb) {
+      try {
+        const r = await api.repromptDevice(serial);
+        if (!current()) return;
+        if (!r.ok) {
+          finish(serial, "error", r.message);
+          return;
+        }
+      } catch (e) {
+        if (current()) finish(serial, "error", String(e));
+        return;
+      }
+    }
+    if (!current()) return;
+    waiting();
+    pollApprovals();
+    void pollApprovalsOnce();
+  }
+
+  function showApproval(d: DeviceRow) {
+    // The built-in engine's wait outlives this window's state (a reload).
+    if (!approvals[d.serial]) approvals[d.serial] = approvalFor(d, "waiting", ++approvalToken, null);
+    dialogSerial = d.serial;
+  }
+
+  /// The TV allowed this computer and is listed as `row`: show it, then close.
+  function approved(serial: string, row: string) {
+    const state = approvals[serial];
+    if (!state || state.phase === "approved") return;
+    approvals[serial] = { ...state, phase: "approved", error: null, unseen: false };
+    delete freshPrompt[serial];
+    const token = state.token;
+    setTimeout(() => {
+      if (approvals[serial]?.token !== token || approvals[serial]?.phase !== "approved") return;
+      delete approvals[serial];
+      if (dialogSerial === serial) closeApprovalDialog(row);
+      void highlightRow(row);
+    }, APPROVED_CLOSE_MS);
+  }
+
+  /// The row a TV that allowed this computer is listed under: its own key,
+  /// or the row its transport was folded into, found by that transport's own
+  /// verified hardware id (never its address). Null while it isn't listed as
+  /// a device.
+  async function approvedRow(serial: string): Promise<string | null> {
+    if (devices.some(d => d.serial === serial && d.status === "device")) return serial;
+    try {
+      const row = await api.deviceProfile(serial);
+      return row.status === "device" ? row.serial : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /// Resolve how a request ended. "refused": the backend recorded a refusal.
+  /// "ended": it's over with no refusal, so the TV either allowed this
+  /// computer (perhaps folded into another row) or the connection ended.
+  /// "late": an ended request, and a later listing may show the TV allowed.
+  async function settle(serial: string, token: number, how: "refused" | "ended" | "late") {
+    if (settling.has(serial)) return;
+    settling.add(serial);
+    try {
+      const row = how === "refused" ? null : await approvedRow(serial);
+      const state = approvals[serial];
+      if (!state || state.token !== token || state.phase === "approved") return;
+      if (row) approved(serial, row);
+      else if (how === "refused") finish(serial, "not_approved");
+      else if (how === "ended" && (state.phase === "waiting" || state.phase === "asking")) {
+        finish(serial, "error", `The connection to ${state.name} ended before it allowed this computer. Try again.`);
+      }
+    } finally {
+      settling.delete(serial);
+    }
+  }
+
+  /// Settle each request against what the backend now reports.
+  function reconcileApprovals() {
+    const open = new Set([...(nativeConnections.awaiting_authorization ?? []), ...(nativeConnections.requesting ?? [])]);
+    const refused = new Set(nativeConnections.not_allowed ?? []);
+    const ready = new Set(nativeConnections.ready ?? []);
+    for (const state of Object.values(approvals)) {
+      if (state.phase === "asking" || state.phase === "approved") continue;
+      if (devices.some(d => d.serial === state.serial && d.status === "device")) {
+        approved(state.serial, state.serial);
+      } else if (state.phase !== "waiting") {
+        // Ended, but a scan reached it since: the TV may have allowed it.
+        if (state.engine === "direct" && ready.has(state.serial)) void settle(state.serial, state.token, "late");
+      } else if (state.engine === "direct") {
+        if (!open.has(state.serial)) void settle(state.serial, state.token, refused.has(state.serial) ? "refused" : "ended");
+      } else if (state.deadline !== null && Date.now() >= state.deadline) {
+        finish(state.serial, "not_approved");
+      }
+    }
+  }
+
+  /// Platform-tools: which unapproved TVs were listed just now, so the row
+  /// says one is probably asking only while that is likely.
+  function noteUnapproved(list: Device[]) {
+    if (adbBackend !== "subprocess") {
+      seenUnapproved = null;
+      if (Object.keys(freshPrompt).length > 0) freshPrompt = {};
+      return;
+    }
+    const listed = new Set(list.filter(d => d.status === "unauthorized").map(d => d.serial));
+    if (seenUnapproved) {
+      for (const serial of listed) {
+        if (seenUnapproved.has(serial)) continue;
+        const stamp = Date.now();
+        freshPrompt[serial] = stamp;
+        setTimeout(() => {
+          if (freshPrompt[serial] === stamp) delete freshPrompt[serial];
+        }, PROMPT_FRESH_MS);
+      }
+    }
+    for (const serial of Object.keys(freshPrompt)) if (!listed.has(serial)) delete freshPrompt[serial];
+    seenUnapproved = listed;
+  }
+
+  const subprocessWaiting = () =>
+    Object.values(approvals).filter(a => a.engine === "subprocess" && a.phase === "waiting");
+
+  /// The wait limit holds whether or not adb answers.
+  function expireApprovals() {
+    const now = Date.now();
+    for (const state of subprocessWaiting()) {
+      if (state.deadline !== null && now >= state.deadline) finish(state.serial, "not_approved");
+    }
+  }
+
+  /// Platform-tools: read each waiting TV's transport state (cheap: `adb
+  /// devices` alone), and re-read the full list only once one changed.
+  async function pollApprovalsOnce() {
+    if (approvalPollBusy || disposed) return;
+    approvalPollBusy = true;
+    try {
+      const allowed: ApprovalState[] = [];
+      let changed = false;
+      for (const state of subprocessWaiting()) {
+        let transport: string | null;
+        try {
+          transport = await api.transportState(state.serial);
+        } catch {
+          continue;
+        }
+        if (disposed || approvals[state.serial]?.token !== state.token) continue;
+        if (transport !== "unauthorized") changed = true;
+        if (transport === "device") allowed.push(state);
+      }
+      if (!changed || disposed) return;
+      await refresh();
+      for (const state of allowed) {
+        if (approvals[state.serial]?.token === state.token && approvals[state.serial]?.phase === "waiting") {
+          void settle(state.serial, state.token, "late");
+        }
+      }
+    } finally {
+      approvalPollBusy = false;
+    }
+  }
+
+  function pollApprovals() {
+    if (approvalPoll || disposed) return;
+    approvalPoll = setInterval(() => {
+      expireApprovals();
+      if (disposed || subprocessWaiting().length === 0) {
+        if (approvalPoll) clearInterval(approvalPoll);
+        approvalPoll = null;
+        return;
+      }
+      void pollApprovalsOnce();
+    }, APPROVAL_POLL_MS);
+  }
+
+  /// Stop this window's part of a request: the built-in engine's wait ends
+  /// in the backend, platform-tools polling stops with the state.
+  async function endApproval(serial: string): Promise<string | null> {
+    const engine = approvals[serial]?.engine ?? (adbBackend === "direct" ? "direct" : "subprocess");
+    delete approvals[serial];
+    delete freshPrompt[serial];
+    if (dialogSerial === serial) dialogSerial = null;
+    if (engine !== "direct") return null;
+    try {
+      await api.cancelDeviceApproval(serial);
+      return null;
+    } catch (e) {
+      return `Couldn't cancel the request: ${e}`;
+    }
+  }
+
+  /// Cancel request: the only way to stop a wait. Closing the dialog keeps it.
+  async function cancelApprovalRequest(serial: string) {
+    const failed = await endApproval(serial);
+    if (failed) connectMessage = failed;
+    await refresh();
+    await focusRow(serial);
+  }
+
+  function closeApprovalDialog(focus: string | null = null) {
+    const serial = dialogSerial;
+    dialogSerial = null;
+    // A finished request has nothing left to show once it was seen.
+    const state = serial ? approvals[serial] : undefined;
+    if (serial && state && state.phase !== "waiting" && state.phase !== "asking") delete approvals[serial];
+    if (serial) void focusRow(focus ?? serial);
+  }
+
+  /// Return focus to the row the dialog belongs to: its approval button, or
+  /// the row itself once it opens like any other TV.
+  async function focusRow(serial: string) {
+    await tick();
+    const row = document.querySelector<HTMLElement>(`[data-serial="${CSS.escape(serial)}"]`);
+    const target = row?.querySelector<HTMLElement>("[data-approval-action]") ?? row;
+    target?.focus();
+  }
+
+  // Retry connection for a failed or offline network address.
   async function repromptDevice(d: Device) {
     repromptBusy = d.serial;
     connectMessage = "";
@@ -691,7 +1202,7 @@
       connectMessage = r.message;
       await refresh();
     } catch (e) {
-      connectMessage = `Could not ask ${d.name} again: ${e}`;
+      connectMessage = `Could not reconnect to ${d.name}: ${e}`;
     } finally {
       repromptBusy = null;
     }
@@ -715,6 +1226,8 @@
     connectDetail = "";
     if (justConnected === d.serial) justConnected = null;
     try {
+      // Forget ends a request for this TV too.
+      if (approvals[d.serial]) await endApproval(d.serial);
       const r = await api.forgetDevice(d.serial);
       await refresh();
       if (!r.ok || r.still_advertised) connectMessage = r.message;
@@ -759,7 +1272,7 @@
   // already-paired devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (adbMissing) return;
+    if (disposed || adbMissing || directUnavailable) return;
     if (devices.some((d) => d.status === "device")) return;
     await scan();
   }
@@ -773,9 +1286,13 @@
       if (!loading) void refresh();
     });
     return () => {
+      disposed = true;
+      nativeMonitorToken++;
+      if (nativeMonitorTimer) clearTimeout(nativeMonitorTimer);
       stopTierWatch();
       pairWaitToken++;
       reattachToken++;
+      if (approvalPoll) clearInterval(approvalPoll);
     };
   });
 </script>
@@ -786,15 +1303,23 @@
     <p class="muted small mono header-sub">
       {#if adbMissing}
         adb not found
-      {:else if devices.length === 0}
+      {:else if error && adbBackend !== "subprocess"}
+        connection status unavailable
+      {:else if adbBackend === "direct"}
+        {devices.filter((d) => d.status === "device").length} connected
+        {#if visibleDevices.some(d => d.status === "unauthorized")}
+          · {visibleDevices.filter(d => d.status === "unauthorized").length} not allowed yet
+        {/if}
+      {:else if sortedDevices.length === 0}
         no TV connected
       {:else}
-        {devices.length} connected · {devices.filter((d) => d.status === "device").length} ready
+        {sortedDevices.length} connected · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
+    <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Native Rust ADB · direct connection" : adbBackend === "subprocess" ? "Platform-tools ADB · host server" : "Checking ADB driver…"}</p>
   </div>
   <div class="header-actions">
-    <button onclick={scan} disabled={scanBusy || adbMissing} title="Scan the local /24 subnet for ADB-listening devices">
+    <button onclick={scan} disabled={scanBusy || adbMissing || directUnavailable || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title="Scan the local network for ADB-listening devices">
       <Icon name="wifi_tethering" size={16} /> {scanBusy ? "Scanning…" : "Scan LAN"}
     </button>
     <button onclick={refresh} disabled={loading} title="Re-read the list of connected devices">
@@ -803,18 +1328,20 @@
   </div>
 </section>
 
-<LocalNetworkNotice />
+<LocalNetworkNotice hostServer={adbBackend !== "direct"} />
 
 <!-- What a macOS "No route to host" offers, by what the probe saw. -->
 {#snippet remedies(hint: LocalNetworkHint)}
   <span class="remedies">
-    <button
-      onclick={restartAdb}
-      disabled={restartBusy || connectBusy || adbMissing}
-    >
-      <Icon name="restart_alt" size={14} /> {restartBusy ? "Restarting ADB…" : "Restart ADB"}
-    </button>
-    {#if hint === "restart_or_settings"}
+    {#if hint === "restart" || hint === "restart_or_settings"}
+      <button
+        onclick={restartAdb}
+        disabled={restartBusy || connectBusy || adbMissing}
+      >
+        <Icon name="restart_alt" size={14} /> {restartBusy ? "Restarting ADB…" : "Restart ADB"}
+      </button>
+    {/if}
+    {#if hint === "restart_or_settings" || hint === "settings"}
       <button onclick={openLocalNetworkSettings}>
         <Icon name="open_in_new" size={14} /> Open Privacy &amp; Security
       </button>
@@ -833,12 +1360,13 @@
     bind:this={connectInput}
     onkeydown={(e) => e.key === "Enter" && connect()}
   />
-  <button class="primary" onclick={connect} disabled={connectBusy || restartBusy || !connectAddress.trim()}>
+  <button class="primary" onclick={connect} disabled={directUnavailable || connectBusy || scanBusy || restartBusy || !connectAddress.trim() || nativePairNeedsPort}>
     <Icon name="add" size={16} /> {connectBusy ? "Connecting…" : "Add by IP"}
   </button>
-  <button onclick={togglePair} disabled={adbMissing} title="PIN pairing, for a device that only offers Wireless debugging">
+  <button onclick={togglePair} disabled={adbMissing || directUnavailable} title="PIN pairing, for a device that only offers Wireless debugging">
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
+  {#if adbBackend === "subprocess"}
   <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
@@ -857,7 +1385,8 @@
       <span class="quit-checking">checking…</span>
     {/if}
   </label>
-  <button onclick={reportAll} disabled={reportBusy || adbMissing} title="Run a health report against every connected device">
+  {/if}
+  <button onclick={reportAll} disabled={reportBusy || adbMissing || directUnavailable} title="Run a health report against every connected device">
     {reportBusy ? "Reporting…" : "Report All"}
   </button>
   {#if pairNextStep}
@@ -880,12 +1409,48 @@
       error={connectError.raw}
       summary={connectError.summary}
     />
-    {#if connectError.localNetwork === "restart" || connectError.localNetwork === "restart_or_settings"}
+    {#if connectError.localNetwork === "restart" || connectError.localNetwork === "restart_or_settings" || connectError.localNetwork === "settings"}
       <div class="connect-message plain">{@render remedies(connectError.localNetwork)}</div>
     {/if}
   {/if}
   {#if scanMessage}
     <p class="connect-message muted">{scanMessage}</p>
+  {/if}
+  {#if adbBackend === "direct" && !scanBusy && nativeConnections.pending.length > 0}
+    <p class="connect-message muted" role="status">Still connecting to {nativeConnections.pending.length} network addresses; ready TVs appear automatically.</p>
+  {/if}
+  {#if hasScanDetails}
+    <details class="adb-details connect-details" bind:open={scanDetailsOpen}>
+      <summary>Scan details{#if scanAttempts.length} — {scanAttempts.length} other connection {scanAttempts.length === 1 ? "attempt" : "attempts"}{/if}</summary>
+      {#if scanDetailsOpen && nativeDiscovery}
+        <NativeConnectionChoices report={nativeDiscovery} receivedAt={discoveryReceivedAt} listed={listedEndpoints} busy={scanBusy || connectBusy || pairBusy || restartBusy || backendUnavailable} onChoose={connectUsingAdvertisement} />
+      {/if}
+      {#if scanAttempts.length}
+        <p class="muted small">These addresses aren't connected. They may include multiple routes to one device.</p>
+        <ul class="scan-attempts">
+          {#each scanAttempts as d (d.serial)}
+            <li class="scan-attempt" data-serial={d.serial}>
+              <div class="scan-attempt-info">
+                <span class="mono">{d.serial}</span>
+                <span class="muted small">{d.discoveryState === "connecting" ? "Connecting…" : d.discoveryState === "offline" ? "Disconnected" : "Didn't connect"}</span>
+              </div>
+              <div class="scan-attempt-actions">
+                {#if canRetryConnection(d)}
+                  <button class="row-action" onclick={() => repromptDevice(d)} disabled={repromptBusy === d.serial}>{repromptBusy === d.serial ? "Connecting…" : d.discoveryState === "offline" ? "Retry connection" : "Try again"}</button>
+                {/if}
+                <button class="row-action" onclick={() => copyDiagnostics(d)} disabled={diagnosticsBusy === d.serial}>
+                  {diagnosticsBusy === d.serial ? "Copying…" : diagnosticsCopied === d.serial ? "Copied" : "Copy diagnostics"}
+                </button>
+                <button class="row-action" onclick={() => forgetDevice(d)} disabled={forgetBusy === d.serial}>
+                  {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
+                </button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if scanDetails.length}<pre>{scanDetails.join("\n\n")}</pre>{/if}
+    </details>
   {/if}
   {#if scanError}
     <ErrorNotice class="connect-message" error={scanError} action="Scan LAN" />
@@ -918,9 +1483,13 @@
       device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
     </p>
     <p class="pair-note small">
-      After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
-      appear, enter the IP:port from the main Wireless debugging screen and click
-      <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {#if adbBackend === null}
+        After pairing, enter the connect port from the main Wireless debugging screen, then use <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {:else}
+        After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
+        appear, enter the IP:port from the main Wireless debugging screen and click
+        <strong>Add by IP</strong>. Do not reuse the pairing port.
+      {/if}
     </p>
     <div class="pair-row">
       <input
@@ -965,7 +1534,7 @@
         <pre>{pairDetail}</pre>
       </details>
     {/if}
-    {#if pairLocalNetwork === "restart" || pairLocalNetwork === "restart_or_settings"}
+    {#if pairLocalNetwork === "restart" || pairLocalNetwork === "restart_or_settings" || pairLocalNetwork === "settings"}
       <div class="local-network-action">{@render remedies(pairLocalNetwork)}</div>
     {/if}
   </section>
@@ -1027,16 +1596,16 @@
     {/if}
   </div>
 {:else if error}
-  <div class="error">Failed to list devices: {error}</div>
-{:else if (loading || scanBusy) && devices.length === 0}
-  <div class="muted">{scanBusy ? "Scanning for devices…" : "Looking for devices…"}</div>
-{:else if devices.length === 0}
+  <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
+{:else if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && visibleDevices.length === 0}
+  <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
+{:else if visibleDevices.length === 0}
   <div class="empty">
     <h2>No devices connected.</h2>
   </div>
 {:else}
   <ul class="device-list">
-    {#each sortedDevices as d (d.serial)}
+    {#each visibleDevices as d (d.serial)}
       {@const href = deviceHref(d)}
       <li>
         {#if href}
@@ -1069,7 +1638,7 @@
                     data-tip="Didn't report itself as an Android TV; tools may not apply"
                   >UNCONFIRMED TV</span>
                 {/if}
-                {#if d.properties}
+                {#if d.properties && d.support?.tier !== "fully_supported"}
                   <SupportBadge support={d.support} />
                 {/if}
               </div>
@@ -1078,7 +1647,7 @@
                 {#if d.model}· {d.model}{/if}
                 · {d.connection === "network" ? "network" : "usb"}
               </div>
-              {#if d.properties}
+              {#if d.properties && d.support?.tier !== "fully_supported"}
                 {#if d.support?.tier === "not_supported"}
                   <SupportBanner support={d.support} />
                 {:else}
@@ -1131,19 +1700,24 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="device-row not-clickable"
-            class:unauthorized={d.status === "unauthorized"}
+            class:discovered={!!d.discoveryState}
+            class:unapproved={isUnapproved(d)}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
             oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
           >
             <span class="device-icon" aria-hidden="true">
-              <Icon name={d.status === "offline" ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
+              <Icon name={d.status === "offline" && !d.discoveryState ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
             </span>
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
-                {#if d.status === "unauthorized"}
-                  <span class="status-tag unauthorized">UNAUTHORIZED</span>
+                {#if isUnapproved(d)}
+                  <span class="status-tag unauthorized">{isAwaitingApproval(d) ? "WAITING FOR ALLOW" : "NOT ALLOWED YET"}</span>
+                {:else if d.discoveryState === "connecting"}
+                  <span class="status-tag">CONNECTING…</span>
+                {:else if d.discoveryState === "failed"}
+                  <span class="status-tag offline">CONNECTION FAILED</span>
                 {:else if d.status === "offline"}
                   <span class="status-tag offline">OFFLINE</span>
                 {/if}
@@ -1156,47 +1730,41 @@
                   >UNCONFIRMED TV</span>
                 {/if}
               </div>
+              {#if !isUnapproved(d)}
               <div class="device-meta muted mono">
                 {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
                 · {d.serial}
               </div>
+              {:else if d.name !== d.serial}
+              <div class="device-meta muted mono">{d.serial}</div>
+              {/if}
+              {#if isUnapproved(d)}
+                <span class="sr-only" role="status">
+                  {isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : unseenResult(d) ? `${d.name}: ${unseenResult(d)}` : ""}
+                </span>
+                <p class="approval-line" class:approval-result={!!unseenResult(d) && approvals[d.serial]?.phase === "error"} data-approval-line>
+                  {#if isAwaitingApproval(d)}
+                    Waiting for you to choose Allow on it.
+                  {:else if unseenResult(d)}
+                    {unseenResult(d)}
+                  {:else if adbBackend !== "direct" && freshPrompt[d.serial]}
+                    Hasn't allowed this computer yet; it's probably asking now.
+                  {:else}
+                    Hasn't allowed this computer yet.
+                  {/if}
+                </p>
+              {/if}
+              {#if d.discoveryState === "connecting"}
+                <p class="muted small">Found on the network. Connecting…</p>
+              {:else if d.discoveryState === "failed"}
+                <p class="small">{d.discoveryError}</p>
+              {/if}
               {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
                 <p class="small just-connected-note">
                   Connected. It reported it isn't an Android TV, so it doesn't open by default; use
                   Open anyway to try the tools.
                 </p>
-              {/if}
-              {#if d.status === "unauthorized"}
-                <div class="unauthorized-help">
-                  <strong>This device needs to be authorized:</strong>
-                  <ol>
-                    <li>
-                      Look at the TV — there should be an <em>{authPromptLabel(d)}</em> dialog.
-                      {#if d.connection === "network"}
-                        <span class="muted">(some TVs still say "USB" even over Wi-Fi)</span>
-                      {/if}
-                    </li>
-                    <li>Check <em>"Always allow from this computer"</em>.</li>
-                    <li>Click <em>Allow</em>.</li>
-                    <li>Click Refresh above.</li>
-                  </ol>
-                  <p class="muted small">If you don't see the dialog:</p>
-                  <ol class="small unauthorized-fallback">
-                    <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
-                    {#if d.connection === "network"}
-                      <li>Click <strong>Ask again</strong>; this TV, and only this one, shows the prompt again.</li>
-                    {:else}
-                      <li>Unplug the cable and plug it back in; the prompt reappears.</li>
-                    {/if}
-                    <li>
-                      Still nothing? On the TV, open Developer options and choose Revoke USB debugging
-                      authorizations{#if isWirelessDebuggingTransport(d)} (or Wireless debugging → tap this
-                        computer → Forget){/if}. That un-trusts every computer, not just this one. Then
-                      reconnect.
-                    </li>
-                  </ol>
-                </div>
               {/if}
               {#if confirmOpenSerial === d.serial}
                 <div class="open-anyway-confirm" role="group" aria-label="Open anyway">
@@ -1229,14 +1797,33 @@
                   Open anyway
                 </button>
               {/if}
-              {#if d.status === "unauthorized" && d.connection === "network"}
+              {#if requestOpen(d)}
+                <button
+                  class="row-action"
+                  onclick={() => showApproval(d)}
+                  aria-label={`Show the approval request for ${d.name}`}
+                  data-approval-action
+                >
+                  Show request
+                </button>
+              {:else if isUnapproved(d)}
+                <button
+                  class="row-action primary"
+                  onclick={() => startApproval(d)}
+                  aria-label={`Request approval from ${d.name}`}
+                  data-approval-action
+                >
+                  Request approval
+                </button>
+              {/if}
+              {#if canRetryConnection(d)}
                 <button
                   class="row-action primary"
                   onclick={() => repromptDevice(d)}
                   disabled={repromptBusy === d.serial}
-                  data-tip="Reconnects this TV so it shows the debugging prompt again · no other TV is touched"
+                  data-tip="Reconnects only this address and retries authorization. Check the device for a debugging prompt."
                 >
-                  {repromptBusy === d.serial ? "Asking…" : "Ask again"}
+                  {repromptBusy === d.serial ? "Connecting…" : "Try again"}
                 </button>
               {/if}
               <button
@@ -1270,33 +1857,68 @@
   </ul>
 {/if}
 
-{#if !adbMissing}
+{#if dialogState}
+  <ApprovalDialog
+    name={dialogState.name}
+    address={dialogState.address}
+    usb={dialogState.usb}
+    wirelessDebugging={dialogState.wireless}
+    phase={dialogState.phase}
+    error={dialogState.error}
+    deadline={dialogState.deadline}
+    onClose={closeApprovalDialog}
+    onCancel={() => cancelApprovalRequest(dialogState.serial)}
+    onRetry={() => {
+      const row = sortedDevices.find(d => d.serial === dialogState?.serial);
+      if (row) void startApproval(row);
+      else closeApprovalDialog();
+    }}
+  />
+{/if}
+
+{#if !adbMissing && !directUnavailable}
   <HelpDetails
     label="Connection help"
-    open={!loading && !scanBusy && !error && devices.length === 0}
+    open={!loading && !scanBusy && !error && visibleDevices.length === 0 && nativeConnections.pending.length === 0}
   >
     <div class="callout devices-note">
       <Icon name="info" size={16} />
       <span>
-        <strong>Don't see your device?</strong> Try
+        <strong>Don't see your device?</strong>
+        {#if adbBackend === "subprocess"}
+        Try
         <button
           class="inline-link"
           aria-label="Restart ADB from connection help"
           onclick={restartAdb}
           disabled={restartBusy || connectBusy || adbMissing}
         >{restartBusy ? "Restarting ADB…" : "Restart ADB"}</button> first.
+        {:else}
+          Check that Network debugging is enabled on the TV.
+        {/if}
         Wireless debugging may need pairing with
         <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>; Network debugging uses
         <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
+        {#if adbBackend === "direct"}
+          Connected by USB? Built-in ADB works over the network only; choose Google platform-tools in
+          <a class="inline-link" href="/settings#adb">Settings</a>.
+        {/if}
       </span>
     </div>
     {#if localNetwork.status && localNetwork.status !== "not_applicable"}
       <p class="local-network-help">
-        On a Mac, after an update, macOS can cut off an ADB server the earlier version left
-        running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
-        in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
-        → Local Network; if it already is, turn it off and on again (all of them, if it's listed
-        more than once), then Restart ADB.
+        {#if adbBackend === "direct"}
+          On a Mac, check that ATV Optimizer is on in
+          <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+          → Local Network; if it already is, turn it off and on again (all of them, if it's listed
+          more than once), then scan again.
+        {:else}
+          On a Mac, after an update, macOS can cut off an ADB server the earlier version left
+          running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
+          in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+          → Local Network; if it already is, turn it off and on again (all of them, if it's listed
+          more than once), then Restart ADB.
+        {/if}
       </p>
     {/if}
   </HelpDetails>
@@ -1353,6 +1975,59 @@
     padding: 0;
     margin: 0;
   }
+  .device-row.unapproved {
+    flex-wrap: wrap;
+  }
+  .unapproved .device-main {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .unapproved .device-name,
+  .unapproved .row-actions {
+    flex-wrap: wrap;
+  }
+  .approval-line {
+    margin: 0.3rem 0 0;
+    font-size: 0.85rem;
+    color: var(--fg-secondary);
+  }
+  .approval-line.approval-result {
+    color: var(--danger-text);
+  }
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .scan-attempts {
+    list-style: none;
+    padding: 0;
+    margin: 0.5rem 0;
+  }
+  .scan-attempt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .scan-attempt-info {
+    display: grid;
+    gap: 0.25rem;
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .scan-attempt-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
   /* Board 11.12's row: a glyph for what it is, the name, the address in mono,
      whether it is reachable, and the one thing to do about it. The connection
      type sits in the meta line, not beside the name, where a bracketed word
@@ -1372,6 +2047,20 @@
   }
   .device-row.flash {
     animation: row-flash 2.4s ease-out;
+  }
+  .device-row.discovered {
+    flex-wrap: wrap;
+  }
+  .discovered .device-main {
+    flex: 1 1 18rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .discovered .device-name {
+    flex-wrap: wrap;
+  }
+  .discovered .row-actions {
+    flex-wrap: wrap;
   }
   @keyframes row-flash {
     0%,
@@ -1506,8 +2195,14 @@
   .device-row.clickable {
     cursor: pointer;
   }
+  .device-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .device-name {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     font-weight: 500;
@@ -1705,27 +2400,6 @@
   .open-anyway-actions {
     display: flex;
     gap: 0.5rem;
-  }
-  .unauthorized-help {
-    margin-top: 0.6rem;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--danger-surface);
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
-  }
-  .unauthorized-help strong {
-    color: var(--danger-text);
-  }
-  .unauthorized-help ol {
-    margin: 0.4rem 0;
-    padding-left: 1.2rem;
-  }
-  .unauthorized-help p {
-    margin: 0.3rem 0 0;
-  }
-  .device-row.unauthorized {
-    align-items: flex-start;
   }
   .install-pane {
     background: var(--bg-surface);

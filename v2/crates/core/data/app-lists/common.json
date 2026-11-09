@@ -769,9 +769,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
+    "review": true,
     "reviewed_at": "2026-09-17",
     "sources": [
-      "git history (dfd77df)"
+      "git history (dfd77df)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -784,9 +786,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -799,9 +803,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -814,9 +820,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -829,9 +837,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -844,9 +854,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
+    "review": true,
     "reviewed_at": "2026-09-17",
     "sources": [
-      "git history (dfd77df)"
+      "git history (dfd77df)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -859,9 +871,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -874,9 +888,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -889,9 +905,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-09-17",
     "sources": [
-      "git history (dfd77df)"
+      "git history (dfd77df)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -904,9 +922,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -919,9 +939,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -934,9 +956,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (6dc8f2c)"
+      "git history (6dc8f2c)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -949,9 +973,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -964,9 +990,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-09-17",
     "sources": [
-      "git history (dfd77df)"
+      "git history (dfd77df)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -979,9 +1007,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1026,9 +1056,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1041,9 +1073,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1056,9 +1090,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1071,9 +1107,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1086,9 +1124,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-06-04",
     "sources": [
-      "git history (dd402c1)"
+      "git history (dd402c1)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1101,9 +1141,11 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": false,
+    "review": true,
     "reviewed_at": "2026-09-17",
     "sources": [
-      "git history (dfd77df)"
+      "git history (dfd77df)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1131,11 +1173,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.espn.score_center",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1148,11 +1191,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.fox.foxone",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1165,12 +1209,13 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.getchannels.dvr.app",
       "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
-      "https://getchannels.com/dvr-server/"
+      "https://getchannels.com/dvr-server/",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1183,11 +1228,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.handmark.sportscaster.androidtv",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1200,11 +1246,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.hoopladigital.android",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1217,11 +1264,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.kanopy.tvapp",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1234,11 +1282,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.moviesanywhere.goo",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1251,12 +1300,13 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.silicondust.view",
       "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
-      "https://info.hdhomerun.com/info/dvr:storage"
+      "https://info.hdhomerun.com/info/dvr:storage",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1269,11 +1319,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.turner.tbs.android.networkapp",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1286,11 +1337,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-30",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.turner.tnt.android.networkapp",
-      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner confirmation and package-specific functional review, 2026-10-30; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1303,11 +1355,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-31",
     "sources": [
       "https://play.google.com/store/apps/details?id=by4a.setedit22",
-      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1320,11 +1373,12 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-31",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.cxinventor.file.explorer",
-      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md"
+      "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1337,12 +1391,13 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-31",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.neilturner.aerialviews",
       "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
-      "https://github.com/theothernt/AerialViews"
+      "https://github.com/theothernt/AerialViews",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1355,12 +1410,13 @@
     "default_optimize": false,
     "default_restore": false,
     "play_store": true,
-    "review": false,
+    "review": true,
     "reviewed_at": "2026-10-31",
     "sources": [
       "https://play.google.com/store/apps/details?id=com.surfshark.vpnclient.android",
       "Owner request and package-specific functional review, 2026-10-31; docs/REPORTED-PACKAGE-NAMES-2026-10-29.md",
-      "https://developer.android.com/develop/connectivity/vpn"
+      "https://developer.android.com/develop/connectivity/vpn",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ]
   },
   {
@@ -1731,7 +1787,7 @@
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L74",
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L73",
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-mogo-4/debloat.txt#L110",
-      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md. Optional viewing loss and limited installed-package recovery assessed; subscription/region/DRM limits preserved. Exact identity is not model/firmware certification; hardware removal/recovery unverified."
+      "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md. Optional viewing loss and limited installed-package recovery assessed; subscription/region/DRM limits preserved. Exact identity is not model/firmware certification; hardware removal/recovery unverified."
     ]
   }
 ]

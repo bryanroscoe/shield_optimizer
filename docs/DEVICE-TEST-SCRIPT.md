@@ -6,8 +6,8 @@ script covers what simulation and CI cannot: vendor firmware behavior, macOS per
 prompts, installer upgrades, and the Android runtime lifecycle of the mobile app.
 
 Step IDs are stable so other docs can cite them: **D1–D12** desktop basics, **A1–A10** upgrade,
-launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **M1–M8** the mobile
-app.
+launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **N1–N18** the
+built-in (native Rust) ADB engine, **M1–M8** the mobile app.
 
 Abort rule for every section: if a step leaves the TV without a launcher or with an unexpected
 disabled app, use Restore / Emergency Recovery (desktop) or More → Emergency recovery (mobile),
@@ -53,7 +53,7 @@ stop, and record the step.
 | A4b | Repeat A4 with a target that cannot actually take Home, keeping ADB connected throughout (the rollback is itself an ADB command, so a disconnected TV cannot be restored until it reconnects) | The takeover reports failure and **re-enables the stock launcher**; pressing Home opens stock. Picking TV Settings as the target is refused outright. If a real disconnect ever leaves stock disabled, reconnect and use Emergency Recovery on the Overview tab |
 | A5 | A readable device whose TV evidence is **unknown** (reports neither `tv` nor a phone/tablet class, e.g. the Xiaomi TV Box S from #120) | The row carries an amber **UNCONFIRMED TV** tag and opens directly, with no Open anyway prompt. Unknown is never treated as "not a TV" |
 | A6 | A device that **positively reports** it is not a TV (a phone or tablet on the same adb) | The row shows **NOT AN ANDROID TV** and is not a link; Open anyway is offered behind a short confirm. Confirming opens the tools; after reconnecting later, the row opens directly with a muted NOT A TV tag (remembered by hardware id, never by address) |
-| A6b | An **unauthorized** device (accept the prompt later) | Neither tag appears; the row explains the authorization prompt. Nothing is claimed about device type |
+| A6b | An **unauthorized** device (accept the prompt later) | Neither tag appears; the row says Not allowed yet and Request approval opens the pop-up that explains the prompt. Nothing is claimed about device type |
 | A7 | Wireless debugging → Pair device with pairing code; in the app use Pair PIN | On success, Connect IP is pre-filled with the paired host plus a trailing colon and takes focus, with a one-line prompt for the separate port from the Wireless debugging screen; entering that port connects |
 | A8 | Tweaks → Screensaver | Reads the device's current `secure.screensaver_components`; offers AOSP Basic Daydream; Restore puts back whatever was configured when the tab loaded, without needing to know a vendor screensaver's component name |
 | A9 | Snapshots: take a snapshot without changing the launcher, then open Preview restore | Preview proposes no launcher change (the Now column reads the TV's actual current Home); restoring does not touch the launcher |
@@ -128,6 +128,50 @@ tagged or committed:
 If no Windows machine is available before tagging, run A1 immediately after the release workflow
 finishes, on the published MSI, and treat a failure as a stop-ship: pull the release and cut a
 patch.
+
+## Built-in ADB engine (N1–N18, about 60 minutes)
+
+The desktop app's own Rust ADB (PR #268), chosen in Settings → ADB → ADB engine. Already covered
+without you, so not repeated here: the vendored transport against both Shields (Android 11, plain
+TCP) and the Android TV 14 emulator (plain and TLS) with `examples/device_smoke.rs` — `suite`
+28/28, `control` 17/17 (deadline/cancel, bounded shell, identity-bound services, a mismatched
+hardware ID never running the command), single/split/3 MiB/corrupt/downgrade installs, first-time
+approval, cancel during the prompt, PIN pairing with right and wrong codes. What only you can do is
+the app itself on your LAN (its launch scan dials every TV), TVs other than the two Shields, real
+Wireless debugging hardware, and Windows/Linux.
+
+Preconditions: a build of the commit under test (normal builds start on Built-in; the PR's
+"Native ADB macOS test app" artifact is a separately labeled copy); a TV that has never approved this computer
+(neither the built-in key nor platform-tools' `~/.android/adbkey`), or one where you accept clearing its approvals (TV Settings → Developer options →
+Revoke USB debugging authorizations); a Google TV or other Android 11+ TV with Wireless
+debugging; the devtest APKs or any small APK you are willing to install and remove.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| N1 | macOS: first launch of the native build from Finder | The Local Network alert appears once (the test build has its own identifier) → Allow. Settings → ADB shows "Built-in" selected; Devices says "Native Rust ADB · direct connection". The first scan still finds a TV that doesn't advertise over mDNS (with debug logging on, the log may say "sweeping again after discovery") |
+| N2 | With TVs that already allow platform-tools on this Mac (Always allow), and TVs that approved the earlier native test app (both Shields have), launch on Built-in and let the scan run | All connect with no prompt on the TV: Built-in offers platform-tools' key first, then its own key (moved from `ShieldOptimizer/native-adb` to `ATVOptimizer/native-adb` by the 2.5.0 rename) |
+| N3 | A TV that has never approved this computer: Scan LAN twice and Add by IP while watching the TV | The TV shows nothing each time. Its row stays in the main list as Not allowed yet, with its Cast name (or its address) and Request approval; it never drops into Scan details or shows "transport error" or "timed out during setup" |
+| N3a | Same TV: Request approval, wait more than 60 seconds (time it), then tick "Always allow" and choose Allow | A pop-up opens with the TV's name and a pulsing TV, and the prompt appears on the TV within a few seconds. Close the pop-up once: the row says Waiting for Allow, and Show request reopens it (closing never cancels); the prompt's fingerprint matches `adb pubkey ~/.android/adbkey` (the app key when there is no platform-tools key); within a few seconds of Allow it becomes a normal TV card. Forget it, Scan LAN: it connects with no prompt, and later works under platform-tools with no prompt |
+| N3c | An unapproved TV: Request approval and choose Allow without ticking "Always allow". Once it is connected, start an APK install and a download (each opens its own connection) | Each either works (the TV still accepts the key for now; note which) or fails with "This TV no longer allows this computer… use Request approval… tick Always allow". No prompt appears on the TV either way. Request approval with Always allow fixes it |
+| N3d | Request approval on a TV that is asleep or unplugged (keep its row from an earlier scan) | Within about 20 seconds the app says the TV didn't answer (in the pop-up, or on the row if you closed it); the row never says to choose Allow and stays Not allowed yet. Wait 5 minutes and Refresh: the row shows the address, not the TV's name |
+| N3b | Another unapproved TV (or the same after revoking): Request approval, then Cancel request in the pop-up; again, then Deny on the TV | Cancel request closes the pop-up and returns the row to Not allowed yet with Request approval at once; the TV's prompt may stay on screen (it does on the Android 14 emulator), and allowing it then lets the next scan connect. After Deny the row may keep waiting until you Cancel (the emulator never tells the host); note what this TV does. Neither shows an error, and nothing else breaks |
+| N4 | Wireless debugging TV: Pair PIN with the code and pairing port, close the pairing dialog, type nothing else. Then a wrong PIN once | Pairs, shows "Waiting for the device to advertise its connect port…", then connects by itself on the separate connect port within 45 s and highlights the TV's row (if it falls back to asking for the port instead, note the message and whether `pair` logged `instance_found`). Survives an app restart without pairing again. Wrong PIN: "The PIN didn't match…" |
+| N5 | Same TV: open Files, then immediately a download, a Device Logs read and an install, back to back | Each works first time (adbd on Android 14 sometimes drops a TLS connection opened right after another; the app now retries that once) |
+| N6 | Files: upload a small file to `/sdcard/Download`, download it back; upload to `/system` | Same bytes back; `/system` fails with the TV's reason, no "success" |
+| N7 | Install APK: a single APK, the same with replace, a split APK set (base + split), a corrupt file | Each installs or fails with the package manager's own `Failure […]` text; nothing reports success that didn't happen. Uninstall the test package afterwards |
+| N8 | Remote tab under Built-in: D-pad, Home, Back, type `café`, hold a direction, switch tabs and back | Status shows "● instant"; each press lands at once; a held direction repeats; text lands. Optionally, after leaving the tab, `adb shell ps -A` from platform-tools shows no leftover scrcpy helper |
+| N9 | Screenshot, Device Logs, a Shell bookmark, the health report | All return real data |
+| N10 | Optimize: disable then re-enable one harmless app; snapshot and restore | Same results as with platform-tools |
+| N11 | Put a TV to sleep from its remote, wait a minute, wake it | Its card goes offline, then reconnects by itself or with Retry, without a second card for the same TV |
+| N12 | Turn the Mac's Wi-Fi off for 20 seconds, then on | Cards go offline without the app hanging; they come back after a scan or Retry |
+| N13 | Quit during a large download or install | The app quits within a few seconds and leaves no helper running on the TV |
+| N14 | Settings → ADB engine: switch to Google platform-tools, use a TV, switch back to Built-in. Then run `adb kill-server` in Terminal, switch to platform-tools and connect a TV that allowed only Built-in | Each switch takes effect without relaunching; Devices follows; Restart ADB and Stop ADB when quitting are usable only with platform-tools. The Built-in-only TV connects with no prompt (the app's adb server offers the built-in key; a server another tool started keeps its own keys) |
+| N14a | Platform-tools: connect a TV that has never allowed this computer (Add by IP or Scan LAN) | Its row is the same compact Not allowed yet row (no red instruction box), saying it's probably asking now (only for a couple of minutes after it connected, and not after Cancel request). Request approval asks again and opens the same pop-up; choosing Allow on the TV closes it by itself within a few seconds. Over USB the pop-up says to replug instead of redialling |
+| N14b | A test build from the PR's native test package: Settings, then Send logs to developer | Settings shows "Test build <commit> (merge commit; PR head <head>)" next to the version (the commit in the window title first) and says anonymous usage reports are always off (the switch is off and disabled). The Support ID shows. Send logs asks first, then reports what it sent with that Support ID; the upload starts with that same "Test build …" line (the owner can check with `scripts/support-lookup.sh`) |
+| N15 | USB: plug a TV in by USB with Built-in selected, then switch to platform-tools | Built-in is network-only and doesn't list it; platform-tools does |
+| N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs that 2.5.0 already used connect through Built-in with no prompt; a TV that allows neither key shows nothing and is listed Not allowed yet until Request approval; the old server doesn't interfere |
+| N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. If Windows Firewall asks about ATV Optimizer (mDNS discovery listens for TV announcements), allow private networks. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
+| N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)
 

@@ -26,23 +26,230 @@ on:
       - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
   workflow_dispatch:
+    inputs:
+      native_test_app:
+        description: 'Build a macOS native ADB test app artifact (no release)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 # Unrelated label events must neither start tests nor cancel a useful run.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.event.label.name != 'native-test-app' && github.run_id || 'ci' }}
   cancel-in-progress: true
 
 jobs:
+  native-test-app:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.native_test_app) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       contains(github.event.pull_request.labels.*.name, 'native-test-app'))
+    needs: [rust, frontend, e2e, frontend-mobile]
+    name: Native ADB macOS test app
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      # Owner-test builds can Send logs; each upload is marked as this test
+      # build and its automatic reports stay off. Release builds never set it.
+      # The commit actually built (the PR merge commit, as in the window title
+      # and provenance), then the PR head it came from.
+      ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+      ATVOPT_TEST_BUILD: ${{ github.sha }}-pr-${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/target
+          key: native-test-macos-${{ hashFiles('v2/Cargo.lock') }}
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+      - name: Label the isolated owner-test app
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const config = {
+            productName: 'ATV Optimizer Native Test',
+            identifier: 'com.atvoptimizer.native-test',
+            app: { windows: [{
+              title: `ATV Optimizer — Native Rust ADB Test — ${process.env.GITHUB_SHA.slice(0, 7)}`,
+              width: 1100, height: 760, minWidth: 720, minHeight: 480,
+            }] },
+            bundle: { createUpdaterArtifacts: false, macOS: { signingIdentity: '-' } },
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/native-test.json`, JSON.stringify(config));
+          JS
+      - name: Build native test app
+        working-directory: v2
+        run: npm run tauri -- build --debug --target universal-apple-darwin --features native-adb-default --bundles app --config "$RUNNER_TEMP/native-test.json"
+      - name: Verify and archive the signed bundle
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          app='v2/target/universal-apple-darwin/debug/bundle/macos/ATV Optimizer Native Test.app'
+          codesign --verify --deep --strict "$app"
+          executable=$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")
+          lipo "$app/Contents/MacOS/$executable" -verify_arch arm64 x86_64
+          mkdir native-test-artifact
+          ditto -c -k --sequesterRsrc --keepParent "$app" native-test-artifact/native-test-app.zip
+          shasum -a 256 "$app/Contents/MacOS/$executable" > native-test-artifact/binary-sha256.txt
+          shasum -a 256 native-test-artifact/native-test-app.zip > native-test-artifact/archive-sha256.txt
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          writeFileSync('native-test-artifact/provenance.json', JSON.stringify({
+            source: process.env.GITHUB_SHA,
+            pullRequestHead: process.env.PR_HEAD_SHA,
+            sourceTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
+            run: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            target: 'universal-apple-darwin', profile: 'debug',
+            features: ['native-adb-default'], signing: 'ad-hoc',
+            hardwareAcceptance: 'not performed by CI',
+          }, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-test-macos-${{ github.sha }}
+          path: native-test-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Windows and Linux copies of the owner-test app, for the hardware batch
+  # (docs/DEVICE-TEST-SCRIPT.md N17-N18). Same opt-in label as the macOS job.
+  # Installs beside a released ATV Optimizer: its own name and identifier, no
+  # updater artifacts, and without the release installer hooks that close the
+  # running app and clean up old Shield Optimizer installs. Linux ships only
+  # the AppImage, since a .deb would collide with the released package's binary.
+  native-test-bundles:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.native_test_app) ||
+      (github.event_name == 'pull_request' && github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       contains(github.event.pull_request.labels.*.name, 'native-test-app'))
+    needs: [rust, frontend, e2e, frontend-mobile]
+    name: Native ADB test bundle on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            bundles: appimage
+          - os: windows-latest
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '1'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      # Owner-test builds can Send logs; each upload is marked as this test
+      # build and its automatic reports stay off. Release builds never set it.
+      # The commit actually built (the PR merge commit, as in the window title
+      # and provenance), then the PR head it came from.
+      ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+      ATVOPT_TEST_BUILD: ${{ github.sha }}-pr-${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: v2/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev \
+            libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            v2/target
+          key: native-test-${{ matrix.os }}-${{ hashFiles('v2/Cargo.lock') }}
+      - name: Install frontend dependencies
+        working-directory: v2
+        run: npm ci
+      - name: Label the isolated owner-test app
+        shell: bash
+        run: |
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          const config = {
+            productName: 'ATV Optimizer Native Test',
+            identifier: 'com.atvoptimizer.native-test',
+            app: { windows: [{
+              title: `ATV Optimizer — Native Rust ADB Test — ${process.env.GITHUB_SHA.slice(0, 7)}`,
+              width: 1100, height: 760, minWidth: 720, minHeight: 480,
+            }] },
+            bundle: { createUpdaterArtifacts: false, windows: { nsis: { installerHooks: null } } },
+          };
+          writeFileSync(`${process.env.RUNNER_TEMP}/native-test.json`, JSON.stringify(config));
+          JS
+      - name: Build native test bundle
+        working-directory: v2
+        shell: bash
+        run: npm run tauri -- build --debug --bundles ${{ matrix.bundles }} --config "$RUNNER_TEMP/native-test.json"
+      - name: Collect the bundle
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir native-test-artifact
+          find v2/target/debug/bundle -type f \( -name '*.AppImage' -o -name '*-setup.exe' \) -exec cp {} native-test-artifact/ \;
+          shopt -s nullglob
+          bundles=(native-test-artifact/*)
+          [ "${#bundles[@]}" -gt 0 ] || { echo "no bundle produced"; exit 1; }
+          (cd native-test-artifact && sha256sum -- ./* > sha256.txt)
+          node --input-type=module <<'JS'
+          import { writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          writeFileSync('native-test-artifact/provenance.json', JSON.stringify({
+            source: process.env.GITHUB_SHA,
+            pullRequestHead: process.env.PR_HEAD_SHA,
+            sourceTree: execFileSync('git', ['rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim(),
+            run: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            os: process.env.RUNNER_OS, profile: 'debug', features: ['default (built-in ADB)'],
+            signing: 'unsigned', hardwareAcceptance: 'not performed by CI',
+          }, null, 2));
+          JS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-test-${{ matrix.os }}-${{ github.sha }}
+          path: native-test-artifact/
+          if-no-files-found: error
+          retention-days: 7
+
   rust:
     if: >-
       github.event_name != 'pull_request' ||
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 45
     name: Rust tests on ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -97,6 +304,16 @@ jobs:
         working-directory: v2
         run: cargo test --workspace
 
+      # The workspace steps above build the default app, with the built-in
+      # engine. This keeps the platform-tools-only build (the fallback) working.
+      - name: Desktop without the built-in engine
+        working-directory: v2
+        run: cargo test -p atv-optimizer --no-default-features --lib -- --test-threads=1
+
+      - name: Desktop without the built-in engine, Clippy
+        working-directory: v2
+        run: cargo clippy -p atv-optimizer --no-default-features --all-targets -- -D warnings
+
       - name: Vendored transport tests
         working-directory: v2/vendor/adb_client
         run: cargo test --lib
@@ -107,9 +324,10 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 20
     name: Frontend type check
+    # Pinned: Playwright 1.60 can't install Chromium on ubuntu-latest's 26.04 image.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -213,6 +431,10 @@ jobs:
         working-directory: v2
         run: npm run test:remote-paste
 
+      - name: Remote lifecycle
+        working-directory: v2
+        run: npm run test:remote-lifecycle
+
       # Memory-table verdicts must resolve instead of sitting on "Checking".
       # That failure throws and logs nothing; only rendering the table catches it.
       - name: Memory safety verdicts
@@ -300,6 +522,17 @@ jobs:
       - name: Progressive help
         working-directory: v2
         run: npm run test:progressive-help
+      - name: Direct backend status
+        working-directory: v2
+        run: npm run test:direct-adb-status
+
+      - name: Native discovery
+        working-directory: v2
+        run: npm run test:native-discovery && npm run test:native-scan-progress
+
+      - name: Approval dialog and test-build settings
+        working-directory: v2
+        run: npm run test:approval-dialog && npm run test:test-build-settings
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.
@@ -357,7 +590,7 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 45
     name: End-to-end (simulated devices)
     runs-on: ubuntu-22.04
@@ -408,9 +641,9 @@ jobs:
         working-directory: v2
         run: cargo clippy -p atv-optimizer -p e2e-server --features atv-optimizer/e2e --all-targets -- -D warnings
 
-      - name: npm run e2e
+      - name: Offline fixture end-to-end suite
         working-directory: v2
-        run: npm run e2e
+        run: npm run e2e:offline
 
       - name: Upload screenshots
         if: failure()
@@ -426,9 +659,10 @@ jobs:
       (github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
-        github.event.label.name == 'skip-ci'))
+        (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app')))
     timeout-minutes: 20
     name: Mobile frontend type check
+    # Pinned: Playwright 1.60 can't install Chromium on ubuntu-latest's 26.04 image.
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5

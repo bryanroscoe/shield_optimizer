@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -891,10 +892,9 @@
     />
   </div>
 
-  <details class="help-disclosure">
-    <summary>Using the app list</summary>
+  <HelpSheet title="Using the app list">
     <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; Everything else does not. All removals use the same safety checks.</p>
-  </details>
+  </HelpSheet>
 
   <div class="filters-row">
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>

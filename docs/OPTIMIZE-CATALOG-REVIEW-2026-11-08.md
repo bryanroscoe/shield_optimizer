@@ -1,70 +1,125 @@
-# Daily Optimize catalog review — 2026-11-08
+# Optimize review-tier audit — 2026-11-08
 
-One implementation agent and exactly one independent read-only reviewer
-researched the same four previously unreviewed IDs: **one accepted, three held**.
-This continues open PR329 in its existing clean bound checkout, starting at
-`b7cd4d0b588eab9ec8dd259406126fbefbd89c61`; actual main remains
-`eb6279061bef5ea5c4c3b08be6fc3106b95d3744`. The previous batch's implementation,
-review and hosted CI were complete before today's single active batch began.
-No duplicate PR/checkout, unchanged-accept research or unchanged-hold research.
+Bryan, testing desktop Optimize on 2026-11-08: Moonlight, Artemis, Steam Link,
+Aerial Dream, ADB TV, X-plore, Send Files to TV and similar apps read as plain
+"Safe to remove", and "Select all safe" armed them. "All the ones currently on
+this list are ones they should only disable if they don't use them. I think we
+maybe expanded our list but didn't actually do it."
 
-## Accepted: CANAL+
+`review: true` is the catalog's "remove only if you don't use it" marker. This
+audit sets it on every entry for an app a person installs or uses by choice, and
+leaves it off only for bloat nobody chooses: OEM promos, preinstalled services
+and defunct apps. Nothing else in an entry changed: `risk`, `method`,
+`default_optimize`, `default_restore`, descriptions and the do-not-disable rules
+are as they were. Each changed entry has a `sources` note pointing here. Its
+`reviewed_at` keeps its earlier date: this audit changed the review flag only and
+did not re-review any safety rating. Desktop and Android read the same lists.
 
-Both agents independently opened the [exact GROUPE CANAL+ developer listing](https://play.google.com/store/apps/details?id=com.canal.android.canal)
-for `com.canal.android.canal`. Its substantive description establishes viewing
-and download functionality, with subscription, regional and DRM qualifications.
-Disable loses viewing through this client; it does not cancel a subscription.
-Re-enable requires the installed package and does not restore account access,
-settings or download rights. These limits are in the app-facing descriptions.
+Two loader tests keep it that way. `chosen_apps_outside_the_default_bloat_are_review`
+requires `review` on every Safe, Medium or Advanced entry that isn't default bloat,
+unless the entry is named in `PREINSTALLED_NOT_REVIEW`: the Safe and Medium rows
+of the preinstalled table below. High is for components the TV needs and isn't
+covered. `preinstalled_exceptions_exist_and_are_not_review` fails when a name on
+that list is no longer in any app list, or has become review, default bloat or
+defunct.
 
-Pinned observations remain separate: [Freebox actively lists it](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/freebox-player-pop/debloat.txt#L74),
-[Horizon20 comments it out](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L73),
-and [MoGo4 keeps it by choice](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-mogo-4/debloat.txt#L110).
-Counts (1 active / 1 commented / 1 prose profile) are not safety votes.
+## Set to review (36)
 
-The functional assessment supports only optional Caution, Disable suggestion,
-review=true, both defaults=false and initial Keep. Existing explicit Uninstall
-for store-listed apps remains available; this is not a Disable-only control.
-Common lookup identifies an installed exact ID, not a certified model, firmware,
-platform, region, DRM capability or source-profile match. No performance or
-physical removal/recovery claim. Protected/caution, last-HOME, setup/network,
-user-0, confirmation and async identity authorities remain unchanged.
-
-## Held
-
-| Exact ID | Evidence and reason | Original counts |
+| Package | App | Why |
 | --- | --- | --- |
-| `fr.tf1.mytf1` | [Exact e-TF1 developer listing](https://play.google.com/store/apps/details?id=fr.tf1.mytf1) establishes streaming function. However, [G10:192](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g10-google-tv/debloat.txt#L192) and [Horizon20:74](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-horizon-20/debloat.txt#L74) are only commented entries: zero active observations. Preserve the queue's no-active boundary; functional identity does not authorize promoting comment-only leads as Disable candidates. | 0 active / 2 commented / 0 prose |
-| `com.tcl.ocean.instructions` | Exact Play URL inaccessible; bounded exact-ID `site:tcl.com` search found no sufficient primary implementation/caller/recovery contract. Source says [on-screen manual](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43c645/debloat.txt#L74), but also [onboarding/tips](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55q6cx1/debloat.txt#L53); scope remains unresolved. | 34 / 2 / 0 |
-| `com.tcl.repairguide` | Exact Play URL inaccessible; bounded exact-ID `site:tcl.com` search found no sufficient primary diagnostic/support dependency or recovery contract. Source calls it [self-diagnosis](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c745/debloat.txt#L65), records [firmware absence](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55a300w/debloat.txt#L6) and [commented treatment](https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-75p8k/debloat.txt#L89). | 27 / 1 / 1 |
+| `org.smarttube.stable` | SmartTube | Sideloaded YouTube client |
+| `io.gh.reisxd.tizentube.cobalt` | TizenTube Cobalt | Sideloaded YouTube client |
+| `org.xbmc.kodi` | Kodi | Media player installed by choice |
+| `org.videolan.vlc` | VLC | Media player installed by choice |
+| `org.jellyfin.androidtv` | Jellyfin | Media-server client |
+| `com.stremio.one` | Stremio | Media client, sideloaded |
+| `com.mxtech.videoplayer.ad` | MX Player | Media player |
+| `com.plexapp.mediaserver.smb` | Plex Media Server (Shield) | Media server someone runs on purpose |
+| `com.limelight` | Moonlight Game Streaming | Game streaming |
+| `com.limelight.noir` | Artemis (Moonlight Noir) | Game streaming, sideloaded |
+| `com.valvesoftware.steamlink` | Steam Link | Game streaming |
+| `com.retroarch` | RetroArch | Emulator frontend |
+| `com.codingbuffalo.aerialdream` | Aerial Dream | Screensaver installed by choice |
+| `com.neilturner.aerialviews` | Aerial Views screensaver | Screensaver installed by choice |
+| `com.lonelycatgames.Xplore` | X-plore File Manager | File manager |
+| `pl.solidexplorer2` | Solid Explorer | File manager |
+| `com.cxinventor.file.explorer` | Cx File Explorer | File manager |
+| `com.yablio.sendfilestotv` | Send Files to TV | File transfer |
+| `com.esaba.downloader` | Downloader by AFTVnews | Download and sideload tool |
+| `com.cybercat.adbappcontrol.tv` | ADB TV: App Manager | ADB and app manager |
+| `by4a.setedit22` | SetEdit SettingsDatabaseEditor | Settings tool |
+| `flar2.homebutton` | Button Mapper | Remote-button remapper |
+| `com.tailscale.ipn` | Tailscale | VPN |
+| `com.wireguard.android` | WireGuard | VPN |
+| `com.surfshark.vpnclient.android` | Surfshark | VPN (stays Caution) |
+| `com.phlox.tvwebbrowser` | TV Bro | Web browser |
+| `com.espn.score_center` | ESPN | Streaming and sports client |
+| `com.fox.foxone` | FOX One | Streaming client |
+| `com.getchannels.dvr.app` | Channels: Whole Home DVR | DVR client |
+| `com.handmark.sportscaster.androidtv` | CBS Sports: Watch Live | Sports client |
+| `com.hoopladigital.android` | Hoopla | Library media client |
+| `com.kanopy.tvapp` | Kanopy for Android TV | Library film client |
+| `com.moviesanywhere.goo` | Movies Anywhere | Movie-library client |
+| `com.silicondust.view` | HDHomeRun | Tuner and DVR client |
+| `com.turner.tbs.android.networkapp` | Watch TBS | Streaming client |
+| `com.turner.tnt.android.networkapp` | Watch TNT | Streaming client |
 
-[TCL's generic settings/manual guide](https://support.tcl.com/en_US/us-googletv-setup-configuration/tcl-google-tv-settings-and-user-manual-guide)
-and [troubleshooting advice](https://support.tcl.com/en_US/how-do-i-fix-problems-with-my-tcl-google-tv-device)
-do not map either held TCL ID to safe package disabling. Search absence is not
-proof of absence. Both agents agree on these holds, reconsider **2026-12-08** or
-on material new source/inventory/scope evidence. A due date is not acceptance.
+The ten streaming clients from `docs/REPORTED-PACKAGE-NAMES-2026-10-29.md`, and
+SetEdit, Cx File Explorer, Aerial Views and Surfshark from the same review,
+carried an explicit `review: false`. They were the "optional content clients" of
+that review, so this owner direction supersedes that one field only.
 
-## Progress and evidence
+Fifty entries already had `review: true` (Netflix, Prime Video, YouTube, Spotify,
+Plex, Tubi, Pluto TV, the 2026-11-05 and 2026-11-06 batches, and others). They are
+unchanged.
 
-The queue moves from 1,625 to **1,622 pending active candidates**. It now reports
-79 curated source identities, 35 holds and 235 with no active observation.
-Held TF1 moves from the no-active bucket to held bookkeeping; it never became
-an actionable candidate. The previous 19 accepts and 32 holds are unchanged.
+## Deliberately left off (35)
 
-The shared demo/fixture adds CANAL+ with visible consequence assertions. Existing
-loader/planner/safety regression logic checks all reviewed fixture IDs and
-excludes held entries from action lists. Capture focus is
-`OPTIMIZE_CATALOG_FOCUS=com.canal.android.canal`; desktop/mobile captures are
-labeled Chromium fixtures with a synthetic Shield identity, not CANAL+ tested
-on physical Shield hardware. No backend removal calls occur in capture tests.
+**Default bloat** (`default_optimize: true`, which the loader forbids together
+with `review`): Google Feedback, Nvidia Telemetry, Nvidia Diagnostics, Nvidia
+Feedback, Nvidia Games (Tegra Zone), Walmart App, Home Recommendations.
 
-The task receipt/PR bind actual checks, regenerated galleries and inspected
-captures to their tested revision. At 14 GiB free, no dependency install, native
-target or multi-GiB job is started: only small existing-dependency frontend
-checks/captures, with scratch cleaned afterward; hosted CI supplies native Rust
-validation. Prior mobile372/372 is not a final-head claim. Source/static review
-is not formal approval, release or hardware proof. This run prohibits merging.
+**Defunct services** (also default bloat): Google Play Movies, Google Play Music,
+Funimation, Stadia, Stadia (Android TV), Quibi, HBO Now (legacy).
 
-The source stays pinned at `8672e68e8a24c1258e4662cd11daa4ed13795dad`, unreviewed
-and non-actionable. Original observations, full MIT notices and proprietary app
-license are unchanged. The existing daily job is unchanged.
+**Preinstalled components and services nobody installs:**
+
+| Package | Risk | Why left off |
+| --- | --- | --- |
+| `com.android.printspooler` | Safe | Android print plumbing |
+| `com.android.gallery3d` | Safe | Stock photo viewer that ships with Android |
+| `com.google.android.tv.remote.service` | Medium | Google's remote and keyboard service |
+| `com.android.providers.tv` | High | Live Channels system provider |
+| `com.android.dreams.basic` | Medium | Built-in screensaver |
+| `com.google.android.katniss` | High | Google Assistant |
+| `com.google.android.apps.mediashell` | High | Chromecast built-in |
+| `com.google.android.tts` | High | Text-to-speech engine |
+| `com.google.android.play.games` | Medium | Preinstalled Google Play Games |
+| `com.google.android.tungsten.setupwraith` | High | Setup and Home component |
+| `com.google.android.backdrop` | Medium | Preinstalled Ambient Mode screensaver |
+| `com.google.android.tvrecommendations` | High | Home recommendations service |
+| `com.nvidia.osc` | Medium | Nvidia on-screen controls |
+| `com.nvidia.shieldtech.hooks` | Medium | Nvidia system hooks |
+| `com.nvidia.nvgamecast` | Medium | Preinstalled Nvidia GameStream |
+| `com.nvidia.ota` | High | Nvidia system updater |
+| `com.google.android.speech.pumpkin` | High | Speech services |
+| `com.google.android.tvlauncher` | High | Stock launcher |
+| `com.google.android.tungsten.overscan` | Medium | Overscan calibrator |
+| `com.droidlogic.launcher.provider` | Medium | Launcher provider |
+| `com.google.android.apps.tv.launcherx` | High | Google TV Home |
+
+Two to note. `com.google.android.backdrop` (Ambient Mode) is preinstalled, so it
+stays off even though `com.google.android.apps.tv.dreamx` (Google TV Ambient
+Mode) has carried `review: true` since the 2026-11-05 batch. And user-installed
+launchers (Projectivy, FLauncher, …) live in `launchers.json`, not in the
+Optimize lists, so there was nothing to mark.
+
+## Behavior
+
+A review row starts at Keep, shows "Review: disable if unused" (or "uninstall")
+with its last-used date, and gets no "Recommended" label. Desktop Optimize no
+longer has "Select all safe", so each one is armed by hand. Restore mode has
+"Re-enable all disabled", which arms Enable on every disabled catalog app:
+turning apps back on is the safe direction. Android's
+"Select all" only appears on the Recommended tab, which holds default bloat and
+never a review app, and on Restore's re-enable list.

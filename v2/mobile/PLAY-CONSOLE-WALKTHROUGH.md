@@ -2,7 +2,8 @@
 
 This is a click-by-click guide for the owner to publish the Android app `com.atvoptimizer.mobile`
 on Google Play as a free download with a one-time in-app purchase, **ATV Optimizer Pro**
-(`atvopt_pro`, US $4.99). It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
+(`atvopt_pro`, US $4.99), plus two optional "Support me" tiers that unlock the same Pro
+(`atvopt_pro_support_1` at $9.99, `atvopt_pro_support_2` at $19.99). It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
 and signing. The build inputs it refers to (`ATVOPT_DISTRIBUTION=play`, `ATVOPT_PLAY_LICENSE_KEY`,
 `ATVOPT_TELEMETRY_URL`) are described in RELEASE.md §5.
 
@@ -43,7 +44,8 @@ consecutive days**. Both run on Google's clock, so start them first.
 **Phase 3: first build and product (agent builds, owner uploads, about 1 hour)**
 - [ ] 3.1 Agent builds the signed Play AAB with a fresh `versionCode` and verifies the signature
 - [ ] 3.2 AAB uploaded to **Internal testing** and rolled out; Play App Signing fingerprints copied to 1Password
-- [ ] 3.3 One-time product `atvopt_pro` created, one Buy option, US $4.99, **Activated**
+- [ ] 3.3 One-time products `atvopt_pro` (US $4.99), `atvopt_pro_support_1` (US $9.99) and
+  `atvopt_pro_support_2` (US $19.99) created, one Buy option each, **Activated**
 - [ ] 3.4 License testers added (owner and non-supporter testers who will try purchases)
 
 **Phase 4: closed test, which starts the 14-day clock (owner)**
@@ -602,8 +604,17 @@ Unlocked only after 3.2 (<https://developer.android.com/google/play/billing/gett
 
 Help: <https://support.google.com/googleplay/android-developer/answer/16430488>
 
-**Done when:** the product shows Active, and the app (installed from Play) shows the local price
-in More and on the paywall.
+7. Repeat steps 1-6 for the two optional **Support me** tiers. They unlock exactly the same Pro;
+   the higher price is support, so the descriptions must not promise anything extra:
+   - **Product ID** `atvopt_pro_support_1`, **Name** `ATV Optimizer Pro (supporter)`, USD **9.99**.
+   - **Product ID** `atvopt_pro_support_2`, **Name** `ATV Optimizer Pro (big supporter)`, USD **19.99**.
+   - **Description** for both: `The same Pro unlock as ATV Optimizer Pro, at a higher price to support development. One-time purchase.`
+   The ids must match `SUPPORT_PRODUCT_IDS` in `src-tauri/src/play_billing.rs`; prices can change
+   later in Play Console without an app update. The app shows only the tiers Play returns, so a tier
+   left inactive simply doesn't appear.
+
+**Done when:** all three products show Active, and the app (installed from Play) shows the local
+price on Buy Pro plus a **Support me** row with both tiers in More and on the paywall.
 
 ### 3.4 License testers. OWNER
 

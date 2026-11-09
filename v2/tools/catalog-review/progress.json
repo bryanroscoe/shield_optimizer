@@ -725,7 +725,7 @@
     "com.canal.android.canal": {
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
       "assessed_at": "2026-11-08",
-      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md",
       "status": "accepted_optional_caution",
       "primary_evidence": "https://play.google.com/store/apps/details?id=com.canal.android.canal",
       "source_observations": [
@@ -744,7 +744,7 @@
     "fr.tf1.mytf1": {
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
       "assessed_at": "2026-11-08",
-      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md",
       "status": "held",
       "reconsider_after": "2026-12-08",
       "reason": "Exact e-TF1 Play listing establishes streaming function, but pinned source contains zero active-disable observations. Preserve no-active queue boundary; do not promote comment-only leads as Disable candidates in this batch.",
@@ -763,7 +763,7 @@
     "com.tcl.ocean.instructions": {
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
       "assessed_at": "2026-11-08",
-      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md",
       "status": "held",
       "reconsider_after": "2026-12-08",
       "reason": "Exact Play URL inaccessible and bounded TCL exact-ID search found no primary dependency/recovery contract. Generic vendor manual/Help documentation does not bind this package; source labels include on-TV manual and onboarding/tips, so scope remains unresolved.",
@@ -783,7 +783,7 @@
     "com.tcl.repairguide": {
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
       "assessed_at": "2026-11-08",
-      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md",
       "status": "held",
       "reconsider_after": "2026-12-08",
       "reason": "Exact Play URL inaccessible and bounded TCL exact-ID search found no primary implementation, diagnostic/support dependency or recovery contract. Generic troubleshooting advice does not map to disabling this exact package.",

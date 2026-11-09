@@ -8,7 +8,6 @@ use rustls::{
         ResolvesClientCert,
         danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
     },
-    pki_types::PrivateKeyDer,
     sign::CertifiedKey,
 };
 use socket2::{SockRef, TcpKeepalive};
@@ -20,7 +19,11 @@ use crate::{
         adb_connection_info::{ConnectionInfo, MAX_PAYLOAD, MAX_PAYLOAD_V1},
         adb_message_transport::{ADBMessageTransport, is_hang_up, is_timeout},
         adb_transport_message::{ADBTransportMessage, ADBTransportMessageHeader},
-        tcp::tls_identity::client_identity,
+        tcp::{
+            PreferredKeys,
+            bounded_shell::{BoundedShellControl, Finish},
+            tls_identity::{TlsIdentity, hinted_fingerprints},
+        },
     },
 };
 use std::{
@@ -64,15 +67,55 @@ const KEEPALIVE_PROBES: u32 = 3;
 // much shorter. Giving up part-way would leave the stream out of step.
 const FRAME_COMPLETION_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Under a [`BoundedShellControl`], no single socket wait is longer than
+/// this. Shutting a socket down does not reliably wake a `recv` already
+/// blocked in Winsock, so a cancel or the total deadline is also noticed by
+/// polling.
+const CONTROL_POLL_INTERVAL: Duration = Duration::from_millis(50);
+
+/// The connection's one socket, shared by the plain and TLS streams and by
+/// any [`BoundedShellControl`] that may shut it down, so cancellation always
+/// reaches the handle the I/O runs on, including after the TLS upgrade.
+#[derive(Clone, Debug)]
+struct SharedSocket(Arc<TcpStream>);
+
+impl std::ops::Deref for SharedSocket {
+    type Target = TcpStream;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Read for SharedSocket {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        (&*self.0).read(buf)
+    }
+}
+
+impl Write for SharedSocket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        (&*self.0).write(buf)
+    }
+
+    fn write_vectored(&mut self, bufs: &[IoSlice<'_>]) -> io::Result<usize> {
+        (&*self.0).write_vectored(bufs)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        (&*self.0).flush()
+    }
+}
+
 #[derive(Debug)]
 enum CurrentConnection {
-    Tcp(TcpStream),
+    Tcp(SharedSocket),
     Tls(Box<TlsConnection>),
 }
 
 #[derive(Debug)]
 struct TlsConnection {
-    stream: StreamOwned<ClientConnection, TcpStream>,
+    stream: StreamOwned<ClientConnection, SharedSocket>,
     /// Nothing has arrived over TLS yet. A TLS 1.3 client finishes its side of
     /// the handshake before the server has checked the client certificate, so
     /// adbd's refusal of an unpaired key arrives on this first read.
@@ -80,11 +123,15 @@ struct TlsConnection {
 }
 
 impl CurrentConnection {
-    fn socket(&self) -> &TcpStream {
+    fn shared_socket(&self) -> &Arc<TcpStream> {
         match self {
-            Self::Tcp(tcp_stream) => tcp_stream,
-            Self::Tls(tls) => &tls.stream.sock,
+            Self::Tcp(socket) => &socket.0,
+            Self::Tls(tls) => &tls.stream.sock.0,
         }
+    }
+
+    fn socket(&self) -> &TcpStream {
+        self.shared_socket()
     }
 
     fn set_read_timeout(&self, read_timeout: Duration) -> Result<()> {
@@ -207,7 +254,17 @@ pub struct TcpTransport {
     address: SocketAddr,
     current_connection: Option<Arc<Mutex<CurrentConnection>>>,
     private_key_path: PathBuf,
+    /// Offered before the key file; see [`PreferredKeys`].
+    preferred: PreferredKeys,
+    /// The certificate the next TLS upgrade must present, instead of the one
+    /// the device's hints name.
+    tls_forced: Option<usize>,
+    tls_presented: Arc<Mutex<Option<(usize, bool)>>>,
     limits: Arc<WireLimits>,
+    /// A total deadline and cancel handle over every socket operation while
+    /// set. Sessions opened meanwhile hold clones of the transport, so they
+    /// share it.
+    control: Option<BoundedShellControl>,
 }
 
 impl TcpTransport {
@@ -217,8 +274,75 @@ impl TcpTransport {
             address: address.into(),
             current_connection: None,
             private_key_path: private_key_path.as_ref().to_path_buf(),
+            preferred: PreferredKeys::none(),
+            tls_forced: None,
+            tls_presented: Arc::new(Mutex::new(None)),
             limits: Arc::new(WireLimits::unnegotiated()),
+            control: None,
         }
+    }
+
+    /// Offer `preferred` before the key file in every TLS upgrade.
+    pub(crate) fn with_preferred_keys(mut self, preferred: &PreferredKeys) -> Self {
+        self.preferred = preferred.clone();
+        self
+    }
+
+    /// A transport whose connect, handshake and every later read and write
+    /// are bounded by `control`, which owns the socket: a cancel or the
+    /// deadline shuts it down.
+    pub(crate) fn with_shell_control(
+        address: SocketAddr,
+        private_key_path: &Path,
+        control: BoundedShellControl,
+    ) -> Self {
+        let mut transport = Self::new(address, private_key_path);
+        transport.control = Some(control);
+        transport
+    }
+
+    /// Put the current connection under `control` for one operation. The
+    /// socket is only borrowed: finishing normally leaves it open, while a
+    /// cancel or the deadline shuts it down. Returns the control it replaces,
+    /// for [`Self::restore_control`]. A control that is already cancelled or
+    /// expired is refused without touching the socket.
+    pub(crate) fn set_current_control(
+        &mut self,
+        control: BoundedShellControl,
+    ) -> Result<Option<BoundedShellControl>> {
+        let connection = self.get_current_connection()?;
+        let guard = connection.lock()?;
+        control.register_borrowed(guard.shared_socket())?;
+        drop(guard);
+        Ok(self.control.replace(control))
+    }
+
+    pub(crate) fn restore_control(&mut self, previous: Option<BoundedShellControl>) {
+        self.control = previous;
+    }
+
+    /// Hand the connection made under the handshake control to its owner:
+    /// the deadline stops applying and the socket stays open. Fails, and the
+    /// caller must drop the connection, if that control was already
+    /// cancelled or expired.
+    pub(crate) fn finish_connect_control(&mut self) -> Result<()> {
+        let control = self
+            .control
+            .as_ref()
+            .ok_or_else(|| io::Error::other("connection has no active handshake control"))?;
+        let finish = Finish(control.clone());
+        finish.0.release_connection()?;
+        self.control = None;
+        Ok(())
+    }
+
+    /// The control's own error once it was cancelled or expired, which says
+    /// more than the I/O failure the shutdown caused.
+    fn control_failure(&self) -> Option<RustADBError> {
+        self.control
+            .as_ref()
+            .and_then(|control| control.remaining().err())
+            .map(RustADBError::IOError)
     }
 
     fn get_current_connection(&self) -> Result<Arc<Mutex<CurrentConnection>>> {
@@ -232,11 +356,18 @@ impl TcpTransport {
     }
 
     fn tls_config(&self) -> Result<ClientConfig> {
-        let (chain, key) = client_identity(&self.private_key_path)?;
-        let signing_key =
-            rustls::crypto::ring::sign::any_supported_type(&PrivateKeyDer::Pkcs8(key))?;
-        let resolver = ClientCertificate {
-            key: Arc::new(CertifiedKey::new(chain, signing_key)),
+        let mut identities: Vec<TlsIdentity> = self
+            .preferred
+            .keys()
+            .iter()
+            .map(|key| key.tls.clone())
+            .collect();
+        identities.push(TlsIdentity::from_path(&self.private_key_path)?);
+        *self.tls_presented.lock()? = None;
+        let resolver = ClientCertificates {
+            identities,
+            forced: self.tls_forced,
+            presented: Arc::clone(&self.tls_presented),
         };
         Ok(ClientConfig::builder()
             .dangerous()
@@ -375,6 +506,53 @@ fn write_frame<W: Write>(writer: &mut W, header: &[u8], payload: &[u8]) -> (usiz
     (written, writer.flush())
 }
 
+/// Reads that notice a [`BoundedShellControl`]'s cancel or deadline within
+/// [`CONTROL_POLL_INTERVAL`], and end at `until` like a socket timeout.
+struct ControlledReader<'a> {
+    connection: &'a mut CurrentConnection,
+    control: &'a BoundedShellControl,
+    until: Instant,
+}
+
+impl Read for ControlledReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        loop {
+            let remaining = self
+                .control
+                .remaining()?
+                .min(self.until.saturating_duration_since(Instant::now()));
+            if remaining.is_zero() {
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "ADB read timed out",
+                ));
+            }
+            under_control(
+                Some(self.control),
+                self.connection
+                    .socket()
+                    .set_read_timeout(Some(remaining.min(CONTROL_POLL_INTERVAL))),
+            )?;
+            let result = self.connection.read(buf);
+            self.control.remaining()?;
+            match result {
+                Err(error) if is_timeout(error.kind()) => {}
+                other => return other,
+            }
+        }
+    }
+}
+
+/// A socket call that fails because a cancel or deadline shut the socket down
+/// just before it (macOS then answers `setsockopt` with `EINVAL`) reports the
+/// control's outcome, not the socket's.
+fn under_control<T>(control: Option<&BoundedShellControl>, result: io::Result<T>) -> io::Result<T> {
+    match (result, control) {
+        (Err(error), Some(control)) => control.remaining().and(Err(error)),
+        (result, _) => result,
+    }
+}
+
 fn handshake_timeout() -> RustADBError {
     RustADBError::IOError(io::Error::new(
         io::ErrorKind::TimedOut,
@@ -383,25 +561,42 @@ fn handshake_timeout() -> RustADBError {
 }
 
 /// Drive the TLS handshake to completion, and flush our final flight, before
-/// `deadline`. Each socket operation gets only the time that remains.
+/// `deadline`. Each socket operation gets only the time that remains. Under a
+/// `control`, waits are also sliced so its cancel or deadline ends the
+/// handshake with the control's own error.
 fn complete_handshake(
-    stream: &mut StreamOwned<ClientConnection, TcpStream>,
+    stream: &mut StreamOwned<ClientConnection, SharedSocket>,
     deadline: Instant,
+    control: Option<&BoundedShellControl>,
 ) -> Result<()> {
     while stream.conn.is_handshaking() || stream.conn.wants_write() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let mut remaining = deadline.saturating_duration_since(Instant::now());
+        if let Some(control) = control {
+            remaining = remaining.min(control.remaining()?);
+        }
         if remaining.is_zero() {
             return Err(handshake_timeout());
         }
-        stream.sock.set_read_timeout(Some(remaining))?;
-        stream.sock.set_write_timeout(Some(remaining))?;
-        match stream.conn.complete_io(&mut stream.sock) {
+        let wait = if control.is_some() {
+            remaining.min(CONTROL_POLL_INTERVAL)
+        } else {
+            remaining
+        };
+        under_control(control, stream.sock.set_read_timeout(Some(wait)))?;
+        under_control(control, stream.sock.set_write_timeout(Some(wait)))?;
+        let result = stream.conn.complete_io(&mut stream.sock);
+        if let Some(control) = control {
+            control.remaining()?;
+        }
+        match result {
             Ok((0, 0)) => {
                 return Err(tls_failure(RustADBError::IOError(
                     io::ErrorKind::UnexpectedEof.into(),
                 )));
             }
             Ok(_) => {}
+            // Under a control this is one slice; the loop rechecks the time.
+            Err(error) if is_timeout(error.kind()) && control.is_some() => {}
             Err(error) if is_timeout(error.kind()) => return Err(handshake_timeout()),
             Err(error) => return Err(tls_failure(RustADBError::IOError(error))),
         }
@@ -413,7 +608,7 @@ fn complete_handshake(
 /// certificate. adbd's custom verifier fails an unknown key, which `BoringSSL`
 /// reports as `certificate_unknown`; the others cover other TLS stacks and a
 /// client that offered no certificate.
-const fn is_untrusted_key_alert(alert: AlertDescription) -> bool {
+pub(crate) const fn is_untrusted_key_alert(alert: AlertDescription) -> bool {
     matches!(
         alert,
         AlertDescription::CertificateRequired
@@ -446,10 +641,20 @@ fn tls_failure(error: RustADBError) -> RustADBError {
 
 impl ADBTransport for TcpTransport {
     fn connect(&mut self) -> Result<()> {
-        let stream = TcpStream::connect_timeout(&self.address, CONNECT_TIMEOUT)?;
+        let timeout = match &self.control {
+            Some(control) => control.remaining()?.min(CONNECT_TIMEOUT),
+            None => CONNECT_TIMEOUT,
+        };
+        let stream = Arc::new(TcpStream::connect_timeout(&self.address, timeout)?);
         configure_socket(&stream);
+        if let Some(control) = &self.control {
+            // From here a cancel or the deadline shuts this socket down.
+            control.register(&stream)?;
+        }
         self.limits.reset();
-        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(stream))));
+        self.current_connection = Some(Arc::new(Mutex::new(CurrentConnection::Tcp(SharedSocket(
+            stream,
+        )))));
         Ok(())
     }
 
@@ -477,6 +682,21 @@ impl ADBMessageTransport for TcpTransport {
         self.limits.apply(info);
     }
 
+    fn tls_identity_count(&self) -> usize {
+        self.preferred.len() + 1
+    }
+
+    fn present_tls_identity(&mut self, index: Option<usize>) {
+        self.tls_forced = index;
+    }
+
+    fn presented_tls_identity(&self) -> Option<(usize, bool)> {
+        *self
+            .tls_presented
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     fn max_payload(&self) -> usize {
         self.limits.write_limit()
     }
@@ -489,18 +709,37 @@ impl ADBMessageTransport for TcpTransport {
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
 
-        raw_connection.set_read_timeout(read_timeout)?;
-        let completion_timeout = read_timeout.max(FRAME_COMPLETION_TIMEOUT);
-        let result = read_frame(
-            &mut *raw_connection,
-            self.limits.read_limit(),
-            self.limits.verify_checksums(),
-            |connection| {
-                connection
-                    .socket()
-                    .set_read_timeout(Some(completion_timeout))
-            },
-        )
+        let result = if let Some(control) = &self.control {
+            let read_timeout = control.remaining()?.min(read_timeout);
+            let completion_timeout = read_timeout.max(FRAME_COMPLETION_TIMEOUT);
+            let mut reader = ControlledReader {
+                connection: &mut raw_connection,
+                control,
+                until: Instant::now() + read_timeout,
+            };
+            read_frame(
+                &mut reader,
+                self.limits.read_limit(),
+                self.limits.verify_checksums(),
+                |reader| {
+                    reader.until = Instant::now() + completion_timeout;
+                    Ok(())
+                },
+            )
+        } else {
+            raw_connection.set_read_timeout(read_timeout)?;
+            let completion_timeout = read_timeout.max(FRAME_COMPLETION_TIMEOUT);
+            read_frame(
+                &mut *raw_connection,
+                self.limits.read_limit(),
+                self.limits.verify_checksums(),
+                |connection| {
+                    connection
+                        .socket()
+                        .set_read_timeout(Some(completion_timeout))
+                },
+            )
+        }
         .map_err(|failure| {
             if failure.consumed {
                 self.limits.poison();
@@ -516,7 +755,7 @@ impl ADBMessageTransport for TcpTransport {
                     tls.awaiting_first_message = false;
                     Ok(message)
                 }
-                Err(error) => Err(tls_failure(error)),
+                Err(error) => Err(self.control_failure().unwrap_or_else(|| tls_failure(error))),
             };
         }
         result
@@ -538,10 +777,16 @@ impl ADBMessageTransport for TcpTransport {
             ));
         }
         let header = message.header().as_bytes();
+        let write_timeout = match &self.control {
+            Some(control) => control.remaining()?.min(write_timeout),
+            None => write_timeout,
+        };
 
         let raw_connection_lock = self.get_current_connection()?;
         let mut raw_connection = raw_connection_lock.lock()?;
-        raw_connection.set_write_timeout(write_timeout)?;
+        if let Err(error) = raw_connection.set_write_timeout(write_timeout) {
+            return Err(self.control_failure().unwrap_or(error));
+        }
         let (accepted, result) = write_frame(&mut *raw_connection, &header, message.payload());
         if let Err(error) = result {
             // Only a timeout before any byte was taken leaves the outgoing
@@ -564,7 +809,7 @@ impl ADBMessageTransport for TcpTransport {
 
         let mut current_conn_locked = current_connection.lock()?;
         let tcp_stream = match &*current_conn_locked {
-            CurrentConnection::Tcp(tcp_stream) => tcp_stream.try_clone()?,
+            CurrentConnection::Tcp(tcp_stream) => tcp_stream.clone(),
             CurrentConnection::Tls(_) => {
                 return Err(RustADBError::UpgradeError(
                     "cannot upgrade a TLS connection...".into(),
@@ -578,7 +823,7 @@ impl ADBMessageTransport for TcpTransport {
         // Driving the handshake here keeps it inside the caller's handshake
         // deadline; left to the first read it would run under that read's
         // much longer timeout.
-        complete_handshake(&mut stream, deadline)?;
+        complete_handshake(&mut stream, deadline, self.control.as_ref())?;
         log::debug!("TLS handshake complete");
 
         *current_conn_locked = CurrentConnection::Tls(Box::new(TlsConnection {
@@ -589,19 +834,59 @@ impl ADBMessageTransport for TcpTransport {
     }
 }
 
-/// Presents the one ADB identity whenever the server asks.
+/// Presents one of the connection's identities when the server asks: the one
+/// it was told to, else the first whose fingerprint the server's CA hints
+/// name, else the first. AOSP's host likewise matches the hints and falls
+/// back to a default key (`adb_tls_set_certificate` in `client/auth.cpp`).
 #[derive(Debug)]
-struct ClientCertificate {
-    key: Arc<CertifiedKey>,
+struct ClientCertificates {
+    identities: Vec<TlsIdentity>,
+    forced: Option<usize>,
+    presented: Arc<Mutex<Option<(usize, bool)>>>,
 }
 
-impl ResolvesClientCert for ClientCertificate {
+impl ClientCertificates {
+    fn choose(&self, root_hint_subjects: &[&[u8]]) -> (usize, bool) {
+        let hinted = hinted_fingerprints(root_hint_subjects);
+        let named = |index: usize| {
+            self.identities
+                .get(index)
+                .is_some_and(|identity| hinted.contains(&identity.fingerprint))
+        };
+        if let Some(index) = self.forced.filter(|&index| index < self.identities.len()) {
+            return (index, named(index));
+        }
+        (0..self.identities.len())
+            .find(|&index| named(index))
+            .map_or((0, false), |index| (index, true))
+    }
+}
+
+impl ResolvesClientCert for ClientCertificates {
     fn resolve(
         &self,
-        _root_hint_subjects: &[&[u8]],
+        root_hint_subjects: &[&[u8]],
         _sigschemes: &[SignatureScheme],
     ) -> Option<Arc<CertifiedKey>> {
-        Some(Arc::clone(&self.key))
+        let (index, hinted) = self.choose(root_hint_subjects);
+        if self.identities.len() > 1 {
+            log::debug!(
+                "TLS client certificate {} of {}: {}",
+                index + 1,
+                self.identities.len(),
+                if self.forced.is_some() {
+                    "retrying with the next key"
+                } else if hinted {
+                    "the device's hints name it"
+                } else {
+                    "no hint named a key, so the first"
+                }
+            );
+        }
+        if let Ok(mut presented) = self.presented.lock() {
+            *presented = Some((index, hinted));
+        }
+        Some(Arc::clone(&self.identities[index].certified))
     }
 
     fn has_certs(&self) -> bool {
@@ -1129,5 +1414,269 @@ mod tests {
         limits.reset();
         assert_eq!(limits.write_limit(), MAX_PAYLOAD_V1);
         assert_eq!(limits.read_limit(), MAX_PAYLOAD);
+    }
+
+    fn plain_connection(address: SocketAddr) -> CurrentConnection {
+        CurrentConnection::Tcp(SharedSocket(Arc::new(TcpStream::connect(address).unwrap())))
+    }
+
+    fn controlled_read(
+        connection: &mut CurrentConnection,
+        buf: &mut [u8],
+        timeout: Duration,
+        control: &BoundedShellControl,
+    ) -> io::Result<()> {
+        ControlledReader {
+            connection,
+            control,
+            until: Instant::now() + timeout,
+        }
+        .read_exact(buf)
+    }
+
+    #[test]
+    fn controlled_read_cancels_even_without_a_socket_shutdown_handle() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (finished, hold_open) = std::sync::mpsc::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"part").unwrap();
+            // A peer close must not be what wakes the reader and makes this test pass.
+            hold_open.recv_timeout(Duration::from_secs(3)).is_ok()
+        });
+        let mut connection = plain_connection(address);
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let signal = control.clone();
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            let cancel_started = Instant::now();
+            signal.cancel();
+            cancel_started
+        });
+        let result = controlled_read(
+            &mut connection,
+            &mut [0; 24],
+            Duration::from_secs(2),
+            &control,
+        );
+        let completed = Instant::now();
+        let _ = finished.send(());
+        let cancel_started = canceller.join().unwrap();
+        assert!(
+            server.join().unwrap(),
+            "peer closed before the read completed"
+        );
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::ConnectionAborted);
+        let latency = completed.duration_since(cancel_started);
+        assert!(
+            latency < Duration::from_millis(250),
+            "cancel latency {latency:?}"
+        );
+    }
+
+    #[test]
+    fn controlled_read_retains_partial_bytes_across_poll_timeouts() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.write_all(b"ab").unwrap();
+            std::thread::sleep(Duration::from_millis(120));
+            stream.write_all(b"cd").unwrap();
+        });
+        let mut connection = plain_connection(address);
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let mut bytes = [0; 4];
+        controlled_read(
+            &mut connection,
+            &mut bytes,
+            Duration::from_secs(1),
+            &control,
+        )
+        .unwrap();
+        control.cancel();
+        server.join().unwrap();
+        assert_eq!(&bytes, b"abcd");
+    }
+
+    #[test]
+    fn controlled_read_honors_a_shorter_caller_budget() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (_stream, _) = listener.accept().unwrap();
+            std::thread::sleep(Duration::from_secs(3));
+        });
+        let mut connection = plain_connection(address);
+        let control = BoundedShellControl::new(Duration::from_secs(5)).unwrap();
+        let started = Instant::now();
+        let result = controlled_read(
+            &mut connection,
+            &mut [0; 1],
+            Duration::from_millis(20),
+            &control,
+        );
+        let elapsed = started.elapsed();
+        control.cancel();
+        server.join().unwrap();
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        // The peer stays silent for 3 s, so anything near the 20 ms read
+        // bound shows the read timed out on its own.
+        assert!(elapsed < Duration::from_secs(1), "{elapsed:?}");
+    }
+
+    #[test]
+    fn a_controlled_transport_reassembles_fragmented_frames() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_nodelay(true).unwrap();
+            let message =
+                ADBTransportMessage::try_new(MessageCommand::Write, 9, 7, b"hello").unwrap();
+            let header = message.header().as_bytes();
+            stream.write_all(&header[..7]).unwrap();
+            std::thread::sleep(Duration::from_millis(80));
+            stream.write_all(&header[7..]).unwrap();
+            stream.write_all(b"he").unwrap();
+            std::thread::sleep(Duration::from_millis(80));
+            stream.write_all(b"llo").unwrap();
+        });
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let mut transport =
+            TcpTransport::with_shell_control(address, Path::new("unused"), control.clone());
+        transport.connect().unwrap();
+        assert!(control.was_registered());
+        let message = transport
+            .read_message_with_timeout(Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(message.payload(), b"hello");
+        control.cancel();
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn the_control_deadline_caps_a_frame_that_has_started() {
+        // A started frame normally gets FRAME_COMPLETION_TIMEOUT; the total
+        // deadline still ends it, and the half-read frame poisons the link.
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let message = ADBTransportMessage::try_new(MessageCommand::Okay, 1, 2, &[]).unwrap();
+            stream.write_all(&message.header().as_bytes()[..3]).unwrap();
+            let _ = stream.read(&mut [0]);
+        });
+        let control = BoundedShellControl::new(Duration::from_millis(200)).unwrap();
+        let mut transport = TcpTransport::with_shell_control(address, Path::new("unused"), control);
+        transport.connect().unwrap();
+        let started = Instant::now();
+        let error = transport
+            .read_message_with_timeout(Duration::from_secs(10))
+            .unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if io.kind() == io::ErrorKind::TimedOut),
+            "{error:?}"
+        );
+        server.join().unwrap();
+        assert!(transport.limits.check_in_step().is_err());
+    }
+
+    #[test]
+    fn a_socket_error_after_a_cancel_reports_the_cancel() {
+        let invalid = || Err::<(), _>(io::Error::from(io::ErrorKind::InvalidInput));
+        let control = BoundedShellControl::new(Duration::from_secs(5)).unwrap();
+        assert_eq!(
+            under_control(Some(&control), invalid()).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput,
+            "a running control keeps the socket's own error"
+        );
+        assert_eq!(
+            under_control(None, invalid()).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        control.cancel();
+        assert_eq!(
+            under_control(Some(&control), invalid()).unwrap_err().kind(),
+            io::ErrorKind::ConnectionAborted
+        );
+        assert!(under_control(Some(&control), Ok(())).is_ok());
+    }
+
+    #[test]
+    fn cancelling_a_stalled_tls_handshake_reports_the_cancel_not_a_hang_up() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            // Swallow the ClientHello and never answer it.
+            let _ = io::copy(&mut stream, &mut io::sink());
+        });
+        let control = BoundedShellControl::new(Duration::from_secs(5)).unwrap();
+        let mut transport = TcpTransport::with_shell_control(
+            address,
+            crate::message_devices::tcp::test_support::shared_test_key(),
+            control.clone(),
+        );
+        transport.connect().unwrap();
+        let signal = control.clone();
+        let canceller = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(150));
+            signal.cancel();
+            Instant::now()
+        });
+        let error = transport
+            .upgrade_connection(Duration::from_secs(5))
+            .unwrap_err();
+        let finished = Instant::now();
+        let cancelled_at = canceller.join().unwrap();
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if io.kind() == io::ErrorKind::ConnectionAborted),
+            "{error:?}"
+        );
+        assert!(finished.saturating_duration_since(cancelled_at) < Duration::from_millis(250));
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn a_borrowed_control_leaves_the_socket_open_and_a_spent_one_is_refused() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let message = ADBTransportMessage::try_new(MessageCommand::Okay, 1, 2, &[]).unwrap();
+            let _ = stream.read(&mut [0]);
+            stream.write_all(&frame(&message)).unwrap();
+            let _ = io::copy(&mut stream, &mut io::sink());
+        });
+        let mut transport = TcpTransport::new(address, PathBuf::new());
+        transport.connect().unwrap();
+        let spent = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        spent.cancel();
+        assert!(transport.set_current_control(spent.clone()).is_err());
+        assert!(!spent.was_registered());
+
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let previous = transport.set_current_control(control.clone()).unwrap();
+        assert!(previous.is_none());
+        {
+            let _finish = Finish(control);
+        }
+        transport.restore_control(previous);
+        transport
+            .write_message(ADBTransportMessage::try_new(MessageCommand::Okay, 2, 1, &[]).unwrap())
+            .unwrap();
+        let message = transport
+            .read_message_with_timeout(Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(message.header().command(), MessageCommand::Okay);
+        drop(transport);
+        server.join().unwrap();
     }
 }

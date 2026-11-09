@@ -14,6 +14,11 @@ name = "atv_optimizer_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
+# Built-in Rust ADB is the default engine; Settings → ADB switches to Google
+# platform-tools. `--no-default-features` builds a platform-tools-only app.
+default = ["native-adb-default"]
+native-adb-default = ["direct-adb"]
+direct-adb = ["dep:atv-direct-adb", "dep:mdns-sd"]
 # Dev-only: the E2E server (crates/e2e-server) runs the real command layer
 # against the simulated adb. Never enabled in a release build.
 e2e = ["atv-optimizer-core/test-support", "tauri/test"]
@@ -23,6 +28,8 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 atv-optimizer-core = { path = "../crates/core" }
+atv-direct-adb = { path = "../crates/direct-adb", optional = true }
+mdns-sd = { version = "=0.19.2", default-features = false, optional = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
@@ -82,7 +89,18 @@ socket2 = "0.6"
 [dev-dependencies]
 atv-optimizer-core = { path = "../crates/core", features = ["test-support"] }
 pretty_assertions = "1"
+# Test keys for the platform-tools key loader; never the user's own key.
+rsa = { version = "0.9", features = ["std", "pem", "getrandom"] }
 tempfile = "3"
 # `start_paused` — lets the reconnect-backoff tests advance time instantly
 # instead of really sleeping through it.
 tokio = { version = "1", features = ["test-util"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_Storage_FileSystem", "Win32_System_SystemServices", "Win32_System_Threading"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_System_IO", "Win32_System_Ioctl"] }
