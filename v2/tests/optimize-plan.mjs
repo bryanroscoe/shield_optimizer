@@ -215,7 +215,18 @@ async function main() {
       }
     }
     console.log(`Reviewed catalog state checks passed: ${reviewed.length * 3} enabled/disabled/missing cases.`);
-    const { suggestedMethod, installSource } = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    const { suggestedMethod, installSource, uninstallOutcome } = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    for (const pkg of ["com.att.tv", "com.google.android.tv", "com.disney.datg.videoplatforms.android.watchdc"]) {
+      const entry = catalog.find((a) => a.package === pkg);
+      const retired = pkg === "com.disney.datg.videoplatforms.android.watchdc";
+      for (const source of ["user", "preinstalled", "unknown"]) {
+        assert.equal(suggestedMethod(entry, source), source === "user" && !retired ? "uninstall" : "disable", `${pkg}: ${source}`);
+      }
+      if (retired) {
+        assert.equal(entry.play_store, false);
+        assert.match(uninstallOutcome(pkg, entry).detail, /discontinued.*nowhere to download/i);
+      }
+    }
     const ready = { status: "ready", verdict: { kind: "safe", source: "reviewed_catalog", reason: "Optional." } };
     const store = { package: "x.store", name: "Store", method: "disable", risk: "safe", play_store: true, defunct: false, review: true, default_optimize: false, default_restore: false, optimize_description: "", restore_description: "" };
     // Uninstall only for an ordinary store app the user installed.

@@ -41,7 +41,7 @@ integration and recovery were not obtained. Stopping the named app functions is
 a functional inference, not a physical observation. Shared callers or provider
 workflows may rely on them, so no claim that everything else is unaffected is made.
 Unresolved operator integration for DIRECTV is not resolved by these assessments;
-`com.att.tv` remains absent from actionable/descriptive catalogs and held Unknown.
+The initial DIRECTV hold was resolved on 2026-11-09; see [the publisher evidence review](REPORTED-APPS-307-318-321.md) for its conditional Caution recommendation.
 
 The [MLB Android TV help page](https://www.mlb.com/live-stream-games/help-center/android-tv)
 is additional platform evidence. Its existence is not a reinstall or compatibility

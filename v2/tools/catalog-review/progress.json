@@ -815,12 +815,11 @@
       "evidence": "https://play.google.com/store/apps/details?id=com.analiti.fastest.android"
     },
     "com.att.tv": {
-      "status": "held",
+      "status": "accepted_optional_caution",
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-      "assessed_at": "2026-11-06",
-      "reconsider_after": "2026-12-06",
-      "reason": "Ordinary Android TV app versus operator/Gemini integration and exact package scope unresolved; current catalog cannot enforce install provenance or operator exclusion.",
-      "evidence": "docs/REPORTED-APPS-305-308.md; https://www.directv.com/support/article/000087389; https://www.directv.com/support/article/000091427"
+      "assessed_at": "2026-11-09",
+      "reason": "Prior hold superseded by publisher-linked identity/function evidence and explicit app-specific consequences. Caution/review, both defaults false; see docs/REPORTED-APPS-307-318-321.md.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.att.tv; https://www.directv.com/support/article/000087389; https://www.directv.com/support/article/000091427"
     },
     "com.britbox.tv": {
       "status": "accepted_optional_caution",
@@ -900,20 +899,18 @@
       "evidence": "https://play.google.com/store/apps/details?id=com.weathergroup.localnow"
     },
     "com.google.android.tv": {
-      "status": "held",
+      "status": "accepted_optional_caution",
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-      "assessed_at": "2026-11-06",
-      "reconsider_after": "2026-12-06",
-      "reason": "Known-name only; tuner/IP/guide and TIF firmware role unresolved. Need installed manifest/provenance/roles, dependencies, recovery and enforceable scope. Deprecation is not removal evidence.",
-      "evidence": "https://source.android.com/docs/devices/tv/reference-tv-app"
+      "assessed_at": "2026-11-09",
+      "reason": "Prior hold superseded by publisher-linked identity/function evidence and explicit app-specific consequences. Caution/review, both defaults false; see docs/REPORTED-APPS-307-318-321.md.",
+      "evidence": "https://play.google.com/store/apps/details?id=com.google.android.tv; https://support.google.com/androidtv/answer/6285282; https://source.android.com/docs/devices/tv/customize-tv-app; https://source.android.com/docs/devices/tv/reference-tv-app"
     },
     "com.disney.datg.videoplatforms.android.watchdc": {
-      "status": "held",
+      "status": "accepted_optional_caution",
       "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-      "assessed_at": "2026-11-06",
-      "reconsider_after": "2026-12-06",
-      "reason": "DisneyNOW apps retired and current exact Play listing returns 404. Historical exact package identity and installed-build dependency/recovery scope insufficiently verified; no action or reinstall promise.",
-      "evidence": "https://disneynow.com/help"
+      "assessed_at": "2026-11-09",
+      "reason": "Prior hold superseded by publisher-linked identity/function evidence and explicit app-specific consequences. Caution/review, both defaults false; see docs/REPORTED-APPS-307-318-321.md.",
+      "evidence": "https://d23.com/9-reasons-why-you-need-disneynow-this-very-minute/; https://disneynow.com/help"
     }
   }
 }

@@ -2116,5 +2116,63 @@
       "https://support.google.com/googleplay/answer/7018481",
       "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
     ]
+  },
+  {
+    "package": "com.att.tv",
+    "name": "DIRECTV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling or removing stops DIRECTV live TV, on-demand viewing and access to recordings through this app; it does not cancel a subscription. Keep it if used, or if a DIRECTV Gemini/operator box relies on it for its TV interface. On an ordinary Android TV, remove only if unused.",
+    "restore_description": "Re-enables DIRECTV if still installed. Sign-in, subscription access and deleted data are not restored. A Play Store reinstall depends on device, region, account and app availability.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-09",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.att.tv",
+      "https://www.directv.com/support/article/000087389",
+      "https://www.directv.com/support/article/000091427",
+      "Functional review and operator-device caveat: docs/REPORTED-APPS-307-318-321.md. Device/firmware dependencies and physical recovery unverified."
+    ]
+  },
+  {
+    "package": "com.disney.datg.videoplatforms.android.watchdc",
+    "name": "DisneyNOW",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "DisneyNOW video streaming app, retired by Disney. Disabling stops this client and links that open it. There is no current Play Store download; prefer Disable if you might want to re-enable the installed app. Removing it does not restore retired DisneyNOW service or cancel TV-provider subscriptions.",
+    "restore_description": "Re-enables DisneyNOW if still installed; this does not restore the retired service. No current Play Store download is available after removal. Deleted data and TV-provider access are not restored.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false,
+    "defunct": true,
+    "review": true,
+    "reviewed_at": "2026-11-09",
+    "sources": [
+      "https://d23.com/9-reasons-why-you-need-disneynow-this-very-minute/",
+      "https://disneynow.com/help",
+      "Disney publisher Android link targets exactly com.disney.datg.videoplatforms.android.watchdc; its Play page returns 404. See docs/REPORTED-APPS-307-318-321.md. Device/firmware behavior unverified."
+    ]
+  },
+  {
+    "package": "com.google.android.tv",
+    "name": "Live Channels",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling or removing stops Live Channels tuner/IP-channel viewing and its program guide. Keep it if you use an antenna or network tuner, channel guide, or TV input/remote shortcut that opens it. Manufacturers can integrate it into the TV interface; disable only if those functions are unused. Deprecation alone is not a reason to remove it.",
+    "restore_description": "Re-enables Live Channels if still installed. Tuner setup, guide data, recording access and device-specific TV input shortcuts may need setup again; deleted data is not restored. Play Store availability varies by device and region.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-09",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.google.android.tv",
+      "https://support.google.com/androidtv/answer/6285282",
+      "https://source.android.com/docs/devices/tv/customize-tv-app",
+      "https://source.android.com/docs/devices/tv/reference-tv-app",
+      "Functional review with tuner/TIF consequences: docs/REPORTED-APPS-307-318-321.md. Device/firmware integration and physical recovery unverified."
+    ]
   }
 ]
