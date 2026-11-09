@@ -3,6 +3,7 @@
   import { onMount, onDestroy } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import type {
     TweaksState,
     SettingNamespace,
@@ -328,7 +329,8 @@
       : preset === "fhd_1080p" ? "1080p (1920x1080, density 320)"
       : preset === "hd_720p" ? "720p (1280x720, density 213)"
       : "device defaults";
-    if (!confirm(`Change display scaling to ${label}? The screen will redraw.`)) return;
+    if (displayScaleBusy) return;
+    if (!(await confirmAction(`Change display scaling to ${label}? The screen will redraw.`)) || displayScaleBusy) return;
     displayScaleBusy = preset;
     displayScaleMessage = "";
     try {
