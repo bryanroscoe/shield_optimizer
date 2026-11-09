@@ -66,8 +66,8 @@
 
   let stopBusy = $state(false);
   let stopMessage = $state<{ ok: boolean; text: string } | null>(null);
-  // Hidden for a package the device says is not installed, and not offered
-  // until its state is known, matching the phone.
+  // Hidden for a package the device says is not installed, and disabled while
+  // its state is unknown, matching the phone.
   let offerForceStop = $derived(!!serial && appState !== "missing");
 
   async function forceStop() {
@@ -291,8 +291,9 @@
         </button>
       {/if}
     </div>
-    {#if stopMessage}
-      <p class="stop-status small" class:warn={!stopMessage.ok} role="status">{stopMessage.text}</p>
+    {#if offerForceStop}
+      <!-- Rendered before any message so assistive tech announces the result. -->
+      <p class="stop-status small" class:warn={stopMessage && !stopMessage.ok} role="status">{stopMessage?.text ?? ""}</p>
     {/if}
 </div>
 {#if reportOpen && reportDevice}
@@ -402,6 +403,9 @@
   .stop-status {
     margin: 0.35rem 0 0;
     color: var(--fg-muted);
+  }
+  .stop-status:empty {
+    margin: 0;
   }
   .stop-status.warn {
     color: var(--warn);

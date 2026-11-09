@@ -30,10 +30,10 @@
       if (serial !== target) return;
       findMessage = res.ok
         ? { ok: true, text: "Ringing your Shield remote — listen for the beep." }
-        : { ok: false, text: res.message || "Couldn't ring the remote." };
+        : { ok: false, text: `${res.message || "Couldn't ring the remote."} Make sure the TV is on.` };
     } catch (error) {
       if (serial !== target) return;
-      findMessage = { ok: false, text: String(error) };
+      findMessage = { ok: false, text: `${String(error)} Make sure the TV is on.` };
     } finally {
       findBusy = false;
     }
@@ -468,8 +468,9 @@
   .find-status {
     margin: 0.35rem 0 0.75rem;
   }
+  /* Kept in the accessibility tree while empty so the result is announced. */
   .find-status:empty {
-    display: none;
+    margin: 0;
   }
   .transport {
     font-size: 0.74rem;

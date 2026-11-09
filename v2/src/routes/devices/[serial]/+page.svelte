@@ -562,20 +562,29 @@
   /// or the reading passing its own sensor's throttling threshold. A bare
   /// number with neither claims nothing, so it stays uncoloured.
   let thermal = $derived(temperatureContext(report));
+  /// The worse of the device-wide status and the selected sensor's own: a
+  /// sensor reporting throttling is never hidden behind a calm device status.
+  let worstStatus = $derived.by(() => {
+    const { deviceStatus, sensorStatus } = thermal;
+    if (deviceStatus == null) return sensorStatus;
+    if (sensorStatus == null) return deviceStatus;
+    return Math.max(deviceStatus, sensorStatus);
+  });
   let tempTone = $derived.by(() => {
-    if (thermal.value == null) return null;
-    if (thermal.status != null && thermal.status >= 4) return "danger";
-    if (thermal.status != null && thermal.status >= 2) return "warn";
-    if (thermal.throttle != null && thermal.value >= thermal.throttle) return "warn";
+    if (thermal.value == null && worstStatus == null) return null;
+    if (worstStatus != null && worstStatus >= 4) return "danger";
+    if (worstStatus != null && worstStatus >= 2) return "warn";
+    if (thermal.value != null && thermal.throttle != null && thermal.value >= thermal.throttle) return "warn";
     return null;
   });
-  let tempFoot = $derived(
-    thermal.value == null && thermal.status == null
-      ? "not reported"
-      : thermal.status != null
-        ? thermal.statusLabel
-        : (thermal.comparison ?? thermal.statusLabel),
-  );
+  let tempFoot = $derived.by(() => {
+    if (thermal.value == null && thermal.status == null) return "not reported";
+    const sensorWorse =
+      thermal.sensorStatus != null && thermal.deviceStatus != null && thermal.sensorStatus > thermal.deviceStatus;
+    if (sensorWorse) return `${thermal.cached ? "Cached sensor" : "Sensor"}: ${thermal.sensorStatusLabel}`;
+    if (thermal.status != null) return thermal.statusLabel;
+    return thermal.comparison ?? thermal.statusLabel;
+  });
 
   /// Bytes/s → the largest unit that keeps the number readable.
   function formatRate(bytesPerSecond: number | null): string {
