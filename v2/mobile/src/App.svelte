@@ -22,6 +22,7 @@
   import Devices from "./screens/Devices.svelte";
   import RiskGuide from "./screens/RiskGuide.svelte";
   import Files from "./screens/Files.svelte";
+  import Sideload from "./screens/Sideload.svelte";
   import Logs from "./screens/Logs.svelte";
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
@@ -168,6 +169,8 @@
   <Logs {back} />
 {:else if router.current === "backups"}
   <Backups {back} />
+{:else if router.current === "sideload"}
+  <Sideload {back} {navigate} />
 {/if}
 
 <style>

@@ -8,6 +8,8 @@ pub enum Error {
     Unsupported,
     #[error("Save a copy and Share are only available on Android.")]
     ExportUnsupported,
+    #[error("Picking files from this phone is only available on Android.")]
+    ImportUnsupported,
     #[cfg(mobile)]
     #[error(transparent)]
     PluginInvoke(#[from] tauri::plugin::mobile::PluginInvokeError),

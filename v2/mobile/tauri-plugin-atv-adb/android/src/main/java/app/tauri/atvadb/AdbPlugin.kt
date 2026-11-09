@@ -23,6 +23,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.io.File
 import java.io.FileInputStream
+import java.io.FileOutputStream
 import java.io.IOException
 
 @InvokeArg
@@ -48,11 +49,21 @@ internal class ShareFileArgs {
   lateinit var mime: String
 }
 
-// mDNS discovery, the phone's network-change watch, and the one-file export bridge. Connect/pair/shell/
+@InvokeArg
+internal class PickDocumentsArgs {
+  lateinit var dir: String
+  var maxFiles: Int = 1
+  var maxFileBytes: Long = 0
+  var maxTotalBytes: Long = 0
+}
+
+// mDNS discovery, the phone's network-change watch, the one-file export bridge and the
+// open-document import. Connect/pair/shell/
 // screencap/reboot are driven directly from Rust by the app's WirelessAdb via the
 // pure-Rust adb_client crate, so this plugin ships no ADB client code (and no GPL
 // dependencies). Every command is called from the plugin's Rust side, never from JS; the app's
-// export_file command confines export sources to its screenshots and downloads folders first.
+// export_file command confines export sources to its screenshots and downloads folders first, and
+// its import commands hand pickDocuments a fresh staging folder of their own.
 @TauriPlugin
 class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -61,6 +72,8 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   // but gives up on a picker that never answers (e.g. the activity was recreated); the next save
   // then rejects that stale request so its waiting Rust thread is released.
   @Volatile private var pendingSave: Pair<Invoke, SaveCopyArgs>? = null
+  // The same for the open-document picker.
+  @Volatile private var pendingPick: Pair<Invoke, PickDocumentsArgs>? = null
 
   @Command
   fun discover(invoke: Invoke) = scope.launch {
@@ -150,6 +163,124 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
       ?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
   } catch (ignored: Throwable) {
     null
+  }
+
+  // Import: Android's open-document picker (Storage Access Framework). Each picked document is
+  // copied into the staging folder Rust created, under the size caps it sent; Rust then names,
+  // validates and later deletes the copies. The picker's read grant is temporary: no persistable
+  // permission is taken, and no URI is kept once its copy is done.
+  @Command
+  fun pickDocuments(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(PickDocumentsArgs::class.java)
+      if (!File(args.dir).isDirectory || args.maxFiles < 1) {
+        invoke.reject("The import folder isn't ready. Try again.")
+        return
+      }
+      val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+        addCategory(Intent.CATEGORY_OPENABLE)
+        type = "*/*"
+        putExtra(Intent.EXTRA_ALLOW_MULTIPLE, args.maxFiles > 1)
+      }
+      pendingPick?.first?.reject("Replaced by a newer pick.")
+      pendingPick = Pair(invoke, args)
+      startActivityForResult(invoke, intent, "pickDocumentsResult")
+    } catch (error: Throwable) {
+      pendingPick = null
+      invoke.reject(error.message ?: error.javaClass.simpleName)
+    }
+  }
+
+  @ActivityCallback
+  fun pickDocumentsResult(invoke: Invoke, result: ActivityResult) {
+    val pending = pendingPick
+    if (pending == null || pending.first !== invoke) {
+      invoke.reject("The pick request was lost. Try again.")
+      return
+    }
+    pendingPick = null
+    val args = pending.second
+    val data = result.data
+    val uris = if (result.resultCode == Activity.RESULT_OK && data != null) pickedUris(data) else emptyList()
+    if (uris.isEmpty()) {
+      invoke.resolve(JSObject().put("picked", false))
+      return
+    }
+    if (uris.size > args.maxFiles) {
+      invoke.reject("Pick at most ${args.maxFiles} files at a time. Nothing was imported.")
+      return
+    }
+    scope.launch {
+      val dir = File(args.dir)
+      val written = mutableListOf<File>()
+      try {
+        val files = JSONArray()
+        var total = 0L
+        uris.forEachIndexed { index, uri ->
+          val (name, declared) = documentFacts(uri)
+          val label = name ?: "A picked file"
+          if (declared != null && declared > args.maxFileBytes) {
+            throw ImportRefused("$label is over the ${ImportCopy.describeLimit(args.maxFileBytes)} limit for one file. Nothing was imported.")
+          }
+          if (declared != null && total + declared > args.maxTotalBytes) {
+            throw ImportRefused("These files are over the ${ImportCopy.describeLimit(args.maxTotalBytes)} limit together. Nothing was imported.")
+          }
+          if (!dir.isDirectory) throw ImportRefused("The import was given up. Try again.")
+          if (declared != null && declared > dir.usableSpace) {
+            throw ImportRefused("There isn't enough free space on this phone for $label. Nothing was imported.")
+          }
+          val target = File(dir, "$index.part")
+          written.add(target)
+          val input = activity.contentResolver.openInputStream(uri)
+            ?: throw IOException("$label can't be opened")
+          val limit = minOf(args.maxFileBytes, args.maxTotalBytes - total)
+          val copied = try {
+            input.use { source ->
+              FileOutputStream(target).use { out -> ImportCopy.copyBounded(source, out, limit) }
+            }
+          } catch (ignored: ImportLimitExceeded) {
+            throw ImportRefused("$label is larger than the import limit. Nothing was imported.")
+          }
+          total += copied
+          files.put(
+            JSObject().put("name", name ?: "").put("size", copied).put("file", target.absolutePath)
+          )
+        }
+        invoke.resolve(JSObject().put("picked", true).put("files", files))
+      } catch (error: Throwable) {
+        written.forEach { it.delete() }
+        invoke.reject(
+          if (error is ImportRefused) error.message ?: "Nothing was imported."
+          else "Couldn't copy the picked file: ${error.message ?: error.javaClass.simpleName}"
+        )
+      }
+    }
+  }
+
+  private fun pickedUris(data: Intent): List<Uri> {
+    val clip = data.clipData
+    if (clip != null && clip.itemCount > 0) {
+      return (0 until clip.itemCount).mapNotNull { clip.getItemAt(it)?.uri }
+    }
+    return listOfNotNull(data.data)
+  }
+
+  // The provider's display name and size, when it reports them. A missing size is checked
+  // while copying instead.
+  private fun documentFacts(uri: Uri): Pair<String?, Long?> = try {
+    activity.contentResolver
+      .query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)
+      ?.use { cursor ->
+        if (!cursor.moveToFirst()) {
+          Pair(null, null)
+        } else {
+          val name = if (cursor.isNull(0)) null else cursor.getString(0)
+          val size = if (cursor.isNull(1)) null else cursor.getLong(1)
+          Pair(name, size)
+        }
+      } ?: Pair(null, null)
+  } catch (ignored: Throwable) {
+    Pair(null, null)
   }
 
   // Share: a content URI from the app's FileProvider, which maps only cache/exports/, with a

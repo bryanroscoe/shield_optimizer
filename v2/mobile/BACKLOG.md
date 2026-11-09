@@ -66,10 +66,17 @@ go-ahead; don't infer permission from a phone being powered on.
    (share sheet) for one screenshot or one pulled file, per
    [`EXPORT-DISCOVERABILITY.md`](EXPORT-DISCOVERABILITY.md). Not yet run on a phone: the picker,
    a cancel, a Drive/Downloads destination and a share to a real receiver are the device gates.
-   Next: SAF import (phase 2), which also unblocks phone→TV upload in Files and item 2; then
-   snapshot and APK-bundle export once their privacy and format decisions are made; then consider
-   Google Drive for complete APK bundles.
-2. Install APK / sideload from the phone.
+   Phase 2 done 2026-11-09: SAF import, which powers Files › Upload to this folder and item 2. Not
+   yet run on a phone: picking one and several files, from Downloads and Drive; a dismissed
+   picker; a file over 2 GiB; activity recreation while the picker is open; a replace prompt and a
+   same-named folder on the TV; an upload to a TV folder that refuses writes. Next: snapshot and
+   APK-bundle export once their privacy and format decisions are made; then consider Google Drive
+   for complete APK bundles.
+2. ~~Install APK / sideload from the phone.~~ Done 2026-11-09: More › Install APK (single or
+   split `.apk` sets, native-code ABI check, popular sideloads, install result with the decoded
+   hint). Not yet run on a phone: a single APK, a split set, a version downgrade refusal and an
+   ABI mismatch on a real TV. It can't show the APK's package id or whether it is already
+   installed (needs the manifest decoder desktop uses, a new Rust dependency here).
 3. ~~The bug-report bundle (`collect_diagnostics`).~~ Done 2026-11-08: More › Bug report, reviewed
    on screen and copied to the clipboard. A share-sheet step for its text can now reuse item 1's
    bridge (not wired yet); upload stays desktop-only (owner decision).

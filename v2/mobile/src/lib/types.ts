@@ -464,6 +464,38 @@ export type ExportOutcome =
   | { status: "canceled" }
   | { status: "share_opened" };
 
+/// Files picked with Android's file picker and staged in the app for one upload or install.
+export type ImportPurpose = "upload" | "apk";
+export interface ImportedFile {
+  name: string;
+  size_bytes: number;
+}
+export type ImportPick =
+  | { status: "picked"; batch: string; files: ImportedFile[] }
+  | { status: "canceled" };
+/// Something already in the TV folder where an upload would land.
+export interface UploadConflict {
+  name: string;
+  remote_path: string;
+  is_dir: boolean;
+}
+export type UploadOutcome =
+  | { status: "uploaded"; name: string; remote_path: string; size_bytes: number; verified: boolean }
+  | { status: "exists"; name: string; remote_path: string };
+/// What staged APKs say about their native code, before anything is installed.
+export interface ApkSetInspection {
+  files: ImportedFile[];
+  abis: string[];
+  abis_known: boolean;
+  device_abis: string[];
+  abi_compatible: boolean | null;
+}
+export interface InstallApkResult {
+  ok: boolean;
+  message: string;
+  hint: string | null;
+}
+
 /// A device file pulled into the app's scoped `downloads/` dir.
 export interface PulledFile {
   name: string;

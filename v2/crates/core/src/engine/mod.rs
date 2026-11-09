@@ -5,6 +5,7 @@
 //! plans that the host layer (Tauri commands) is responsible for executing
 //! through the ADB driver.
 
+pub mod apk_abis;
 pub mod app_lists;
 pub mod cast_name;
 pub mod detection;

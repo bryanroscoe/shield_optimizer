@@ -69,4 +69,24 @@ impl<R: Runtime> Adb<R> {
             .run_mobile_plugin::<()>("shareFile", ShareFilePayload { path, mime })?;
         Ok(())
     }
+
+    /// Opens Android's open-document picker and copies each picked document into `dir`
+    /// (`<index>.part`), within the caps. Blocks until the picker closes and the copies finish.
+    pub fn pick_documents(
+        &self,
+        dir: &str,
+        max_files: u32,
+        max_file_bytes: u64,
+        max_total_bytes: u64,
+    ) -> Result<PickDocumentsResponse> {
+        Ok(self.0.run_mobile_plugin(
+            "pickDocuments",
+            PickDocumentsPayload {
+                dir,
+                max_files,
+                max_file_bytes,
+                max_total_bytes,
+            },
+        )?)
+    }
 }

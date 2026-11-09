@@ -64,6 +64,12 @@ import type {
   FindResult,
   ExportMode,
   ExportOutcome,
+  ApkSetInspection,
+  ImportPick,
+  ImportPurpose,
+  InstallApkResult,
+  UploadConflict,
+  UploadOutcome,
 } from "./types";
 
 type PackageState = "enabled" | "disabled" | "missing";
@@ -300,6 +306,18 @@ export const api = {
   /// copied file. Nothing leaves the phone unless the user completes the system UI.
   exportFile: (path: string, mode: ExportMode) =>
     call<ExportOutcome>("export_file", { path, mode }),
+  /// Android's file picker: the picked files are copied into the app for one upload or
+  /// install and referred to by an opaque batch id. Nothing reaches the TV here.
+  importPick: (purpose: ImportPurpose) => call<ImportPick>("import_pick", { purpose }),
+  discardImport: (batch: string) => call<void>("discard_import", { batch }),
+  uploadConflicts: (serial: string, batch: string, remoteDir: string) =>
+    call<UploadConflict[]>("upload_conflicts", { serial, batch, remoteDir }),
+  uploadImported: (serial: string, batch: string, index: number, remoteDir: string, overwrite: boolean) =>
+    call<UploadOutcome>("upload_imported", { serial, batch, index, remoteDir, overwrite }),
+  inspectImportedApks: (serial: string, batch: string) =>
+    call<ApkSetInspection>("inspect_imported_apks", { serial, batch }),
+  installImportedApks: (serial: string, batch: string) =>
+    call<InstallApkResult>("install_imported_apks", { serial, batch }),
 
   // ---- Backups (7.3) ----
   backupApk: (serial: string, pkg: string) =>

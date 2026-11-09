@@ -4,7 +4,7 @@
 // `window.__TAURI_INTERNALS__`. Commands the phone shares with desktop are
 // answered by the desktop fixtures (one Nvidia Shield, the real merged app
 // list), so both galleries describe the same TV; only the mobile-only
-// commands (wireless transport, licensing, files, backups) are answered here.
+// commands (wireless transport, licensing, files, imports, backups) are answered here.
 //
 // Wired in main.ts behind the VITE_DEMO flag and never ships in a real build.
 
@@ -182,6 +182,35 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return args.mode === "share"
         ? { status: "share_opened" }
         : { status: "saved", name: "tv-screenshot-2026-11-08_12-00-00.png" };
+    // The file picker is Android's own UI; the demo answers as if these were picked.
+    case "import_pick":
+      return args.purpose === "apk"
+        ? {
+            status: "picked",
+            batch: "import-demo-apk",
+            files: [
+              { name: "SmartTube_stable_arm64-v8a.apk", size_bytes: 29_884_416 },
+            ],
+          }
+        : { status: "picked", batch: "import-demo-upload", files: [{ name: "holiday-video.mp4", size_bytes: 148_242_432 }] };
+    case "discard_import":
+      return null;
+    case "upload_conflicts":
+      return [];
+    case "upload_imported": {
+      const dir = String(args.remoteDir ?? "/sdcard").replace(/\/$/, "");
+      return { status: "uploaded", name: "holiday-video.mp4", remote_path: `${dir}/holiday-video.mp4`, size_bytes: 148_242_432, verified: true };
+    }
+    case "inspect_imported_apks":
+      return {
+        files: [{ name: "SmartTube_stable_arm64-v8a.apk", size_bytes: 29_884_416 }],
+        abis: ["arm64-v8a"],
+        abis_known: true,
+        device_abis: ["arm64-v8a", "armeabi-v7a", "armeabi"],
+        abi_compatible: true,
+      };
+    case "install_imported_apks":
+      return { ok: true, message: "Success", hint: null };
     case "list_backups":
       return backups;
     case "backup_apk":

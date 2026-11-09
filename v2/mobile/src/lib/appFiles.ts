@@ -61,6 +61,12 @@ export function baseName(path: string): string {
 /// Mirrors the backend guard (crates/core commands::files): a delete target
 /// must be strictly inside /sdcard. The backend refuses anything else anyway;
 /// this keeps the button off rows it would refuse.
+/// A TV folder Upload to TV may write into: `/sdcard` or a folder under it, the bound the
+/// backend enforces too.
+export function canUploadToTv(dir: string): boolean {
+  return dir === "/sdcard" || canDeleteOnTv(dir);
+}
+
 export function canDeleteOnTv(path: string): boolean {
   if (!path.startsWith("/sdcard/") || path.length <= "/sdcard/".length) return false;
   if (/[\u0000-\u001f\u007f]/.test(path)) return false;
