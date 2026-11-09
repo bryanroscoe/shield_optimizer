@@ -361,19 +361,24 @@ impl<T: ADBMessageTransport> SyncStream<T> {
         } else {
             self.request(ID_SEND, &format!("{path},{mode}"))?;
         }
-        if let Err(error) = self.send_body(source, mtime) {
-            // adbd answers FAIL as soon as it cannot write the file, then
-            // discards data until DONE or closes the stream. That answer,
-            // not our failed write, says what went wrong.
-            if self.service.closed_by_peer_during_write(&error) {
-                self.send_status()?;
+        let answered_early = match self.send_body(source, mtime) {
+            Ok(answered_early) => answered_early,
+            Err(error) => {
+                // adbd answers FAIL as soon as it cannot write the file, then
+                // discards data until DONE or closes the stream. That answer,
+                // not our failed write, says what went wrong.
+                if self.service.closed_by_peer_during_write(&error) {
+                    self.send_status(true)?;
+                }
+                return Err(error);
             }
-            return Err(error);
-        }
-        self.send_status()
+        };
+        self.send_status(answered_early)
     }
 
-    fn send_body(&mut self, source: &mut dyn Read, mtime: u32) -> Result<()> {
+    /// Send the file and DONE. Returns whether the device answered before
+    /// DONE went out, which can only be a refusal.
+    fn send_body(&mut self, source: &mut dyn Read, mtime: u32) -> Result<bool> {
         // Each DATA chunk fits in one WRTE on its own; several share a WRTE
         // when the negotiated payload allows.
         let chunk_len = SYNC_DATA_MAX
@@ -393,15 +398,23 @@ impl<T: ADBMessageTransport> SyncStream<T> {
             self.queue(&u32::try_from(read)?.to_le_bytes())?;
             self.queue(&chunk[..read])?;
         }
+        let answered_early = self.service.has_pending();
         self.queue(&ID_DONE)?;
         self.queue(&mtime.to_le_bytes())?;
-        self.flush()
+        self.flush()?;
+        Ok(answered_early)
     }
 
-    fn send_status(&mut self) -> Result<()> {
+    /// Read the device's verdict on a push. adbd sends `OKAY` only after
+    /// DONE, so one that arrived before DONE went out (`answered_early`) is
+    /// a broken peer, never a completed upload.
+    fn send_status(&mut self, answered_early: bool) -> Result<()> {
         let id = self.read_id()?;
         let arg = self.read_u32()?;
         match id {
+            ID_OKAY if answered_early => Err(RustADBError::UnknownResponseType(
+                "sync push: premature OKAY before the upload finished".to_string(),
+            )),
             ID_OKAY => Ok(()),
             ID_FAIL => Err(self.fail("push", arg)),
             other => Err(unexpected("push", other)),

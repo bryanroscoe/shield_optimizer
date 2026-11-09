@@ -4,9 +4,16 @@
 //! owns only the subprocess driver plus desktop-only platform-tools install and
 //! network scan helpers.
 
+#[cfg(feature = "direct-adb")]
+pub mod direct;
+#[cfg(feature = "direct-adb")]
+mod discovery;
 pub mod driver;
+#[cfg(feature = "direct-adb")]
+pub mod identity;
 pub mod install;
 pub mod scan;
+pub mod selection;
 pub mod server_repair;
 
 use std::sync::{Arc, LazyLock};
@@ -98,6 +105,6 @@ pub use atv_optimizer_core::adb::{
 pub use driver::{cached_adb_binary, discover_adb_binary, forget_cached_adb_binary, SubprocessAdb};
 pub use install::{adb_path_in_install_root, install_platform_tools, InstallError};
 pub use scan::{
-    local_subnet_prefix, scan_subnet_with_stats, subnet_overridden, ScanHit, SweepStats,
-    ADB_NETWORK_PORT,
+    local_subnet_prefix, scan_subnet_hits, scan_subnet_with_stats, subnet_overridden, ScanHit,
+    SweepStats, ADB_NETWORK_PORT,
 };

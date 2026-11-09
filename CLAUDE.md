@@ -34,7 +34,8 @@ Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
   `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`. Repo variable `ATVOPT_TELEMETRY_URL`
-  points release builds at it; repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
+  points release builds at it (and the PR's native test packages, which set `ATVOPT_TEST_BUILD`:
+  their Send logs uploads are marked `-dev` and they send no automatic reports); repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
   Production details, where the secrets live (1Password item names only) and how to redeploy or
   rotate: [`v2/telemetry-worker/README.md`](v2/telemetry-worker/README.md#production).
 - **Device support tiers, anonymous telemetry and structured error codes** in both apps (#266).
@@ -135,7 +136,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures 16 screens in both themes and rebuilds both GIFs
+cd v2 && npm run screenshots   # captures 17 screens in both themes and rebuilds both GIFs
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:

@@ -7,11 +7,37 @@ use thiserror::Error;
 use super::lifetimes::TrackedChild;
 
 /// Blocking byte stream returned by a device service such as a localabstract
-/// socket. Mobile implements this with a dedicated pure-Rust ADB connection;
-/// desktop does not need it because its adb process owns port forwarding.
+/// socket. Direct transports own dedicated connections; the desktop subprocess
+/// backend can continue to use its existing forwarded sockets.
 pub trait AdbByteStream: std::io::Read + std::io::Write + Send + 'static {}
 
 impl<T> AdbByteStream for T where T: std::io::Read + std::io::Write + Send + 'static {}
+
+/// Hardware identity captured on the currently selected owned control connection.
+/// Keep one binding for all dedicated streams in a logical session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdbDeviceBinding {
+    pub serial: String,
+    pub hardware_id: String,
+}
+
+/// Interrupts only the owned service connection, not a host server or another session.
+pub trait AdbServiceCancellation: Send + Sync {
+    fn cancel(&self);
+}
+
+/// The stream keeps its worker lease until actual socket cleanup finishes.
+/// Cancellation does not prove that the remote process has exited.
+pub struct AdbOwnedService {
+    pub stream: Box<dyn AdbByteStream>,
+    pub cancellation: std::sync::Arc<dyn AdbServiceCancellation>,
+}
+
+impl std::fmt::Debug for AdbOwnedService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AdbOwnedService").finish_non_exhaustive()
+    }
+}
 
 /// Errors a driver can return.
 #[derive(Debug, Error)]
@@ -34,8 +60,17 @@ pub enum AdbError {
     DeviceNotReady { serial: String, state: String },
     #[error("transport error: {0}")]
     Transport(String),
+    #[error("{0}")]
+    Initialization(String),
     #[error("ADB operation unsupported by this driver: {operation}")]
     Unsupported { operation: &'static str },
+    #[error("{operation} was explicitly rejected by the device")]
+    ServiceRejected { operation: &'static str },
+    #[error("{operation} outcome is unknown: {detail}. Do not replay automatically.")]
+    Uncertain {
+        operation: &'static str,
+        detail: String,
+    },
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("the app is quitting, so no new adb work is started")]
@@ -116,10 +151,148 @@ pub fn process_output(
     })
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NativeServiceKind {
+    LegacyAdb,
+    TlsPairing,
+    TlsConnect,
+}
+
+/// A service advertisement, never evidence of physical device identity.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeAdvertisement {
+    pub service_kind: NativeServiceKind,
+    pub instance: String,
+    pub address: String,
+    pub port: u16,
+    pub interface_name: Option<String>,
+    /// Observed interface metadata; this does not force an IPv4 route.
+    pub interface_index: Option<u32>,
+    pub scope_id: Option<u32>,
+    pub connect_address: Option<String>,
+    pub observed_age_ms: u64,
+    /// Not resolved again in the current browse window; selection must be disabled.
+    pub cached: bool,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeDiscoveryReport {
+    pub advertisements: Vec<NativeAdvertisement>,
+    pub warnings: Vec<String>,
+    /// Local observation limit; this is not the remaining DNS TTL.
+    pub observation_max_age_ms: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum ScanConnectOutcome {
+    Ready,
+    Pending,
+    /// The TV answered but has not allowed this computer's keys. The
+    /// built-in engine connects without offering a key, so it showed nothing.
+    NotAllowed,
+}
+
+/// What asking a TV to allow this computer started.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalRequestOutcome {
+    /// The TV was asked and may be showing its prompt; the wait goes on in
+    /// the background until the person answers, it is canceled or it ends.
+    Waiting,
+    /// The TV already allows this computer, so it connected without asking.
+    Ready,
+    /// The TV ended the request without allowing this computer.
+    NotApproved,
+    /// Canceled or forgotten here before the TV was asked. Says nothing
+    /// about the TV.
+    Canceled,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ScanConnectionFailure {
+    pub address: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+pub struct ScanConnectionProgress {
+    pub pending: Vec<String>,
+    /// Explicit approval requests whose TV may be showing its prompt.
+    #[serde(default)]
+    pub awaiting_authorization: Vec<String>,
+    /// Explicit approval requests still open, whether or not the TV was asked
+    /// yet. A request leaves this list only after its outcome is recorded:
+    /// the TV listed as a device, a refusal in `not_allowed`, or a failure.
+    #[serde(default)]
+    pub requesting: Vec<String>,
+    /// TVs that refused this computer's keys recently (the driver's bound),
+    /// so a name looked up at that address belongs to them. Nothing was shown
+    /// on them. An older refusal is still listed by `adb devices`, by address.
+    #[serde(default)]
+    pub not_allowed: Vec<String>,
+    /// Completed successful scan attempts, without another liveness probe.
+    #[serde(default)]
+    pub ready: Vec<String>,
+    pub failed: Vec<ScanConnectionFailure>,
+}
+
 /// The driver abstraction. Lets tests inject a mock; production uses
 /// `SubprocessAdb`.
 #[async_trait]
 pub trait AdbDriver: Send + Sync {
+    /// Direct transports retain this counter inside blocking workers and streams.
+    fn operation_leases(&self) -> Option<std::sync::Arc<super::Leases>> {
+        None
+    }
+
+    /// Prevent host-server commands and installation from changing a direct backend.
+    fn uses_host_server(&self) -> bool {
+        true
+    }
+
+    /// Explicit observation-only native discovery; never connects or authorizes a device.
+    async fn discover_network(&self) -> AdbResult<NativeDiscoveryReport> {
+        Err(AdbError::Unsupported {
+            operation: "native_discovery",
+        })
+    }
+
+    /// Starts or joins an owned scan attempt. `valid_for` bounds queue time,
+    /// not the time allowed for the user to approve the TV's prompt.
+    async fn scan_connect(
+        &self,
+        _address: &str,
+        _valid_for: std::time::Duration,
+    ) -> AdbResult<ScanConnectOutcome> {
+        Err(AdbError::Unsupported {
+            operation: "scan_connect",
+        })
+    }
+
+    async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+        ScanConnectionProgress::default()
+    }
+
+    /// Ask the TV at `address` to allow this computer, which shows its "Allow
+    /// debugging?" prompt. Only this offers the public key; every other
+    /// built-in connection signs quietly. The wait is the driver's own and
+    /// ends at its limit, [`AdbDriver::cancel_approval`], Forget or quit.
+    async fn request_approval(&self, _address: &str) -> AdbResult<ApprovalRequestOutcome> {
+        Err(AdbError::Unsupported {
+            operation: "request_approval",
+        })
+    }
+
+    /// Stop waiting on a request [`AdbDriver::request_approval`] started. The
+    /// TV goes back to not allowed yet.
+    async fn cancel_approval(&self, _address: &str) -> AdbResult<()> {
+        Err(AdbError::Unsupported {
+            operation: "cancel_approval",
+        })
+    }
+
     /// Run `adb <args...>` (no `-s` prefix).
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput>;
 
@@ -161,6 +334,26 @@ pub trait AdbDriver: Send + Sync {
     async fn raw_bytes(&self, _args: &[&str]) -> AdbResult<Vec<u8>> {
         Err(AdbError::Unsupported {
             operation: "raw_bytes",
+        })
+    }
+
+    /// Captures verified hardware identity from the currently owned control connection.
+    async fn device_binding(&self, _serial: &str) -> AdbResult<AdbDeviceBinding> {
+        Err(AdbError::Unsupported {
+            operation: "device_binding",
+        })
+    }
+
+    /// Opens a dedicated identity-bound, independently cancellable service.
+    /// The finite lifetime includes setup and prevents an abandoned stream living forever.
+    async fn open_bound_device_service(
+        &self,
+        _binding: &AdbDeviceBinding,
+        _service: &str,
+        _lifetime: std::time::Duration,
+    ) -> AdbResult<AdbOwnedService> {
+        Err(AdbError::Unsupported {
+            operation: "bound_device_service",
         })
     }
 
@@ -225,6 +418,42 @@ mod bounded_shell_tests {
         async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
             panic!("bounded shell must not delegate to shell")
         }
+    }
+
+    #[tokio::test]
+    async fn bound_service_capabilities_default_to_unsupported_without_raw_calls() {
+        assert!(matches!(
+            UnboundedDriver.device_binding("fixture").await,
+            Err(AdbError::Unsupported {
+                operation: "device_binding"
+            })
+        ));
+        let binding = AdbDeviceBinding {
+            serial: "fixture".into(),
+            hardware_id: "known".into(),
+        };
+        assert!(matches!(
+            UnboundedDriver
+                .open_bound_device_service(
+                    &binding,
+                    "localabstract:fixture",
+                    std::time::Duration::from_secs(1)
+                )
+                .await,
+            Err(AdbError::Unsupported {
+                operation: "bound_device_service"
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn native_discovery_defaults_to_unsupported_without_raw_calls() {
+        assert!(matches!(
+            UnboundedDriver.discover_network().await,
+            Err(AdbError::Unsupported {
+                operation: "native_discovery"
+            })
+        ));
     }
 
     #[tokio::test]

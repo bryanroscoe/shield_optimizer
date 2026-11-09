@@ -9,6 +9,44 @@ const evidence = process.env.HELP_EVIDENCE;
 const before = process.env.HELP_BEFORE === '1';
 process.env.VITE_DEMO = '1';
 
+async function nativeEmptyConnectionHelp(browser, base) {
+  const page = await browser.newPage();
+  try {
+    await page.addInitScript(() => {
+      localStorage.clear();
+      localStorage.setItem('shieldopt.demo.noDevices', '1');
+      window.nativeEmptyCalls = [];
+      let bridge;
+      Object.defineProperty(window, '__TAURI_INTERNALS__', {
+        configurable: true, get: () => bridge,
+        set(value) {
+          const original = value.invoke.bind(value);
+          value.invoke = async (command, args) => {
+            window.nativeEmptyCalls.push(command);
+            if (command === 'adb_status') return { backend: 'direct', available: true, path: null, connections: { pending: [], failed: [] } };
+            if (command === 'scan_network') return { found: [], connected: [], unauthorized: [], failed: [], needs_pairing: [], pending: [], details: [], subnet: null, message: 'SIMULATED empty native scan.' };
+            if (['restart_adb', 'install_adb', 'set_stop_adb_on_quit'].includes(command)) throw new Error('Host-server action in native mode');
+            return original(command, args);
+          };
+          bridge = value;
+        },
+      });
+    });
+    await page.goto(base, { waitUntil: 'networkidle' });
+    await page.getByRole('heading', { name: 'No devices connected.', exact: true }).waitFor();
+    const help = page.locator('.help-details').filter({ has: page.locator('summary', { hasText: 'Connection help' }) });
+    assert.equal(await help.evaluate(el => el.open), true, 'a finished empty native scan opens relevant help');
+    assert.match(await help.innerText(), /Check that Network debugging is enabled on the TV\./);
+    assert.equal(await page.getByRole('button', { name: /Restart ADB/ }).count(), 0, 'native help never offers a host-server restart');
+    assert.equal(await help.getByRole('button', { name: 'Pair PIN', exact: true }).isVisible(), true);
+    assert.equal(await help.getByRole('button', { name: 'Add by IP', exact: true }).isVisible(), true);
+    // Built-in is network-only: USB needs the platform-tools engine.
+    assert.match(await help.innerText(), /Connected by USB\? Built-in ADB works over the network only; choose Google platform-tools in Settings\./);
+    assert.equal(await help.getByRole('link', { name: 'Settings', exact: true }).getAttribute('href'), '/settings#adb');
+    assert.equal(await page.evaluate(() => window.nativeEmptyCalls.some(c => ['restart_adb', 'install_adb', 'set_stop_adb_on_quit'].includes(c))), false);
+  } finally { await page.close(); }
+}
+
 async function emptyConnectionHelp(browser, base) {
   const out = process.env.EMPTY_HELP_EVIDENCE;
   if (out) await mkdir(out, { recursive: true });
@@ -27,7 +65,7 @@ async function emptyConnectionHelp(browser, base) {
           const original = value.invoke;
           value.invoke = async (command, args) => {
             test.calls.push(command);
-            if (command === 'adb_status' && test.mode === 'missing') return { available: false, path: null };
+            if (command === 'adb_status' && test.mode === 'missing') return { backend: 'subprocess', available: false, path: null, failure: 'missing_binary' };
             if (command === 'list_devices' && test.mode === 'error') throw 'Simulated device-list failure';
             if (command === 'scan_network' && test.mode === 'scanning') {
               await new Promise(resolve => test.releaseScan = resolve);
@@ -141,7 +179,9 @@ try {
   server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
   await server.listen();
   browser = await (process.argv.includes('--webkit') ? webkit : chromium).launch();
-  await emptyConnectionHelp(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
+  const base = `http://127.0.0.1:${server.httpServer.address().port}`;
+  await emptyConnectionHelp(browser, base);
+  await nativeEmptyConnectionHelp(browser, base);
   if (evidence) await mkdir(evidence, { recursive: true });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...(evidence && !before ? { recordVideo: { dir: `${evidence}/raw`, size: { width: 1280, height: 900 } } } : {}) });
   const page = await context.newPage();

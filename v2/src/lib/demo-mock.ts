@@ -14,6 +14,8 @@
 import demoApps from "./demo-apps.json";
 import pkg from "../../package.json";
 import type {
+  AdbEngine,
+  AdbEngineStatus,
   AppEntry,
   ApplyResult,
   Device,
@@ -203,9 +205,93 @@ function demoFlag(name: string): boolean {
   }
 }
 
+/// A TV that hasn't allowed this computer: `approvalTv` adds it, and
+/// `approvalAutoAllow` makes it choose Allow 4 seconds after it is asked, so
+/// the approval dialog can be seen waiting and then closing by itself. Other
+/// flags vary how the request ends (see `approvalDemoFlags`).
+const APPROVAL_TV = "192.168.1.88:5555";
+/// The key the TV's row keeps when its approved transport is folded into
+/// another row by hardware id (`approvalMerges`).
+const APPROVAL_TV_MERGED = "192.168.1.88:40001";
+type ApprovalDemoState = "not_allowed" | "asked" | "allowing" | "allowed";
+const approvalDemo: {
+  state: ApprovalDemoState;
+  allowAt: number | null;
+  listedAt: number | null;
+  refuseAt: number | null;
+  lateAllowAt: number | null;
+  requests: number;
+  scanned: boolean;
+} = { state: "not_allowed", allowAt: null, listedAt: null, refuseAt: null, lateAllowAt: null, requests: 0, scanned: false };
+/// - `approvalGap`: after Allow the prompt is gone 3 seconds before the TV is
+///   listed (the request is still open meanwhile).
+/// - `approvalMerges`: once allowed, the TV is listed under another key.
+/// - `approvalRefuses`: the request ends without Allow 2 seconds after it
+///   asks; `approvalLateAllow` then lists the TV as allowed 3 seconds later.
+/// - `approvalUnreachable`: every request fails after 1.2 seconds.
+/// - `approvalFirstRequestFails`: the first request fails after 1.5 seconds.
+/// - `approvalTvAfterScan`: the TV is listed only once Scan LAN ran.
+/// - `transportStateFails` / `transportStateSlow`: the cheap per-transport
+///   read used while platform-tools waits fails, or takes 3 seconds.
+function approvalState(): ApprovalDemoState {
+  const now = Date.now();
+  if (approvalDemo.state === "asked" && approvalDemo.allowAt !== null && now >= approvalDemo.allowAt) {
+    approvalDemo.state = demoFlag("approvalGap") ? "allowing" : "allowed";
+    approvalDemo.listedAt = approvalDemo.allowAt + 3000;
+  }
+  if (approvalDemo.state === "allowing" && approvalDemo.listedAt !== null && now >= approvalDemo.listedAt) {
+    approvalDemo.state = "allowed";
+  }
+  if (approvalDemo.state === "asked" && approvalDemo.refuseAt !== null && now >= approvalDemo.refuseAt) {
+    approvalDemo.state = "not_allowed";
+    approvalDemo.lateAllowAt = demoFlag("approvalLateAllow") ? approvalDemo.refuseAt + 3000 : null;
+    approvalDemo.refuseAt = null;
+  }
+  if (approvalDemo.state === "not_allowed" && approvalDemo.lateAllowAt !== null && now >= approvalDemo.lateAllowAt) {
+    approvalDemo.state = "allowed";
+  }
+  return approvalDemo.state;
+}
+function askApprovalTv() {
+  const now = Date.now();
+  approvalDemo.state = "asked";
+  approvalDemo.allowAt = demoFlag("approvalAutoAllow") ? now + 4000 : null;
+  approvalDemo.refuseAt = demoFlag("approvalRefuses") ? now + 2000 : null;
+  approvalDemo.lateAllowAt = null;
+}
+function endApprovalWait() {
+  if (approvalState() === "asked") approvalDemo.state = "not_allowed";
+  approvalDemo.allowAt = null;
+  approvalDemo.refuseAt = null;
+}
+function approvalTvListed(): boolean {
+  return demoFlag("approvalTv") && (!demoFlag("approvalTvAfterScan") || approvalDemo.scanned);
+}
+function approvalTvRow(): Device {
+  if (approvalState() === "allowed") {
+    const serial = demoFlag("approvalMerges") ? APPROVAL_TV_MERGED : APPROVAL_TV;
+    return { ...device, id: 9, serial, name: "Bedroom TV", model: "SHIELD Android TV (2019 Tube)" };
+  }
+  return {
+    id: 9, serial: APPROVAL_TV, name: "Bedroom TV", model: "", device_type: "unknown",
+    tv_evidence: "unknown", status: "unauthorized", connection: "network", properties: null,
+    support: { tier: "unknown", note: null },
+  };
+}
+function demoDelay<T>(ms: number, run: () => T): Promise<T> {
+  return new Promise((resolve, reject) => setTimeout(() => {
+    try {
+      resolve(run());
+    } catch (e) {
+      reject(e);
+    }
+  }, ms));
+}
+
 function demoDevices(): Device[] {
   if (demoFlag("noDevices")) return [];
   const list = [device, unconfirmedDevice, usbDevice];
+  if (approvalTvListed()) list.push(approvalTvRow());
   if (demoFlag("notTv")) list.push(phoneDevice);
   if (demoFlag("fireTv")) list.push(fireTvDevice);
   return list;
@@ -223,6 +309,17 @@ const DEMO_SUPPORT_ID = "7f3a9c21-4b8e-4d2a-9e61-0c5d8b2f1a37";
 function telemetrySettings() {
   telemetry ??= { enabled: true, notice_seen: !demoFlag("telemetryNotice") };
   const available = !demoFlag("telemetryUnavailable");
+  if (demoFlag("testBuild")) {
+    // A test build: reports always off, the upload id still shown when it
+    // can upload at all.
+    return {
+      enabled: false,
+      notice_seen: true,
+      available,
+      support_id: available ? DEMO_SUPPORT_ID : null,
+      test_build: "4f156e4 (merge commit; PR head 9a8b7c6)",
+    };
+  }
   return {
     ...telemetry,
     available,
@@ -257,6 +354,47 @@ function storeNativeStopAdbOnQuit(next: StopAdbOnQuit): StopAdbOnQuit {
     // Lasts until the next call reads the default again.
   }
   return next;
+}
+
+/// The ADB engine setting, kept in memory like the real one for the app
+/// process. Flags: `adbEngineBuiltin` starts on the built-in engine,
+/// `adbEngineFallback` has the built-in engine selected but unable to start,
+/// `adbEngineEnv` stands in for an ATV_OPTIMIZER_TRANSPORT override, and
+/// `builtinUnavailable` for a build without the built-in engine.
+const DEMO_FALLBACK_REASON =
+  "The built-in engine couldn't set up its key, so this session uses Google platform-tools. Existing keys were not replaced. Details: demo storage is read-only.";
+let adbEngine: AdbEngineStatus | null = null;
+
+function adbEngineStatus(): AdbEngineStatus {
+  if (!adbEngine) {
+    const fallback = demoFlag("adbEngineFallback");
+    const selected: AdbEngine = fallback || demoFlag("adbEngineBuiltin") ? "builtin" : "platform_tools";
+    adbEngine = {
+      selected,
+      source: demoFlag("adbEngineEnv") ? "env" : selected === "builtin" ? "saved" : "default",
+      active: fallback ? "platform_tools" : selected,
+      fallback_reason: fallback ? DEMO_FALLBACK_REASON : null,
+      builtin_available: !demoFlag("builtinUnavailable"),
+    };
+  }
+  return { ...adbEngine };
+}
+
+function setAdbEngine(engine: AdbEngine): AdbEngineStatus {
+  const current = adbEngineStatus();
+  if (current.source === "env") {
+    throw "ATV_OPTIMIZER_TRANSPORT chooses the ADB engine for this launch. Remove it and reopen the app to use this setting.";
+  }
+  if (engine === "builtin" && !current.builtin_available) throw "This build doesn't include the built-in engine.";
+  const failsToStart = engine === "builtin" && demoFlag("adbEngineFallback");
+  adbEngine = {
+    ...current,
+    selected: engine,
+    source: "saved",
+    active: failsToStart ? "platform_tools" : engine,
+    fallback_reason: failsToStart ? DEMO_FALLBACK_REASON : null,
+  };
+  return { ...adbEngine };
 }
 
 // Replies to the Stop ADB when quitting commands that a test holds back, for
@@ -593,7 +731,27 @@ function demoShellOutput(command: string): string {
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
-      return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+      if (adbEngineStatus().active === "builtin") {
+        return {
+          backend: "direct",
+          available: true,
+          path: null,
+          last_probe: "Built-in ADB (demo); no host adb server",
+          connections: {
+            pending: [],
+            awaiting_authorization: approvalTvListed() && approvalState() === "asked" ? [APPROVAL_TV] : [],
+            requesting: approvalTvListed() && ["asked", "allowing"].includes(approvalState()) ? [APPROVAL_TV] : [],
+            not_allowed: approvalTvListed() && approvalState() === "not_allowed" ? [APPROVAL_TV] : [],
+            ready: [],
+            failed: [],
+          },
+        };
+      }
+      return { backend: "subprocess", available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "adb_engine":
+      return adbEngineStatus();
+    case "set_adb_engine":
+      return setAdbEngine(args.engine as AdbEngine);
     case "get_stop_adb_on_quit":
       if (demoFlag("stopAdbOnQuitReadFails")) throw "demo: the setting could not be read";
       return nativeStopAdbOnQuit();
@@ -632,14 +790,31 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "update_channel":
       return demoFlag("flatpak") ? "flatpak" : "self";
     case "list_devices":
-      return demoDevices();
+      // The built-in engine is network-only, so it never lists a USB device.
+      return adbEngineStatus().active === "builtin"
+        ? demoDevices().filter((d) => d.connection !== "usb")
+        : demoDevices();
     case "scan_network": {
+      approvalDemo.scanned = true;
       const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
       return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],
         message: connected.length ? `Found ${connected.length} devices.` : "No devices found." };
     }
     case "device_profile":
+      // A folded alias resolves to the row it was folded into, as
+      // `resolve_profile` does by hardware id.
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV) return approvalTvRow();
       return demoDevices().find((d) => d.serial === String(args.serial ?? "")) ?? device;
+    case "transport_state": {
+      const read = () => {
+        if (demoFlag("transportStateFails")) throw "demo: adb devices failed";
+        if (approvalTvListed() && String(args.serial) === APPROVAL_TV) {
+          return approvalState() === "allowed" ? "device" : "unauthorized";
+        }
+        return demoDevices().find((d) => d.serial === String(args.serial))?.status ?? null;
+      };
+      return demoFlag("transportStateSlow") ? demoDelay(3000, read) : read();
+    }
     case "collect_diagnostics":
       return demoDiagnostics((args.serial as string | null) ?? null);
     case "telemetry_settings":
@@ -1051,13 +1226,40 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "local_address_for":
       return "192.168.1.10";
     case "reprompt_device":
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        askApprovalTv();
+        return { ok: true, status: "unauthorized", message: "Approval requested again." };
+      }
       return {
         ok: true,
         status: "unauthorized",
         message:
-          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+          'Approval requested again. Check the device for the debugging prompt, select "Always allow from this computer" if offered, and choose Allow.',
       };
+    // Built-in engine: the demo TVs already allow this computer.
+    case "request_device_approval":
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        approvalDemo.requests += 1;
+        if (demoFlag("approvalUnreachable")) {
+          return demoDelay(1200, () => {
+            throw `The TV at ${APPROVAL_TV} didn't answer within 20 seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.`;
+          });
+        }
+        if (demoFlag("approvalFirstRequestFails") && approvalDemo.requests === 1) {
+          return demoDelay(1500, () => {
+            throw "SIMULATED stale request failure";
+          });
+        }
+        askApprovalTv();
+        return { ok: true, status: "waiting", message: "Choose Allow on the TV." };
+      }
+      return { ok: true, status: "device", message: "Connected. This TV already allows this computer." };
+    case "cancel_device_approval":
+      endApprovalWait();
+      return null;
     case "forget_device":
+      // Forget ends a request's wait, as the built-in engine's disconnect does.
+      if (String(args.serial) === APPROVAL_TV) endApprovalWait();
       return {
         ok: true,
         disconnected: [String(args.serial)],
@@ -1073,6 +1275,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
       return null;
     }
+    case "remote_open":
+      return { generation: "1" };
+    case "remote_close":
+      return null;
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

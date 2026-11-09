@@ -87,6 +87,29 @@ impl ADBTcpService {
         })
     }
 
+    /// Open a service using an existing identity, without the ephemeral-key
+    /// fallback: a missing key is `IOError(NotFound)` before connecting.
+    /// `read_timeout` also bounds the whole connection handshake.
+    pub fn new_with_required_key_and_timeouts<P: AsRef<Path>, A: Into<SocketAddr>>(
+        address: A,
+        service: &str,
+        private_key_path: P,
+        read_timeout: Duration,
+        write_timeout: Duration,
+    ) -> Result<Self> {
+        let private_key_path = private_key_path.as_ref();
+        let mut device = ADBMessageDevice::new_with_required_key(
+            TcpTransport::new(address, private_key_path),
+            private_key_path,
+            read_timeout,
+        )?;
+        let session = device.open_raw_service(service, read_timeout)?;
+        Ok(Self {
+            service: ADBService::new(session, read_timeout, write_timeout),
+            device,
+        })
+    }
+
     /// What the CNXN exchange of this stream's own connection negotiated.
     #[must_use]
     pub const fn connection_info(&self) -> &ConnectionInfo {
@@ -153,5 +176,26 @@ mod tests {
         // Measured from the CNXN, after key loading; the old wait was 120 s.
         let held = held_rx.recv().unwrap();
         assert!(held < Duration::from_secs(3), "held for {held:?}");
+    }
+
+    #[test]
+    fn a_required_key_that_is_missing_fails_before_connecting() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let missing = std::env::temp_dir().join("adb_client_service_missing_key.pem");
+        let error = ADBTcpService::new_with_required_key_and_timeouts(
+            listener.local_addr().unwrap(),
+            "shell:id",
+            &missing,
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::IOError(io) if io.kind() == std::io::ErrorKind::NotFound),
+            "{error:?}"
+        );
+        assert!(listener.accept().is_err(), "a connection was made");
+        assert!(!missing.exists());
     }
 }
