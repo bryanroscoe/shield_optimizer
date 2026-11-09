@@ -56,7 +56,7 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
     }
     const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
     assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
-    const first = page.locator(".optimize-item").filter({ hasText: focusPackage });
+    const first = page.locator(".optimize-item").filter({ has: page.getByText(focusPackage, { exact: true }) });
     if (evidence) {
       await first.scrollIntoViewIfNeeded();
       await page.waitForTimeout(600);

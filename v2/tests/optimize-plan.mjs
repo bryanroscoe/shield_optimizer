@@ -111,7 +111,7 @@ async function exercise({ browser, base }) {
   assert.deepEqual(armedProtected, [], `protected rows must offer no action: ${JSON.stringify(armedProtected)}`);
 
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     assert.equal(await row.locator('[data-verdict="caution"]').count(), 1, entry.package);
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", entry.package);
     assert.equal((await row.locator(".review-pill").innerText()).trim(), "Review: disable if unused");
@@ -129,12 +129,12 @@ async function exercise({ browser, base }) {
   assert.equal(await panel.getByRole("button", { name: /Select all/ }).count(), 0, "Optimize has no bulk arm control");
   await panel.getByRole("button", { name: "Keep all", exact: true }).click();
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Keep all: ${entry.package}`);
   }
   const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
   assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
-  const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: focusPackage }) });
+  const first = panel.locator("tr").filter({ has: page.getByText(focusPackage, { exact: true }) });
   if (evidence) {
     await first.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
@@ -167,7 +167,7 @@ async function exercise({ browser, base }) {
   }));
   assert.ok(overflow.width <= overflow.viewport, `the page fits; wide choices scroll inside the table region: ${JSON.stringify(overflow)}`);
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     const name = row.locator(".app-name");
     assert.ok(await name.evaluate((el) => el.getBoundingClientRect().width <= el.parentElement.clientWidth), `readable enlarged name: ${entry.package}`);
   }
