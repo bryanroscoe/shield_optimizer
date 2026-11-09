@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: on a kept app in the App List, **Change** (which undoes Keep) is always shown. It used to appear only while the pointer was over the row or the button had keyboard focus, so on touch screens, or at a glance, Keep looked permanent (#324).
+- Desktop: **Fixed: confirmations didn't stop anything in the installed app (2.5.0 and earlier).** On macOS, Windows and Linux the "Are you sure?" questions never appeared and every action went ahead as if you had said OK: deleting files or snapshots, reboot, snapshot restore, Re-enable all, Optimize's Run plan, display scaling, uninstall and the rest. They now open a native dialog, and Cancel cancels. Naming a snapshot uses the app's own dialog, so Save snapshot, Optimize's "Save this setup as a snapshot" and the Launcher's "Save snapshot first" work on macOS, where they did nothing.
 - Desktop: the Temperature card shows what the TV reports about its reading, as the Android app does: Android's thermal status under the figure, and behind its help button the sensor, the source and that sensor's own throttling and shutdown points. It is coloured only when the TV reports throttling or the reading passes its sensor's threshold, instead of fixed 60 °C and 76 °C bands. A temperature with no status says so.
 - Desktop: **Force stop** in an app's detail panel (App List and Optimize), as in the Android app sheet. It re-measures afterwards, so RAM reads "Not running".
 - Desktop: **Find remote** on the Remote tab for a Shield makes its remote beep. It appears only for a TV that reported itself as a Shield.
@@ -35,7 +37,10 @@ this file and shows the newest few sections, dated, from its version button.
 - Android: Optimize matches desktop. **Select all is gone**, so each removal is chosen by hand; Keep all clears every choice. Restore gains **Re-enable all disabled** and still starts with only the apps we recommend bringing back (the same as desktop). A row set to Uninstall says how that app comes back, and so does the confirmation. After a run changes the TV, Optimize offers **Save this setup as a snapshot**. Uninstall confirmations in the app sheet carry the same per-app detail, and the sheet gains **Back up APK**, which saves the APK into the app's private storage on the phone, listed on Backups. The Snapshots help no longer suggests copying a setup to another TV.
 - Android: the TV list shows each TV's name again on Android 13 and older, where every row said "Name unavailable". The app asks each TV it finds for its Cast name over the local network; the name is only shown, never used to identify a TV.
 - App reports preserve explicit public HTTP(S) store/developer hostnames, including the reported app's Play Store id, in the preview and GitHub Details. Desktop and mobile share the privacy rules; device identifiers, other package ids, private-network or package-shaped hosts, URL credentials, query keys other than `id`/`hl`/`gl`, other query values and fragments remain redacted (#323).
-- Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Expand Optimize with eighteen reviewed optional apps from the imported catalog, including TCL Channel and TCL Live, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Linux: each release now includes a **Flatpak** bundle (`ATV.Optimizer_<version>_x86_64.flatpak`). It doesn't update itself, so the Auto-update switch is hidden there; the header and Settings say when a newer version is out. Install the next release's bundle the same way.
+- Desktop: question-mark help (in Settings and the macOS local network notice) opens as a small pop-over beside the button instead of pushing the rows below it down. It closes with the button, ×, Escape, or a click or focus elsewhere.
+- Desktop: with Google platform-tools too, a network TV that hasn't allowed this computer is listed by its Cast name instead of only its address. The name is only shown, never used to identify a TV.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
 - Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
@@ -66,6 +71,10 @@ this file and shows the newest few sections, dated, from its version button.
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
 - macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
 - **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
+
+### Fixed
+
+- Linux AppImage: updating in the app works. Each AppImage was repacked after it was signed, so since in-app updates arrived in 2.0.0-beta.14 the app rejected every AppImage update as having an invalid signature and stayed on its version. The release now signs the repacked file and checks every update signature before publishing, so an AppImage from 2.0.0-beta.14 through 2.5.0 can update to this version in the app.
 
 ## v2-2.5.0 — 2026-11-04
 

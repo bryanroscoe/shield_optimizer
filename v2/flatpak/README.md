@@ -15,7 +15,9 @@ Flathub builds apps. Issue [#199](https://github.com/bryanroscoe/shield_optimize
 `io.github.bryanroscoe.ATVOptimizer`, not the Tauri identifier `com.atvoptimizer.app`. Inside
 the sandbox the app keeps its data in
 `~/.var/app/io.github.bryanroscoe.ATVOptimizer/data/ATVOptimizer`, so a Flatpak install starts
-with fresh settings and downloads its own adb, like a first launch.
+with fresh settings, like a first launch. It connects with the built-in ADB; Google's
+platform-tools, needed only for a TV connected by USB, download into that folder when chosen in
+**Settings → ADB**.
 
 **Updates.** Inside a Flatpak, `/app` is read-only, so the app never runs its self-updater
 (`update_channel` returns `"flatpak"`). The header and Settings say when a newer version is out

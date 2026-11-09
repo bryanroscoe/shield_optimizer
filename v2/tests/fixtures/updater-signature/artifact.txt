@@ -1,0 +1,1 @@
+ATV Optimizer updater signature fixture. Signed with a throwaway key that was deleted after signing.

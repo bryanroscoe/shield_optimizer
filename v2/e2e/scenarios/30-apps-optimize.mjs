@@ -84,12 +84,12 @@ export const scenarios = [
       await offer.waitFor();
       await ctx.step("snapshot offered after the run");
       await offer.click();
+      // The save asks for a name in the app's own dialog (prompt() returns
+      // null in the macOS web view).
+      await ctx.nameSnapshot("After optimize");
       await page.getByRole("button", { name: "Snapshot saved" }).waitFor();
-      ctx.assert.match(await page.locator(".snapshot-result").innerText(), /^Saved /, "the offer reports the save");
-      ctx.assert.ok(
-        ctx.dialogs.some((d) => d.type === "prompt" && /Name this snapshot/.test(d.message)),
-        "the save asked for a name",
-      );
+      ctx.assert.match(await page.locator(".snapshot-result").innerText(), /^Saved After optimize/, "the offer saves under the given name");
+      ctx.assert.ok(!ctx.dialogs.some((d) => d.type === "prompt"), "no browser prompt() was used");
       await ctx.step("snapshot saved from the offer");
 
       // The plan is not reloaded, so VLC is still armed. Disabling it again

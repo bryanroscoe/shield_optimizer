@@ -403,6 +403,12 @@ jobs:
         working-directory: v2
         run: npm run test:release-notes
 
+      # The release workflow checks every updater signature with this before
+      # publishing latest.json; it must read real `tauri signer` output.
+      - name: Updater signatures
+        working-directory: v2
+        run: npm run test:updater-signatures
+
       - name: Update notes dialog
         working-directory: v2
         run: npm run test:update-notes-dialog
@@ -469,6 +475,11 @@ jobs:
       - name: Snapshot deletion
         working-directory: v2
         run: npm run test:snapshot-delete
+
+      # The desktop app's confirm() is async and its prompt() returns null.
+      - name: Confirmation and snapshot name dialogs
+        working-directory: v2
+        run: npm run test:native-dialogs
 
       # Every plan row must resolve its verdict, including rows the plan
       # proposes no action on.
