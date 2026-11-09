@@ -55,7 +55,7 @@ function redactIdentifiers(text: string, redact: string[], reportedPackage?: str
 function publicHostname(host: string, reportedPackage?: string): boolean {
   if (reportedPackage && host === reportedPackage.toLowerCase()) return true;
   return /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(host)
-    && !/(?:^|\.)(?:localhost|local|localdomain|lan|internal|intranet|private|corp|home|home\.arpa|box|invalid|test|onion|ts\.net)$/i.test(host)
+    && !/(?:^|\.)(?:localhost|local|localdomain|lan|internal|intranet|private|corp|home|home\.arpa|box|invalid|test|onion|ts\.net|nip\.io|sslip\.io|xip\.io)$/i.test(host)
     && !/^(?:com|org|net|edu|gov|mil|int|io|info|biz)\./i.test(host)
     // Wildcard-DNS names spell an address with dashes (192-168-1-5.sslip.io).
     && !/(?:^|[^0-9])\d{1,3}(?:-\d{1,3}){3}(?![0-9])/.test(host);
@@ -95,8 +95,9 @@ function redactUrl(raw: string, redact: string[], reportedPackage?: string): str
   // The reported app's exact id is the only query value the report needs.
   const query = [...url.searchParams].map(([key, value]) => {
     const safeKey = PUBLIC_QUERY_KEYS.has(key.toLowerCase()) ? encodeURIComponent(key) : REDACTED;
-    const safeValue = (key === 'id' && value === reportedPackage && scrub(value) === value)
-      || (/^(?:hl|gl)$/i.test(key) && /^[a-z]{2,3}(?:[-_][a-z]{2,4})?$/i.test(value))
+    const safeValue = scrub(value) === value
+      && ((key.toLowerCase() === 'id' && value === reportedPackage)
+        || (/^(?:hl|gl)$/i.test(key) && /^[a-z]{2,3}(?:[-_][a-z]{2,4})?$/i.test(value)))
       ? value : REDACTED;
     return `${safeKey}=${safeValue === REDACTED ? REDACTED : encodeURIComponent(safeValue)}`;
   }).join('&');

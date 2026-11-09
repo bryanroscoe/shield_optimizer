@@ -462,6 +462,8 @@ async function publicLinkPrivacy(server) {
     ["https://com.private.bankapp.example.com/x", "https://[redacted]/x"],
     ["https://my-secret123.example.com/", "[redacted]"],
     ["https://192-168-1-5.sslip.io/", "https://[redacted]/"],
+    ["https://c0a80105.nip.io/ https://fe80--1.sslip.io/", "https://[redacted]/ https://[redacted]/"],
+    [`https://example.com/?ID=${pkg}&hl=%53ECRET123`, `https://example.com/?ID=${pkg}&hl=[redacted]`],
     ["http://fritz.box/ http://mytv.home.arpa:8080/ http://nas.localdomain/ http://shield.corp/ https://foo.ts.net/", "http://[redacted]/ http://[redacted]:8080/ http://[redacted]/ http://[redacted]/ https://[redacted]/"],
     ["https://developer.example.com/com%252Eprivate%252Eapp", "https://developer.example.com/[redacted]"],
     ["https://developer.example.com/%ZZ", "https://developer.example.com/[redacted]"],
