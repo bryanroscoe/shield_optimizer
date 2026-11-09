@@ -47,6 +47,11 @@ export const scenarios = [
       const page = ctx.page;
       await waitForPlan(page);
       ctx.assert.equal(await page.getByRole("button", { name: /Select all/ }).count(), 0, "no bulk arm control");
+      ctx.assert.equal(
+        await page.getByRole("button", { name: "Re-enable all disabled" }).count(),
+        0,
+        "the bulk re-enable is Restore's alone",
+      );
       ctx.assert.equal(await armedCount(page), 0, "user-chosen apps start at Keep");
       await ctx.step("plan built from the device, nothing armed");
 
@@ -73,21 +78,47 @@ export const scenarios = [
       const handlers = (await ctx.device(SHIELD.serial)).home.handlers;
       ctx.assert.ok(handlers.some((h) => !h.includes("FallbackHome")), "the TV still has a Home app");
 
-      // The run changed the TV, so saving that setup is offered.
-      await page.getByRole("button", { name: "Save this setup as a snapshot" }).waitFor();
+      // The run changed the TV, so saving that setup is offered, and the
+      // offer saves it.
+      const offer = page.getByRole("button", { name: "Save this setup as a snapshot" });
+      await offer.waitFor();
       await ctx.step("snapshot offered after the run");
+      await offer.click();
+      await page.getByRole("button", { name: "Snapshot saved" }).waitFor();
+      ctx.assert.match(await page.locator(".snapshot-result").innerText(), /^Saved /, "the offer reports the save");
+      ctx.assert.ok(
+        ctx.dialogs.some((d) => d.type === "prompt" && /Name this snapshot/.test(d.message)),
+        "the save asked for a name",
+      );
+      await ctx.step("snapshot saved from the offer");
 
-      // Restore re-enables what the run disabled.
+      // The plan is not reloaded, so VLC is still armed. Disabling it again
+      // changes nothing, and there is nothing new to save.
+      const offers = page.getByRole("button", { name: /^(Save this setup as a snapshot|Snapshot saved|Saving…)$/ });
+      await page.getByRole("button", { name: "Keep all" }).click();
+      await arm(page, [CHOSEN[0]], "Disable");
+      await page.getByRole("button", { name: /^Run plan/ }).click();
+      await page.getByText(/Optimize complete: 1 applied/).waitFor({ timeout: 60_000 });
+      ctx.assert.equal(await offers.count(), 0, "no offer after a run that changed nothing");
+      await ctx.step("no offer after a run that changed nothing");
+
+      // Restore re-enables what the run disabled. Turning apps back on is the
+      // safe direction, so Restore can arm every disabled row at once.
       const disabledByRun = diff(after.disabled, before.disabled);
       ctx.assert.equal(disabledByRun.length, CHOSEN.length, "the run disabled the picked rows");
       await page.getByRole("button", { name: "Restore", exact: true }).click();
       await waitForPlan(page);
-      await page.getByRole("button", { name: "Keep all" }).click();
-      await arm(page, CHOSEN, "Enable");
-      ctx.assert.equal(await armedCount(page), CHOSEN.length, "restore armed the rows the run disabled");
-      await ctx.step("restore plan armed");
+      const enableRows = await page
+        .getByRole("group", { name: /^Action for / })
+        .filter({ has: page.getByRole("button", { name: /^Enable/ }) })
+        .count();
+      ctx.assert.ok(enableRows >= CHOSEN.length, "Restore lists every disabled catalog app");
+      await page.getByRole("button", { name: "Re-enable all disabled" }).click();
+      ctx.assert.equal(await armedCount(page), enableRows, "Re-enable all disabled armed every disabled row");
+      await ctx.step(`restore plan armed: ${enableRows} rows`);
       await page.getByRole("button", { name: /^Run plan/ }).click();
       await page.getByText(/Restore complete:/).waitFor({ timeout: 60_000 });
+      ctx.assert.equal(await offers.count(), 0, "no snapshot offer after a Restore run");
       await ctx.step("restore ran");
       const restored = (await ctx.device(SHIELD.serial)).packages;
       for (const pkg of disabledByRun) {
