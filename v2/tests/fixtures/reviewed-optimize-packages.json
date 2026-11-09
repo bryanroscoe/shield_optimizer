@@ -231,5 +231,14 @@
       "program guide",
       "TV input/remote shortcut"
     ]
+  },
+  {
+    "package": "com.accuweather.android",
+    "name": "AccuWeather",
+    "consequence_fragments": [
+      "forecasts, radar, weather alerts and widgets",
+      "Keep it if anyone relies on its weather warnings",
+      "does not cancel a premium subscription"
+    ]
   }
 ]

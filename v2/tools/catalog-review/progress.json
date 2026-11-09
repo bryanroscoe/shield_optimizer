@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-08",
+  "updated_at": "2026-11-09",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -911,6 +911,168 @@
       "assessed_at": "2026-11-09",
       "reason": "Prior hold superseded by publisher-linked identity/function evidence and explicit app-specific consequences. Caution/review, both defaults false; see docs/REPORTED-APPS-307-318-321.md.",
       "evidence": "https://d23.com/9-reasons-why-you-need-disneynow-this-very-minute/; https://disneynow.com/help"
+    },
+    "com.accuweather.android": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-09",
+      "reason": "Exact developer evidence supports optional forecasts/radar/alerts/widgets; keep if relied upon. Caution/Disable suggestion/review=true/both defaults=false/initial Keep; no compatibility or physical recovery claim.",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.accuweather.android",
+        "https://www.accuweather.com/en/weather-news/accuweather-app-faq/765568",
+        "https://developer.android.com/tools/adb#pm",
+        "https://support.google.com/googleplay/answer/7018481"
+      ],
+      "source_observations": [
+        {
+          "profile": "sanyo-atv-r2",
+          "upstream_context": {
+            "tv": "SANYO ATV R2 (SCBC, Realtek RTD285O)",
+            "os": "Android TV 9",
+            "brand": "SANYO",
+            "notes": "S-Channels, E-SHOW demo, Vewd, TV Booster, SANYO OTA"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sanyo-atv-r2/debloat.txt#L48",
+          "form": "active_disable"
+        },
+        {
+          "profile": "sony-xbr-55x850c",
+          "upstream_context": {
+            "tv": "Sony BRAVIA XBR-55X850C and XBR-75X850C (2015, \"BRAVIA 4K 2015\", SVP-DTV15, MediaTek), US firmware",
+            "os": "Android TV 8.0",
+            "brand": "Sony",
+            "notes": "Same build as the KD-65X9300D; Samba TV, Sony Select/Discover/BIVL, launcher customizer, Sony/Qterics device agents, SDDP vendorprotocol, tutorials, dead Play Music/Movies; voice and unused streaming apps off by choice; Chromecast, mirroring, updates kept; 1.5 GB; Inputs lists HDMI 1-4 with CEC names; reboot-checked; 75-inch second unit as a display for an Apple TV: [debloat-display-only.txt](sony-xbr-55x850c/debloat-display-only.txt) adds Sony's interactive-TV measurement plugins (Kantar/Kuyun/ShopTv) and log collectors, the Sony Firebase push listener, Backdrop, DLNA/DIAL/Miracast/Chromecast and the USB players, with the streaming apps and the phone-remote service left as a choice"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-xbr-55x850c/debloat.txt#L79",
+          "form": "active_disable"
+        }
+      ],
+      "original_profile_counts": {
+        "active_profiles": 2,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "independent_review": "Both agents independently researched same exact ID and agree. Read-only reviewer; no hardware proof."
+    },
+    "com.tubitv.ott": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-09",
+      "reason": "Exact Play listing inaccessible; no sufficient primary evidence binding this Fire TV package to implementation, callers, casting/automatic provisioning lifecycle and recovery. Generic Tubi identity and third-party mirrors cannot establish exact build scope.",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.tubitv.ott"
+      ],
+      "source_observations": [
+        {
+          "profile": "amazon-fire-tv-aftdec012e",
+          "upstream_context": {
+            "tv": "Amazon Fire TV, AFTDEC012E (ginza), Android 11",
+            "os": "Android 11 / Fire OS",
+            "brand": "Amazon Fire TV",
+            "notes": "Telemetry, ACR, shopping, tutorial and content preloads disabled; debloat only, Fire OS keeps Home (see TROUBLESHOOTING, Fire TV)",
+            "readme_os": "Fire OS / Android 11"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/amazon-fire-tv-aftdec012e/debloat.txt#L38",
+          "form": "comment_reference"
+        },
+        {
+          "profile": "amazon-fire-tv-aftdec012e",
+          "upstream_context": {
+            "tv": "Amazon Fire TV, AFTDEC012E (ginza), Android 11",
+            "os": "Android 11 / Fire OS",
+            "brand": "Amazon Fire TV",
+            "notes": "Telemetry, ACR, shopping, tutorial and content preloads disabled; debloat only, Fire OS keeps Home (see TROUBLESHOOTING, Fire TV)",
+            "readme_os": "Fire OS / Android 11"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/amazon-fire-tv-aftdec012e/debloat.txt#L42",
+          "form": "commented_out"
+        },
+        {
+          "profile": "amazon-fire-tv-afttiff43",
+          "upstream_context": {
+            "tv": "Amazon Fire TV 4K smart TV, 50\" and 75\" Omni Series (AFTTIFF43, brandenburg)",
+            "os": "Fire OS 7.7.1.4 / 7.7.1.7, Android 9",
+            "brand": "Amazon Fire TV",
+            "notes": "Done remotely through a Synology subnet router; Toshiba list plus Insignia ad/tracking packages: ACR, metrics, advertising ID, Shopping, demo, tutorials, Music/Photos/Luna/Kids, Alexa extras, Ambient screensaver; four protected packages noted; Alexa core, casting, OTA, Live TV, Silk kept; AdGuard Private DNS works; 75\" Omni unit adds ad-sync, sponsored rows, Fire TV Channels, metrics and notice packages, and notes that Alexa voice re-enables itself on its far-field-mic set; debloat only"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/amazon-fire-tv-afttiff43/debloat.txt#L42",
+          "form": "comment_reference"
+        },
+        {
+          "profile": "amazon-fire-tv-afttiff43",
+          "upstream_context": {
+            "tv": "Amazon Fire TV 4K smart TV, 50\" and 75\" Omni Series (AFTTIFF43, brandenburg)",
+            "os": "Fire OS 7.7.1.4 / 7.7.1.7, Android 9",
+            "brand": "Amazon Fire TV",
+            "notes": "Done remotely through a Synology subnet router; Toshiba list plus Insignia ad/tracking packages: ACR, metrics, advertising ID, Shopping, demo, tutorials, Music/Photos/Luna/Kids, Alexa extras, Ambient screensaver; four protected packages noted; Alexa core, casting, OTA, Live TV, Silk kept; AdGuard Private DNS works; 75\" Omni unit adds ad-sync, sponsored rows, Fire TV Channels, metrics and notice packages, and notes that Alexa voice re-enables itself on its far-field-mic set; debloat only"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/amazon-fire-tv-afttiff43/debloat.txt#L101",
+          "form": "commented_out"
+        },
+        {
+          "profile": "amazon-fire-tv-stick-4k-2018",
+          "upstream_context": {
+            "tv": "Amazon Fire TV Stick 4K, 1st gen 2018 (AFTMM, mantis)",
+            "os": "Fire OS 6.7.1.1 / Android 7.1",
+            "brand": "Amazon Fire TV",
+            "notes": "First Fire OS 6 list: Amazon telemetry, ad/recommendation feeders, Live tab and Fire TV Channels, Shopping, Kids, Music/Photos/Silk, whole-home audio, Alexa extras; unused streaming apps off by choice; ten protected packages noted; voice search, OTA, casting kept; debloat only, sponsored rows need DNS blocking"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/amazon-fire-tv-stick-4k-2018/debloat.txt#L123",
+          "form": "active_disable"
+        },
+        {
+          "profile": "hisense-fire-tv-55qd6qf",
+          "upstream_context": {
+            "tv": "Hisense 55QD6QF Fire TV (AFTOLCBC82, ginza), Canada",
+            "os": "Fire OS 8.1.8.0 / Android 11",
+            "brand": "Hisense",
+            "notes": "Fire OS 8.1 TV: Amazon telemetry, ACR, ad/recommendation feeders, advertising ID, Shopping, Channels, tutorials; Amazon preloads, Miracast and Alexa off by choice (vizzini returns at every boot); retailer apps re-enable at boot (remove them in Settings > Applications); Wi-Fi owned by oobe; input switching, the Home key and the homekey broadcast reserved to Amazon; AirPlay, Live TV, Silk, OTA kept; debloat only"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hisense-fire-tv-55qd6qf/debloat.txt#L88",
+          "form": "active_disable"
+        },
+        {
+          "profile": "hisense-fire-tv-aftcibfbd1",
+          "upstream_context": {
+            "tv": "Hisense Fire TV (AFTCIBFBD1, coyote, MediaTek), US",
+            "os": "Fire OS 8.0 / Android 11",
+            "brand": "Hisense",
+            "notes": "First Fire OS 8 TV: Amazon ACR, ad/recommendation feeders, advertising ID, Shopping, demo, tutorials, telemetry; Alexa, AirPlay, Miracast and preloads (Tubi, Music/Photos, miniTV, Naatyam, games, Ambient) off by choice; Alexa voice (vizzini) is re-enabled at every boot and nothing adb can do sticks; two protected packages noted; HDMI input switching is Amazon-only (TUNE_INPUT is signature-level); AdGuard Private DNS works; Kids, OTA, Live TV, Silk kept; second unit 65U65SFC (U65 Pro, US) adds more telemetry, popups and promos, Alexa extras, Gallery and Luna; debloat only, see the 2023 stick list for more packages"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hisense-fire-tv-aftcibfbd1/debloat.txt#L106",
+          "form": "active_disable"
+        },
+        {
+          "profile": "insignia-ns42f201na22",
+          "upstream_context": {
+            "tv": "Insignia 42\" F20 Fire TV (NS-42F201NA22, AFTEAMR311, blanche)",
+            "os": "Fire OS 6.7.1.1 / Android 7.1.2",
+            "brand": "Insignia Fire TV",
+            "notes": "43 Amazon telemetry, ad, shopping and preload packages; Live TV, Alexa voice search, Prime Video, casting and OTA kept. Launcher half: see [the Fire TV launcher fork](https://github.com/jeanbuntu/cleanyourtv/tree/fire-tv-launcher)"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/insignia-ns42f201na22/debloat.txt#L66",
+          "form": "active_disable"
+        },
+        {
+          "profile": "toshiba-fire-tv-aftha004",
+          "upstream_context": {
+            "tv": "Toshiba Fire TV (AFTHA004, hazel)",
+            "os": "Fire OS 7 / Android 9",
+            "brand": "Toshiba",
+            "notes": "Amazon ACR, metrics, shopping, tutorials, Miracast sink; streaming preloads off by choice; debloat only"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/toshiba-fire-tv-aftha004/debloat.txt#L57",
+          "form": "active_disable"
+        }
+      ],
+      "original_profile_counts": {
+        "active_profiles": 5,
+        "commented_profiles": 2,
+        "note_profiles": 2
+      },
+      "independent_review": "Both agents independently researched same exact ID and agree. Read-only reviewer; no hardware proof.",
+      "reconsider_after": "2026-12-09",
+      "keep_conflicts": "AFTDEC012E: not disabled yet, owner's choice; Omni AFTTIFF43: first owner keeps, 75-inch owner disables by choice. Preserve Fire OS6/7/8 and Android7.1/9/11 context; not model certification."
     }
   }
 }
