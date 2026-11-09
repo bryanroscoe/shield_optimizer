@@ -11,6 +11,8 @@
 import type { DeviceType, Safety, TvEvidence } from "./types";
 import { normalizeHardwareId } from "./identity";
 
+import { redactReportNote } from "../../../shared/report-note";
+
 export type AppReportReason = "not_listed" | "wrong_verdict" | "wrong_description" | "other";
 
 /// The `reason` values a report writes. registry-triage accepts these beside
@@ -101,52 +103,10 @@ function clean(text: string, max: number, keepNewlines: boolean): string | null 
   return out.length > 0 ? out : null;
 }
 
-const REDACTED = "[redacted]";
-
-/// Shorter than this, a serial is only redacted where it stands as a whole
-/// token: "A1" must not eat the middle of "A1B2", let alone every word that
-/// happens to contain those letters.
-const SERIAL_SUBSTRING_MIN = 4;
-
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/// Anything shaped like an Android package id (two or more dot-joined
-/// segments, each starting with a letter). The leading boundary is captured
-/// rather than a lookbehind, which older WebViews cannot parse.
-const PACKAGE_SHAPED = /(^|[^A-Za-z0-9_.])([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+)(?![A-Za-z0-9_])/g;
-
-/// The note is the user's own text, but a pasted log line or address must not
-/// carry the identifiers the rest of the report leaves out. Addresses, MACs,
-/// this device's own serials, and package ids other than the reported one are
-/// replaced, visibly, in the preview. See desktop's copy for the full
-/// rationale; the rules are identical.
+/// Device ids are normalized by each client's identity rules before the shared
+/// note sanitizer handles serials, addresses, packages and explicit public links.
 export function redactNote(text: string, redact: string[], reportedPackage?: string): string {
-  let out = text;
-  for (const id of redact) {
-    // A ro.serialno of "unknown" is no id, and scrubbing it would eat the word.
-    const v = normalizeHardwareId(id);
-    if (!v) continue;
-    const body = escapeRegExp(v);
-    out =
-      v.length >= SERIAL_SUBSTRING_MIN
-        ? out.replace(new RegExp(body, "gi"), REDACTED)
-        : out.replace(new RegExp(`(^|[^A-Za-z0-9])${body}(?![A-Za-z0-9])`, "gi"), `$1${REDACTED}`);
-  }
-  const keep = reportedPackage?.toLowerCase();
-  return out
-    .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)
-    .replace(/\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, REDACTED)
-    .replace(/\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b/g, REDACTED)
-    .replace(/(?:\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*\b)?/g, (m) =>
-      m === "::" ? m : REDACTED,
-    )
-    .replace(PACKAGE_SHAPED, (_m, before: string, token: string) => {
-      if (token.toLowerCase() === keep) return before + token;
-      if (token.split(".").every((segment) => segment.length === 1)) return before + token;
-      return before + REDACTED;
-    });
+  return redactReportNote(text, redact.map(normalizeHardwareId).filter((id): id is string => !!id), reportedPackage);
 }
 
 function finiteOrNull(n: number | null | undefined): number | null {
