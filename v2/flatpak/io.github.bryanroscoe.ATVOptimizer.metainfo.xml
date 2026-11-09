@@ -15,8 +15,9 @@
     </p>
     <p>
       Works on Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer and
-      other Android TV devices. ATV Optimizer finds TVs on your network and downloads its own
-      copy of Google's adb tool on first launch.
+      other Android TV devices. ATV Optimizer finds TVs on your network and connects to them with
+      its own built-in ADB. Google's platform-tools are optional, in Settings, for a TV connected
+      by USB.
     </p>
     <p>
       Packages the system needs are protected, and anything the app can't vouch for stays as it
