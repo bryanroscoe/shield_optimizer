@@ -1051,6 +1051,10 @@ async fn a_quiet_connect_succeeds_once_the_tv_trusts_the_key() {
     peer.join().unwrap();
 }
 
+/// Upper bound for an event the approval test waits on. Not a timing claim:
+/// the test still proves the request keeps waiting (1.5 s) before Allow.
+const OFFER_OR_CONNECT_DEADLINE: Duration = Duration::from_secs(15);
+
 #[tokio::test]
 async fn an_approval_request_offers_the_key_and_waits_for_allow_within_its_budget() {
     let key = fixture_key();
@@ -1091,9 +1095,12 @@ async fn an_approval_request_offers_the_key_and_waits_for_allow_within_its_budge
             )
             .await
     });
-    tokio::time::timeout(Duration::from_secs(3), offered_rx)
+    // The offer is an event the peer reports; the bound only stops a hung
+    // test. Debug-build RSA signing on a loaded CI runner can take seconds,
+    // and it is still well inside the 20 s request budget.
+    tokio::time::timeout(OFFER_OR_CONNECT_DEADLINE, offered_rx)
         .await
-        .unwrap()
+        .expect("the request offers the public key")
         .unwrap();
     assert!(driver.awaiting_authorization());
     // Longer than a quiet connect would ever wait for an answer.
@@ -1103,9 +1110,9 @@ async fn an_approval_request_offers_the_key_and_waits_for_allow_within_its_budge
         "the request keeps waiting for the person"
     );
     allow_tx.send(()).unwrap();
-    tokio::time::timeout(Duration::from_secs(3), task)
+    tokio::time::timeout(OFFER_OR_CONNECT_DEADLINE, task)
         .await
-        .unwrap()
+        .expect("the request connects once the person allows it")
         .unwrap()
         .unwrap();
     assert!(!driver.awaiting_authorization());

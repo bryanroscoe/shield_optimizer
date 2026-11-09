@@ -233,7 +233,7 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
         packages_disabled: ["com.bloat"], packages_failed: ["com.google.android.tvlauncher (kept: only Home app)"],
         launcher_set: false, launcher_message: "com.spocky.projengmenu is disabled; enable it first, then restore",
         settings_written: [], settings_deleted: [], settings_failed: [],
-        summary: "Disabled 1 packages (1 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
+        summary: "Disabled 1 packages (0 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
       });
     },
   });
