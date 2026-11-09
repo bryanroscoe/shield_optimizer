@@ -17,6 +17,7 @@
     type FileConnection,
   } from "../lib/appFiles";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import ExportActions from "../components/ExportActions.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -466,7 +467,7 @@
       <span class="msr" aria-hidden="true">info</span>
       <span class="callout-text">
         Copies go to ATV Optimizer's private storage on this phone,
-        not the phone's public Downloads. Sharing and export to other apps are not available yet.
+        not the phone's public Downloads.
       </span>
     </div>
     <HelpSheet title="About file transfers">
@@ -474,6 +475,13 @@
         Tap a file to copy it. Files transfer over your LAN, with no cloud round-trip. Copied this
         session lists the copies made since you opened Files. Items under /sdcard can be deleted
         from the TV with the bin icon.
+      </p>
+      <p>
+        To get a copy out of the app, use the save or share button on its row in Copied this
+        session. Save a copy opens Android's file picker, and the copy goes only
+        where you choose. Share opens Android's share sheet and lets the app you pick read a copy;
+        Android doesn't tell ATV Optimizer whether that app finished. Nothing leaves the phone
+        unless you choose one of them.
       </p>
     </HelpSheet>
 
@@ -487,6 +495,7 @@
               <span class="f-name">{f.name}</span>
               <span class="f-sub mono">{fmtSize(f.size_bytes)} · Private app location: {f.path}</span>
             </div>
+            <ExportActions path={f.path} label={f.name} compact />
           </div>
         {/each}
       </div>
@@ -812,6 +821,7 @@
   }
   .dl-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 12px;
     padding: 12px 13px;

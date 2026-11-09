@@ -82,6 +82,24 @@
     ]
   },
   {
+    "package": "com.tcl.browser",
+    "name": "BrowseHere",
+    "consequence_fragments": [
+      "web browsing",
+      "IPTV playlists",
+      "Web remote shortcut",
+      "links targeting this browser"
+    ]
+  },
+  {
+    "package": "com.canal.android.canal",
+    "name": "CANAL+",
+    "consequence_fragments": [
+      "live, replay and offline viewing",
+      "does not cancel your subscription"
+    ]
+  },
+  {
     "package": "com.abc.abcnews",
     "name": "ABC News",
     "issue": 301,

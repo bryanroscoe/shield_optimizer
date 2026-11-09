@@ -94,6 +94,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `delete_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `find_files` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `delete_path` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
+| `export_file` | Free | `src-tauri/src/export_commands.rs` | `src/components/ExportActions.svelte` |
 | `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte` |
 
 ## UI and recovery findings

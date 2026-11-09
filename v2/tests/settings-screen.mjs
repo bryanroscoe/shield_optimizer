@@ -41,8 +41,8 @@ function setHarnessEnvironment() {
 
 const stub = (body) => ({ status: 200, contentType: "application/javascript", body });
 
-async function newPage(browser, flags = [], viewport = { width: 1200, height: 900 }) {
-  const page = await browser.newPage({ viewport });
+async function newPage(browser, flags = [], viewport = { width: 1200, height: 900 }, options = {}) {
+  const page = await browser.newPage({ viewport, ...options });
   await page.route(/plugin-updater/, (r) => r.fulfill(stub(`export async function check() { return null; }`)));
   await page.route(/plugin-opener/, (r) =>
     r.fulfill(
@@ -471,6 +471,64 @@ async function adbEngineStates({ browser, base }) {
   await failing.close();
 }
 
+async function adbEngineWaitsForDownload({ browser, base }) {
+  // A platform-tools download that finishes after a switch would swap the
+  // engine back, so the choice is locked while one runs.
+  const viewport = { width: 720, height: 900 };
+  const video = engineEvidence ? { recordVideo: { dir: engineEvidence, size: viewport } } : {};
+  const page = await newPage(browser, [], viewport, video);
+  await page.addInitScript(() => {
+    let bridge;
+    window.engineCalls = [];
+    window.releaseDownload = null;
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      get: () => bridge,
+      set(value) {
+        const original = value.invoke.bind(value);
+        let installed = false;
+        value.invoke = async (command, args) => {
+          if (command === "adb_status" && !installed) {
+            return { backend: "subprocess", available: false, path: null, failure: "missing_binary" };
+          }
+          if (command === "install_adb") {
+            await new Promise((resolve) => (window.releaseDownload = resolve));
+            installed = true;
+            return { ok: true, path: "/fixture/platform-tools/adb", message: "Installed platform-tools to /fixture/platform-tools/adb" };
+          }
+          if (command === "set_adb_engine") window.engineCalls.push(args.engine);
+          return original(command, args);
+        };
+        bridge = value;
+      },
+    });
+  });
+  await page.goto(`${base}/settings`, { waitUntil: "networkidle" });
+  const controls = engineControls(page);
+  await engineSettled(page, controls, "platform_tools");
+  assert.equal(await controls.builtin.isDisabled(), false);
+  await controls.section.getByRole("button", { name: "Download platform-tools" }).click();
+  await page.waitForFunction(() => typeof window.releaseDownload === "function");
+  await controls.section.getByRole("button", { name: "Installing…" }).waitFor();
+  assert.equal(await controls.builtin.isDisabled(), true, "Built-in is locked during the download");
+  assert.equal(await controls.tools.isDisabled(), true, "platform-tools is locked during the download");
+  if (engineEvidence) {
+    await page.mouse.move(0, 0);
+    await page.waitForTimeout(800);
+    await controls.section.screenshot({ path: join(engineEvidence, "simulated-720-download-running.png") });
+  }
+  await page.evaluate(() => window.releaseDownload());
+  await controls.section.getByText("Installed platform-tools to /fixture/platform-tools/adb").waitFor();
+  await page.waitForFunction((el) => el && !el.disabled, await controls.builtin.elementHandle());
+  assert.equal(await controls.tools.isChecked(), true);
+  assert.deepEqual(await engineCalls(page), [], "no switch was asked for");
+  if (engineEvidence) {
+    await page.waitForTimeout(800);
+    await controls.section.screenshot({ path: join(engineEvidence, "simulated-720-download-finished.png") });
+  }
+  await page.close();
+}
+
 async function adbEngineLayout({ browser, base }) {
   if (engineEvidence) await mkdir(engineEvidence, { recursive: true });
   const scenarios = [
@@ -571,11 +629,12 @@ async function main() {
     await failedSubprocessSettings({ browser, base });
     await adbEngineSwitching({ browser, base });
     await adbEngineStates({ browser, base });
+    await adbEngineWaitsForDownload({ browser, base });
     await adbEngineLayout({ browser, base });
     await narrow({ browser, base });
     await compactHelp({ browser, base });
     console.log(
-      "Settings screen passed: reached from the header and the first-run notice, the report switch and support ID agree with the Report a bug dialog, Send logs uploads only after confirmation and shows the ID to quote (or the shared error), theme / auto-update / Stop ADB when quitting / debug logging are the same settings as elsewhere, the ADB engine switches both ways by mouse and keyboard with its fallback, override and build states shown, and the screen fits 560px and 720px.",
+      "Settings screen passed: reached from the header and the first-run notice, the report switch and support ID agree with the Report a bug dialog, Send logs uploads only after confirmation and shows the ID to quote (or the shared error), theme / auto-update / Stop ADB when quitting / debug logging are the same settings as elsewhere, the ADB engine switches both ways by mouse and keyboard with its fallback, override and build states shown and stays put while platform-tools downloads, and the screen fits 560px and 720px.",
     );
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

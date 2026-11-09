@@ -227,6 +227,25 @@ impl AdbEngineControl {
     }
 }
 
+impl AdbEngineControl {
+    /// Swap in `driver`, platform-tools from a download that just finished,
+    /// only while the running engine still uses the host server. This takes
+    /// the switch's lock, so a switch to Built-in made during the download
+    /// stands. Returns whether the driver was swapped.
+    pub async fn adopt_installed_platform_tools(
+        &self,
+        app: &AppState,
+        driver: Arc<dyn AdbDriver>,
+    ) -> bool {
+        let _switch = self.state.lock().await;
+        if !app.adb_snapshot().await.uses_host_server() {
+            return false;
+        }
+        app.replace_adb(driver).await;
+        true
+    }
+}
+
 fn status_of(state: &EngineState) -> AdbEngineStatus {
     AdbEngineStatus {
         selected: state.selected,
@@ -655,6 +674,58 @@ mod tests {
             assert_eq!(control.set(&state, engine).await.unwrap_err(), SIMULATED);
         }
         assert_eq!(live(&state).await, "simulator");
+    }
+
+    #[cfg(feature = "direct-adb")]
+    #[tokio::test]
+    async fn a_download_that_finishes_after_a_switch_to_builtin_keeps_builtin() {
+        let dir = tempfile::tempdir().unwrap();
+        selection::save(dir.path(), AdbEngine::PlatformTools).unwrap();
+        let (control, state) = launch(dir.path(), None, Arc::new(Starter::default())).await;
+        let state = state.unwrap();
+        assert_eq!(live(&state).await, "platform-tools");
+        let installed = super::super::install::install_with(&state, &control, |_| async {
+            control.set(&state, AdbEngine::Builtin).await.unwrap();
+            Ok(PathBuf::from("fixture-platform-tools/adb"))
+        })
+        .await
+        .unwrap();
+        assert!(installed.ok);
+        assert!(
+            installed
+                .message
+                .contains("built-in engine is still in use"),
+            "{}",
+            installed.message
+        );
+        assert_eq!(live(&state).await, "built-in");
+        assert_eq!(control.status().await.active, Some(AdbEngine::Builtin));
+
+        // Back on platform-tools, a finished download is the driver used.
+        control.set(&state, AdbEngine::PlatformTools).await.unwrap();
+        assert_eq!(live(&state).await, "platform-tools");
+        let installed = super::super::install::install_with(&state, &control, |_| async {
+            Ok(PathBuf::from("fixture-platform-tools/adb"))
+        })
+        .await
+        .unwrap();
+        assert!(installed.ok);
+        assert!(
+            !installed.message.contains("still in use"),
+            "{}",
+            installed.message
+        );
+        let live_now = state.adb_snapshot().await;
+        assert!(live_now.uses_host_server());
+        assert_ne!(
+            live_now
+                .raw(&["version"])
+                .await
+                .ok()
+                .map(|output| output.stdout),
+            Some("platform-tools".to_string()),
+            "the installed adb replaced the running one"
+        );
     }
 
     #[test]

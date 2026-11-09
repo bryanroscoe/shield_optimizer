@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The FileProvider shares only staged copies in cache/exports/ (written by the app's
+     export_file command for Share). Nothing else in the app's storage gets a content URI. -->
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
-  <external-path name="my_images" path="." />
-  <cache-path name="my_cache_images" path="." />
+  <cache-path name="exports" path="exports/" />
 </paths>

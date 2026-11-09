@@ -40,6 +40,7 @@
     "test:optimize-safety-all-rows": "node tests/optimize-safety-all-rows.mjs",
     "test:shell-acknowledge": "node tests/shell-acknowledge.mjs",
     "test:icon-alignment": "node tests/icon-alignment.mjs",
+    "test:layout-clipping": "node tests/layout-clipping.mjs",
     "test:launcher-rows": "node tests/launcher-rows.mjs",
     "test:files-drop": "node tests/files-drop.mjs",
     "test:context-menu": "node tests/context-menu.mjs",

@@ -62,14 +62,17 @@ go-ahead; don't infer permission from a phone being powered on.
 
 ## P1 — product work
 
-1. **Android export.** Screenshots, pulled files and APK bundles land in app-private storage with
-   no way out. Start with one explicitly selected screenshot (Save a copy or Share), scoped in
-   [`EXPORT-DISCOVERABILITY.md`](EXPORT-DISCOVERABILITY.md); then SAF import, which also unblocks
-   phone→TV upload in Files; then consider Google Drive for complete APK bundles.
+1. **Android export.** Phase 1 done 2026-11-08: Save a copy (create-document picker) and Share
+   (share sheet) for one screenshot or one pulled file, per
+   [`EXPORT-DISCOVERABILITY.md`](EXPORT-DISCOVERABILITY.md). Not yet run on a phone: the picker,
+   a cancel, a Drive/Downloads destination and a share to a real receiver are the device gates.
+   Next: SAF import (phase 2), which also unblocks phone→TV upload in Files and item 2; then
+   snapshot and APK-bundle export once their privacy and format decisions are made; then consider
+   Google Drive for complete APK bundles.
 2. Install APK / sideload from the phone.
 3. ~~The bug-report bundle (`collect_diagnostics`).~~ Done 2026-11-08: More › Bug report, reviewed
-   on screen and copied to the clipboard. A share-sheet step waits on item 1; upload stays
-   desktop-only (owner decision).
+   on screen and copied to the clipboard. A share-sheet step for its text can now reuse item 1's
+   bridge (not wired yet); upload stays desktop-only (owner decision).
 4. A patch-notes viewer (deferred).
 5. ~~**Logs tab.**~~ Done 2026-11-08: More › Device logs, through core `read_device_logs`
    (`WirelessAdb::shell_bounded`, same bounds as desktop). Not yet run on a phone.

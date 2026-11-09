@@ -62,6 +62,8 @@ import type {
   WirelessStatus,
   WriteResult,
   FindResult,
+  ExportMode,
+  ExportOutcome,
 } from "./types";
 
 type PackageState = "enabled" | "disabled" | "missing";
@@ -294,6 +296,10 @@ export const api = {
     call<FileEntry[]>("list_remote_dir", { serial, path }),
   pullFile: (serial: string, remotePath: string) =>
     call<PulledFile>("pull_file", { serial, remotePath }),
+  /// Save a copy (Android's file picker) or Share (the share sheet) for one screenshot or
+  /// copied file. Nothing leaves the phone unless the user completes the system UI.
+  exportFile: (path: string, mode: ExportMode) =>
+    call<ExportOutcome>("export_file", { path, mode }),
 
   // ---- Backups (7.3) ----
   backupApk: (serial: string, pkg: string) =>

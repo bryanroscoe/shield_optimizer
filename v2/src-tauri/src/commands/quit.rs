@@ -405,7 +405,8 @@ mod tests {
         let (state, stops) = state_counting_stops();
         let (entered_tx, entered) = tokio::sync::oneshot::channel();
         let (release, released) = tokio::sync::oneshot::channel();
-        let install = super::super::install::install_with(&state, |_| async {
+        let engine = crate::commands::adb_engine::AdbEngineControl::simulated();
+        let install = super::super::install::install_with(&state, &engine, |_| async {
             entered_tx.send(()).unwrap();
             released.await.unwrap();
             Ok(std::path::PathBuf::from("/fixture/not-executed"))
@@ -441,10 +442,14 @@ mod tests {
         let (state, stops) = state_counting_stops();
         state.close_adb_admission();
         let effects = AtomicUsize::new(0);
-        let result = super::super::install::install_with(&state, |_| async {
-            effects.fetch_add(1, Ordering::SeqCst);
-            Ok(std::path::PathBuf::from("/fixture/not-executed"))
-        })
+        let result = super::super::install::install_with(
+            &state,
+            &crate::commands::adb_engine::AdbEngineControl::simulated(),
+            |_| async {
+                effects.fetch_add(1, Ordering::SeqCst);
+                Ok(std::path::PathBuf::from("/fixture/not-executed"))
+            },
+        )
         .await;
         assert!(result.is_err());
         assert_eq!(effects.load(Ordering::SeqCst), 0);
@@ -458,10 +463,14 @@ mod tests {
         let (entered_tx, entered) = tokio::sync::oneshot::channel();
         let install_state = Arc::clone(&state);
         let install = tokio::spawn(async move {
-            super::super::install::install_with(&install_state, |_| async {
-                entered_tx.send(()).unwrap();
-                std::future::pending().await
-            })
+            super::super::install::install_with(
+                &install_state,
+                &crate::commands::adb_engine::AdbEngineControl::simulated(),
+                |_| async {
+                    entered_tx.send(()).unwrap();
+                    std::future::pending().await
+                },
+            )
             .await
         });
         entered.await.unwrap();
@@ -489,17 +498,21 @@ mod tests {
         let (done_tx, done) = tokio::sync::oneshot::channel();
         let install_state = Arc::clone(&state);
         let install = tokio::spawn(async move {
-            super::super::install::install_with(&install_state, |operation| async {
-                crate::adb::install::finish_extraction(operation, move || {
-                    entered_tx.send(()).unwrap();
-                    // A bounded wait also makes a failed assertion safe to unwind.
-                    let released = released.recv_timeout(Duration::from_secs(5)).is_ok();
-                    let _ = done_tx.send(());
-                    assert!(released, "fixture extraction was not released");
-                    Ok(std::path::PathBuf::from("/fixture/not-executed"))
-                })
-                .await
-            })
+            super::super::install::install_with(
+                &install_state,
+                &crate::commands::adb_engine::AdbEngineControl::simulated(),
+                |operation| async {
+                    crate::adb::install::finish_extraction(operation, move || {
+                        entered_tx.send(()).unwrap();
+                        // A bounded wait also makes a failed assertion safe to unwind.
+                        let released = released.recv_timeout(Duration::from_secs(5)).is_ok();
+                        let _ = done_tx.send(());
+                        assert!(released, "fixture extraction was not released");
+                        Ok(std::path::PathBuf::from("/fixture/not-executed"))
+                    })
+                    .await
+                },
+            )
             .await
         });
         entered.await.unwrap();

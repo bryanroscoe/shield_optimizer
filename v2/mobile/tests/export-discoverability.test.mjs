@@ -61,7 +61,10 @@ for (const [width, scale] of [[384, 1], [320, 2]]) test(`screenshot destination,
   await preview.getByText(/not in Gallery or Downloads/).waitFor();
   await preview.getByText("Close screenshot preview hides this view. The saved image stays in the app.", { exact: true }).waitFor();
   assert.equal(await preview.getByRole("img").getAttribute("src"), await page.evaluate(() => `data:image/png;base64,${shot.base64}`));
-  assert.equal(await preview.getByRole("button", { name: /Share|Open|Files|Save/ }).count(), 0);
+  // Save a copy and Share are offered, and nothing is exported until one is tapped.
+  await preview.getByRole("button", { name: "Save a copy", exact: true }).waitFor();
+  await preview.getByRole("button", { name: "Share", exact: true }).waitFor();
+  assert.equal(await preview.getByRole("button", { name: /Open|Files/ }).count(), 0);
   assert.equal(await preview.evaluate(el => el.scrollWidth <= el.clientWidth), true);
   if (process.env.EXPORT_COPY_EVIDENCE === "1") {
     await mkdir(dir, { recursive: true });
@@ -96,7 +99,9 @@ test("file-copy success identifies the actual private destination and failure ad
   await page.evaluate(() => { failPull = false; }); await file.click();
   await page.getByText("Copied report (2).txt into this app's private storage.", { exact: true }).waitFor();
   await page.getByText("10 B · Private app location: /data/user/0/com.atvoptimizer.mobile/downloads/report (2).txt", { exact: true }).waitFor();
-  assert.equal(await page.locator(".dl-list").getByRole("button").count(), 0);
+  assert.deepEqual(await page.locator(".dl-list").getByRole("button").evaluateAll(els => els.map(el => el.getAttribute("aria-label"))),
+    ["Save a copy of report (2).txt", "Share report (2).txt"]);
+  assert.equal(await page.evaluate(() => calls.some(c => c.command === "export_file")), false);
 });
 
 async function openReport(page) {

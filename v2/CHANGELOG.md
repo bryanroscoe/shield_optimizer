@@ -22,6 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: fixed clipped and squeezed text. The snapshot restore preview keeps a readable Item column, wraps package ids after their dots, and wraps long values such as the screensaver component instead of cutting off "Will become". A long App List name wraps onto a second line instead of being cut off (past two lines it ends in "…", with the full name on hover). Health's memory table breaks process names at dots and colons.
 - Desktop: on a kept app in the App List, **Change** (which undoes Keep) is always shown. It used to appear only while the pointer was over the row or the button had keyboard focus, so on touch screens, or at a glance, Keep looked permanent (#324).
 - Desktop: **Fixed: confirmations didn't stop anything in the installed app (2.5.0 and earlier).** On macOS, Windows and Linux the "Are you sure?" questions never appeared and every action went ahead as if you had said OK: deleting files or snapshots, reboot, snapshot restore, Re-enable all, Optimize's Run plan, display scaling, uninstall and the rest. They now open a native dialog, and Cancel cancels. Naming a snapshot uses the app's own dialog, so Save snapshot, Optimize's "Save this setup as a snapshot" and the Launcher's "Save snapshot first" work on macOS, where they did nothing.
 - Desktop: the Temperature card shows what the TV reports about its reading, as the Android app does: Android's thermal status under the figure, and behind its help button the sensor, the source and that sensor's own throttling and shutdown points. It is coloured only when the TV reports throttling or the reading passes its sensor's threshold, instead of fixed 60 °C and 76 °C bands. A temperature with no status says so.
@@ -54,6 +55,8 @@ this file and shows the newest few sections, dated, from its version button.
 - Desktop and Android: App List, Optimize, Launcher, snapshots and Emergency Recovery read packages for the main user (user 0), the same user every action changes (#233).
 - Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
 - Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
+- Desktop: refreshing one TV's profile, and previewing, applying or saving a snapshot, no longer waits on the Cast name of every other TV that hasn't allowed this computer. Only the TV being profiled is named; the device list still names them all.
+- Desktop: a platform-tools download that finishes after a switch to Built-in no longer switches the app back to platform-tools; it is kept for when you choose platform-tools. Settings › ADB engine can't be switched while Settings is downloading it.
 
 ### Built-in ADB
 
@@ -72,6 +75,7 @@ this file and shows the newest few sections, dated, from its version button.
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
 - macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
 - **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
+- Built-in engine: uploading a file to a TV no longer freezes the device list, or that TV, until the upload ends. Uploads use their own identity-checked connection, as downloads and installs do, and a TV busy with a long command is listed as connected instead of waiting for it. Like downloads and installs, an upload needs a TV that always allows this computer, and fails rather than waits if the TV is busy with another command for more than 5 seconds.
 
 ### Fixed
 
