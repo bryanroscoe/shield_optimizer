@@ -151,6 +151,62 @@ test("Stop drops a late auto-refresh result", async (t) => {
   assert.doesNotMatch(await page.locator(".screen").innerText(), /LATE STOPPED OUTPUT/);
 });
 
+test("switching TVs and then backgrounding drops the old snapshot and the late read", async (t) => {
+  const page = await open(t, "logs");
+  await page.getByRole("button", { name: "Read logs", exact: true }).click();
+  await page.getByLabel("Log output").waitFor();
+  await page.evaluate(() => {
+    window.pending = [];
+    window.handlers.read_device_logs = () => new Promise((resolve) => window.pending.push(() => resolve({
+      package: null, pid: null,
+      output: { stdout: "LATE OLD TV OUTPUT\n", stderr: "", exit_code: 0, termination: "completed" },
+    })));
+  });
+  await page.getByRole("button", { name: "Auto-refresh", exact: true }).click();
+  await page.waitForFunction(() => window.pending.length === 1);
+  await page.evaluate(async () => {
+    window.handlers.list_devices = () => [{
+      id: 2, serial: "B:5555", name: "B", model: "Chromecast", status: "device",
+      connection: "network", device_type: "google_tv", properties: null,
+    }];
+    const { session } = await import("/src/lib/session.svelte.ts");
+    await session.connect("B", 5555);
+  });
+  assert.equal(await page.getByLabel("Log output").count(), 0, "the old TV's snapshot is cleared");
+  assert.equal(await page.getByLabel("Minimum severity").isDisabled(), true, "the old read is still running and says so");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.evaluate(() => window.pending.shift()());
+  await page.getByLabel("Minimum severity").and(page.locator(":enabled")).waitFor();
+  assert.doesNotMatch(await page.locator(".screen").innerText(), /LATE OLD TV OUTPUT/);
+  await page.waitForTimeout(3500);
+  assert.equal((await calls(page, "read_device_logs")).length, 2, "nothing refreshes in the background");
+  assert.equal(await page.getByRole("button", { name: "Read logs", exact: true }).isDisabled(), true, "hidden screens don't read");
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.handlers.read_device_logs = null;
+  });
+  await page.getByRole("button", { name: "Read logs", exact: true }).click();
+  await page.getByLabel("Log output").waitFor();
+  assert.equal((await calls(page, "read_device_logs")).at(-1).serial, "B:5555");
+});
+
+test("a bug report is dropped when the TV changes", async (t) => {
+  const page = await open(t, "more");
+  await page.getByRole("button", { name: "Review bug report" }).click();
+  await page.getByLabel("Bug report", { exact: true }).waitFor();
+  await page.evaluate(async () => {
+    const { session } = await import("/src/lib/session.svelte.ts");
+    await session.connect("A", 5555);
+  });
+  assert.equal(await page.getByLabel("Bug report", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Copy bug report" }).count(), 0);
+});
+
 test("the bug report is reviewed, then copied, and names the connected TV", async (t) => {
   const page = await open(t, "more");
   assert.deepEqual(await calls(page, "collect_diagnostics"), [], "opening More never builds a report");

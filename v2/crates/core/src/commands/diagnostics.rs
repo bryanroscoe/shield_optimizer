@@ -205,10 +205,63 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreadable_device_is_named_not_dropped() {
-        let mock = MockAdb::default()
-            .on_shell_err("getprop", "device offline")
-            .on_shell_err("pm", "device offline");
+        // Not in `adb devices` at all: profiling fails, the bundle still
+        // names the device it was asked about and says it couldn't read it.
+        let mock = MockAdb::default().on_raw("devices", "List of devices attached\n");
         let text = collect_diagnostics_text(&state_with(mock), host(&[]), Some("tv-serial")).await;
-        assert!(text.contains("tv-serial"), "{text}");
+        assert!(text.contains("- Serial: tv-serial"), "{text}");
+        assert!(text.contains("- Could not be read: "), "{text}");
+        assert!(text.contains("not found"), "{text}");
+        assert!(!text.contains("No device selected"), "{text}");
+    }
+
+    fn batched_props(values: &[&str]) -> String {
+        let mut sections: Vec<String> = values.iter().map(|v| (*v).to_string()).collect();
+        sections.resize(devices::PROPERTY_READS.len(), String::new());
+        sections.join(&format!("\n{}\n", crate::adb::BATCH_SEPARATOR))
+    }
+
+    #[tokio::test]
+    async fn a_readable_device_reports_identity_home_and_no_inventory() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                "List of devices attached\n192.168.1.42:5555\tdevice\n",
+            )
+            .on_shell(
+                "settings get global device_name",
+                &batched_props(&[
+                    "Living Room",
+                    "NVIDIA",
+                    "SHIELD Android TV",
+                    "mdarcy",
+                    "NVIDIA",
+                    "11",
+                    "30",
+                    "RQ1A",
+                    "tegra",
+                    "tv",
+                    "0123456789",
+                ]),
+            )
+            .on_shell(
+                "query-activities",
+                "Activity #0:\n  ActivityInfo:\n    name=com.google.android.tvlauncher.MainActivity\n    packageName=com.google.android.tvlauncher\n",
+            );
+        let text = collect_diagnostics_text(
+            &state_with(mock),
+            host(&["tail line".to_string()]),
+            Some("192.168.1.42:5555"),
+        )
+        .await;
+        assert!(text.contains("### Device `192.168.1.42:5555`"), "{text}");
+        assert!(
+            text.contains("ro.product.model: `SHIELD Android TV`"),
+            "{text}"
+        );
+        assert!(text.contains("ro.serialno: `0123456789`"), "{text}");
+        assert!(text.contains("com.google.android.tvlauncher"), "{text}");
+        assert!(text.contains("tail line"), "{text}");
+        assert!(!text.contains("Could not be read"), "{text}");
     }
 }

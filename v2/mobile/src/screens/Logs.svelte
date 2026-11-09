@@ -52,8 +52,7 @@
     const key = `${session.serial}:${session.generation}:${session.isConnected}`;
     if (key === watched) return;
     watched = key;
-    poller.stop();
-    pollState = { busy: false, running: false, value: null, error: null };
+    poller.reset();
   });
 
   function visibilityChanged() {
@@ -105,7 +104,7 @@
 
     <div class="actions">
       <button class="primary small" onclick={() => poller.once()} disabled={locked || !canRead}>
-        <span class="msr">description</span>Read logs
+        <span class="msr" aria-hidden="true">description</span>Read logs
       </button>
       {#if pollState.running}
         <button class="ghost small" onclick={() => poller.stop()}>Stop refreshing</button>

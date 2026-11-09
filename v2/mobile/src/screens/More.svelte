@@ -477,6 +477,20 @@
     }
   }
 
+  // A report describes the TV it was built for; a switch, reconnect or lost
+  // link drops it (and any read still in flight) rather than offering a
+  // stale one for copying.
+  let bugConnection = `${session.serial}:${session.generation}:${session.isConnected}`;
+  $effect(() => {
+    const key = `${session.serial}:${session.generation}:${session.isConnected}`;
+    if (key === bugConnection) return;
+    bugConnection = key;
+    ++bugRequest;
+    bugReport = "";
+    bugError = "";
+    bugBusy = false;
+  });
+
   async function copyBugReport() {
     try {
       await navigator.clipboard.writeText(bugReport);
@@ -856,9 +870,10 @@
       </p>
       <HelpSheet title="About bug reports">
         <p class="card-desc">
-          Paste the report into a GitHub issue or an email to the developer. It never includes the TV's
-          app list, device logs or license keys. The app log can name the TVs you connected to.
-          Without a connected TV it describes only this phone and app.
+          Paste the report into a GitHub issue or an email to the developer. It doesn't include the TV's
+          installed-app list, its device logs or your license key. The app log lines are not redacted:
+          they can name TVs, their addresses and apps you acted on. Without a connected TV the report
+          has no TV section.
         </p>
       </HelpSheet>
       <div class="log-toolbar">

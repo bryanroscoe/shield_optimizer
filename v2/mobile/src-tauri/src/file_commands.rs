@@ -26,6 +26,7 @@ use atv_optimizer_core::commands::files::{self, delete_path_with, find_files_wit
 use atv_optimizer_core::commands::{apps::ActionResult, AppState};
 use atv_optimizer_core::engine::install_outcome::{
     apk_basename, decode_install_error, install_succeeded, is_safe_apk_name, parse_pm_paths,
+    pm_path_failed,
 };
 use atv_optimizer_core::engine::is_valid_package_name;
 use chrono::{DateTime, Utc};
@@ -34,6 +35,9 @@ use tauri::State;
 
 const BACKUP_SCHEMA_VERSION: u32 = 1;
 const BACKUP_MANIFEST: &str = "backup.json";
+/// Where a pull is staged until it is published into `downloads/`. Only
+/// unpublished partials ever live here.
+const PARTIAL_DOWNLOADS: &str = "partial-downloads";
 
 /// A file pulled off the device into the app's scoped `downloads/` dir.
 #[derive(Serialize)]
@@ -55,6 +59,9 @@ pub struct BackupEntry {
     pub complete: bool,
     /// ISO-8601 (UTC) of the backup file's last-modified time.
     pub saved_at: String,
+    /// Set for a bundle directory whose manifest is missing or can't be read:
+    /// why. It can't be restored, but it is listed so it can be deleted.
+    pub unreadable: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -133,10 +140,6 @@ fn bundle_files(dir: &Path, manifest: &BackupManifest) -> Result<Vec<PathBuf>, S
         .collect()
 }
 
-fn shell_failed(out: &atv_optimizer_core::adb::AdbOutput) -> bool {
-    out.exit_code.is_some_and(|code| code != 0) || out.shell_reported_failure()
-}
-
 fn bundle_entry(dir: &Path) -> Result<BackupEntry, String> {
     let manifest = read_manifest(dir)?;
     let files = bundle_files(dir, &manifest)?;
@@ -152,6 +155,7 @@ fn bundle_entry(dir: &Path) -> Result<BackupEntry, String> {
         apk_count: files.len(),
         complete: true,
         saved_at: manifest.saved_at,
+        unreadable: None,
     })
 }
 
@@ -261,7 +265,11 @@ async fn pull_file_impl(
         .to_string();
     let dir = state.data_dir.join("downloads");
     std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
-    let temporary = tempfile::NamedTempFile::new_in(&dir)
+    // Staged outside `downloads/` so a kept file can never look like a
+    // partial one to the startup cleanup, whatever its name.
+    let staging = state.data_dir.join(PARTIAL_DOWNLOADS);
+    std::fs::create_dir_all(&staging).map_err(|e| format!("create staging dir: {e}"))?;
+    let temporary = tempfile::NamedTempFile::new_in(&staging)
         .map_err(|e| format!("stage download: {e}"))?
         .into_temp_path();
 
@@ -327,7 +335,7 @@ pub async fn backup_apk(
         .await
         .map_err(|e| format!("pm path: {e}"))?;
 
-    if shell_failed(&out) {
+    if pm_path_failed(out.exit_code, &out.stdout, &out.stderr) {
         return Err(format!(
             "Could not resolve {pkg}: {}",
             out.combined().trim()
@@ -494,10 +502,59 @@ pub async fn delete_backup(
     })
 }
 
+/// A bundle directory that can't be read as a backup (no manifest, a corrupt
+/// one, or an older naming scheme). Shown as unreadable so the user can still
+/// see and free the space; never offered for restore.
+fn unreadable_entry(dir: &Path, meta: &std::fs::Metadata) -> BackupEntry {
+    let reason = if std::fs::symlink_metadata(dir.join(BACKUP_MANIFEST)).is_ok() {
+        "its manifest can't be read"
+    } else {
+        "it has no manifest"
+    };
+    let name = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    // `<package>-<stamp>` when it follows the naming scheme; otherwise the
+    // folder name is the best label there is.
+    let package = name
+        .rsplit_once('-')
+        .map(|(pkg, _)| pkg)
+        .filter(|pkg| is_valid_package_name(pkg))
+        .unwrap_or(&name)
+        .to_string();
+    let (apk_count, size_bytes) = std::fs::read_dir(dir)
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|e| std::fs::symlink_metadata(e.path()).ok().map(|m| (e, m)))
+                .filter(|(e, m)| {
+                    m.is_file() && e.path().extension().and_then(|x| x.to_str()) == Some("apk")
+                })
+                .fold((0, 0_u64), |(n, total), (_, m)| {
+                    (n + 1, total.saturating_add(m.len()))
+                })
+        })
+        .unwrap_or((0, 0));
+    BackupEntry {
+        package,
+        path: dir.to_string_lossy().into_owned(),
+        size_bytes,
+        apk_count,
+        complete: false,
+        saved_at: file_modified_iso(meta),
+        unreadable: Some(reason.to_string()),
+    }
+}
+
 /// `list_backups` — complete bundle directories plus base-only legacy APKs,
 /// newest first. An absent dir is not an error — returns an empty list.
 #[tauri::command]
 pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>, String> {
+    list_backups_impl(state.inner())
+}
+
+fn list_backups_impl(state: &AppState) -> Result<Vec<BackupEntry>, String> {
     let dir = state.data_dir.join("backups");
     let read = match std::fs::read_dir(&dir) {
         Ok(r) => r,
@@ -507,10 +564,17 @@ pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>
     let mut out = Vec::new();
     for entry in read.flatten() {
         let path = entry.path();
-        if path.is_dir() {
-            if let Ok(bundle) = bundle_entry(&path) {
-                out.push(bundle);
-            }
+        let Ok(link_meta) = std::fs::symlink_metadata(&path) else {
+            continue;
+        };
+        if link_meta.file_type().is_symlink() {
+            continue;
+        }
+        if link_meta.is_dir() {
+            out.push(bundle_entry(&path).unwrap_or_else(|e| {
+                tracing::debug!(error = %e, "unreadable backup bundle");
+                unreadable_entry(&path, &link_meta)
+            }));
             continue;
         }
         if path.extension().and_then(|e| e.to_str()) != Some("apk") {
@@ -527,6 +591,7 @@ pub async fn list_backups(state: State<'_, AppState>) -> Result<Vec<BackupEntry>
             apk_count: 1,
             complete: false,
             saved_at: file_modified_iso(&meta),
+            unreadable: None,
         });
     }
     // Newest first (ISO-8601 sorts lexicographically).
@@ -567,11 +632,6 @@ pub struct Reclaimed {
     pub incomplete_bundles: usize,
 }
 
-/// `tempfile`'s staging name for a pull that has not been published yet.
-fn is_staged_download(name: &str) -> bool {
-    name.starts_with(".tmp")
-}
-
 /// A bundle directory name as `backup_apk` writes it:
 /// `<package>-<YYYYMMDD>T<HHMMSS><nanos>Z`.
 fn is_bundle_dir_name(name: &str) -> bool {
@@ -591,23 +651,23 @@ fn is_bundle_dir_name(name: &str) -> bool {
 }
 
 /// Free app-private space an interrupted pull or APK backup left behind:
-/// staged `.tmp*` downloads, and bundle directories that never got their
-/// manifest. Run once at startup, before any transfer can be in flight.
+/// staged pulls in `partial-downloads/`, and bundle directories that never
+/// got their manifest. Runs at most once per process ([`reclaim_at_startup`]),
+/// before any transfer can be in flight.
 ///
-/// A directory that has a manifest file is kept whatever its state — a valid
-/// bundle is the user's backup, and an unreadable one is theirs to delete.
-/// Symlinks, other files and directories that don't carry the bundle naming
-/// scheme are never touched.
+/// Published downloads are never looked at, whatever their names. A
+/// directory that has a manifest file is kept whatever its state — a valid
+/// bundle is the user's backup, and an unreadable one is theirs to delete
+/// (the backups list shows it). Symlinks, other files and directories that
+/// don't carry the bundle naming scheme are never touched.
 pub fn reclaim_partial_storage(data_dir: &Path) -> Reclaimed {
     let mut reclaimed = Reclaimed::default();
-    if let Ok(entries) = std::fs::read_dir(data_dir.join("downloads")) {
+    if let Ok(entries) = std::fs::read_dir(data_dir.join(PARTIAL_DOWNLOADS)) {
         for entry in entries.flatten() {
-            let name = entry.file_name();
-            let Some(name) = name.to_str() else { continue };
             let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
                 continue;
             };
-            if meta.is_file() && is_staged_download(name) {
+            if meta.is_file() {
                 match std::fs::remove_file(entry.path()) {
                     Ok(()) => reclaimed.partial_downloads += 1,
                     Err(e) => tracing::warn!(error = %e, "could not remove a partial download"),
@@ -638,6 +698,16 @@ pub fn reclaim_partial_storage(data_dir: &Path) -> Reclaimed {
         }
     }
     reclaimed
+}
+
+/// [`reclaim_partial_storage`], but only the first time in this process. On
+/// Android the app's entry point can run again in a live process (activity
+/// recreation) while an earlier transfer is still writing.
+pub fn reclaim_at_startup(data_dir: &Path) -> Option<Reclaimed> {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    let mut result = None;
+    ONCE.call_once(|| result = Some(reclaim_partial_storage(data_dir)));
+    result
 }
 
 /// Format a file's last-modified time as ISO-8601 UTC, or empty on error.
@@ -1047,9 +1117,13 @@ mod tests {
         std::fs::create_dir_all(&downloads).unwrap();
         std::fs::create_dir_all(&backups).unwrap();
 
-        std::fs::write(downloads.join(".tmpAbC123"), b"partial").unwrap();
+        let staging = data.path().join(PARTIAL_DOWNLOADS);
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join(".tmpAbC123"), b"partial").unwrap();
         std::fs::write(downloads.join("report.txt"), b"kept").unwrap();
         std::fs::write(downloads.join(".bashrc"), b"kept").unwrap();
+        // A pulled file that happens to carry tempfile's prefix is the user's.
+        std::fs::write(downloads.join(".tmpfoo"), b"kept").unwrap();
 
         // Interrupted: APKs pulled, manifest never written.
         let partial = backups.join("com.example-20261108T120000000000001Z");
@@ -1087,7 +1161,8 @@ mod tests {
                 incomplete_bundles: 1
             }
         );
-        assert!(!downloads.join(".tmpAbC123").exists());
+        assert!(!staging.join(".tmpAbC123").exists());
+        assert!(downloads.join(".tmpfoo").exists());
         assert!(downloads.join("report.txt").exists());
         assert!(downloads.join(".bashrc").exists());
         assert!(!partial.exists());
@@ -1118,5 +1193,135 @@ mod tests {
         assert!(validate_device_path("relative").is_err());
         assert!(validate_device_path("/sdcard/../data").is_err());
         assert!(validate_device_path("/sdcard/a\nb").is_err());
+    }
+
+    #[tokio::test]
+    async fn a_pulled_file_named_like_a_partial_survives_the_cleanup() {
+        struct Named;
+        #[async_trait::async_trait]
+        impl atv_optimizer_core::adb::AdbDriver for Named {
+            async fn raw(
+                &self,
+                _: &[&str],
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                unreachable!()
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                unreachable!()
+            }
+            async fn pull_limited(
+                &self,
+                _: &str,
+                _: &str,
+                local: &Path,
+                _: u64,
+            ) -> atv_optimizer_core::adb::AdbResult<()> {
+                std::fs::write(local, b"data")?;
+                Ok(())
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let state = AppState::new(
+            std::sync::Arc::new(Named),
+            Default::default(),
+            dir.path().to_path_buf(),
+        );
+        let pulled = pull_file_impl(&state, "TV", "/sdcard/.tmpfoo")
+            .await
+            .unwrap();
+        assert_eq!(pulled.name, ".tmpfoo");
+        assert_eq!(reclaim_partial_storage(dir.path()), Reclaimed::default());
+        assert_eq!(std::fs::read(&pulled.path).unwrap(), b"data");
+        // Nothing is left staged after a published pull.
+        assert_eq!(
+            std::fs::read_dir(dir.path().join(PARTIAL_DOWNLOADS))
+                .unwrap()
+                .count(),
+            0
+        );
+    }
+
+    #[test]
+    fn reclaim_runs_once_per_process() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let staging = second.path().join(PARTIAL_DOWNLOADS);
+        std::fs::create_dir_all(&staging).unwrap();
+        std::fs::write(staging.join(".tmpLate"), b"in flight").unwrap();
+        // Whichever call came first in this test process, a second never runs.
+        let _ = reclaim_at_startup(first.path());
+        assert_eq!(reclaim_at_startup(second.path()), None);
+        assert!(staging.join(".tmpLate").exists());
+    }
+
+    #[tokio::test]
+    async fn unreadable_bundles_are_listed_for_deletion_but_never_restorable() {
+        let data = tempfile::tempdir().unwrap();
+        let backups = data.path().join("backups");
+        std::fs::create_dir_all(&backups).unwrap();
+        let legacy = backups.join("com.example.old");
+        std::fs::create_dir(&legacy).unwrap();
+        std::fs::write(legacy.join("base.apk"), b"apkapk").unwrap();
+        let corrupt = backups.join("com.example-20261108T120000000000003Z");
+        std::fs::create_dir(&corrupt).unwrap();
+        std::fs::write(corrupt.join(BACKUP_MANIFEST), b"{not json").unwrap();
+        write_bundle(data.path(), &["000-base.apk"]);
+
+        let state = AppState::new(
+            std::sync::Arc::new(DownloadDriver { fail: false }),
+            Default::default(),
+            data.path().to_path_buf(),
+        );
+        let listed = list_backups_impl(&state).unwrap();
+        assert_eq!(
+            listed.len(),
+            3,
+            "{:?}",
+            listed.iter().map(|b| &b.path).collect::<Vec<_>>()
+        );
+        let by_path = |p: &Path| {
+            listed
+                .iter()
+                .find(|b| b.path == p.to_string_lossy())
+                .expect("listed")
+        };
+        let old = by_path(&legacy);
+        assert!(!old.complete);
+        assert!(old.unreadable.is_some());
+        assert_eq!(old.package, "com.example.old");
+        assert_eq!((old.apk_count, old.size_bytes), (1, 6));
+        let bad = by_path(&corrupt);
+        assert_eq!(
+            bad.unreadable.as_deref(),
+            Some("its manifest can't be read")
+        );
+        assert_eq!(bad.package, "com.example");
+        let good = by_path(&backups.join("com.example-1"));
+        assert!(good.complete && good.unreadable.is_none());
+
+        assert!(
+            restore_apk_backup_impl(&state, "TV", legacy.to_str().unwrap())
+                .await
+                .is_err()
+        );
+        assert_eq!(
+            confined_delete_target(&backups, legacy.to_str().unwrap()).unwrap(),
+            legacy.canonicalize().unwrap()
+        );
+    }
+
+    #[test]
+    fn pm_path_answers_for_error_like_package_names_are_not_failures() {
+        assert!(!pm_path_failed(
+            Some(0),
+            "package:/data/app/~~a==/com.example.ExceptionTracker-b==/base.apk\n",
+            ""
+        ));
     }
 }

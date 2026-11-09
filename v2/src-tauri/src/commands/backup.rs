@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
-use crate::engine::install_outcome::{decode_install_error, install_succeeded, parse_pm_paths};
+use crate::engine::install_outcome::{
+    decode_install_error, install_succeeded, parse_pm_paths, pm_path_failed,
+};
 use crate::engine::is_valid_package_name;
 
 use super::AppState;
@@ -60,7 +62,7 @@ async fn apk_paths_and_version(
         .shell(serial, &format!("pm path {package}"))
         .await
         .map_err(|e| format!("pm path: {e}"))?;
-    if path_out.exit_code.is_some_and(|code| code != 0) || path_out.shell_reported_failure() {
+    if pm_path_failed(path_out.exit_code, &path_out.stdout, &path_out.stderr) {
         return Err(format!(
             "Could not resolve {package}: {}",
             path_out.combined().trim()
@@ -239,6 +241,45 @@ pub async fn clone_app(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[tokio::test]
+    async fn a_package_named_like_an_error_still_resolves() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let state = state_with(
+            MockAdb::default()
+                .on_shell(
+                    "pm path",
+                    "package:/data/app/~~x==/com.example.ErrorReporter-1==/base.apk\n",
+                )
+                .on_shell("dumpsys package", "    versionName=1.0\n"),
+        );
+        let adb = state.adb_snapshot().await;
+        let (paths, version) =
+            apk_paths_and_version(adb.as_ref(), "tv", "com.example.ErrorReporter")
+                .await
+                .expect("a clean answer is not a failure");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(version.as_deref(), Some("1.0"));
+    }
+
+    #[tokio::test]
+    async fn an_unsafe_or_failed_pm_path_is_refused() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        for (stdout, exit) in [
+            ("package:/data/app/x/../../escape.apk\n", 0),
+            ("package:/data/app/x/base.apk\n", 1),
+            ("Error: unknown package\n", 0),
+        ] {
+            let state = state_with(MockAdb::default().on_shell_exit("pm path", stdout, exit));
+            let adb = state.adb_snapshot().await;
+            assert!(
+                apk_paths_and_version(adb.as_ref(), "tv", "com.example.app")
+                    .await
+                    .is_err(),
+                "{stdout:?} exit {exit}"
+            );
+        }
+    }
 
     #[test]
     fn parses_version_name_from_dumpsys() {

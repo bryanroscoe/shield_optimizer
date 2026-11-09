@@ -73,3 +73,21 @@ test("destroying the view prevents both late publication and future reads", asyn
   assert.equal(h.latest, before); h.poller.start(); await h.poller.once();
   t.mock.timers.tick(9000); assert.equal(h.calls, 1);
 });
+
+test("reset clears the old snapshot, keeps the real busy state and drops the late read", async t => {
+  const first = deferred(); let reads = 0;
+  const h = harness(t, () => (++reads === 1 ? Promise.resolve("old tv") : first.promise));
+  await h.poller.once();
+  assert.equal(h.latest.value, "old tv");
+  const inFlight = h.poller.once();
+  h.setContext("tv:2");
+  h.poller.reset();
+  assert.equal(h.latest.value, null);
+  assert.equal(h.latest.error, null);
+  assert.equal(h.latest.busy, true, "a read still running is not reported idle");
+  assert.equal(h.latest.running, false);
+  first.resolve("late old tv"); await inFlight;
+  assert.equal(h.latest.value, null, "the old TV's late answer never appears");
+  assert.equal(h.latest.busy, false);
+  t.mock.timers.tick(9000); assert.equal(h.calls, 2);
+});

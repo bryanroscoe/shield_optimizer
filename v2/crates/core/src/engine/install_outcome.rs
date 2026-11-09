@@ -86,6 +86,23 @@ pub fn decode_install_error(text: &str) -> Option<String> {
     None
 }
 
+/// Whether a `pm path <pkg>` call failed. A nonzero exit, a failure marker on
+/// stderr, or one on a stdout line that isn't a `package:` answer. The
+/// reported paths themselves are never scanned: a package such as
+/// `com.example.errorreporter` lives under a path containing "Error"-like
+/// text and is still a success.
+pub fn pm_path_failed(exit_code: Option<i32>, stdout: &str, stderr: &str) -> bool {
+    const MARKERS: [&str; 3] = ["Failure", "Error", "Exception"];
+    let marked = |line: &str| MARKERS.iter().any(|m| line.contains(m));
+    exit_code.is_some_and(|code| code != 0)
+        || stderr.lines().any(marked)
+        || stdout
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with("package:"))
+            .any(marked)
+}
+
 /// The last path segment, when there is one.
 pub fn apk_basename(path: &str) -> Option<&str> {
     path.rsplit('/').next().filter(|s| !s.is_empty())
@@ -216,6 +233,25 @@ mod tests {
         assert!(
             parse_pm_paths("package:/data/app/x/base.apk\npackage:/data/app/x/../e.apk\n").is_err()
         );
+    }
+
+    #[test]
+    fn pm_path_failure_ignores_the_reported_paths() {
+        let ok = "package:/data/app/~~x==/com.example.ErrorReporter-1==/base.apk\n";
+        assert!(!pm_path_failed(Some(0), ok, ""));
+        assert!(!pm_path_failed(None, ok, ""));
+        assert!(!pm_path_failed(
+            Some(0),
+            "package:/data/app/com.x.FailureLab/base.apk\n",
+            ""
+        ));
+        assert!(pm_path_failed(Some(1), ok, ""));
+        assert!(pm_path_failed(Some(0), "", "Error: unknown package"));
+        assert!(pm_path_failed(
+            Some(0),
+            "Exception occurred while executing 'path'\n",
+            ""
+        ));
     }
 
     #[test]

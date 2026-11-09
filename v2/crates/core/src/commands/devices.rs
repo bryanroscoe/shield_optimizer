@@ -1434,7 +1434,7 @@ fn property_batch_command() -> String {
 }
 
 /// The property reads, in the order `properties_from_sections` consumes them.
-const PROPERTY_READS: [&str; 13] = [
+pub(crate) const PROPERTY_READS: [&str; 13] = [
     "settings get global device_name",
     "getprop ro.product.brand",
     "getprop ro.product.model",

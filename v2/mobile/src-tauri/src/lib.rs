@@ -219,9 +219,10 @@ pub fn run() {
             tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
             // Before any transfer can start: interrupted pulls and backups
             // otherwise hold app-private space nothing lists or frees.
-            let reclaimed = file_commands::reclaim_partial_storage(&data_dir);
-            if reclaimed != file_commands::Reclaimed::default() {
-                tracing::info!(?reclaimed, "removed interrupted transfers");
+            if let Some(reclaimed) = file_commands::reclaim_at_startup(&data_dir) {
+                if reclaimed != file_commands::Reclaimed::default() {
+                    tracing::info!(?reclaimed, "removed interrupted transfers");
+                }
             }
             match scrcpy_resource::materialize(&data_dir) {
                 Ok(path) => tracing::info!(path = %path.display(), "scrcpy server materialized"),
