@@ -1749,224 +1749,6 @@
     ]
   },
   {
-    "package": "com.nvidia.stats",
-    "name": "Nvidia Telemetry",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Sends Nvidia anonymous statistics about how the Shield is used. Disabling stops those reports and changes nothing else on the device.",
-    "restore_description": "Lets the Shield send anonymous usage statistics to Nvidia again.",
-    "default_optimize": true,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.diagtools",
-    "name": "Nvidia Diagnostics",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Nvidia's built-in log collector \u2014 what support asks you to run when you file a ticket. Disabling costs you nothing unless you are working through one.",
-    "restore_description": "Puts Nvidia's diagnostic log collector back for support tickets.",
-    "default_optimize": true,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.feedback",
-    "name": "Nvidia Feedback",
-    "method": "disable",
-    "risk": "safe",
-    "optimize_description": "Collects crash reports and the \u201csend feedback\u201d forms Nvidia ships on the Shield. Disabling stops the reports; playback, apps and updates are unaffected.",
-    "restore_description": "Restores Nvidia's crash-report and feedback collection.",
-    "default_optimize": true,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.google.android.tvrecommendations",
-    "name": "TV Recommendations",
-    "method": "disable",
-    "risk": "high",
-    "optimize_description": "Disabling can remove stock-home recommendation rows and may stop key input from NVIDIA's SHIELD TV phone app after a reboot, even with a custom launcher. An external report covers darcy and foster_e devices on Android 11; other models and firmware are unverified. Keep enabled if you use the phone remote.",
-    "restore_description": "Re-enables TV Recommendations, including the reported phone-remote dependency. Recovery on your model and firmware has not been verified here.",
-    "default_optimize": false,
-    "default_restore": true,
-    "play_store": true,
-    "reviewed_at": "2026-10-22",
-    "sources": [
-      "https://github.com/Gathin23/cleanyourtv/blob/30626a8e4714f86bf837384b109b5c73ee736917/docs/TROUBLESHOOTING.md#shield-tv-phone-app-connects-but-no-key-does-anything"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.osc",
-    "name": "Nvidia OSC",
-    "method": "disable",
-    "risk": "medium",
-    "optimize_description": "Draws Nvidia's on-screen overlay \u2014 the panel that appears over a game showing streaming, controller and performance status for Nvidia Games and GameStream. Disabling removes that overlay; normal apps, video and games are untouched, so keep it only if you still use Nvidia Games.",
-    "restore_description": "Brings back Nvidia's on-screen game overlay.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.shieldtech.hooks",
-    "name": "Nvidia System Hooks",
-    "method": "disable",
-    "risk": "medium",
-    "optimize_description": "Shield system hooks \u2014 remaps the Xbox controller Guide button to Home. Disabling fixes Guide button conflicts in Steam Link and Moonlight.",
-    "restore_description": "Restores Shield system hooks (Xbox Guide \u2192 Home remapping).",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false,
-    "reviewed_at": "2026-06-14",
-    "sources": [
-      "git history (1a82eec)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.tegrazone3",
-    "name": "Nvidia Games (Tegra Zone)",
-    "method": "disable",
-    "risk": "medium",
-    "optimize_description": "Nvidia's own games storefront and home-screen row, built around the GameStream service Nvidia retired in 2023. Disabling removes the Nvidia Games app and its row; GeForce NOW and Play Store games keep working.",
-    "restore_description": "Brings back the Nvidia Games app and its home-screen row.",
-    "default_optimize": true,
-    "default_restore": false,
-    "play_store": true,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.nvgamecast",
-    "name": "Nvidia GameStream",
-    "method": "disable",
-    "risk": "medium",
-    "optimize_description": "The GameStream server that let a gaming PC stream to this Shield. Nvidia shut the service down in 2023, so it no longer connects to anything \u2014 Moonlight and Sunshine are separate and unaffected.",
-    "restore_description": "Re-enables the retired GameStream service.",
-    "default_optimize": false,
-    "default_restore": false,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.nvidia.ota",
-    "name": "Nvidia System Updater",
-    "method": "disable",
-    "risk": "high",
-    "optimize_description": "Downloads and installs Shield system updates. Disabling stops the device updating itself at all, security fixes included \u2014 only do this if you are deliberately staying on this firmware.",
-    "restore_description": "Lets the Shield download and install system updates again.",
-    "default_optimize": false,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.google.android.speech.pumpkin",
-    "name": "Google Speech Services",
-    "method": "disable",
-    "risk": "high",
-    "optimize_description": "Google's on-device speech recognition \u2014 the part that turns what you say into text. Disabling breaks voice dictation and every in-app mic button, SmartTube's included.",
-    "restore_description": "Restores on-device speech recognition and the mic buttons that use it.",
-    "default_optimize": false,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.plexapp.mediaserver.smb",
-    "name": "Plex Media Server",
-    "method": "disable",
-    "risk": "advanced",
-    "optimize_description": "The Plex server built into the Shield, which shares media from attached drives to your other devices. Disabling stops this TV serving media; the Plex app you watch with is a separate package and keeps working.",
-    "restore_description": "Re-enables the Shield's built-in Plex media server.",
-    "default_optimize": false,
-    "default_restore": true,
-    "play_store": true,
-    "review": true,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)",
-      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
-    "package": "com.google.android.tvlauncher",
-    "name": "Stock Launcher",
-    "method": "disable",
-    "risk": "high",
-    "optimize_description": "The stock Android TV home screen. Disabling it with no other launcher active leaves the TV with nowhere to land on Home \u2014 install and set a replacement on the Launcher tab first.",
-    "restore_description": "Restores the stock Android TV home screen.",
-    "default_optimize": false,
-    "default_restore": true,
-    "play_store": false,
-    "reviewed_at": "2026-09-19",
-    "sources": [
-      "git history (115ded0)"
-    ],
-    "device_scope": [
-      "shield"
-    ]
-  },
-  {
     "package": "com.abc.abcnews",
     "name": "ABC News",
     "method": "disable",
@@ -2291,6 +2073,224 @@
       "https://developer.android.com/tools/adb#pm",
       "https://support.google.com/googleplay/answer/7018481",
       "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.nvidia.stats",
+    "name": "Nvidia Telemetry",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Sends Nvidia anonymous statistics about how the Shield is used. Disabling stops those reports and changes nothing else on the device.",
+    "restore_description": "Lets the Shield send anonymous usage statistics to Nvidia again.",
+    "default_optimize": true,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.diagtools",
+    "name": "Nvidia Diagnostics",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Nvidia's built-in log collector \u2014 what support asks you to run when you file a ticket. Disabling costs you nothing unless you are working through one.",
+    "restore_description": "Puts Nvidia's diagnostic log collector back for support tickets.",
+    "default_optimize": true,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.feedback",
+    "name": "Nvidia Feedback",
+    "method": "disable",
+    "risk": "safe",
+    "optimize_description": "Collects crash reports and the \u201csend feedback\u201d forms Nvidia ships on the Shield. Disabling stops the reports; playback, apps and updates are unaffected.",
+    "restore_description": "Restores Nvidia's crash-report and feedback collection.",
+    "default_optimize": true,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.google.android.tvrecommendations",
+    "name": "TV Recommendations",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Disabling can remove stock-home recommendation rows and may stop key input from NVIDIA's SHIELD TV phone app after a reboot, even with a custom launcher. An external report covers darcy and foster_e devices on Android 11; other models and firmware are unverified. Keep enabled if you use the phone remote.",
+    "restore_description": "Re-enables TV Recommendations, including the reported phone-remote dependency. Recovery on your model and firmware has not been verified here.",
+    "default_optimize": false,
+    "default_restore": true,
+    "play_store": true,
+    "reviewed_at": "2026-10-22",
+    "sources": [
+      "https://github.com/Gathin23/cleanyourtv/blob/30626a8e4714f86bf837384b109b5c73ee736917/docs/TROUBLESHOOTING.md#shield-tv-phone-app-connects-but-no-key-does-anything"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.osc",
+    "name": "Nvidia OSC",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Draws Nvidia's on-screen overlay \u2014 the panel that appears over a game showing streaming, controller and performance status for Nvidia Games and GameStream. Disabling removes that overlay; normal apps, video and games are untouched, so keep it only if you still use Nvidia Games.",
+    "restore_description": "Brings back Nvidia's on-screen game overlay.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.shieldtech.hooks",
+    "name": "Nvidia System Hooks",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Shield system hooks \u2014 remaps the Xbox controller Guide button to Home. Disabling fixes Guide button conflicts in Steam Link and Moonlight.",
+    "restore_description": "Restores Shield system hooks (Xbox Guide \u2192 Home remapping).",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false,
+    "reviewed_at": "2026-06-14",
+    "sources": [
+      "git history (1a82eec)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.tegrazone3",
+    "name": "Nvidia Games (Tegra Zone)",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Nvidia's own games storefront and home-screen row, built around the GameStream service Nvidia retired in 2023. Disabling removes the Nvidia Games app and its row; GeForce NOW and Play Store games keep working.",
+    "restore_description": "Brings back the Nvidia Games app and its home-screen row.",
+    "default_optimize": true,
+    "default_restore": false,
+    "play_store": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.nvgamecast",
+    "name": "Nvidia GameStream",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "The GameStream server that let a gaming PC stream to this Shield. Nvidia shut the service down in 2023, so it no longer connects to anything \u2014 Moonlight and Sunshine are separate and unaffected.",
+    "restore_description": "Re-enables the retired GameStream service.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.nvidia.ota",
+    "name": "Nvidia System Updater",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Downloads and installs Shield system updates. Disabling stops the device updating itself at all, security fixes included \u2014 only do this if you are deliberately staying on this firmware.",
+    "restore_description": "Lets the Shield download and install system updates again.",
+    "default_optimize": false,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.google.android.speech.pumpkin",
+    "name": "Google Speech Services",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "Google's on-device speech recognition \u2014 the part that turns what you say into text. Disabling breaks voice dictation and every in-app mic button, SmartTube's included.",
+    "restore_description": "Restores on-device speech recognition and the mic buttons that use it.",
+    "default_optimize": false,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.plexapp.mediaserver.smb",
+    "name": "Plex Media Server",
+    "method": "disable",
+    "risk": "advanced",
+    "optimize_description": "The Plex server built into the Shield, which shares media from attached drives to your other devices. Disabling stops this TV serving media; the Plex app you watch with is a separate package and keeps working.",
+    "restore_description": "Re-enables the Shield's built-in Plex media server.",
+    "default_optimize": false,
+    "default_restore": true,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
+    ],
+    "device_scope": [
+      "shield"
+    ]
+  },
+  {
+    "package": "com.google.android.tvlauncher",
+    "name": "Stock Launcher",
+    "method": "disable",
+    "risk": "high",
+    "optimize_description": "The stock Android TV home screen. Disabling it with no other launcher active leaves the TV with nowhere to land on Home \u2014 install and set a replacement on the Launcher tab first.",
+    "restore_description": "Restores the stock Android TV home screen.",
+    "default_optimize": false,
+    "default_restore": true,
+    "play_store": false,
+    "reviewed_at": "2026-09-19",
+    "sources": [
+      "git history (115ded0)"
+    ],
+    "device_scope": [
+      "shield"
     ]
   }
 ]
