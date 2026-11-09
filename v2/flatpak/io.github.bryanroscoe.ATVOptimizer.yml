@@ -36,8 +36,14 @@ modules:
       # frontend instead of the dev server URL.
       - cargo build --offline --release -p atv-optimizer --features tauri/custom-protocol
       - install -Dm755 target/release/atv-optimizer ${FLATPAK_DEST}/bin/atv-optimizer
-      # Tauri resolves bundled resources to <exe>/../lib/<productName>/.
+      # Tauri resolves bundled resources to <exe>/../lib/<productName>/. Every
+      # entry in tauri.conf.json's bundle.resources goes there (CI checks).
       - install -Dm644 src-tauri/resources/scrcpy-server-v3.1 "${FLATPAK_DEST}/lib/ATV Optimizer/resources/scrcpy-server-v3.1"
+      - install -Dm644 src-tauri/resources/direct-adb-MIT-LICENSE.txt "${FLATPAK_DEST}/lib/ATV Optimizer/resources/direct-adb-MIT-LICENSE.txt"
+      - install -Dm644 src-tauri/resources/native-discovery-MIT-LICENSES.txt "${FLATPAK_DEST}/lib/ATV Optimizer/resources/native-discovery-MIT-LICENSES.txt"
+      # The vendored adb_client and mdns-sd MIT notices, where Flatpak keeps licenses.
+      - install -Dm644 src-tauri/resources/direct-adb-MIT-LICENSE.txt ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/direct-adb-MIT-LICENSE.txt
+      - install -Dm644 src-tauri/resources/native-discovery-MIT-LICENSES.txt ${FLATPAK_DEST}/share/licenses/${FLATPAK_ID}/native-discovery-MIT-LICENSES.txt
       - install -Dm644 flatpak/${FLATPAK_ID}.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
       - install -Dm644 flatpak/${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
       - install -Dm644 src-tauri/icons/source.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
