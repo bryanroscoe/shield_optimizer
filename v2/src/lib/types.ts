@@ -295,6 +295,13 @@ export interface SnapshotFile {
   launcher: string | null;
 }
 
+/// How a snapshot save the Optimize tab asked for ended. `busy` and `failed`
+/// carry a message saying why nothing was saved; `cancelled` has nothing to say.
+export interface SnapshotSaveOutcome {
+  kind: "saved" | "failed" | "cancelled" | "busy";
+  message: string;
+}
+
 export interface ActionResult {
   ok: boolean;
   message: string;

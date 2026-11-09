@@ -236,10 +236,13 @@ A patch-notes viewer is deferred.
   against public keys compiled in; `crates/core/src/license.rs`, `tools/atvopt-license`). The dev
   key `ATVOPT-PRO-2025` works in **debug builds only**. Private signing keys live in `~/.atvopt/`
   outside the repo; back up `~/.atvopt/license-signing-key.prod`. See `LICENSING.md`.
-- Play submission (2026-11-01): Pro is $4.99, past Ko-fi supporters get Play promo codes, and the
+- Play submission (2026-11-01): Pro is $4.99, with $9.99 and $19.99 "Support me" tiers for the
+  same Pro (2026-11-08). Ko-fi stays out of the Play app; the README offers a Pro promo code to
+  Ko-fi donors. Past Ko-fi supporters get Play promo codes, and the
   new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
   `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
-- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro`) through
+- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro` or a
+  support tier in `SUPPORT_PRODUCT_IDS`) through
   `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
   verification in `src-tauri/src/play_billing.rs` and the two-source entitlement in
   `billing_commands.rs`. Play builds (`ATVOPT_DISTRIBUTION=play`) hide offline key entry and the
@@ -264,7 +267,7 @@ A patch-notes viewer is deferred.
   `tauri android init`; it would overwrite them.
 - `v2/mobile/tauri-plugin-atv-adb/` — the mDNS discovery and network-watch plugin (Kotlin
   `NsdManager`/`ConnectivityManager` + thin Rust). Its pure logic has JVM tests
-  (`android/src/test/`); CI does not run them.
+  (`android/src/test/`); Android smoke and release CI run them and retain JUnit reports.
 - `v2/mobile/tauri-plugin-atv-billing/` — the Google Play Billing adapter (Kotlin + thin Rust; no
   entitlement decisions).
 - `v2/vendor/adb_client/` — vendored MIT transport, outside the Cargo workspace.
@@ -291,8 +294,10 @@ cd vendor/adb_client && cargo test --lib      # the vendored crate is outside th
 From `v2/mobile/`: `npm run check` (0 errors / 0 warnings), `npm run build`, `npm test` (the
 browser suite: real screens, mocked Tauri). `node --test evidence/lifecycle/reproduce.mjs` runs the
 lifecycle matrix. CI (`.github/workflows/v2-tests.yml`) runs the Rust workspace, the vendored
-tests and the mobile check/build/test; **it never compiles the Kotlin or builds an APK**, so a
-Gradle or manifest error only shows up in a local Android build.
+tests and the mobile check/build/test. The separate `mobile-play-release.yml` smoke job builds
+the four-ABI Android artifacts and runs Kotlin JVM tests for mobile/shared input changes on
+PRs and `main`. It uses throwaway signing inputs and never uploads. Real release jobs repeat
+the Kotlin tests before upload; neither workflow replaces physical-device or Play billing QA.
 
 Android-target clippy works with the NDK clang exported as `CC_aarch64_linux_android` /
 `CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER`. If you add a Material Symbols icon name, rerun

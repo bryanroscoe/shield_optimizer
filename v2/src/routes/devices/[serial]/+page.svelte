@@ -15,6 +15,7 @@
     AppEntry,
     SnapshotFile,
     SnapshotApplyPlan,
+    SnapshotSaveOutcome,
     ApplyResult,
     RecoveryResult,
     RebootMode,
@@ -1478,8 +1479,10 @@
     if (!pkg) return;
     stockConfirmOpen = false;
     if (saveFirst) {
-      await saveSnapshot();
-      if (!saveResult.startsWith("Saved")) {
+      // Read this save's own outcome: a cancelled prompt leaves an earlier
+      // save's "Saved" message in place.
+      const saved = await saveSnapshot();
+      if (saved.kind !== "saved") {
         homePickerOk = false;
         homePickerMessage = "The snapshot wasn't saved, so the stock launcher was left alone.";
         return;
@@ -1767,17 +1770,24 @@
     }
   }
 
-  async function saveSnapshot() {
-    if (!device || saveBusy || snapshotDeletePath) return;
-    const label = (prompt("Name this snapshot (optional):", "") ?? "").trim();
+  async function saveSnapshot(): Promise<SnapshotSaveOutcome> {
+    if (!device) return { kind: "busy", message: "Not saved: the TV isn't connected." };
+    if (saveBusy) return { kind: "busy", message: "Not saved: another snapshot is still being saved." };
+    if (snapshotDeletePath) return { kind: "busy", message: "Not saved: a snapshot is being deleted. Try again when it finishes." };
+    const answer = prompt("Name this snapshot (optional):", "");
+    // Cancel means no snapshot, not one without a name.
+    if (answer === null) return { kind: "cancelled", message: "" };
+    const label = answer.trim();
     saveBusy = true;
     saveResult = "";
     try {
       const result = await api.saveSnapshot(serial, device.name, label || null);
       saveResult = `Saved ${result.label ?? result.filename} — ${result.disabled_count} disabled packages captured.`;
       await loadSnapshots();
+      return { kind: "saved", message: saveResult };
     } catch (e) {
       saveResult = `Failed: ${e}`;
+      return { kind: "failed", message: saveResult };
     } finally {
       saveBusy = false;
     }
@@ -1996,8 +2006,7 @@
     }
     if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
     if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
-    // Health reads it too, for the snapshot callout.
-    if ((activeTab === "snapshot" || activeTab === "health") && !snapshotsLoaded) loadSnapshots();
+    if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
   });
 
   // A device-state change (enable/disable/uninstall/launcher switch) in one tab
@@ -2718,28 +2727,6 @@
         </div>
       </div>
 
-      <!-- The one piece of genuine state this screen can lead with, in place
-           of the board's invented score: whether the work is reversible. -->
-      {#if snapshots.length > 0}
-        {@const newest = snapshots[0]}
-        <div class="callout callout-ok">
-          <Icon name="check_circle" size={16} />
-          <span>
-            Snapshot saved {snapTimestamp(newest.saved_at)}. Restoring it re-disables its apps and puts back its Home app and settings; it can't re-enable or reinstall anything.
-          </span>
-          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
-            Open snapshots
-          </button>
-        </div>
-      {:else}
-        <div class="callout callout-warn">
-          <Icon name="warning" size={16} />
-          <span>No snapshot saved yet — save one before you change anything.</span>
-          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
-            Save a snapshot
-          </button>
-        </div>
-      {/if}
       {/if}
     </div>
   {:else if activeTab === "launcher"}
@@ -3760,6 +3747,7 @@
         onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
+        onSaveSnapshot={saveSnapshot}
         support={device.support ?? null}
       />
     </div>

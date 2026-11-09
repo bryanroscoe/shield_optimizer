@@ -154,6 +154,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import SupportTiers from "../components/SupportTiers.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { onDisconnect, navigate }: {
@@ -554,7 +555,7 @@
             disabled={!billing.status?.offer || billing.purchasing || billing.restoring || billing.pending}
             onclick={() => billing.purchase()}
           >
-            {#if billing.purchasing}
+            {#if billing.purchasing && billing.purchasingId === billing.status?.offer?.product_id}
               Waiting for Google Play…
             {:else if billing.status?.offer}
               Buy Pro · {billing.status.offer.formatted_price}
@@ -566,6 +567,7 @@
             {billing.restoring ? "Checking…" : "Restore purchases"}
           </button>
         </div>
+        <SupportTiers />
       {:else if !session.isPro && !billing.licenseKeyEntry}
         <p class="license-desc">{billing.unavailableReason}</p>
       {/if}
