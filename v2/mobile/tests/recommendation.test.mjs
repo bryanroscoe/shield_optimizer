@@ -117,3 +117,28 @@ test("an app report carries no device identifiers and is labelled mobile", () =>
   assert.ok(prefilled);
   assert.match(url, /template=app_report\.yml/);
 });
+
+test("uninstallOutcome names how each kind of app comes back", () => {
+  const store = rec.uninstallOutcome("com.example.app", entry({ play_store: true }));
+  assert.equal(store.short, "Get it back from the Play Store");
+  assert.match(store.detail, /^Uninstall removes it for this TV's user\. Get it back from the Play Store\./);
+
+  const sideload = rec.uninstallOutcome("org.smarttube.stable", entry({ package: "org.smarttube.stable" }));
+  assert.equal(sideload.short, "Not on the Play Store: reinstall from SmartTube");
+  assert.match(sideload.detail, /https:\/\/github\.com\/yuliskov\/SmartTube/);
+
+  const defunct = rec.uninstallOutcome("com.example.app", entry({ defunct: true }));
+  assert.equal(defunct.short, "Discontinued: no way to download it again");
+
+  const unknown = rec.uninstallOutcome("com.example.unlisted", null);
+  assert.equal(unknown.short, "May not be on the Play Store");
+  assert.match(unknown.detail, /back it up first\./);
+
+  // Every detail says what Uninstall does, and, because the phone's app sheet
+  // offers Reinstall for any app that is gone, that Reinstall may work.
+  for (const o of [store, sideload, defunct, unknown]) {
+    assert.match(o.detail, /^Uninstall removes it for this TV's user\./);
+    assert.match(o.detail, /Reinstall in its app sheet can bring it back while its APK is still on the TV\.$/);
+  }
+  assert.equal(rec.uninstallNote("com.example.app", entry({ defunct: true })), defunct.detail);
+});
