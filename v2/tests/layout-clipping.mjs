@@ -7,9 +7,9 @@
 //   and no cell runs past its box or past the table's rounded frame.
 // - App List: a name too long for its row wraps onto a second line, and past
 //   two lines ends in an ellipsis inside the row with the full name in
-//   `title`, instead of being cut mid-glyph; at 720px
-//   the Actions column wraps so the App column keeps a readable width and the
-//   table stays inside the card.
+//   `title`, instead of being cut mid-glyph. The App column keeps a readable
+//   width and the page never scrolls sideways (the table scrolls in its own
+//   region at narrow widths).
 // - Health memory table: process names break at their separators.
 //
 // Runs against the demo fixture layer (VITE_DEMO=1); the restore plan and one
@@ -31,7 +31,8 @@ const CASES = [
   { width: 1360, fontSize: "24px", colorScheme: "dark", label: "1360-150pct-text" },
 ];
 const EVIDENCE = process.env.LAYOUT_EVIDENCE_DIR || null;
-const LONG_NAME = "Amazon Prime Video (Shield preinstalled build for the living room TV)";
+const LONG_NAME =
+  "Amazon Prime Video (Shield preinstalled build for the living room TV, bundled with the 2019 Pro and its remote)";
 
 // What the e2e simulated Shield previews after a few changes.
 const LONG_PLAN = {
@@ -247,8 +248,8 @@ async function appList(page, base, width) {
   );
   assert.ok(rows.length > 10, `${width}: the App List rendered rows`);
   const appColumn = await page.locator(".app-table td.app-cell").first().evaluate((td) => td.getBoundingClientRect().width);
-  // ~140px holds a short name whole ("Google Feedback") at 720px; it was ~40px
-  // before the Actions column learned to wrap.
+  // ~140px holds a short name whole ("Google Feedback"); at 720px the column
+  // was once squeezed to ~40px.
   assert.ok(appColumn >= 140, `${width}: the App column is ${appColumn.toFixed(0)}px; names need at least 140px`);
   await noPageScroll(page, `${width} App List`);
   const clipped = rows.filter((r) => r.outside > 1);

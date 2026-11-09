@@ -4498,46 +4498,6 @@
     display: block;
     width: 2rem;
   }
-  /* In a card narrower than 62rem (a window under ~1040px, the 720px
-     minimum, or larger text) the single-line Actions column (verbs, hairline,
-     three tools) took ~460px and left the App column a few letters wide, then
-     pushed the table past the card. Here the verbs wrap, the tools drop under
-     them and "Last used" takes two lines, so the name keeps the width. rem in
-     a container query follows the root font size, which a px media query
-     would not. The verbs' tooltips open leftward, since a wrapped verb can sit
-     at the card's right edge. */
-  #tabpanel-apps {
-    container-type: inline-size;
-  }
-  @container (max-width: 62rem) {
-    .app-table .actions-cell {
-      flex-wrap: wrap;
-      row-gap: 0.35rem;
-    }
-    .app-table .row-verbs {
-      flex: 1 1 auto;
-      flex-wrap: wrap;
-      row-gap: 0.35rem;
-    }
-    .app-table .tool-sep {
-      display: none;
-    }
-    .app-table th.right {
-      white-space: normal;
-    }
-    .app-table .row-verbs [data-tip]::after {
-      left: auto;
-      right: 0;
-      transform: none;
-    }
-  }
-  /* Narrower still (larger text at the 720px minimum): the verbs' own labels
-     wrap, so "Review: uninstall if unused" stops setting the column's width. */
-  @container (max-width: 36rem) {
-    .app-table .actions-cell button {
-      white-space: normal;
-    }
-  }
   /* The verb buttons keep their own spacing rule; inside a flex row their
      margin-right would double up with the gap. */
   .app-table .actions-cell .small-action {
