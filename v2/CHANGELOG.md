@@ -53,6 +53,8 @@ this file and shows the newest few sections, dated, from its version button.
 - Desktop and Android: App List, Optimize, Launcher, snapshots and Emergency Recovery read packages for the main user (user 0), the same user every action changes (#233).
 - Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
 - Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
+- Desktop: refreshing one TV's profile, and previewing, applying or saving a snapshot, no longer waits on the Cast name of every other TV that hasn't allowed this computer. Only the TV being profiled is named; the device list still names them all.
+- Desktop: a platform-tools download that finishes after a switch to Built-in no longer switches the app back to platform-tools; it is kept for when you choose platform-tools. Settings › ADB engine can't be switched while Settings is downloading it.
 
 ### Built-in ADB
 
@@ -71,6 +73,7 @@ this file and shows the newest few sections, dated, from its version button.
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
 - macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
 - **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
+- Built-in engine: uploading a file to a TV no longer freezes the device list, or that TV, until the upload ends. Uploads use their own identity-checked connection, as downloads and installs do, and a TV busy with a long command is listed as connected instead of waiting for it. Like downloads and installs, an upload needs a TV that always allows this computer, and fails rather than waits if the TV is busy with another command for more than 5 seconds.
 
 ### Fixed
 

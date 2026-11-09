@@ -10,6 +10,7 @@ use crate::adb::driver::{cached_adb_binary, forget_cached_adb_binary};
 use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, SubprocessAdb};
 use crate::engine::types::ConnectionType;
 
+use super::adb_engine::AdbEngineControl;
 use super::AppState;
 use atv_optimizer_core::adb::{AdbError, ScanConnectionProgress};
 use atv_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
@@ -274,12 +275,16 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 /// OS app-data dir, and swap the live driver so the next `list_devices` call
 /// uses the freshly-installed binary. Matches v1's auto-download flow.
 #[tauri::command]
-pub async fn install_adb(state: State<'_, AppState>) -> Result<InstallResult, String> {
-    install_with(state.inner(), install_platform_tools).await
+pub async fn install_adb(
+    state: State<'_, AppState>,
+    engine: State<'_, AdbEngineControl>,
+) -> Result<InstallResult, String> {
+    install_with(state.inner(), engine.inner(), install_platform_tools).await
 }
 
 pub(crate) async fn install_with<F, Fut>(
     state: &AppState,
+    engine: &AdbEngineControl,
     installer: F,
 ) -> Result<InstallResult, String>
 where
@@ -296,11 +301,23 @@ where
             // fall back to, so the memoized answer is now stale.
             forget_cached_adb_binary();
             let new_driver: Arc<dyn AdbDriver> = Arc::new(SubprocessAdb::new(path.clone()));
-            state.replace_adb(new_driver).await;
+            // The engine may have been switched to Built-in during the
+            // download; the install is then only recorded for later.
+            let message = if engine
+                .adopt_installed_platform_tools(state, new_driver)
+                .await
+            {
+                format!("Installed platform-tools to {}", path.display())
+            } else {
+                format!(
+                    "Installed platform-tools to {}. The built-in engine is still in use; choose Google platform-tools under Settings > ADB engine to use it.",
+                    path.display()
+                )
+            };
             Ok(InstallResult {
                 ok: true,
                 path: Some(path.display().to_string()),
-                message: format!("Installed platform-tools to {}", path.display()),
+                message,
             })
         }
         Err(e) => Ok(InstallResult {
@@ -436,7 +453,7 @@ mod tests {
         let restarted = restart_adb_impl(&state).await.unwrap();
         assert!(!restarted.ok);
         assert!(restarted.message.contains("no host server"));
-        let installed = install_with(&state, |_| async {
+        let installed = install_with(&state, &AdbEngineControl::simulated(), |_| async {
             panic!("installer must not run in direct mode")
         })
         .await;

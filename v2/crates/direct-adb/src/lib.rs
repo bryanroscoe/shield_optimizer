@@ -109,6 +109,11 @@ const SHELL_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Package installs and clears can legitimately produce nothing for a while.
 const SLOW_SHELL_INACTIVITY_TIMEOUT: Duration = Duration::from_secs(180);
 const LIVENESS_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
+/// How long [`WirelessAdb::status`] waits for a command that owns the
+/// connection before reporting the TV by that command instead of its probe.
+const STATUS_BUSY_WAIT: Duration = Duration::from_secs(1);
+/// Total bound on an upload over its dedicated connection.
+const PUSH_DEADLINE: Duration = Duration::from_secs(15 * 60);
 const POST_ERROR_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Every error that evicts the live connection starts with this so the
 /// frontend can flip its liveness state without parsing transport details.
@@ -219,6 +224,23 @@ fn lock_recovering<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// [`lock_recovering`], giving up after `wait`.
+fn lock_within<T>(mutex: &Mutex<T>, wait: Duration) -> Option<std::sync::MutexGuard<'_, T>> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match mutex.try_lock() {
+            Ok(guard) => return Some(guard),
+            Err(std::sync::TryLockError::Poisoned(error)) => return Some(error.into_inner()),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    return None;
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
 }
 
 fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String> {
@@ -362,19 +384,43 @@ impl WirelessAdb {
         T: Send + 'static,
         F: FnOnce(&mut ADBTcpDevice) -> Result<T, RustADBError> + Send + 'static,
     {
+        // Without a wait the lock is always taken, so `None` never comes back.
+        self.on_device_waiting(serial, None, f)
+            .await?
+            .ok_or_else(|| "Direct ADB socket is busy.".to_string())
+    }
+
+    /// [`Self::on_device`], except that `Ok(None)` means another command
+    /// still held the connection after `wait` (when given), so `f` never ran.
+    async fn on_device_waiting<T, F>(
+        &self,
+        serial: &str,
+        wait: Option<Duration>,
+        f: F,
+    ) -> Result<Option<T>, String>
+    where
+        T: Send + 'static,
+        F: FnOnce(&mut ADBTcpDevice) -> Result<T, RustADBError> + Send + 'static,
+    {
         let conn = self.conn.clone();
         let identity = self.identity.clone();
         let requested_serial = serial.to_string();
         let operation = self.work()?;
         tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            let mut guard = lock_recovering(&conn);
+            let mut guard = match wait {
+                None => lock_recovering(&conn),
+                Some(wait) => match lock_within(&conn, wait) {
+                    Some(guard) => guard,
+                    None => return Ok(None),
+                },
+            };
             let Some(active) = guard.as_mut() else {
                 return Err("Not connected to a device.".to_string());
             };
             validate_requested_serial(&active.serial, &requested_serial)?;
             let error = match f(&mut active.device) {
-                Ok(value) => return Ok(value),
+                Ok(value) => return Ok(Some(value)),
                 Err(e) => e,
             };
             // Only a dead socket should evict the connection. A logical failure
@@ -795,7 +841,7 @@ impl WirelessAdb {
         // this probe. Unlike cancelling spawn_blocking from the async side,
         // that releases the connection mutex when a socket stops responding.
         let probe = self
-            .on_device(&serial, |dev| {
+            .on_device_waiting(&serial, Some(STATUS_BUSY_WAIT), |dev| {
                 let mut stdout = Vec::new();
                 dev.shell_command_with_timeout(
                     &"echo ok",
@@ -807,7 +853,11 @@ impl WirelessAdb {
             })
             .await;
         let alive = match probe {
-            Ok(stdout) => stdout.contains("ok"),
+            Ok(Some(stdout)) => stdout.contains("ok"),
+            // A command still owns the socket. It runs under its own
+            // deadlines and evicts the connection if the socket dies, so a
+            // TV that is still connected afterwards is connected now.
+            Ok(None) => self.info().is_some_and(|(current, _, _)| current == serial),
             Err(e) => {
                 tracing::warn!(serial = %serial, error = %e, "wireless_status probe failed");
                 false
@@ -823,6 +873,77 @@ impl WirelessAdb {
             connected: true,
             serial: Some(serial),
             host: Some(host),
+        }
+    }
+
+    /// Upload `local` to `remote` over a dedicated connection that must
+    /// report the selected TV's verified hardware id before any byte is
+    /// sent, like downloads and installs. The selected TV's own connection is
+    /// free meanwhile, so the device list and other commands keep working,
+    /// and a failed upload never evicts it.
+    async fn push_impl(&self, serial: &str, local: &Path, remote: &str) -> AdbResult<()> {
+        let deadline = tokio::time::Instant::now() + PUSH_DEADLINE;
+        // A local storage error must not reach a healthy TV connection, so
+        // the file is opened before any TV work.
+        let mut file = std::fs::File::open(local)
+            .map_err(|e| AdbError::Transport(format!("open {}: {e}", local.display())))?;
+        let Some((active, host, port)) = self.info() else {
+            return Err(AdbError::Transport("Not connected to a device.".into()));
+        };
+        validate_requested_serial(&active, serial).map_err(AdbError::Transport)?;
+        let address: SocketAddr = format!("{host}:{port}")
+            .parse()
+            .map_err(|error| AdbError::Transport(format!("invalid upload address: {error}")))?;
+        let expected = self
+            .verified_owned_hardware_id(serial, Duration::from_secs(5))
+            .await?;
+        let operation = self.work().map_err(AdbError::Transport)?;
+        let control = adb_client::tcp::BoundedShellControl::new(
+            deadline.saturating_duration_since(tokio::time::Instant::now()),
+        )?;
+        let _cancel = crate::bounded_shell::CancelOnDrop(control.clone());
+        let remote = remote.to_owned();
+        let key = self.key_path.clone();
+        let preferred = self.dedicated_keys();
+        let sending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let started = sending.clone();
+        let upload = crate::bounded_shell::run_worker(operation, control, move |control| {
+            let mut device = ADBTcpDevice::new_with_required_keys_and_control(
+                address, &key, &preferred, &control,
+            )
+            .map_err(|error| {
+                AdbError::Transport(format!(
+                    "Could not start the upload: {}",
+                    dedicated_error(&error)
+                ))
+            })?;
+            let probe = adb_client::tcp::BoundedShellControl::new(
+                control.remaining()?.min(Duration::from_secs(5)),
+            )?;
+            device
+                .verify_hardware_binding_bounded(&expected, probe)
+                .map_err(|error| {
+                    AdbError::Transport(format!(
+                        "Upload identity check failed before any byte was sent: {error}"
+                    ))
+                })?;
+            started.store(true, std::sync::atomic::Ordering::Release);
+            device
+                .push_with_control(&mut file, &remote, control)
+                .map_err(upload_error)
+        });
+        match tokio::time::timeout_at(deadline, upload).await {
+            Ok(result) => result,
+            Err(_) if sending.load(std::sync::atomic::Ordering::Acquire) => {
+                Err(AdbError::Uncertain {
+                    operation: "file upload",
+                    detail: "the total deadline was reached; the file on the TV may be incomplete"
+                        .into(),
+                })
+            }
+            Err(_) => Err(AdbError::Transport(
+                "Upload deadline reached before any byte was sent.".into(),
+            )),
         }
     }
 
@@ -962,8 +1083,9 @@ impl AdbDriver for WirelessAdb {
         }
     }
 
-    /// Downloads use a dedicated, identity-checked connection so a failed
-    /// transfer cannot evict the selected TV's session.
+    /// Installs, downloads and uploads use a dedicated, identity-checked
+    /// connection, so a long transfer leaves the selected TV's session free
+    /// and a failed one cannot evict it.
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
             ["-s", serial, verb @ ("install" | "install-multiple"), rest @ ..] => {
@@ -979,17 +1101,7 @@ impl AdbDriver for WirelessAdb {
                 })
             }
             ["-s", serial, "push", local, remote] => {
-                let remote = remote.to_string();
-                // A local storage error must not reach (or evict) a healthy
-                // TV connection, so the file is opened before any TV work.
-                let mut file = std::fs::File::open(local)
-                    .map_err(|e| AdbError::Transport(format!("open {local}: {e}")))?;
-                self.on_device_controlled(
-                    serial,
-                    Duration::from_secs(15 * 60),
-                    move |dev, control| dev.push_with_control(&mut file, &remote, control),
-                )
-                .await?;
+                self.push_impl(serial, Path::new(local), remote).await?;
                 Ok(AdbOutput {
                     stdout: String::new(),
                     stderr: String::new(),
@@ -1210,6 +1322,22 @@ fn request_error_message(error: &RustADBError) -> String {
                 .to_string()
         }
         other => other.to_string(),
+    }
+}
+
+/// A refusal from the TV or a local read error is the upload's answer. Any
+/// other error came after bytes may have reached the TV, so the file there
+/// may be incomplete.
+fn upload_error(error: RustADBError) -> AdbError {
+    match error {
+        RustADBError::SyncFailed(_) => AdbError::Transport(error.to_string()),
+        RustADBError::LocalIo(_) => AdbError::Transport(format!(
+            "{error}; the file on the TV may be missing or incomplete"
+        )),
+        other => AdbError::Uncertain {
+            operation: "file upload",
+            detail: format!("{other}; the file on the TV may be incomplete"),
+        },
     }
 }
 
