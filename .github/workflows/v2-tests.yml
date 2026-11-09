@@ -403,6 +403,12 @@ jobs:
         working-directory: v2
         run: npm run test:release-notes
 
+      # The release workflow checks every updater signature with this before
+      # publishing latest.json; it must read real `tauri signer` output.
+      - name: Updater signatures
+        working-directory: v2
+        run: npm run test:updater-signatures
+
       - name: Update notes dialog
         working-directory: v2
         run: npm run test:update-notes-dialog
@@ -438,6 +444,12 @@ jobs:
         working-directory: v2
         run: npm run test:remote-lifecycle
 
+      # Force stop, Shield-only Find remote and the reported temperature
+      # context, the features desktop gained from the phone.
+      - name: Desktop parity with mobile
+        working-directory: v2
+        run: npm run test:desktop-parity
+
       # Memory-table verdicts must resolve instead of sitting on "Checking".
       # That failure throws and logs nothing; only rendering the table catches it.
       - name: Memory safety verdicts
@@ -466,6 +478,11 @@ jobs:
       - name: Snapshot deletion
         working-directory: v2
         run: npm run test:snapshot-delete
+
+      # The desktop app's confirm() is async and its prompt() returns null.
+      - name: Confirmation and snapshot name dialogs
+        working-directory: v2
+        run: npm run test:native-dialogs
 
       # Every plan row must resolve its verdict, including rows the plan
       # proposes no action on.
@@ -496,6 +513,10 @@ jobs:
       - name: Icon and control alignment
         working-directory: v2
         run: npm run test:icon-alignment
+
+      - name: Long ids and names fit their cells
+        working-directory: v2
+        run: npm run test:layout-clipping
 
       - name: Files drag and drop
         working-directory: v2

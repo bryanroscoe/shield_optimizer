@@ -6,6 +6,7 @@
   import HelpTip from "$lib/components/HelpTip.svelte";
   import ThemeToggle from "$lib/components/ThemeToggle.svelte";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import { useAppShell } from "$lib/app-shell";
   import { setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { loadReports, reports, setReportsEnabled } from "$lib/reports.svelte";
@@ -106,7 +107,7 @@
   }
 
   async function downloadAdb() {
-    if (nativeAdb) return;
+    if (nativeAdb || engineBusy) return;
     installBusy = true;
     installMessage = "Downloading platform-tools from Google… (~12 MB)";
     try {
@@ -122,10 +123,12 @@
 
   async function restartAdb() {
     if (nativeAdb) return;
+    if (restartBusy) return;
     if (
-      !confirm(
+      !(await confirmAction(
         "Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.",
-      )
+      ))
+      || restartBusy
     )
       return;
     restartBusy = true;
@@ -171,7 +174,7 @@
   }
 
   async function chooseEngine(next: AdbEngine) {
-    if (!engine || engineBusy || engineLocked) return;
+    if (!engine || engineBusy || installBusy || engineLocked) return;
     const hadFocus = !!engineGroup?.contains(document.activeElement);
     const before = engine.active;
     engineBusy = true;
@@ -200,10 +203,15 @@
   function clickStopOnQuit(e: MouseEvent) {
     // As on Devices: the box moves only when the reply says the setting did.
     (e.currentTarget as HTMLInputElement).checked = stopOnQuit.setting?.enabled ?? false;
-    if (!stopOnQuit.setting?.enabled && !confirm(
+    if (stopOnQuit.setting?.enabled) {
+      void toggleStopOnQuit();
+      return;
+    }
+    void confirmAction(
       "Stop the shared ADB server when this app quits? This also disconnects Android Studio, scrcpy and other tools using ADB.",
-    )) return;
-    void toggleStopOnQuit();
+    ).then((ok) => {
+      if (ok && !stopOnQuit.setting?.enabled) void toggleStopOnQuit();
+    });
   }
 
   let debugLogging = $state(false);
@@ -518,7 +526,7 @@
                 {engine.fallback_reason ??
                   "The built-in engine couldn't start, so this session uses Google platform-tools."}
                 {#if !engineLocked && engine.builtin_available}
-                  <button class="inline-link" onclick={() => chooseEngine("builtin")} disabled={engineBusy}>
+                  <button class="inline-link" onclick={() => chooseEngine("builtin")} disabled={engineBusy || installBusy}>
                     Try again
                   </button>
                 {/if}
@@ -539,7 +547,11 @@
         >
           {#each ENGINES as option (option.id)}
             {@const unavailable =
-              !engine || engineBusy || engineLocked || (option.id === "builtin" && !engine.builtin_available)}
+              !engine ||
+              engineBusy ||
+              installBusy ||
+              engineLocked ||
+              (option.id === "builtin" && !engine.builtin_available)}
             <label class="engine-option" class:unavailable>
               <input
                 type="radio"
@@ -590,7 +602,7 @@
       </div>
       <div class="row-control">
         {#if adb && !nativeAdb && adb.failure === "missing_binary"}
-          <button class="primary" onclick={downloadAdb} disabled={installBusy}>
+          <button class="primary" onclick={downloadAdb} disabled={installBusy || engineBusy}>
             <Icon name="download" size={14} />
             {installBusy ? "Installing…" : "Download platform-tools"}
           </button>

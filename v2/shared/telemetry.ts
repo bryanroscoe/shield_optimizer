@@ -73,6 +73,9 @@ const QUIET_COMMANDS = new Set([
   // Send logs fails on its own (offline, the daily limit) and says so; a
   // report about it would only repeat that.
   "upload_diagnostics",
+  // Mobile Save a copy / Share: failures name the user's files and the folder or app they
+  // picked, and are shown on screen; they are not reported.
+  "export_file",
 ]);
 
 /// Codes that are expected states, not failures worth reporting.

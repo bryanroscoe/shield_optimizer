@@ -457,6 +457,13 @@ export interface FileEntry {
   modified: string;
 }
 
+/// `export_file`: `share_opened` means only that Android's share sheet opened.
+export type ExportMode = "save" | "share";
+export type ExportOutcome =
+  | { status: "saved"; name?: string | null }
+  | { status: "canceled" }
+  | { status: "share_opened" };
+
 /// A device file pulled into the app's scoped `downloads/` dir.
 export interface PulledFile {
   name: string;
@@ -475,6 +482,9 @@ export interface BackupEntry {
   complete: boolean;
   /// ISO-8601 (UTC) of the backup file's last-modified time.
   saved_at: string;
+  /// Why a bundle folder can't be read (no or corrupt manifest, older naming).
+  /// It can be deleted but never restored.
+  unreadable?: string | null;
 }
 
 // ---- Saved-TV persistence (mobile-only, localStorage) ----

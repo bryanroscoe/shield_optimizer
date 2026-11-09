@@ -14,6 +14,26 @@ import type { BackupEntry, Device, FileEntry } from "./types";
 const HOST = "192.168.1.42";
 const PORT = 5555;
 const SERIAL = `${HOST}:${PORT}`;
+const DATA_DIR = "/data/user/0/com.atvoptimizer.mobile";
+
+// A stand-in TV frame for the screenshot preview, drawn at runtime so no image ships.
+function demoScreenBase64(): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 360;
+  const ctx = canvas.getContext("2d");
+  if (ctx) {
+    ctx.fillStyle = "#101418";
+    ctx.fillRect(0, 0, 640, 360);
+    ctx.fillStyle = "#c9f24e";
+    ctx.font = "bold 30px sans-serif";
+    ctx.fillText("Demo TV screen", 40, 170);
+    ctx.fillStyle = "#c7cdd6";
+    ctx.font = "20px sans-serif";
+    ctx.fillText("Fixture image, no device connected", 40, 210);
+  }
+  return canvas.toDataURL("image/png").split(",")[1] ?? "";
+}
 
 const backups: BackupEntry[] = [
   {
@@ -152,8 +172,16 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       return sharedHandle("list_dir", { path: args.path }) as FileEntry[];
     case "pull_file": {
       const remote = String(args.remotePath ?? "");
-      return { name: remote.split("/").pop() ?? remote, path: `/storage/emulated/0/Download/${remote.split("/").pop()}`, size_bytes: 18432 };
+      const name = remote.split("/").pop() ?? remote;
+      return { name, path: `${DATA_DIR}/downloads/${name}`, size_bytes: 18432 };
     }
+    case "take_screenshot":
+      return { path: `${DATA_DIR}/screenshots/192-168-1-42-5555_2026-11-08_12-00-00.png`, base64: demoScreenBase64() };
+    // Save a copy and Share hand off to Android's picker and share sheet, which the demo can't show.
+    case "export_file":
+      return args.mode === "share"
+        ? { status: "share_opened" }
+        : { status: "saved", name: "tv-screenshot-2026-11-08_12-00-00.png" };
     case "list_backups":
       return backups;
     case "backup_apk":
@@ -164,6 +192,36 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "send_text":
     case "open_settings":
       return { ok: true, message: "", transport: "channel" };
+    case "collect_diagnostics":
+      // The desktop fixture, with the phone's host facts: no adb binary, and
+      // this app's own log tail.
+      return String(sharedHandle(cmd, args))
+        .replace("- OS: macos (aarch64)", "- OS: android (aarch64)")
+        .replace(
+          /- adb path: .*\n- adb version: .*/,
+          "- Support ID: 1234-5678\n- adb path: (not applicable: built-in wireless ADB client, no adb binary)\n- adb version: (unavailable)",
+        )
+        .replace("INFO atv_optimizer_lib: adb located", "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok");
+    case "read_device_logs": {
+      const options = args.options as { package?: string | null; tag?: string | null };
+      const pid = options.package ? 4321 : 1234;
+      const tag = options.tag || "ActivityManager";
+      return {
+        package: options.package ?? null,
+        pid: options.package ? pid : null,
+        output: {
+          stdout: [
+            `11-08 12:00:01.204  ${pid}  ${pid} I ${tag}: Start proc com.google.android.youtube.tv for activity`,
+            `11-08 12:00:01.611  ${pid}  ${pid} W ${options.tag || "PackageManager"}: Package org.example.app has no signatures that match`,
+            `11-08 12:00:02.019  ${pid}  ${pid} I ${options.tag || "WindowManager"}: Display 0 configuration changed`,
+            `11-08 12:00:03.442  ${pid}  ${pid} E ${options.tag || "MediaCodec"}: Codec reported err 0xffffffed`,
+          ].join("\n") + "\n",
+          stderr: "",
+          exit_code: 0,
+          termination: "completed",
+        },
+      };
+    }
     case "read_debug_log":
       return "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok\nINFO atv_optimizer: list_devices 1 device";
     case "plugin:opener|open_url":

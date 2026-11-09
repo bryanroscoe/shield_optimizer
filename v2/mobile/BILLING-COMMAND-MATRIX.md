@@ -20,6 +20,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `billing_purchase` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
+| `collect_diagnostics` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
+| `read_device_logs` | Free | `../crates/core/src/commands/logcat.rs` | `src/screens/Logs.svelte` |
 | `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
 | `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
 | `dismiss_telemetry_notice` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/TelemetryNotice.svelte` |
@@ -92,6 +94,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `delete_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `find_files` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `delete_path` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
+| `export_file` | Free | `src-tauri/src/export_commands.rs` | `src/components/ExportActions.svelte` |
 | `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte` |
 
 ## UI and recovery findings

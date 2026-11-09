@@ -130,6 +130,24 @@
       ]
     },
     {
+      "command": "collect_diagnostics",
+      "api": "collectDiagnostics",
+      "gate": "Free",
+      "backend": "src-tauri/src/lib.rs",
+      "callers": [
+        "src/screens/More.svelte"
+      ]
+    },
+    {
+      "command": "read_device_logs",
+      "api": "readDeviceLogs",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/logcat.rs",
+      "callers": [
+        "src/screens/Logs.svelte"
+      ]
+    },
+    {
       "command": "list_devices",
       "api": "listDevices",
       "gate": "Free",
@@ -747,6 +765,15 @@
       "backend": "src-tauri/src/file_commands.rs",
       "callers": [
         "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "export_file",
+      "api": "exportFile",
+      "gate": "Free",
+      "backend": "src-tauri/src/export_commands.rs",
+      "callers": [
+        "src/components/ExportActions.svelte"
       ]
     },
     {

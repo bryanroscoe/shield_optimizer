@@ -10,6 +10,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { parseSafety } from "../../../shared/safety";
 import type { MediaCapabilities } from "../../../shared/media";
+import type { DeviceLogOptions, DeviceLogResult } from "../../../shared/device-logs";
 import { observeCall, type Send, type TelemetrySettings } from "../../../shared/telemetry";
 import { logCall, summarizeArgs } from "./log";
 import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
@@ -61,6 +62,8 @@ import type {
   WirelessStatus,
   WriteResult,
   FindResult,
+  ExportMode,
+  ExportOutcome,
 } from "./types";
 
 type PackageState = "enabled" | "disabled" | "missing";
@@ -293,6 +296,10 @@ export const api = {
     call<FileEntry[]>("list_remote_dir", { serial, path }),
   pullFile: (serial: string, remotePath: string) =>
     call<PulledFile>("pull_file", { serial, remotePath }),
+  /// Save a copy (Android's file picker) or Share (the share sheet) for one screenshot or
+  /// copied file. Nothing leaves the phone unless the user completes the system UI.
+  exportFile: (path: string, mode: ExportMode) =>
+    call<ExportOutcome>("export_file", { path, mode }),
 
   // ---- Backups (7.3) ----
   backupApk: (serial: string, pkg: string) =>
@@ -303,6 +310,9 @@ export const api = {
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),
+  collectDiagnostics: (serial: string | null) => call<string>("collect_diagnostics", { serial }),
+  readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
+    call<DeviceLogResult>("read_device_logs", { serial, options }),
 
   // ---- Anonymous reports ----
   telemetrySettings: () => call<TelemetrySettings>("telemetry_settings"),

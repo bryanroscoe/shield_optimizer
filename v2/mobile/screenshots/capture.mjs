@@ -38,8 +38,11 @@ const SCREENS = [
   { name: "launcher", open: ["launcher"] },
   { name: "snapshots", open: ["snapshots"] },
   { name: "devices", open: ["devices"] },
+  { name: "screenshot", then: openScreenshot },
   { name: "files", open: ["files"] },
+  { name: "files-copied", open: ["files"], then: copyFile },
   { name: "backups", open: ["backups"] },
+  { name: "logs", open: ["logs"], then: readLogs },
   { name: "riskguide", open: ["riskguide"] },
   { name: "add-tv", open: ["addtv"] },
   { name: "catalog", open: ["catalog"], then: openCatalogProfile },
@@ -48,6 +51,24 @@ const SCREENS = [
 async function openFirstAppSheet(page) {
   await page.locator('.app-row[data-package="com.google.android.videos"]').click();
   await page.locator(".sheet").first().waitFor();
+}
+
+async function openScreenshot(page) {
+  await page.locator(".action-btn").filter({ hasText: "Screenshot" }).click();
+  await page.getByRole("dialog", { name: "Screenshot", exact: true }).getByRole("button", { name: "Save a copy" }).waitFor();
+}
+
+async function copyFile(page) {
+  await page.locator(".file-row").filter({ hasText: "device-report.txt" }).click();
+  await page.getByText("Copied this session", { exact: true }).waitFor();
+  // Let the copy toast clear so the row's Save a copy / Share buttons are in the frame.
+  await page.locator(".dl-list").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(4000);
+}
+
+async function readLogs(page) {
+  await page.getByRole("button", { name: "Read logs", exact: true }).click();
+  await page.getByLabel("Log output").waitFor();
 }
 
 async function openCatalogProfile(page) {
