@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Lift the TV artwork slightly to balance the launcher icon and in-app brand marks, including the legs.
+
 - Desktop and Android: the one-line result of a snapshot restore no longer counts apps kept on for Home as failures. It now says whether the snapshot's Home app was set, skipped (with the reason) or failed, instead of "unchanged" whenever it wasn't set.
 - Desktop: fixed clipped and squeezed text. The snapshot restore preview keeps a readable Item column, wraps package ids after their dots, and wraps long values such as the screensaver component instead of cutting off "Will become". A long App List name wraps onto a second line instead of being cut off (past two lines it ends in "…", with the full name on hover). Health's memory table breaks process names at dots and colons.
 - Desktop: on a kept app in the App List, **Change** (which undoes Keep) is always shown. It used to appear only while the pointer was over the row or the button had keyboard focus, so on touch screens, or at a glance, Keep looked permanent (#324).
