@@ -504,6 +504,15 @@ async fn disable_from_plan(
     out
 }
 
+/// A later, more specific result for an unconfirmed disable replaces its
+/// "could not be read back" entry rather than listing the package twice.
+fn drop_unconfirmed_entry(failed: &mut Vec<String>, unconfirmed: &[String], pkg: &str) {
+    if unconfirmed.iter().any(|p| p == pkg) {
+        let entry = format!("{pkg} ({})", Unconfirmed::Unreadable.message());
+        failed.retain(|f| f != &entry);
+    }
+}
+
 /// Set Home for a restore. No stock takeover here: a snapshot that had stock
 /// disabled carries that in its disabled-packages list. The plan only names
 /// an installed, enabled launcher, so the setter's own setup-helper restore
@@ -613,6 +622,7 @@ async fn apply_snapshot_impl(
             Outcome::Untouched | Outcome::Disabled { .. } => {}
             Outcome::RolledBack { reason } => {
                 packages_disabled.retain(|p| p != stock);
+                drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
             Outcome::LeftOn => {
@@ -627,6 +637,7 @@ async fn apply_snapshot_impl(
                     let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
                     let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
                     packages_disabled.retain(|p| p != stock);
+                    drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                     packages_failed.push(if restored {
                         format!("{stock} (turned back on: no other launcher took Home)")
                     } else {
