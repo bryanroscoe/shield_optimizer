@@ -95,7 +95,7 @@ pub async fn take_screenshot(
     validate_png(&bytes)?;
 
     // Sibling of the snapshots dir in the app data root (e.g.
-    // `…/ShieldOptimizer/screenshots`).
+    // `…/ATVOptimizer/screenshots`).
     let dir = state
         .snapshot_dir
         .parent()

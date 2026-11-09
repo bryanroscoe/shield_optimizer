@@ -1,0 +1,83 @@
+# Vision 2024VISION43STV (CVTE TP.T950D4T.PB751, Amlogic T950D4), Android 13 (SDK 33), Europe.
+# 1 GB RAM, 1920x1080 at 240 dpi (1280x720 dp UI). Not Google TV: CVTE's own launcher
+# (com.cvte.tv.launcher.space, "LauncherSpace4") and CVTE settings (com.cvte.settings); no stock
+# Android settings, so Developer options are unreachable. Build fingerprint is spoofed
+# (google/shamu/...), so don't use it to match your set; match the board name instead.
+# Tested on one set for a day, not yet a few days; launcher half done too.
+# Stock launcher: com.cvte.tv.launcher.space (pass it to restore.sh, as the Undo line below does).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/vision-2024vision43stv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/vision-2024vision43stv/debloat.txt com.cvte.tv.launcher.space
+# Everything is DISABLED, not uninstalled. Kept on purpose: com.cvte.tv.api.impl (TIF player, hotkeys),
+# com.cvte.tv.setting (the live-TV UI: CH+/-, number keys, info banner), com.cvte.tv.globalui (source
+# menu), com.cvte.tvservice, com.droidlogic.* (tvinput, dtvkit), com.cvte.fac.menu, com.cvte.factory.*.
+#
+# ADB: factory menu. Switch to a source first (TV or HDMI; it does not open from the launcher), then on
+# the remote (H620DF-DS) press MENU 1 1 4 7 quickly -> DEBUG -> ADB ENABLE -> ON. Don't touch SHIPPING
+# INIT / BOARD INIT (factory reset), AGING MODE, PANEL SETTING, EMC SETTING or SW UPGRADE. Network ADB
+# on 5555 then has NO authorisation (ro.adb.secure empty, no prompt) and survives reboots until it is
+# switched OFF in the same menu.
+#
+# Screenshots: screencap returns 0 bytes ("FB is protected") whenever a TV SurfaceView is on screen,
+# and that includes the stock launcher, which embeds a live-TV preview. Open Settings for real ones.
+# pm disable state is written to disk with a delay: wait ~30 s before rebooting.
+#
+# STOCK LAUNCHER - READ BEFORE DISABLING IT. This firmware has no FallbackHome. At boot the user is still
+# locked (FBE) and only a direct-boot-aware Home can start; the stock launcher is one, a normal launcher
+# is not. With the stock launcher disabled and a non-direct-boot-aware Home, boot never completes: black
+# screen, LED on, remote and power key dead, no Wi-Fi (sys.boot_completed empty, dumpsys user shows
+# State: BOOTING, "No home screen found for Intent { act=MAIN cat=[HOME,COMMON_HOME] }").
+# The new Home needs android:directBootAware="true" on the activity (application-level alone did not
+# mark it), prefs in createDeviceProtectedStorageContext(), and a reload on ACTION_USER_UNLOCKED.
+# Recovery: LAN cable straight into a laptop. Android's Ethernet asks for DHCP; answer it from the
+# laptop's 169.254.x.x address (only for the TV's MAC) and adb connects. Then pm enable the stock
+# launcher and am start -a android.intent.action.MAIN -c android.intent.category.HOME
+# -c android.intent.category.COMMON_HOME.
+#
+# Launcher notes for this firmware (the stock launcher did these jobs):
+# - Home key sends MAIN + HOME + COMMON_HOME (CvteHomeManager, ro.CVT_EN_COMMON_HOME_INTENT=1):
+#   the new launcher needs a second intent-filter with android.intent.category.COMMON_HOME.
+# - Inputs: no standard passthrough handler. Use
+#   am start -a com.cvte.intent.ACTION_TIF_PLAYER
+#     -n com.cvte.tv.api.impl/com.cvte.tv.api.vendor.common.base.tif.TvSupportActivity
+#     --ez tune true --ei sourceId N --es toActivity com.cvte.tv.setting.TvSettingActivity
+#   N is the number after /HW in dumpsys tv_input: DTV (DTVKit, the scanned DVB-T channels) 19,
+#   HDMI1/2/3 5/6/7, AV 1. 16 (ADTV) is a second tuner with no channels.
+#   sys.current.source.name does not update; check dumpsys tv_input | grep -A2 sessionStateMap.
+# - Channel keys and numbers are handled by com.cvte.tv.setting/.TvSettingActivity, not the player.
+#   Without toActivity, CH+/- do nothing. At power-on CVTE starts only the player, so an accessibility
+#   service opens the TV UI when TvSupportActivity comes up on its own (same intent with tune=false).
+# - Input/Source key: an accessibility key filter maps KEYCODE_TV_INPUT to
+#   com.cvte.tv.globalui/.InputSourceActivity. Injected keys bypass the filter; test the real remote.
+# - Wi-Fi network belongs to android.uid.system (cname=android.uid.system:1000), so the setup wizard
+#   (com.droidlogic.setupwizard) is not a Wi-Fi risk; it did not claim Home once setup was done.
+# - Boot logo and animation can't be turned off without root.
+
+# Ads and telemetry
+com.cvte.gaia.ad.service                     # ad service, Google Mobile Ads, SensorsData analytics, Sentry
+com.cvte.wonder.cloud.service                # "UniAdService", Firebase, Sentry
+com.cvte.industries                          # push messenger (ACTION_INDUSTRY_MESSENGER) + AdReceiver
+
+# Manufacturer content and ad services
+com.zeasn.services.general                   # Zeasn search / content service, boots with the TV
+com.cvte.tv.pictorial                        # screensaver with ads; switch to com.android.dreams.basic Colors
+com.cvte.tv.weather
+com.cvte.tv.steward                          # "cleaner" with scheduled "optimisation"
+
+# Stock launcher and its skin: ONLY with a direct-boot-aware replacement Home (see header)
+com.cvte.tv.launcher.space                   # ads, SensorsData, Sentry, Firebase; also a live-TV preview
+com.cvte.tv.launcher.space.skin
+
+# Off by choice on the tested set (keep what you use)
+com.netflix.mediaclient
+com.amazon.avod.thirdpartyclient             # Prime Video
+com.amazon.amazonvideo.livingroom            # Prime Video
+com.amazon.rialto.cordova.webapp.webapp2660c968ef8949678398aeb6fd6cb036  # preloaded Amazon web app
+com.tiktok.tv
+deezer.android.tv
+com.ted.android.tv
+
+# Kept by choice on the tested set, fine to disable if unused:
+# com.droidlogic.miracast (screen mirroring), com.stark.bytelloremoteserver (phone sharing/remote, runs
+# in the background), com.seraphic.openinet.cvte (CVTE portal/browser), com.stark.store (CVTE app store),
+# com.cvte.tv.systemupgrade (firmware updates; keep for security fixes).

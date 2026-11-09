@@ -48,6 +48,26 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
     })
 }
 
+/// `update_channel` — who installs updates for this copy. `"flatpak"` inside a
+/// Flatpak sandbox, where `/app` is read-only and Flatpak (a software center or
+/// `flatpak update`) delivers new versions, so the in-app updater must stay
+/// out of the way. `"self"` everywhere else.
+#[tauri::command]
+pub fn update_channel() -> &'static str {
+    channel_for(
+        std::env::var_os("FLATPAK_ID").is_some(),
+        std::path::Path::new("/.flatpak-info").exists(),
+    )
+}
+
+fn channel_for(flatpak_id_set: bool, flatpak_info_exists: bool) -> &'static str {
+    if flatpak_id_set || flatpak_info_exists {
+        "flatpak"
+    } else {
+        "self"
+    }
+}
+
 #[derive(Default)]
 struct ReleaseLookup {
     /// Highest published `v2-*` version.
@@ -63,7 +83,7 @@ struct ReleaseLookup {
 /// app by hand, neither of which goes through the in-app updater.
 async fn fetch_releases(current: &str) -> Result<ReleaseLookup, String> {
     let client = reqwest::Client::builder()
-        .user_agent("shield-optimizer-update-check")
+        .user_agent("atv-optimizer-update-check")
         .timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| e.to_string())?;
@@ -192,6 +212,13 @@ fn cmp_prerelease(a: &str, b: &str) -> std::cmp::Ordering {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn channel_is_flatpak_when_either_marker_is_present() {
+        assert_eq!(channel_for(false, false), "self");
+        assert_eq!(channel_for(true, false), "flatpak");
+        assert_eq!(channel_for(false, true), "flatpak");
+    }
 
     fn release(tag: &str, body: &str) -> serde_json::Value {
         serde_json::json!({ "tag_name": tag, "body": body, "draft": false })

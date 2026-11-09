@@ -1,0 +1,81 @@
+# XGIMI MoGo 3 Pro projector (model G0035, device altai, MediaTek), Google TV / Android 14 (SDK 34),
+# build UKNV.260707.001.15802496.
+#
+# Apply:   TV_HOST=<projector ip> tools/disable.sh examples/xgimi-mogo-3-pro/debloat.txt
+# Undo:    TV_HOST=<projector ip> tools/restore.sh examples/xgimi-mogo-3-pro/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (HOME priority 2), with the setup wizard's
+# RecoveryActivity at priority 1, so setupwraith is listed below (see docs/TROUBLESHOOTING.md, Google TV).
+# Wireless debugging is the way in: pair, then `adb tcpip 5555`. It turns itself off whenever the projector
+# rejoins Wi-Fi. Already disabled from the factory: com.google.android.youtube.tvmusic.
+#
+# Launcher notes (applied and verified on a real unit on 2026-10-19/20):
+# - Install with HOME_KEY_SERVICE=1, and put this in config.xml or a theme's config.json:
+#     "live_tv_package": ""                    no tuner
+#     "settings_key_keycodes": [83]            the gear button sends KEYCODE_NOTIFICATION
+#     "app_keys": ["KEYCODE_F4:com.google.android.youtube.tv",
+#                  "KEYCODE_F9:com.netflix.ninja",
+#                  "KEYCODE_F8:com.amazon.amazonvideo.livingroom"]
+#     "stock_home_redirect": "com.google.android.apps.tv.launcherx"
+#   XGIMI's xrmservice re-enables the disabled stock launcher on every one of its remote keys
+#   (docs/TROUBLESHOOTING.md). app_keys takes YouTube (F4), Netflix (F9) and Prime Video (F8) away from it.
+#   The programmable button (F5, mute by default), the profile button (F6, whose chooser lived in the stock
+#   launcher) and power (F11) still revive it: stock_home_redirect sends its home screen back, and
+#   re-applying this list disables it again.
+# - HDMI 1 opens through com.google.android.tv.inputplayer from the Inputs menu, so no input_action is needed
+#   (unlike the Horizon S Pro).
+# - The default Backdrop screensaver (dreamx) is disabled below: point the screensaver at
+#   com.android.dreams.basic/.Colors first, or it has nothing to show.
+# - Check who owns the saved Wi-Fi network before setupwraith is disabled (TROUBLESHOOTING, "drops off Wi-Fi for
+#   good"): on this unit the network set up during first-run setup disappeared and had to be joined again.
+# - Screenshots from `screencap -p` start with a vendor log line ("Init wrapper sys mutex ..."): strip
+#   everything before the PNG signature.
+#
+# DO NOT DISABLE on this model (projector hardware, inputs, mirroring):
+# com.xgimi.autokst                    # auto keystone correction
+# com.xgimi.windowsystem               # keystone/window service
+# com.xgimi.tof                        # ToF autofocus
+# com.xgimi.misckey                    # remote keys, focus/keystone shortcuts
+# com.xgimi.uiconfiguration            # global key receiver, power listener
+# com.xgimi.xrmservice                 # global remote keys, picture/sound adaptation (re-enables the stock launcher, see above)
+# com.xgimi.xgimiservice               # core XGIMI system service
+# com.xgimi.autoinstall                # purpose unclear (PermissionRequestActivity only): kept
+# com.xgimi.overseas.xgimiatvbootwizard  # first-boot wizard
+# com.mediatek.tvinput                 # HDMI input service
+# com.mediatek.tv.service              # TV service, Netflix key receiver
+# com.google.android.tv.inputplayer    # HDMI passthrough player and input switcher
+# com.nbcast.wirelessscreen            # MagiCast: the screen-mirroring receiver ("Mogo3Pro" in a phone's list)
+
+# Store demo, factory and test tools
+fusion.android.tv.demo                 # RetailDisplay store demo
+com.xgimi.atvwifiverify                # factory Wi-Fi verification
+com.xgimi.minitvfactory                # factory menu, file transfer and burn-in services
+
+# Telemetry and feedback
+com.xgimi.bugreportsender              # XGIMI bug report uploader
+com.google.android.feedback            # Google feedback
+
+# Google TV setup wizard (claims HOME on Google TV 14; re-enable before a factory reset)
+com.google.android.tungsten.setupwraith
+
+# Google content and preloads
+com.google.android.apps.tv.dreamx      # Google TV Ambient / Backdrop screensaver
+com.google.android.videos              # Play Movies
+com.google.android.play.games          # Play Games
+com.google.android.marvin.talkback     # TalkBack (accessibility)
+
+# Streaming apps (off by choice)
+air.ITVMobilePlayer                    # ITVX
+
+# Voice, casting, phone remote (off by choice)
+com.google.android.katniss             # Google Assistant / Gemini voice search
+com.google.android.tv.assistant        # assistant LED service
+com.google.android.apps.mediashell     # Chromecast built-in
+com.google.android.tv.remote.service   # Google TV phone remote
+
+# XGIMI extras (off by choice)
+com.xgimi.screensaver                  # XGIMI Atmosphere screensaver / ambient scenes
+com.xgimi.ota.accessories              # firmware updates for remote, speaker, curtain
+com.xgimi.gimiplayer                   # local video/photo player
+com.xgimi.doubanfm                     # XGIMI music app, speaker-mode screen

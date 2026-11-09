@@ -8,10 +8,32 @@
   user starts: choosing a folder of APKs on the Sideload tab, and saving a file
   pulled off the TV. macOS shows the string below when it asks, so the prompt
   explains itself instead of arriving unattributed (GitHub #89).
+
+  macOS 15+ also asks before the app, or the adb server it starts, reaches
+  anything on the local network; adb's traffic counts as the app's (Apple
+  TN3179). NSLocalNetworkUsageDescription is the text in that alert.
+  NSBonjourServices lists the service types adb browses for, as TN3179 asks of
+  any app whose local network use involves browsing specific Bonjour services.
 -->
 <plist version="1.0">
   <dict>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ATV Optimizer finds and connects to your Android TVs on the local network so you can manage them with ADB.</string>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_adb._tcp</string>
+      <string>_adb-tls-connect._tcp</string>
+      <string>_adb-tls-pairing._tcp</string>
+    </array>
     <key>NSRemovableVolumesUsageDescription</key>
     <string>ATV Optimizer reads a removable volume only when you pick a folder of APKs to sideload, or save a file you pulled off your TV. Declining does not affect anything else in the app.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>ATV Optimizer connects to your TV over your local network using ADB, to find it, read its apps and apply the changes you choose.</string>
+    <key>NSBonjourServices</key>
+    <array>
+      <string>_adb._tcp</string>
+      <string>_adb-tls-connect._tcp</string>
+      <string>_adb-tls-pairing._tcp</string>
+    </array>
   </dict>
 </plist>

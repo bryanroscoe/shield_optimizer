@@ -22,28 +22,114 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
-**Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
-restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
-still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use
-platform-tools; native Rust ADB remains experimental.
+- Desktop: **Optimize no longer has "Select all safe."** Most apps rated Safe to remove are ones someone here installed, so each is now armed by hand. Keep all stays. Restore mode gains **Re-enable all disabled**, which arms Enable on every disabled catalog app, since turning apps back on is the safe direction.
+- Desktop and Android: 36 apps people install by choice are now marked **remove only if unused**: media players and clients (VLC, Kodi, SmartTube, TizenTube, Jellyfin, Stremio, MX Player, Plex Media Server), game streaming and emulation (Moonlight, Artemis, Steam Link, RetroArch), screensavers (Aerial Dream, Aerial Views), file managers and transfer tools (X-plore, Solid Explorer, Cx File Explorer, Send Files to TV, Downloader), ADB and settings tools (ADB TV, SetEdit, Button Mapper), VPNs (Tailscale, WireGuard, Surfshark), TV Bro, and streaming and sports apps (ESPN, FOX One, Channels, CBS Sports, Hoopla, Kanopy, Movies Anywhere, HDHomeRun, TBS, TNT). They start at Keep with a "Review: … if unused" label. Safety ratings and removal methods are unchanged. See `docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md`.
+- Desktop: Optimize drops the usage-review and snapshot banners. One line above Run says what can be undone: Disable with Restore mode, while Uninstall can't always be undone. A row set to Uninstall says how to get that app back (the Play Store, a sideload's source site, or nowhere for a discontinued service), and so does its confirmation. The details are under "Undoing a run". Last-used dates stay in each row.
+- Desktop: after a run changes the TV, Optimize offers **Save this setup as a snapshot**, for setting the TV up the same way again after a reset. Its help explains that applying it disables every recorded app with no per-app choice and can't undo a run. Run waits while the snapshot saves, and cancelling the name prompt no longer saves an unnamed snapshot (on the Snapshot tab too).
+- Desktop: Health no longer shows "No snapshot saved yet — save one before you change anything". A snapshot doesn't protect a change, and the check counted snapshots from every TV.
+- Android: the TV list shows each TV's name again on Android 13 and older, where every row said "Name unavailable". The app asks each TV it finds for its Cast name over the local network; the name is only shown, never used to identify a TV.
+- Expand Optimize with sixteen reviewed optional apps from the imported catalog, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
+- Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
+- **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
+- Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
+- Desktop and Android: **restoring a snapshot keeps a Home screen.** Restore sets the snapshot's Home app first and checks the TV's Home apps again before disabling each launcher. A launcher that is the last enabled Home app stays on, and so does any possible Home app when the TV can't list its Home apps; the result names each one and why. Before, a snapshot whose launcher was missing or couldn't be set could leave the TV with no Home screen.
+- Desktop and Android: restore never re-enables anything. A snapshot launcher that is installed but disabled on this TV is skipped ("enable it first, then restore") instead of being turned back on.
+- Desktop: the restore preview shows a skipped Home app and every package kept on for Home among the unchanged rows, and never calls Home unchanged when it was skipped. The result lists kept packages apart from failures and shows why Home wasn't set.
+- Desktop and Android: disabling a launcher, and the last-Home check in App List and Optimize, refuse when the TV's Home apps can't be read instead of guessing. Android 8 can't list them, so on Android 8 a catalog launcher, the stock one included, can't be disabled from the app.
+- Desktop: on the Launcher tab, Disable is off for the stock launcher while the TV doesn't report its current Home app, with the reason on its row. The rest of the list still loads.
+- Desktop and Android: saving a snapshot fails when the TV's disabled-app list can't be read, instead of saving one that records none. Emergency Recovery shows that read error instead of "nothing to restore".
+- Desktop and Android: App List, Optimize, Launcher, snapshots and Emergency Recovery read packages for the main user (user 0), the same user every action changes (#233).
+- Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
+- Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
 
-- Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
-- Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
-- Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
-- Desktop and Android: include the already-redacted Report this app note in the GitHub form's Details field, while preserving the manual-paste fallback for long reports (#258).
+### Built-in ADB
 
+- **Desktop now connects to your TVs with its own built-in ADB**, the same Rust code the Android app uses, instead of Google's `adb` and its background server. Nothing to download first. Scan LAN, Add by IP and Pair PIN work as before.
+- **No new "Allow USB debugging?" prompt for TVs that already allow Google's `adb` on this computer.** The built-in engine uses platform-tools' key when there is one, and only reads it, and one approval covers both engines.
+- **Request approval opens a pop-up** with the TV's name, a pulsing TV and one instruction: tick Always allow from this computer, then choose Allow. It closes by itself once the TV connects, says so when the wait ends without approval (with Try again), and shows the real error if the TV couldn't be asked. Closing it keeps waiting, and a reopened pop-up says how long is left; only Cancel request (or Forget) stops. The row stays compact, with a "Waiting for Allow" tag and Show request to reopen it, and says how a request ended if the pop-up was closed by then.
+- **Google platform-tools looks the same.** A TV that hasn't allowed this computer under platform-tools gets the same compact row instead of the old instruction box. Request approval asks it again and opens the same pop-up, which waits until the TV allows this computer.
+- **Test builds can Send logs.** The owner test packages send logs through the usual confirmation, each upload marked as that test build. They never send anonymous usage reports, and Settings says so.
+- **Scanning never puts a prompt on your TVs.** Scan LAN, Add by IP, retries and refreshes only try the keys a TV already allows. A TV that allows none stays in the list as **Not allowed yet**, named by its Cast name when it gives one, with a **Request approval** button. Only that button shows "Allow debugging?" on the TV, and the app then waits up to 10 minutes for you to choose Allow, with **Cancel** to stop. If the wait ends without approval, the row quietly goes back to Not allowed yet.
+- On a Mac, the first scan after installing finds TVs that don't announce themselves even when macOS hadn't let the app onto the local network yet: the subnet sweep runs once more after the network search instead of reporting nothing.
+- Scan details no longer offers addresses for TVs that are already in the list, and addresses from an old scan ask for a new scan instead of each reading "Expired".
+- **Switching back to platform-tools doesn't prompt either**: when the app starts the adb server, platform-tools also offers the built-in key, so TVs that allowed only Built-in connect as before.
+- **Fast Remote works with the built-in engine.** Presses reach the TV in milliseconds and holding a direction repeats. It falls back to slower shell input only if the fast channel can't start before a press, and never repeats a press whose result is unknown.
+- **Settings › ADB › ADB engine** switches between Built-in and Google platform-tools at any time, without relaunching, and remembers the choice. Use platform-tools for a TV connected by USB (built-in is network-only) or if a TV doesn't work well with the built-in engine. If the built-in engine can't set up its key, the app uses platform-tools and Settings says why.
+- Scan LAN connects to TVs as they answer instead of after the whole sweep, and keeps failed and duplicate addresses in Scan details rather than as extra TV cards. Two addresses are shown as one TV only when the TV reports the same hardware ID.
+- File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
+- macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
+- **Pair PIN connects by itself with the built-in engine**, as it does with platform-tools: after pairing, close the pairing dialog and the app waits up to 45 seconds for that TV's connect port. If the TV doesn't say which device it is while pairing, the app asks for the connect port straight away.
+
+## v2-2.5.0 — 2026-11-04
+
+ATV Optimizer now uses its own name everywhere and moves your settings and snapshots over on first launch. On a Mac, click **Allow** when macOS asks to find devices on your local network. TVs that disappeared after updating on a Mac are found again. Also new: a Settings screen, a support ID and Send logs to developer, each TV's support status, clearer connection errors, and Shell bookmark, App List and snapshot improvements.
+
+### The rename
+
+- **ATV Optimizer now uses its own name everywhere, and moves your data over on first launch.**
+  The app identifier is now `com.atvoptimizer.app` and the data folder is `ATVOptimizer`
+  (`~/Library/Application Support`, `%LOCALAPPDATA%` or `~/.local/share`). The first launch copies
+  your settings, saved snapshots, screenshots, logs and anonymous report ID (with your choice to
+  send reports or not) from the old `ShieldOptimizer` folder and the old WebView profile. Nothing
+  is moved or deleted, so the old copies stay where they were. If the copy can't finish, the app
+  keeps using the old folder and tries again next launch. The adb the app downloaded is not
+  copied; the app keeps using it from the old folder until you install platform-tools again.
+- macOS: the first launch asks again whether ATV Optimizer may find devices on your local
+  network, because that permission belongs to the app identifier. Click **Allow**. System
+  Settings › Privacy & Security › Local Network may then list ATV Optimizer twice; the old entry
+  is the previous version and can be left alone. Until you allow it, the adb server the previous
+  version left running can't reach your TVs; after you allow it, the app restarts that server.
+- Windows: installing this version with the `-setup.exe` installer, or updating in the app from
+  a setup install, closes and removes a leftover **Shield Optimizer** install (from 2.2.0 or
+  earlier) that the 2.3.0 update left beside ATV Optimizer, with its shortcuts and its
+  Add/Remove Programs entry, and points your Start menu, desktop and taskbar shortcuts at the new
+  program. Your settings and data are not touched. The `.msi` installer doesn't do this; remove a
+  leftover Shield Optimizer from Add/Remove Programs yourself (without ticking "Delete the
+  application data").
+- Windows: if you installed with the `.msi`, a taskbar pin from 2.4.1 or earlier still points at
+  the old program, which the upgrade removed, so it no longer opens the app. Unpin it and pin ATV
+  Optimizer again. Start menu and desktop shortcuts are updated. The `-setup.exe` installer moves
+  pins over itself; if one still doesn't open the app, re-pin it the same way.
+- macOS: a copy still named `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you
+  quit it, unless a Homebrew cask manages it or that name is taken. Homebrew users: the cask is
+  now `atv-optimizer`, and `brew upgrade` moves you over.
+- Linux (`.deb` and `.rpm`): after updating from 2.4.1 or earlier in the app, the app may not
+  reopen by itself, because the program is now `atv-optimizer`. Reopen it from your app menu.
+- The adb and subnet overrides are now `ATV_OPTIMIZER_ADB` and `ATV_OPTIMIZER_SUBNET`. The old
+  `SHIELD_OPTIMIZER_*` names still work.
+
+### Connections
+
+- macOS: TVs no longer disappear after an update. The ADB server the previous version started kept running, and once the new version opened, macOS cut that server off from your network: every connection failed with "No route to host", even by IP, until ADB was restarted by hand. When the app can reach a TV that ADB can't, it now restarts ADB itself and tries again. The app is also signed under its own identifier now, instead of one that changed with every build.
+- macOS: the app now asks for Local Network access when it starts, and says why, instead of the request coming from adb partway through the first scan. While macOS is blocking it (every TV then fails with "No route to host", even by IP, though adb in Terminal still works), Devices says so and offers to open Privacy & Security, where Local Network is, and the notice clears once access is on. A "No route to host" connect or pair failure on a Mac suggests Restart ADB, since macOS can cut off an ADB server an earlier version left running after an update, and points at Local Network settings only when the app's own check can't rule a block out.
+- Connection help opens automatically when discovery finishes with no devices and recommends Restart ADB, with confirmation before restarting the shared server.
+- Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
+
+### Added
+
+- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
 - Desktop and Android: show each TV's support status (Fully supported, Supported, Beta, Not supported, Not verified) with a one-line explanation, and a clear banner on TVs the app doesn't support, such as Amazon Fire TV. The status is informational and never loosens a safety check.
 - Desktop and Android: anonymous device and error reports, on by default with a one-time notice and a setting to turn them off. Reports carry the TV's make, model and Android version and which actions worked; never serial numbers, IP addresses, TV names, app lists or file paths.
 - Desktop and Android: errors in connect, scan, pairing, app changes, Optimize and snapshot restore now show a plain-language message, a short error code and a Copy details button.
 - Desktop and Android: when Scan LAN or wireless discovery finds nothing, or a TV is listed but gives no details (unauthorized, offline, or a blank make and model), the anonymous report now says what the app saw: counts and timings, the adb version and where it came from, what mDNS found and how many network interfaces there are, never an address, serial or name.
 - Desktop: a support ID (the first eight characters of the random report ID, such as `7D0B-0B9E`) is shown in Settings › Privacy & diagnostics and in the Report a bug dialog while reports are on, and is included in the bug report, so the developer can find your reports when you ask for help. Failure reports from the desktop app also carry a short, redacted excerpt of its connection log, at most 20 a day.
 - Desktop: Send logs to developer, in Settings › Privacy & diagnostics, uploads a redacted summary and the last 256 KB of the app's log under your support ID, only when you press it and confirm. It works with reports off. Logs are deleted after 30 days.
+- Desktop: edit the name and command of custom Shell bookmarks, and add built-in bookmarks for uninstalling a package and listing all, enabled, system, or APK-path packages. Package bookmarks target Android user 0 (#259, #262).
+- Desktop: filter the App List to enabled or disabled packages, including other installed apps. App inventory now targets user 0 to match package actions (#261, #233).
+- Desktop: add clearly labeled Delete controls to both snapshot lists, with confirmation and error handling. Deleting a local snapshot does not change the TV (#260).
+- Desktop and Android: include the already-redacted Report this app note in the GitHub form's Details field, while preserving the manual-paste fallback for long reports (#258).
 
-- Desktop: verify the exact ADB transport before reporting Add by IP, Scan LAN or restart reconnection success. Keep authorization prompts distinct from offline failures, retain scan failure details, and retry an unchanged failed Add by IP once after an explicitly confirmed server restart, even if another TV remains offline (#235).
+### Changed
 
 - Desktop: move optional explanations into keyboard-accessible help sections while keeping safety warnings, permission consequences and errors visible.
+- Settings explanations now open from question-mark help controls, keeping the default screen compact while retaining privacy and ADB warnings at confirmation.
+- Log-upload errors no longer assume your internet connection caused a server failure.
+- Center snapshot actions against each saved snapshot, keep wrapped actions grouped, and polish snapshot tables, file actions, Shell controls and narrow Settings/header layouts. Remove the duplicate support-badge tooltip that widened narrow windows.
 
-- Desktop: a Settings screen (the gear in the header) gathers anonymous reports, your support ID to quote when reporting a problem, Send logs to developer, theme, auto-update, ADB and debug logging in one place.
+**Known issue — ADB discovery and reconnection:** this batch improves Scan LAN, Add by IP and
+restart recovery. Physical confirmation of the SHIELD/macOS failure in [#235](https://github.com/bryanroscoe/shield_optimizer/issues/235) is
+still outstanding, so it is not a confirmed fix for that report. The desktop app continues to use
+platform-tools; native Rust ADB remains experimental.
 
 ## v2-2.4.1 — 2026-10-23
 

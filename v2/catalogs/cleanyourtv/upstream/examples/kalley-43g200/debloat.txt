@@ -1,0 +1,47 @@
+# Kalley 43G200 (device R3_GTV, product KALLEY, made by MOKA), Google TV on Android 14, firmware UKR1.250803 (2501)
+# Realtek RTD2841A (board rt2841a), 1.5 GB RAM. The remote reports as RC860G.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/kalley-43g200/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/kalley-43g200/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV and inputs: com.realtek.tv.
+#
+# Do not disable launcherx or com.google.android.tungsten.setupwraith on this TV. The firmware re-enables
+# setupwraith early in every boot, so with launcherx off its RecoveryActivity takes Home on the next reboot.
+# On 2026-10-19 that boot-looped the set at the Google TV logo with no ADB and no reachable recovery
+# (persist.sys.disable_rescue=true); only a USB reflash fixed it. Re-tested 2026-10-20 with only these two
+# disabled: setupwraith came back at boot, the screen stayed black and RecoveryActivity was started ~600
+# times in the first minute; ADB was up that time, and `pm enable --user 0 com.google.android.apps.tv.launcherx`
+# fixed it. Install the launcher with STOCK_LAUNCHER=none and open it from the app row.
+#
+# These disable fine but come back enabled at every boot, so they are not listed:
+# com.google.android.feedback, com.apps.esticker3, com.google.android.apps.tv.dreamx,
+# com.google.android.marvin.talkback, com.google.android.play.games, com.google.android.partnersetup,
+# com.mk.tv.meeting.service, com.apps.tvmanager, com.apps.biz.ds, com.mk.tv.timeclock.
+#
+# Tested on one set on 2026-10-20, rebooting after each group: Home, HDMI, Assistant and casting work.
+# Fresh, not yet lived with for days; update it if something breaks.
+
+# Telemetry
+com.android.tv.feedbackconsent
+
+# Android ad and personalisation services
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Manufacturer content
+com.realtek.leanbacklauncher.partnercustomizer # partner config that injects apps and rows into the home screen
+
+# Not needed on a TV
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+com.apps.wifihotspot                           # MOKA hotspot app
+com.android.printspooler
+
+# KEEP: com.google.android.apps.tv.launcherx, com.google.android.tungsten.setupwraith (see above),
+#       com.android.sdksandbox, com.apps.ota, com.apps.authota, com.realsil.ota (firmware and remote updates),
+#       com.apps.sys, com.mk.service.tvmidware and the key handlers (com.apps.android.globalkeyhandler,
+#       com.apps.virtualkey, com.mk.tv.fivekey, com.apps.smartkey, com.realtek.keyinterceptserver),
+#       com.apps.bluetoothremote, every com.realtek.tv*, com.realtek.dtv, com.realtek.dtmb.

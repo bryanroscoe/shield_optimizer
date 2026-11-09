@@ -1,0 +1,119 @@
+# NVIDIA SHIELD TV 2019 tube (model P3430, codename sif, Tegra X1+, 2 GB RAM), Android TV 11 (API 30)
+# Tested on build RQ1A.210105.003.7825199_4387.0822 (SHIELD Experience 9.2.4), security patch 2026-01-05.
+# Second unit: another P3430 on the same build and patch level ran this list for three days
+# (2026-10-30 to 2026-11-02) with this repo's launcher, firmware updates and Ambient mode kept on, and
+# com.google.android.videos added. Nothing broke.
+# Based on examples/nvidia-shield-tv-pro-2019/debloat.txt. Every active line below is disabled on the
+# reporter's unit, with the items they already had disabled left commented out.
+#
+# Apply:   TV_HOST=<shield ip> tools/disable.sh examples/nvidia-shield-tv-2019/debloat.txt
+# Undo:    TV_HOST=<shield ip> tools/restore.sh examples/nvidia-shield-tv-2019/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Connecting: Developer options -> "Network debugging" opens ADB on port 5555. The tube has no USB
+# ports at all, so there is no cable route and nothing loses power while debugging is on.
+#
+# Launcher: run launcher/build-and-install.sh before this list; it installs the launcher and hands
+# Home over by disabling com.google.android.tvlauncher, which is the last line here. As on the Pro,
+# the stock launcher's Home filter has priority 2 and this repo's has 0, so `cmd package
+# set-home-activity` does nothing while the stock launcher is still enabled. setupwraith is not a
+# Home candidate here either. The unit this list came from runs Glass Launcher (au.busby.glasslauncher)
+# rather than this repo's launcher; the stock launcher has to go for either of them to take over.
+# A Shield has no HDMI inputs and no tuner, so the launcher's Inputs pill has nothing to list.
+# On that unit location is on (location_mode=3) and the launcher holds ACCESS_FINE_LOCATION, so the
+# network pill shows the network name; with location off it says "Wi-Fi".
+#
+# Differences from the Pro example, by the owner's choice:
+# - Firmware updates: the first unit had com.nvidia.ota, NvCPLUpdater and KeyComboOta off; the second kept
+#   all three on with no problems. Their lines are comments below, so the list keeps NVIDIA's security
+#   patches coming; uncomment them only if you want updates off.
+# - Live Channels and Backdrop are off. The screensaver on that unit was already "Colors"
+#   (com.android.dreams.basic), so disabling Backdrop left a screensaver set.
+#   tools/disable.sh keeps com.google.android.tv enabled even though it is listed: it answers the
+#   channel VIEW intent, so the handler guard skips it ("the TV opens its HDMI/AV inputs and channels
+#   with it"). A SHIELD has no inputs for it to open, so once the rest of the list is in, disable it with
+#   one `pm disable-user --user 0 com.google.android.tv`.
+# - Kept: Prime Video, Chromecast built-in, Google Assistant and hotword, Alexa / Google Home control
+#   (com.nvidia.shield.ask), the SHIELD TV phone-remote app (com.nvidia.shield.remote.server).
+# - Not present on this unit: com.nvidia.nvgamecast, com.android.printspooler, com.nvidia.osc,
+#   com.google.android.katniss, com.google.android.play.games.
+#
+# Leave alone (same as the Pro example): com.nvidia.blakepairing, com.nvidia.bluetooth.*,
+# com.nvidia.shieldtech.accessoryui, com.nvidia.ControllerMapper, com.nvidia.remotelocator,
+# com.nvidia.irtuner, com.nvidia.NvCPLSvc, com.nvidia.nvaudiosvc, com.nvidia.avsync,
+# com.dolby.android.audio.service, com.nvidia.packagemanagerservice, com.android.tv.settings,
+# com.android.providers.tv, com.google.android.tv.remote.service, com.google.android.tungsten.setupwraith,
+# Play Services, keychain, com.android.se.
+#
+# Reported by @geekitup in issue #312, with a screenshot of the running setup.
+# Notes from that firmware:
+# - A SHIELD Experience update can re-enable packages; re-run this list afterwards.
+# - The remote's Netflix button is handled in firmware; disabling Netflix does not free it.
+
+# NVIDIA and Google telemetry and feedback
+com.nvidia.stats                       # anonymous usage statistics
+com.nvidia.feedback                    # crash reports and the "send feedback" form
+com.nvidia.diagtools                   # log collector; re-enable if NVIDIA support asks for logs
+com.nvidia.shield.registration         # product registration
+com.nvidia.developerwidget             # developer widget service
+com.nvidia.tegraprofiler.security      # Tegra profiler permissions
+com.nvidia.factorysyschecker           # factory test
+com.nvidia.factory                     # factory test mode
+com.nvidia.inputviewer                 # input test viewer
+
+# Sponsored rows, promos and auto-installs
+# com.google.android.tvrecommendations - keep it enabled. Disabled, Android stops binding the SHIELD TV
+#   phone app's input service (com.nvidia.shield.remote.server, virtualinput.InputService, a TvRemoteProvider)
+#   at boot: the app still connects, but every key fails ("Key injection failed", "Beyonder_VIS ...
+#   isInitialized=false"). Bisected with a reboot per step on a 2017 SHIELD (darcy) and confirmed on a
+#   2015/2017 one (foster_e), SHIELD Experience on Android 11 (docs/TROUBLESHOOTING.md). The sponsored rows it
+#   feeds only show on the stock home, which this list replaces anyway.
+android.autoinstalls.config.nvidia     # Play auto-installs of partner apps
+com.nvidia.shield.welcome              # first-run promo
+com.nvidia.factorybundling             # accessory bundle offers
+com.nvidia.shield.beta                 # beta programme
+com.nvidia.shieldbeta                  # beta programme
+
+# NVIDIA gaming leftovers
+com.nvidia.tegrazone3                  # "NVIDIA Games" app and row; GeForce NOW is a separate app
+
+# Preloaded apps and services
+com.android.gallery3d                  # legacy photo viewer ("Photos & Videos")
+com.nvidia.shield.nas                  # SHIELD as network storage
+com.nvidia.shield.smbserver            # "Transfer files over local network" SMB share
+com.nvidia.shield.smbauth              # SMB share authentication
+com.google.android.apps.nbu.smartconnect.tv  # Google data-saver VPN
+com.google.android.videos              # Google TV / Play Movies store app (second unit, three days, nothing broke)
+
+# Personal choice (the owner's picks)
+# com.nvidia.ota                       # firmware updates; off on the first unit by choice
+# com.nvidia.NvCPLUpdater              # control-panel updater, with the above
+# com.nvidia.KeyComboOta               # OTA key combo, with the above
+com.google.android.tv                  # Live Channels; re-enable for a network tuner (HDHomeRun, Channels)
+com.google.android.backdrop            # Ambient mode; screensaver on that unit is Colors, so nothing breaks
+# com.google.android.speech.pumpkin    # kept: on-device speech, needed by the mic button
+# com.google.android.apps.mediashell   # kept: Chromecast built-in
+# com.nvidia.shield.ask                # kept: Alexa / Google Home control
+# com.nvidia.shield.remote.server      # kept: SHIELD TV phone remote app
+# com.amazon.amazonvideo.livingroom.nvidia  # kept: Prime Video (system copy)
+# com.netflix.ninja                    # kept
+# com.google.android.youtube.tv        # kept
+# com.google.android.youtube.tvmusic   # kept
+
+# Idle stubs: no RAM saved, disabled for tidiness; nothing broke across a reboot
+com.android.dynsystem                  # Dynamic System Updates (GSI loader)
+com.android.hotspot2.osulogin          # Passpoint hotspot sign-in
+com.android.bluetoothmidiservice       # Bluetooth MIDI
+com.android.cts.ctsshim                # CTS test shim
+com.android.cts.priv.ctsshim           # CTS test shim
+com.google.android.onetimeinitializer  # runs once at first boot
+com.android.wallpaperbackup            # wallpaper backup agent
+
+# Already disabled before 2026-10-20 (not by this project). Left commented so restore.sh / restore.ps1
+# don't re-enable them; uncomment to manage them with this list.
+# com.google.android.feedback
+# com.google.android.partnersetup
+# com.nvidia.benchmarkblocker
+
+# Stock Android TV launcher: disabling it is what hands Home to the replacement launcher
+com.google.android.tvlauncher

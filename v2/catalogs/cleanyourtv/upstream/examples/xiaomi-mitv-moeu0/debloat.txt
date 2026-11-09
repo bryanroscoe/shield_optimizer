@@ -1,0 +1,98 @@
+# Xiaomi TV S Mini LED 75 2025, MiTV-MOEU0 (codename ladybird), Google TV / Android 14 (SDK 34),
+# firmware UKN1.240806.017.V816.0.25.12.1.ULBMIXM. MediaTek chipset, ro.adb.secure=1.
+# Stock launcher: com.google.android.apps.tv.launcherx. Live TV app: com.mitv.livetv, which the
+# launcher's Inputs menu hands HDMI 1-3 and Live TV to.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-moeu0/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-moeu0/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED for user 0, not uninstalled. Comment out any line you want to keep.
+#
+# Tested: disabled in batches of 1-7 with a screenshot after each, launcher from launcher/ installed
+# and owning Home, Inputs switches to HDMI (com.mitv.livetv comes up), Prime Video plays. A first-day
+# report, not the few days of living with it that CONTRIBUTING.md asks for.
+#
+# Second unit: sold as Xiaomi TV S Pro Mini LED 75 2026 (Thailand), same MiTV-MOEU0 / ladybird,
+# firmware UKN1.240806.017.V816.0.26.3.19.002.ULBMIXM. The list applied as is: 16 disabled on the first
+# run, setupwraith on the second. com.xiaomi.mitv.manualhelp is not installed on this firmware
+# (pm answers "Unknown package"). gtvpai stays enabled: disable.sh cannot read its permission block
+# here, so the input-driver check keeps it on. Launcher installed with HOME_KEY_SERVICE=1
+# INPUT_KEY_SERVICE=1, settings_key_keycodes 176 and app_keys 190:com.google.android.youtube.tv.
+# Checked on day one: launcher owns Home, also after a reboot; Netflix, Prime Video, YouTube, Apple TV,
+# Disney+, HBO Max, Spotify, NPO Start and Play Store open and Home returns from each; HDMI 1 opens in
+# com.mitv.livetv. The remote's own Input button is not checked yet.
+# On this unit the saved Wi-Fi network belonged to setupwraith (set up through the first-run wizard):
+# forgetting it and joining again in Settings > Network & Internet moved it to android.uid.system,
+# after which setupwraith was disabled and the TV stayed on Wi-Fi through a reboot.
+# Re-enabled on this unit by preference: com.mitv.tvhome.mitvplus (Xiaomi TV+ free channels). With
+# launcherx off it shows no banners, opens from its tile in the new launcher and plays; the remote's
+# TV+ button maps back to it with app_keys 192:com.mitv.tvhome.mitvplus (key_filter true only, see
+# below). It carries its own OneTrack analytics, so leave it disabled if that matters more than the
+# channels.
+# Held volume: with HomeKeyService and InputKeyService bound and key_filter true, holding Volume Up or
+# Down on the real remote stepped once per press (as on the MiTV-MOSR4, #944). key_filter false in
+# config.xml brought the ramp back with both services still bound, at the cost of the Settings (176),
+# YouTube (190) and TV+ (192) buttons, which then do nothing; their tiles and the Settings pill remain.
+#
+# Sideloading works, including apps that claim HOME, so the launcher half is possible.
+# HOME: setupwraith/.RecoveryActivity claims Home next to launcherx, so it is disabled below. On this
+# unit the saved Wi-Fi network belonged to android.uid.system, not setupwraith; check with
+# `dumpsys wifi | grep -o 'cname=[^ ]*'` before disabling it (disable.sh does).
+#
+# Remote buttons the stock launcher answered, which do nothing once it is disabled
+# (build-and-install.sh with INPUT_KEY_SERVICE=1 HOME_KEY_SERVICE=1):
+#   Settings/gear  keycode 176 (KEYCODE_SETTINGS)    settings_key_keycodes: 176
+#   YouTube        keycode 190 (KEYCODE_BUTTON_3)    app_keys: 190:com.google.android.youtube.tv
+#   Apps           keycode 284 (KEYCODE_ALL_APPS)    HomeKeyService
+#   Xiaomi TV+     keycode 192 (KEYCODE_BUTTON_5)    free once mitvplus is off, for app_keys
+# Netflix, Prime Video and Input kept working without changes.
+#
+# DO NOT DISABLE on this model, checked with dumpsys on the unit:
+#   mitv.service                 AccessibilityKeyService, TvServer, global key receiver
+#   com.mitv.overseaservice      Bluetooth remote service and the Netflix key
+#   com.mediatek.tv.agent        power, timers, global hotkeys, TV remote service agent
+#   com.mediatek.extservice      picture quality, CEC, audio, capture
+#   com.mitv.livetv              Live TV and HDMI playback
+#   com.xiaomi.tvqs.overseas.y24 quick settings panel
+#   com.mi.bluetooth             remote pairing
+# Kept by request: Chromecast (mediashell), Google Assistant (katniss), AirPlay and Miracast
+# (com.mediatek.AirplayAPK, com.xiaomi.mitv.smartshare, com.xiaomi.wfdsinkhelperservice), firmware
+# updates (com.mitv.upgrader, com.xiaomi.mitv.updateservice, com.mediatek.tv.systemupdater).
+#
+# Third unit: Xiaomi TV S Pro Mini LED 75 2026, EU (ELA6336EU), same MiTV-MOEU0 / ladybird and the same
+# V816.0.26.3.19.002 firmware, launcher only (this list not applied), installed from Windows with PowerShell.
+# The first Home handover failed because Home resolved to
+# com.google.android.tungsten.setupwraith/.RecoveryActivity, and the installer put launcherx back. After the
+# saved Wi-Fi network's owner was checked (see the second unit above), setupwraith was disabled with
+# tools/disable.ps1 and the installer run again: the launcher owns Home, also after a reboot (#3088).
+
+# Telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+com.android.tv.feedbackconsent
+com.google.android.feedback
+
+# Content, ads and recommendations
+com.mitv.tvhome.michannel                    # recommendation channels, Firebase
+com.mitv.tvhome.mitvplus                     # Xiaomi TV+ promo banners
+com.mitv.tvhome.oemtab
+com.mitv.tvhome.atv                          # banner tiles
+com.xm.webcontent
+com.xiaomi.mitv.manualhelp
+android.autoinstalls.config.google.gtvpai    # Play auto-installs
+
+# Cleaner with Firebase analytics
+com.xiaomi.mitv.tvmanager
+
+# Preloaded apps
+com.google.android.youtube.tvmusic
+com.google.android.play.games
+com.xiaomi.mimusic2
+com.mitv.gallery
+com.mitv.videoplayer
+com.xiaomi.mitv.mediaexplorer
+
+# Setup wizard; takes Home once launcherx is off
+com.google.android.tungsten.setupwraith
+
+# Stock launcher; build-and-install.sh disables it once the new launcher owns Home
+# com.google.android.apps.tv.launcherx

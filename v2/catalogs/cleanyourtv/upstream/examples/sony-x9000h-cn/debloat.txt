@@ -1,0 +1,87 @@
+# Sony BRAVIA X9000H (China), device BRAVIA_VH1_CN / product BRAVIA_VH1, MediaTek MT5895
+# Android 12 (Android TV, API 31), build BRAVIA_VH1_CN-user 12 STT2.230505.001.S89 625561 release-keys
+# China firmware (ro.com.google.clientidbase=android-sonyfy20-tv): no GMS, no Play Store and no
+# Google TV launcher. 2.9 GB RAM, armeabi-v7a only, security patch 2025-09-01.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-x9000h-cn/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-x9000h-cn/debloat.txt com.dangbei.TVHomeLauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher/Home:
+#   com.dangbei.TVHomeLauncher/com.dangbei.leard.leradlauncher.ui.sony.main.MainActivity
+#   (当贝桌面 "电视桌面"; system priv-app /system/system_ext/priv-app/ChinaHome.apk)
+# It is NOT in build-and-install.sh's KNOWN_STOCK_LAUNCHERS, so install the reference launcher with
+# STOCK_LAUNCHER=none and leave Dangbei enabled as the fallback; `cmd package set-home-activity` was
+# used explicitly. Home survived a reboot.
+# Live TV / tuner app: com.sony.dtv.tvx (.MainActivity). Keep com.sony.dtv.tvinput.*, tvapi,
+# sonysystemservice, sonyvendorservice, settingsprovider, systemupdate/update, braviasync*,
+# partnerkeycn (enclave/DRM keys), preinappfiltering and all com.mediatek.*: they drive HDMI, the
+# tuner, DRM, OTA, CEC and the remote.
+# Kept by owner's choice: com.sony.dangbeimarket (应用中心, the Dangbei app store),
+# com.hpplay.happyplay.aw (乐播投屏/HappyCast, the only casting path without Google Cast) and
+# com.dangbei.TVHomeLauncher (fallback Home). Preinstalled content apps (银河奇异果, 芒果TV,
+# NewTV极光, 央视频TV, CIBN酷喵, 油桃TV) are not listed either; disable them individually if unused.
+# Already disabled at the factory: com.sony.dtv.mysony, livingfit, iot, b2b.vendorprotocol, b2b.softap.
+#
+# Quirks on this firmware:
+# - There is no tv.samba.ssm, no com.google.android.feedback and no
+#   com.sony.dtv.promos/sonyselect/sonytab. The Sony ACR/ad-ID stack is absent on this China build;
+#   ad surfaces are the Dangbei home/store, HappyCast and the preinstalled content apps.
+# - com.sony.dtv.b2b.hotelmode is PERSISTENT: pm disable-user marks it disabled and its components
+#   stop, but system_server still starts the process at boot (~6 MB PSS). Reboot-checked.
+# - com.sonyericsson.idd.agent can be disabled, but the native iddd / idd-logreader daemons
+#   (vendor.semc.system.idd) keep running; only root stops them.
+# - KEYCODE_TV_INPUT opens the system input panel without the launcher's InputKeyService.
+# - ro.product.model / ro.product.device report "BRAVIA VH1"/"BRAVIA_VH1"; only the fingerprint and
+#   build display id carry the _CN suffix.
+# - Reboot-checked and used for several days without issues. If something breaks,
+#   `pm enable <package>` and please open an issue.
+
+# telemetry and remote support
+com.qterics.da.product                  # Qterics device agent
+com.sony.dtv.da.service                 # remote-support session service
+com.sonyericsson.idd.agent              # Sony IDD usage-data agent
+com.sony.dtv.usercontext                # user context providers, boot receiver only
+com.sony.dtv.sonybugreportsys           # Sony bug-report/log uploader
+
+# demo / shop mode
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+
+# help content: the Settings help tiles disappear
+com.sony.dtv.customersupport
+com.sony.dtv.smarthelp
+com.sony.dtv.helpguidecontents
+
+# no camera on this model (BRAVIA CAM / sensing camera)
+com.sony.dtv.gestureapp
+com.sony.dtv.sensingcamera.fwupdate
+com.sony.dtv.sensingcamera.settings
+com.sony.dtv.sensingfusionservice
+com.sony.dtv.videochatrecord
+
+# features the owner did not use
+com.sony.dtv.distancealert
+com.sony.dtv.ecodashboard
+
+# China-only bloat
+com.jd.smartservicetwo                  # JD SmartService
+
+# hotel / B2B mode (consumer set; 13 packages)
+com.sony.dtv.b2b.adminpassword
+com.sony.dtv.b2b.deviceadminsettings
+com.sony.dtv.b2b.frameworkextension
+com.sony.dtv.b2b.hotelmode              # PERSISTENT process survives a reboot; components disabled
+com.sony.dtv.b2b.importexport
+com.sony.dtv.b2b.ipcontrolsettings
+com.sony.dtv.b2b.noderuntime.normal
+com.sony.dtv.b2b.noderuntime.privilege
+com.sony.dtv.b2b.noderuntimeextension.bpk
+com.sony.dtv.b2b.noderuntimeextension.node_20_11_1
+com.sony.dtv.b2b.prosettings
+com.sony.dtv.b2b.rs232csupport
+com.sony.dtv.b2b.webappruntimedrm
+
+# kids profile
+com.sony.dtv.kidsprofileadapter

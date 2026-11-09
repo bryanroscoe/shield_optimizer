@@ -1,0 +1,83 @@
+# TCL 65C725 (reports as "Smart TV Pro", device BeyondTV4), Android TV 11 (SDK 30),
+# build RP1A.200622.001 release-keys. Turkey/EU retail unit.
+# Likely a good starting point for other TCL Android TV 11 sets of the same C-series era.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-65c725/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-65c725/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher — the launcher/ in this repo replaces it, and the
+# restore.sh / build-and-install.sh defaults are already correct for this TV (no arg needed).
+# Live TV app: com.tcl.tvinput — kept (it also owns HDMI/antenna playback). Hide its tile in the
+# launcher config if you like; the Inputs menu covers it.
+#
+# Applied and re-verified on a real unit on 2026-10-18: Wi-Fi stayed up and Home, the Inputs
+# dropdown and app launches all worked after the full list.
+#
+# Known quirks on this firmware:
+# - Android 11 package visibility: the launcher in this repo needs a <queries> block for
+#   MAIN+LEANBACK_LAUNCHER intents or its app grid comes up empty (verified with that patch).
+# - screencap writes an empty file while Live TV/HDMI is on screen. Press Home first.
+# - com.tcl.tv is deliberately NOT disabled here: it also hosts HbbTV and the Eva voice plumbing.
+#
+# DO NOT DISABLE on TCL (load-bearing):
+# com.tcl.providers.config             # disabling this is reported to drop the Wi-Fi connection
+# com.tcl.initsetup                    # setup/provisioning, same Wi-Fi role
+# com.tcl.factory.view                 # factory wizard, same role
+# com.tcl.system.server                # remote-key plumbing
+# com.tcl.tcl_bt_rcu_service           # Bluetooth remote pairing
+# com.tcl.autopair                     # Bluetooth remote auto-pairing
+# com.tcl.tvinput                      # Live TV tuner + HDMI inputs
+# com.tcl.settings                     # settings app
+# com.tcl.inputmethod.international    # keyboard
+
+# TCL telemetry, promos and preload plumbing
+com.tcl.bi                             # TCL analytics (BI service, deviceinfo, ParamProvider)
+com.tcl.dashboard                      # TCL dashboard/promo backend (G10 example keeps it)
+com.tcl.esticker                       # sticker/emoji overlay
+com.tcl.partnercustomizer              # partner/customization channel, promo rows
+com.tcl.useragreement                  # end-user agreement screen, done with it after setup
+com.tcl.messagebox                     # TCL message/promo box
+com.tcl.overseasappshow                # "recommended apps" showcase
+com.tcl.android.webview                # falls back to com.google.android.webview anyway
+android.autoinstalls.config.tcl.device # partner-app auto installer config
+
+# Google recommendation/attribution plumbing
+com.google.android.tvrecommendations   # home-screen recommendation rows (pointless under a custom launcher)
+com.google.android.partnersetup        # partner-app attribution
+com.google.android.feedback            # "send feedback" app
+com.google.android.onetimeinitializer  # one-time setup leftovers
+
+# Extras — verified fine here, but the least noticeable ones. Skip if uneasy.
+com.tcl.guard                          # TCL online support
+com.tcl.keyhelp                        # remote-key help overlays
+com.tcl.tv.tclhome_passive             # pushes TCL content to the TCL home at boot
+com.google.android.syncadapters.calendar
+com.google.android.tungsten.setupwraith # Google first-run wizard, setup already done
+
+# Off by choice on this unit
+com.tcl.assistant                      # TCL voice assistant — comment out if you use the mic button
+# com.tcl.versionUpdateApp             # TCL OTA updater — uncomment to freeze firmware updates
+
+# Already disabled when this unit arrived; left as-is (not re-tested here, so commented out).
+# com.google.android.tvlauncher        # stock launcher, replaced by launcher/ in this repo
+# com.google.android.katniss           # Google search/voice — keep if you use the mic button
+# com.google.android.apps.mediashell   # Cast receiver — keep if you cast from a phone
+# com.google.android.videos            # Play Movies
+# com.google.android.youtube.tvmusic
+# com.google.android.play.games
+# com.tcl.browser
+# com.tcl.channelplus                  # TCL FAST channels
+# com.tcl.gallery
+# com.tcl.miracast                     # screen mirroring — keep if you use it
+# com.tcl.smartalexa
+# com.tcl.notereminder
+# com.tcl.waterfall.overseas
+# com.tcl.MultiScreenInteraction_TV    # multi-screen casting framework
+# org.chromium.webview_shell
+# tv.wuaki.apptv                       # Rakuten TV
+# com.graymatrix.did                   # ZEE5
+# com.kick.mobile
+# au.com.stan.and                      # Stan (AU)
+# com.rma.speedtesttv
+# com.recisio.kfandroid                # KaraFun karaoke

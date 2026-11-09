@@ -1,5 +1,5 @@
 // App List and the Optimize wizard against the captured Shield's real
-// package list: build a plan, arm only Safe rows, run it, check the device,
+// package list: build a plan, arm rows by hand, run it, check the device,
 // restore it, and keep a "Keep" decision tied to the hardware id.
 
 import { SHIELD, shieldScenario } from "../lib/worlds.mjs";
@@ -13,25 +13,52 @@ function diff(after, before) {
   return after.filter((p) => !before.includes(p));
 }
 
+// Apps on the captured Shield that people install by choice. Its default
+// bloat is already disabled, so nothing is armed until a person picks a row,
+// and there is no bulk "arm everything safe" to do it for them.
+const CHOSEN = ["VLC", "Moonlight Game Streaming", "Send Files to TV"];
+
+async function waitForPlan(page) {
+  await page.getByRole("button", { name: "Keep all" }).waitFor();
+  await page.waitForLoadState("networkidle");
+}
+
+async function arm(page, names, action) {
+  for (const name of names) {
+    await page
+      .getByRole("group", { name: `Action for ${name}`, exact: true })
+      .getByRole("button", { name: new RegExp(`^${action}`) })
+      .click();
+  }
+}
+
+async function armedCount(page) {
+  const text = await page.getByText(/rows are armed/).innerText();
+  return Number(text.match(/(\d+) of \d+ rows are armed/)[1]);
+}
+
 export const scenarios = [
   {
-    name: "optimize-select-all-safe-run-restore",
+    name: "optimize-arm-review-rows-run-restore",
     async run(ctx) {
       await ctx.reset(shieldScenario());
       const before = (await ctx.device(SHIELD.serial)).packages;
       await ctx.openDevice(SHIELD.key, "optimize");
       const page = ctx.page;
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
-      await ctx.step("plan built from the device");
+      await waitForPlan(page);
+      ctx.assert.equal(await page.getByRole("button", { name: /Select all/ }).count(), 0, "no bulk arm control");
+      ctx.assert.equal(
+        await page.getByRole("button", { name: "Re-enable all disabled" }).count(),
+        0,
+        "the bulk re-enable is Restore's alone",
+      );
+      ctx.assert.equal(await armedCount(page), 0, "user-chosen apps start at Keep");
+      await ctx.step("plan built from the device, nothing armed");
 
-      await page.getByRole("button", { name: "Keep all" }).click();
-      await page.getByRole("button", { name: "Select all safe" }).click();
-      const armedText = await page.getByText(/rows are armed/).innerText();
-      const armed = Number(armedText.match(/(\d+) of \d+ rows are armed/)[1]);
-      ctx.assert.ok(armed > 0, "select all safe armed something");
-      await ctx.step(`select all safe armed ${armed} rows`);
+      await arm(page, CHOSEN, "Disable");
+      const armed = await armedCount(page);
+      ctx.assert.equal(armed, CHOSEN.length, "exactly the rows picked are armed");
+      await ctx.step(`armed ${armed} rows by hand`);
 
       await page.getByRole("button", { name: /^Run plan/ }).click();
       await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
@@ -51,15 +78,47 @@ export const scenarios = [
       const handlers = (await ctx.device(SHIELD.serial)).home.handlers;
       ctx.assert.ok(handlers.some((h) => !h.includes("FallbackHome")), "the TV still has a Home app");
 
-      // Restore re-enables what the run disabled.
+      // The run changed the TV, so saving that setup is offered, and the
+      // offer saves it.
+      const offer = page.getByRole("button", { name: "Save this setup as a snapshot" });
+      await offer.waitFor();
+      await ctx.step("snapshot offered after the run");
+      await offer.click();
+      await page.getByRole("button", { name: "Snapshot saved" }).waitFor();
+      ctx.assert.match(await page.locator(".snapshot-result").innerText(), /^Saved /, "the offer reports the save");
+      ctx.assert.ok(
+        ctx.dialogs.some((d) => d.type === "prompt" && /Name this snapshot/.test(d.message)),
+        "the save asked for a name",
+      );
+      await ctx.step("snapshot saved from the offer");
+
+      // The plan is not reloaded, so VLC is still armed. Disabling it again
+      // changes nothing, and there is nothing new to save.
+      const offers = page.getByRole("button", { name: /^(Save this setup as a snapshot|Snapshot saved|Saving…)$/ });
+      await page.getByRole("button", { name: "Keep all" }).click();
+      await arm(page, [CHOSEN[0]], "Disable");
+      await page.getByRole("button", { name: /^Run plan/ }).click();
+      await page.getByText(/Optimize complete: 1 applied/).waitFor({ timeout: 60_000 });
+      ctx.assert.equal(await offers.count(), 0, "no offer after a run that changed nothing");
+      await ctx.step("no offer after a run that changed nothing");
+
+      // Restore re-enables what the run disabled. Turning apps back on is the
+      // safe direction, so Restore can arm every disabled row at once.
       const disabledByRun = diff(after.disabled, before.disabled);
+      ctx.assert.equal(disabledByRun.length, CHOSEN.length, "the run disabled the picked rows");
       await page.getByRole("button", { name: "Restore", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
-      await page.getByRole("button", { name: "Select all safe" }).click();
-      await ctx.step("restore plan armed");
+      await waitForPlan(page);
+      const enableRows = await page
+        .getByRole("group", { name: /^Action for / })
+        .filter({ has: page.getByRole("button", { name: /^Enable/ }) })
+        .count();
+      ctx.assert.ok(enableRows >= CHOSEN.length, "Restore lists every disabled catalog app");
+      await page.getByRole("button", { name: "Re-enable all disabled" }).click();
+      ctx.assert.equal(await armedCount(page), enableRows, "Re-enable all disabled armed every disabled row");
+      await ctx.step(`restore plan armed: ${enableRows} rows`);
       await page.getByRole("button", { name: /^Run plan/ }).click();
       await page.getByText(/Restore complete:/).waitFor({ timeout: 60_000 });
+      ctx.assert.equal(await offers.count(), 0, "no snapshot offer after a Restore run");
       await ctx.step("restore ran");
       const restored = (await ctx.device(SHIELD.serial)).packages;
       for (const pkg of disabledByRun) {
@@ -76,10 +135,8 @@ export const scenarios = [
       const page = ctx.page;
       await page.getByRole("button", { name: "Keep", exact: true }).first().waitFor();
       await ctx.tab("optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
-      await page.getByRole("button", { name: "Select all safe" }).click();
+      await waitForPlan(page);
+      await arm(page, CHOSEN, "Disable");
       // Hold the App List's post-run re-read open long enough to report into.
       await ctx.fault({ matches: "pm list packages -d", effect: { type: "delay", ms: 6000 } });
       await page.getByRole("button", { name: /^Run plan/ }).click();
@@ -123,10 +180,8 @@ export const scenarios = [
       const before = (await ctx.device(SHIELD.serial)).packages;
       await ctx.openDevice(SHIELD.key, "optimize");
       const page = ctx.page;
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
-      await page.getByRole("button", { name: "Select all safe" }).click();
+      await waitForPlan(page);
+      await arm(page, CHOSEN, "Disable");
       await page.getByRole("button", { name: /^Run plan/ }).click();
       await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
       const after = (await ctx.device(SHIELD.serial)).packages;
@@ -155,10 +210,8 @@ export const scenarios = [
       const page = ctx.page;
       await page.getByRole("button", { name: "Keep", exact: true }).first().waitFor();
       await ctx.tab("optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
-      await page.getByRole("button", { name: "Select all safe" }).click();
+      await waitForPlan(page);
+      await arm(page, CHOSEN, "Disable");
       // Let the first removal land, then hold the second one open: the run is
       // still in progress while a report is opened for the finished package.
       await ctx.fault({ matches: "pm disable-user", after: 1, times: 1, effect: { type: "delay", ms: 8000 } });
@@ -231,9 +284,7 @@ export const scenarios = [
 
       // The wizard honours it: the kept app is not armed by default.
       await ctx.openDevice("192.0.2.44:5555", "optimize");
-      await page.getByRole("button", { name: "Optimize", exact: true }).click();
-      await page.getByRole("button", { name: "Select all safe" }).waitFor();
-      await page.waitForLoadState("networkidle");
+      await waitForPlan(page);
       const planRow = page.locator("tr").filter({ hasText: pkg }).first();
       if (await planRow.count()) {
         const active = planRow.locator(".radio-pill.active");

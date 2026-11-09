@@ -1,0 +1,106 @@
+# TCL 50DP660 (50DP660*, product "Percee TV", MediaTek MT5658 / board mt5891, armv7), Europe.
+# Android TV 8.0 (API 26), firmware V8-T658T01-LF1V602, build OTT1.180130.001.
+# Second unit: TCL L49C2US (49-inch C2 series, same product "Percee TV", device tcl_eu, board mt5891,
+#   firmware V8-T658T01-LF1V570, build OTT1.180130.001, security patch 2020-07-05, ~2 GB RAM).
+# Checked on a real TV; this list was applied and survived several reboots.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-50dp660/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-50dp660/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher is com.google.android.tvlauncher and it has HOME priority 2 on this firmware: it
+# must be disabled, or set-home-activity reports Success and HOME still lands on it. Install the
+# replacement launcher first, otherwise disable.sh will skip that line for its own HOME guard.
+# Live TV is com.tcl.tv, the tuner input is com.tcl.tvinput, HDMI and AV are com.tcl.tvpassthrough.
+#
+# Factory menu from the remote, no software needed:
+#   Settings > Picture > Advanced Settings > Brightness, highlight Contrast, type 1 9 5 0
+#   then Other > ADB. Developer options > USB debugging must be on as well, or the RSA dialog never
+#   appears and adb says "unauthorized". service.adb.tcp.port is preset to 5555 by the vendor, so
+#   ADB comes up on the network, not USB.
+#
+# WARNING - 1-Factory menu > NVM reset wipes the Wi-Fi MAC, the Widevine keybox and the Netflix
+# ESN. It is not a one-step operation: after the NVM reset do a factory data reset AND reflash the
+# full firmware over USB. Only the reflash re-provisions the vendor data; stopping earlier leaves a
+# 02:00:00:00:00:00 Wi-Fi MAC and Netflix error -121 for good.
+#
+# Keep these enabled (disabling any of them breaks something obvious):
+#   com.tcl.inputmethod.international   the on-screen keyboard - no text input without it
+#   com.tcl.tv, com.tcl.tvinput, com.tcl.tvpassthrough, com.tcl.sourcemananger
+#   com.tcl.settings, com.tcl.autopair, com.tcl.virtualkey, com.tcl.factory.view
+#   com.mediatek.wifi, com.mediatek.tunerservice, mtktvapi.agent
+#   com.google.android.apps.mediashell  Google Cast receiver - keep it if you cast
+#   com.google.android.backdrop         ambient screensaver
+
+# Stock launcher and its recommendation rows, replaced by launcher/
+com.google.android.tvlauncher
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# Google media and voice - this set has no microphone
+com.google.android.videos                  # Play Movies
+com.google.android.play.games
+com.google.android.katniss                 # Assistant / voice search, runs two processes
+com.google.android.speech.pumpkin          # speech recognition engine, see the note at the bottom
+
+# TCL content, mirroring, updaters and bundled players
+com.tcl.MultiScreenInteraction_TV          # MagiConnect screen mirroring
+com.tcl.partnercustomizer                  # "T-Channel" content tiles on the stock home
+com.tcl.smartalexa                         # Alexa bridge, persistent - see the note at the bottom
+com.tcl.versionUpdateApp                   # OTA updater; re-enable to check for firmware updates
+com.tcl.ui_mediaCenter                     # media centre plus USB scanning
+com.tcl.xian.StartandroidService           # TCL start-up service
+com.tcl.appmarket2                         # TCL app store (21.2 MB APK)
+com.tcl.esticker                           # retail demo stickers
+com.tcl.tvweishi                           # "cleaner" widget
+com.tcl.m                                  # MenuHelp
+com.tcl.eletronicpolicy                    # e-warranty sheet
+com.tcl.videoplayer
+com.tcl.audioplayer
+com.tcl.imageplayer
+com.tcl.pvr.pvrplayer
+
+# ODM leftovers and third-party preloads
+android.autoinstalls.config.tcl.device
+com.example.copydatatotv                   # factory test app, persistent
+com.example.tvcapture                      # factory test app
+tv.wuaki.apptv                             # Rakuten TV
+
+# L49C2US (V570), tested on one unit; uncomment to disable:
+# com.google.android.tungsten.setupwraith    # setup wizard; disabling it costs phone Cast pairing
+# com.google.android.leanbacklauncher        # legacy Leanback launcher stub
+# com.google.android.inputmethod.pinyin      # Google Pinyin Chinese IME (com.tcl.inputmethod.international is English)
+# com.iqt.iqqijni.tv.gp.pro                  # iQQi Chinese IME (com.tcl.inputmethod.international is English)
+# com.google.android.music                   # Google Play Music (defunct)
+# com.google.android.tvtutorials             # TV tutorials
+# com.google.android.tv.bugreportsender      # Bug report sender
+# com.google.android.feedback                # Google feedback
+# com.google.android.tts                     # Google TTS engine; re-enable if you use TalkBack
+# com.google.android.marvin.talkback         # TalkBack screen reader
+# com.google.android.syncadapters.calendar   # Calendar sync adapter
+# com.google.android.syncadapters.contacts   # Contacts sync adapter
+# com.android.providers.calendar             # Calendar storage provider
+# com.android.providers.contacts             # Contacts storage provider
+# com.android.providers.userdictionary       # User dictionary provider
+# com.google.android.backuptransport         # Google cloud backup transport
+# com.google.android.onetimeinitializer      # Google one-time initializer
+# com.google.android.partnersetup            # Google partner setup
+# com.android.dreams.basic                   # Basic Colors screensaver
+# com.android.printspooler                   # Print spooler service
+# com.google.android.sss                     # Second Screen Setup
+# com.google.android.sss.authbridge          # Second Screen Setup auth bridge
+# com.google.android.backdrop                # Chromecast Ambient / Backdrop screensaver
+# com.netflix.ninja                          # Netflix preload
+# com.mediatek.partner.netflix               # MediaTek Netflix launch service
+
+# Two quirks worth knowing when the list does less than it says:
+#
+# 1. com.google.android.speech.pumpkin accepted disable-user and came back as enabled=0 after the
+#    next boot. Disabling it a second time stuck (enabled=3). If a Google component reappears,
+#    re-apply and check: dumpsys package <pkg> | grep enabled=
+#
+# 2. com.tcl.smartalexa, com.tcl.versionUpdateApp and com.example.copydatatotv are PERSISTENT and
+#    signed with android.uid.system. disable-user records them as disabled (enabled=3) but the
+#    processes start at boot anyway, and am force-stop is followed by an immediate restart, so
+#    roughly 88 MB stays resident until the TV is rooted. pm disable is refused to the shell:
+#    SecurityException: Shell cannot change component state.

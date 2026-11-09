@@ -36,12 +36,14 @@ pub async fn panic_recovery(
 pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<RecoveryResult, String> {
     let adb = state.adb_snapshot().await;
     let disabled_out = adb
-        .shell(serial, "pm list packages -d --user 0")
+        .shell(serial, super::LIST_DISABLED_PACKAGES)
         .await
         .map_err(|e| format!("pm list packages -d: {e}"))?;
+    // A failed read must not report "nothing to restore" to someone who is
+    // here because their TV is broken.
     if !super::verification::succeeded(&disabled_out) {
         return Err(format!(
-            "Read disabled packages failed: {}",
+            "pm list packages -d: {}",
             disabled_out.combined().trim()
         ));
     }
@@ -151,7 +153,19 @@ mod tests {
         assert!(!calls
             .iter()
             .any(|x| x.contains("disable-user") || x.contains("uninstall")));
+        assert_eq!(calls[0], "pm list packages -d --user 0");
     }
+
+    #[tokio::test]
+    async fn a_failed_disabled_read_is_an_error_not_nothing_to_restore() {
+        let state = state_with(MockAdb::default().on_shell_exit(
+            "pm list packages -d",
+            "Error: java.lang.SecurityException",
+            255,
+        ));
+        assert!(panic_recovery_impl(&state, "TV").await.is_err());
+    }
+
     #[tokio::test]
     async fn recovery_nonzero_and_unconfirmed_enable_are_not_restored() {
         for mock in [

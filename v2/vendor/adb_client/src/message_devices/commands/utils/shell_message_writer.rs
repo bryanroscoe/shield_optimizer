@@ -24,13 +24,18 @@ impl<T: ADBMessageTransport> ShellMessageWriter<T> {
 
 impl<T: ADBMessageTransport> Write for ShellMessageWriter<T> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let message =
-            ADBTransportMessage::try_new(MessageCommand::Write, self.local_id, self.remote_id, buf)
-                .map_err(std::io::Error::other)?;
+        let amount = buf.len().min(self.transport.max_payload().max(1));
+        let message = ADBTransportMessage::try_new(
+            MessageCommand::Write,
+            self.local_id,
+            self.remote_id,
+            &buf[..amount],
+        )
+        .map_err(std::io::Error::other)?;
         self.transport
             .write_message(message)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
-        Ok(buf.len())
+        Ok(amount)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

@@ -1,0 +1,55 @@
+# Skyworth 65A3F (7T641_A3F, MediaTek MT9633), China, Android 13 (API 33), build 10.01.250328
+# Chinese Coocaa/CCOS firmware, no GMS. Stock home is com.coocaa.aigc.home
+# (com.coocaa.aigc.home.home.rootpage.HomeActivity): it is launched at boot and it also takes the
+# remote's HOME key, although the only HOME-category activity is the third-party launcher.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/skyworth-65a3f/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/skyworth-65a3f/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# com.coocaa.aigc.home must stay ENABLED. Tried on the TV 2026-10-21:
+# - `pm disable-user` restarts the framework and the package comes back enabled by itself.
+# - `pm suspend` brings up com.coocaa.os.control/.ui.QrActivity, a WeChat QR unlock screen.
+# - `pm hide`, component-level disables and `su` are all refused; with no root /system/xbin/su
+#   fails with "setgid failed: Operation not permitted".
+# - Disabling it and rebooting leaves the TV with no home: it hangs on the SKYWORTH logo, the
+#   network stack never starts and 5555 disappears. Recovery was a factory reset from Recovery
+#   (power off, hold the hidden touch button under the logo while plugging the set back in,
+#   wipe data/factory reset).
+#
+# Ads on this firmware: com.tianci.ad BootService draws the boot ad, its PowerOffActivity the
+# shutdown ad, and the same package hosts the ad landing pages. Disabling it removed both;
+# checked across a reboot with zero logcat hits for the package.
+#
+# Quirks, all checked on the TV:
+# - 5555 opens without pairing (ro.adb.secure=0), so any host on the LAN gets a shell.
+# - adbd's stdout wrapper corrupts `exec-out screencap -p` here as well; screencap to a file on
+#   the TV and pull it.
+# - `tools/tv.py --push` is for small files. b64push.py needed roughly 20 minutes for a 17 MB
+#   APK. Faster: hold an adb shell running `toybox nc -l -p 9999 > /data/local/tmp/x.apk` and
+#   send from the computer with `nc <tv ip> 9999 < x.apk` (about 100 s; verify with md5sum, the
+#   adb_shell read timeout can fire at 120 s even when the file arrived intact).
+#
+# A third-party launcher cannot own the boot screen:
+# - boot_start_tv_source only picks the input source (DEFAULT/REMEMBER, HOME, CHANNEL); there is
+#   no "launch an app" value, and HOME changes nothing.
+# - Two one-press routes work. (1) The remote's colour key:
+#   com.skyworth.setting/.module.device.shortcutkey.ShortcutKeySetActivity lists the installed
+#   launcher and the binding sticks — press the colour key, the launcher opens. (2) The stock
+#   home's dock: com.coocaa.aigc.home/.dockedit.DockEditActivity, after a reboot the launcher sits
+#   in the left rail. `cmd package set-home-activity` also succeeds and the launcher does become
+#   the default HOME, but the boot screen and the HOME key still go to aigc.home.
+#
+# Kept on purpose: com.coocaa.aigc.home, com.skyworth.setting, com.tianci.system, com.coocaa.os.*
+# (including com.coocaa.os.control and com.coocaa.os.softsettings), com.coocaa.safelauncher,
+# com.tianci.movieplatform, input methods, voice/mic, casting and audio/PQ packages.
+# com.overseas.store.appstore is absent after a factory reset; the line is harmless there.
+com.tianci.ad
+com.coocaa.screensaver
+com.coocaa.guide
+com.coocaa.NewStoreSystem
+com.tianci.appstore
+com.overseas.store.appstore
+com.skyworth.performance.monitors
+com.skyworth.testtime
+com.coocaa.os.upgrade

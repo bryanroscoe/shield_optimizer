@@ -6,6 +6,7 @@
   import { api } from "$lib/api";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
   import { destructiveWarning } from "../../../shared/support";
   import { onSupportTiersUpdated } from "$lib/support-updates";
 
@@ -186,8 +187,8 @@
   {@const plan = previewState.plan}
   {@const settingKeys = Object.keys(plan.settings_to_write)}
   {@const nowValues = plan.current_values ?? {}}
-  {@const launcherUnchanged =
-    !plan.launcher_to_set && !plan.launcher_not_installed && previewState.snap.launcher !== null}
+  {@const launcherUnchanged = homeAlreadyMatches(plan, previewState.snap.launcher)}
+  {@const launcherSkip = launcherSkipReason(plan)}
   <div class="preview-panel">
     <div class="preview-head">
       <div>
@@ -207,6 +208,7 @@
       {plan.packages_not_installed.length} not on device ·
       <strong>{settingKeys.length}</strong> setting{settingKeys.length === 1 ? "" : "s"}
       to write · <strong>{plan.settings_to_delete.length}</strong> to reset
+      {#if plan.packages_kept.length > 0}· {plan.packages_kept.length} kept on for Home{/if}
       {#if plan.launcher_to_set}· Home app{/if}
     </div>
 
@@ -227,9 +229,12 @@
         {/each}
         {#if launcherUnchanged}
           <tr class="dim"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">Already Home</span></td></tr>
-        {:else if plan.launcher_not_installed}
-          <tr class="dim"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">{plan.launcher_not_installed} isn't installed; skipped</span></td></tr>
+        {:else if launcherSkip}
+          <tr class="dim" data-plan-item="launcher"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">{launcherSkip}</span></td></tr>
         {/if}
+        {#each plan.packages_kept as kept (kept.package)}
+          <tr class="dim" data-plan-item="kept"><td class="mono small">{kept.package}</td><td class="mono small">enabled</td><td><span class="terminal-reason">Kept on: {kept.reason}</span></td></tr>
+        {/each}
         {#each plan.settings_already_set as k (k)}
           <tr class="dim"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "unset"}</td><td><span class="terminal-reason">Already set</span></td></tr>
         {/each}
@@ -250,10 +255,17 @@
     </div>
     {#if applyErr}<div class="error">{applyErr}</div>{/if}
     {#if applyResult}
+      {@const outcome = splitRestoreFailures(applyResult)}
       <div class="apply-result">
         <p><strong>{applyResult.summary}</strong></p>
-        {#if applyResult.packages_failed.length > 0}
-          <p class="warn-text">{applyResult.packages_failed.length} failed: {applyResult.packages_failed.join(", ")}</p>
+        {#if !applyResult.launcher_set && applyResult.launcher_message}
+          <p>Home app: {applyResult.launcher_message}</p>
+        {/if}
+        {#if outcome.kept.length > 0}
+          <p>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</p>
+        {/if}
+        {#if outcome.failed.length > 0}
+          <p class="warn-text">{outcome.failed.length} failed: {outcome.failed.join(", ")}</p>
         {/if}
         {#if applyResult.settings_failed.length > 0}
           <p class="warn-text">{applyResult.settings_failed.length} setting(s) failed: {applyResult.settings_failed.join(", ")}</p>
@@ -369,7 +381,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface);
-    overflow: hidden;
+    overflow-x: auto;
   }
   .snap-table {
     width: 100%;
@@ -388,7 +400,7 @@
   .snap-table td {
     padding: 0.7rem 1rem;
     border-bottom: 1px solid var(--border);
-    vertical-align: top;
+    vertical-align: middle;
   }
   .snap-table tr:last-child td {
     border-bottom: none;
@@ -530,13 +542,21 @@
   }
   .preview-head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 1rem;
   }
   .preview-head h2 {
     margin: 0;
     font-size: 1.1rem;
+  }
+  .preview-head > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .preview-head > button {
+    margin-left: auto;
   }
   .warning {
     background: var(--warn-surface);
@@ -568,6 +588,7 @@
   .plan-table td {
     padding: 0.35rem 0.6rem;
     border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
   }
   .plan-table tr.dim {
     opacity: 0.5;

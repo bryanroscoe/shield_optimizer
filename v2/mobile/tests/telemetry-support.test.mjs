@@ -249,10 +249,46 @@ test("More toggles anonymous reports and a build without an endpoint says so", a
   );
 });
 
-test("the first-launch notice waits past onboarding, never blocks, and goes away for good", async (t) => {
+test("privacy is reachable without a TV and remains reachable when reporting fails", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => {
+    window.replies.telemetry_settings = () => { throw "backend unavailable"; };
+    window.router.navigate("more");
+  });
+  const privacy = page.getByRole("button", { name: "Privacy policy" });
+  await privacy.click();
+  const [opened] = await reports(page, "plugin:opener|open_url");
+  assert.equal(opened.url, "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy");
+  await page.evaluate(() => {
+    window.replies["plugin:opener|open_url"] = () => { throw "browser unavailable"; };
+  });
+  await privacy.click();
+  await page.getByText("Couldn't open the privacy policy. Please try again.").waitFor();
+});
+
+test("the report ID can be copied for deletion and is removed when reporting stops", async (t) => {
+  const id = "33333333-3333-4333-8333-333333333333";
+  const page = await createPage(t, { telemetry: { enabled: true, available: true, notice_seen: true, support_id: id } });
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => window.router.navigate("more"));
+  await page.getByRole("button", { name: "Copy Support ID" }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), id);
+  await page.evaluate(() => {
+    window.replies.set_telemetry_enabled = () => ({ enabled: false, available: true, notice_seen: true, support_id: null });
+  });
+  await page.getByRole("switch", { name: "Share anonymous device and error reports" }).click();
+  await page.getByText("Off. Nothing is sent.").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Copy Support ID" }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Privacy policy" }).count(), 1);
+});
+
+test("the first-launch notice shows from onboarding without covering it, never blocks, and goes away for good", async (t) => {
   const page = await createPage(t, { telemetry: { enabled: true, available: true, notice_seen: false } });
-  // Still on onboarding: nothing covers the connect buttons.
-  assert.equal(await page.getByText("ATV Optimizer sends anonymous reports", { exact: false }).count(), 0);
+  // Reports can start before a TV connects, so onboarding shows the notice
+  // too, in the page flow: nothing floats over the connect buttons.
+  const onboardingNotice = page.getByRole("status").filter({ hasText: "ATV Optimizer sends anonymous reports" });
+  await onboardingNotice.waitFor();
+  assert.equal(await onboardingNotice.evaluate((el) => getComputedStyle(el).position), "static");
   await page.evaluate(async () => {
     await window.session.connect("A", 5555);
     window.router.reset("dashboard");
@@ -260,7 +296,7 @@ test("the first-launch notice waits past onboarding, never blocks, and goes away
   const notice = page.getByRole("status").filter({ hasText: "ATV Optimizer sends anonymous reports" });
   await notice.waitFor();
   // Non-blocking: the screen underneath stays usable.
-  await page.getByRole("button", { name: "More", exact: true }).click();
+  await page.locator(".bottom-tabs").getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("switch", { name: "Share anonymous device and error reports" }).waitFor();
   await notice.getByRole("button", { name: "OK" }).click();
   await notice.waitFor({ state: "detached" });

@@ -1,0 +1,111 @@
+# Hitachi CDH-LE32SMART21 (32", Latin America / Argentina; TCL-built: device C06, product C06_2K_GB,
+# model "Smart TV", TCL client type HIT-LA-MT9221-01), Android TV 11 (API 30), build AR2101,
+# TCL software V8-T221T01-LF1V030, fingerprint TCL/C06_2K_GB/C06:11/AR2101/AR14:user/release-keys.
+# MediaTek MT9221 (ro.board.platform mt5867), 1280x720 panel, about 920 MB RAM (ro.config.low_ram=true),
+# 2.5 GB /data. Same platform and firmware family as examples/tcl-40s5400a; read that list too.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/hitachi-cdh-le32smart21/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/hitachi-cdh-le32smart21/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (the scripts' default). The only other HOME claimant is
+# com.android.tv.settings/.system.FallbackHome; setupwraith does not claim HOME on this firmware.
+# Live TV app: com.tcl.tv (its TVActivity has a leanback entry, so launcher/ needs no live_tv_action).
+# Inputs come from com.tcl.tvinput: the tuner (TDTVInputService) and three passthrough inputs
+# (HDMI 1, HDMI 2, AV).
+# launcher/ config used: live_tv_package com.tcl.tv; hidden_apps com.tcl.partnercustomizer (TKey Channel
+# tile) and com.tcl.suspension (Quick Panel tile). HDMI 1, HDMI 2, AV and Live TV all show up in the
+# Inputs menu; switching to HDMI 2 was confirmed on screen.
+#
+# Applied in batches on one real unit on 2026-10-19, each batch checked with screenshots. Tested on one
+# day only (shorter than CONTRIBUTING.md asks); I will report back if anything breaks.
+# Checked after the full list: launcher/ (v2.3) installed with pm install and is Home after a reboot;
+# Netflix and YouTube open and play; Settings and Wi-Fi are fine; the remote's real Home, Input and Back
+# buttons all work; the firmware updater opens (Settings > Device Preferences > About > Software update >
+# Network update > System update shows the version and a check button). No accessibility helper is involved.
+# Memory: MemAvailable about 373 MB after boot on launcher/ vs about 248 MB on the stock home after debloat.
+#
+# Ad-blocking Private DNS was also enabled and validated (dns.adguard-dns.com); YouTube still plays,
+# its own ads are not blocked. Undo: tools/tv.py 'settings put global private_dns_mode opportunistic'
+#
+# Known quirks on this firmware:
+# - screencap -p on stdout is corrupted by MediaTek log lines ("Init wrapper sys mutex successful").
+#   Save to /sdcard and pull the file instead.
+# - Screenshots are empty while Netflix, an HDMI input or the ttvs update screen is shown.
+# - Storage: /data was 93% full (190 MB free) and sys_storage_threshold_percentage is 10, so about 270 MB
+#   is reserved and pm install failed with "Requested internal only, but not enough space".
+#   `pm trim-caches 4G` freed about 100 MB, not enough. Uninstalling user-installed apps the owner did not
+#   want (Crossy Road, Max, Crunchyroll, DirecTV GO) freed about 470 MB. Those are not in this list.
+# - INSTALL_FAILED_VERIFICATION_FAILURE is not a firmware sideload block here:
+#   1) with this little RAM, the com.tcl.guard memory manager (TGuard) kills com.android.vending in the
+#      middle of verification (logcat "tguard-kill-systemApp"), which fails the install. Force-stop
+#      apps / `am kill-all`, or install right after a reboot.
+#   2) installing only base.apk of a split app is rejected by Play Protect for the missing splits; that
+#      is not a valid sideload test. The 272 KB launcher APK installed fine.
+# - com.tcl.guard runs as a persistent system process (*PERS*, uid 1000). `pm disable-user` succeeds but
+#   the process still starts at boot, so the disable does not stop the memory manager. It stays in the
+#   list for the UI/cleaner parts.
+# - Opening Settings' About page directly (am start -a android.settings.DEVICE_INFO_SETTINGS) and then
+#   Software update crashes TvSettings (ClassCastException AboutActivity -> MainSettings in
+#   com.tcl.android.tv.settings.update.SoftwareUpdateFragment). Enter through the main Settings menu.
+#   Not caused by the debloat.
+# - com.tcl.ttvs is the firmware updater (also BI and Alexa), not text-to-speech. Keep it.
+#   com.tcl.messagebox carries an org.tcl.ttvs receiver; it was disabled here and the updater still
+#   opened and showed the check screen.
+#
+# DO NOT DISABLE on this TV (kept and working):
+# com.tcl.tv                           # Live TV app, plays HDMI, source picker on the Input key
+# com.tcl.tvinput                      # TV input services for HDMI, AV and the tuner
+# com.tcl.suspension                   # Quick Panel, handles VIEW_INPUTS; only hidden in the launcher config
+# com.tcl.partnercustomizer            # TKey Channel; kept, only hidden in the launcher config
+# com.tcl.ttvs                         # firmware updater (see quirks)
+# com.tcl.autopair                     # Bluetooth remote auto-pairing
+# com.tcl.tcl_bt_rcu_service           # Bluetooth remote
+# com.tcl.keyhelp                      # remote-key help/virtual keys
+# com.tcl.system.server                # remote-key plumbing
+# com.tcl.settings                     # picture/sound settings
+# com.tcl.providers.config             # TCL config provider
+# com.tcl.inputmethod.international    # keyboard
+# com.tcl.initsetup                    # setup flow
+# com.tcl.factory.view                 # factory menu
+# com.tcl.copydatatotv                 # data copy hook
+# com.tcl.micmanager                   # voice
+
+# Telemetry
+com.google.android.feedback
+android.autoinstalls.config.tcl.device # partner-app auto installer config
+com.google.android.partnersetup
+
+# Content, ads and promos
+com.google.android.tvrecommendations
+com.tcl.waterfall.overseas             # TCL Channel web-video portal
+com.tcl.messagebox                     # TCL messages/popups, carries a ttvs receiver (see quirks)
+com.tcl.esticker                       # store-demo sticker
+com.tcl.useragreement
+
+# Background services
+com.tcl.guard                          # TGuard UI/cleaner; the memory manager still runs (see quirks)
+com.google.android.apps.nbu.smartconnect.tv # data-saver VPN
+com.tcl.t_solo                         # TCL Bluetooth "listen alone"
+
+# Stock home, replaced by launcher/
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved
+
+# Off by choice on this unit: comment out what you use
+com.amazon.amazonvideo.livingroom      # Prime Video
+com.google.android.apps.mediashell     # Chromecast receiver
+com.tcl.ui_mediaCenter                 # USB media player, together with the next three
+com.tcl.videoplayer
+com.tcl.audioplayer
+com.tcl.imageplayer
+com.google.android.videos              # Play Movies
+com.google.android.play.games
+# Kept by choice: Netflix, YouTube, Disney+, Spotify, Google Assistant (com.google.android.katniss).
+
+# Already disabled at the factory; left as-is.
+# au.com.stan.and                      # Stan
+# com.google.android.youtube.tvmusic
+# tv.wuaki.apptv                       # Rakuten TV
+# com.tcl.usercenter                   # TCL account
+# com.tcl.smartalexa                   # TCL Alexa bridge
+# com.tcl.dashboard

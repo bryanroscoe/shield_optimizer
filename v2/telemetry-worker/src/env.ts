@@ -8,6 +8,7 @@ export interface Env {
   PER_INSTALL_DAILY_UPLOADS?: string;
   GLOBAL_DAILY_UPLOADS?: string;
   GLOBAL_DAILY_UPLOAD_BYTES?: string;
+  PRIVACY_CONTACT_EMAIL?: string;
 }
 
 export function intVar(v: string | undefined, fallback: number): number {

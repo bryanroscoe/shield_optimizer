@@ -1,0 +1,74 @@
+# Sony BRAVIA KD-55X85J (2021, device BRAVIA_VH2, MediaTek MT5895), South American firmware
+# Android 12 (Google TV, API 31), build BRAVIA_VH2_SA-user 12 STT2.230505.001.S136 682241
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-kd-55x85j/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-kd-55x85j/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same device and build number as examples/sony-bravia-4k-vh2 (KD-55X80J, EU firmware), but the SA
+# firmware ships com.sony.dtv.promos and Apple TV enabled, and none of the EU broadcaster apps.
+# examples/sony-kd-65x80j is the same platform on older Android 10 firmware (India).
+# Stock launcher: com.google.android.apps.tv.launcherx (Google TV). Pass it to restore.sh as above.
+# Live TV / tuner app: com.sony.dtv.tvx (set it as live_tv_package in the launcher's config.xml and hide it).
+# Keep the com.sony.dtv.tvinput.* services, com.sony.dtv.tvapi, com.sony.dtv.sonysystemservice, the Sony
+# settings apps and all com.mediatek.*: they drive HDMI, the tuner, updates and the remote.
+# Kept by owner's choice: Netflix, YouTube, Prime Video, Disney+, Apple TV, voice assistant, Chromecast
+# built-in (mediashell), AirPlay and firmware updates.
+# Already disabled at the factory: com.sony.dtv.homekit, com.sony.dtv.seeds.iot, com.sony.dtv.livingfit,
+# com.sonypicturescore, com.sony.dtv.b2b.vendorprotocol, com.sony.dtv.b2b.softap.
+# Not in this list, so restore.sh leaves them as they are.
+#
+# Checked on the TV (wired Ethernet):
+# - The remote's Input button opens the input switcher everywhere (systemui handles it), so the launcher
+#   was installed without the Input-button service (no INPUT_KEY_SERVICE).
+# - setupwraith disabled with no side effects on Ethernet (Wi-Fi saved during setup not tested).
+# - launcherx and dreamx disabled only after the new launcher was installed, with the launcher's clock as
+#   screensaver: settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+# - Everything stays disabled and Home stays on the new launcher after `svc power reboot`.
+# - Screenshots come out empty while Netflix is on screen; press Home first.
+# - Launcher config: live_tv_package com.sony.dtv.tvx, hidden apps com.sony.dtv.tvx and the Vewd browser
+#   (com.vewd.core.integration.dia).
+# Applied and reboot-checked on 19 October 2026, not yet lived with for days. If something breaks,
+# re-enable it with `pm enable <package>` and please report it.
+
+# ACR viewing tracker
+tv.samba.ssm                                   # Samba TV fingerprints what's on screen
+tv.samba.ssm.ui
+
+# telemetry and remote support
+com.qterics.da.product                         # Qterics device agent
+com.sony.dtv.da.service
+com.sonyericsson.idd.agent                     # Sony usage data
+com.sony.dtv.sonybugreportsys                  # bug report uploader
+com.google.android.feedback
+com.sony.dtv.usercontext                       # viewing context for recommendations
+
+# Sony content and ads
+com.sony.dtv.promos
+com.sony.dtv.sonyselect
+com.sony.dtv.sonytab                           # Sony tab on the Google TV home
+android.autoinstalls.config.sony.bravia        # partner app auto-installs
+
+# demo / shop mode and help
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+com.sony.dtv.customersupport                   # Help tile
+com.sony.dtv.smarthelp
+
+# preloaded apps, disabled by choice
+com.google.android.youtube.tvmusic
+com.google.android.videos
+com.google.android.play.games
+com.sony.dtv.osat.music
+
+# extras, disabled by choice
+com.sonyericsson.dlna
+com.sony.huey.dlna.module
+com.sony.huey.dlna.renderersettings
+com.sony.dtv.gestureapp
+
+# Home: only after the new launcher is installed
+com.google.android.tungsten.setupwraith        # its RecoveryActivity claims HOME
+com.google.android.apps.tv.dreamx              # Ambient screensaver; point screensaver_components at ClockDream first
+# com.google.android.apps.tv.launcherx   # launcher/build-and-install.sh disables the stock launcher itself, after Home has moved

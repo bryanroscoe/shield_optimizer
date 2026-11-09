@@ -1,10 +1,10 @@
-use std::{iter::Map, slice::ChunksExact};
+use std::{iter::Map, slice::Iter};
 
 use byteorder::{ByteOrder, LittleEndian};
 
 use crate::{Result, RustADBError};
 
-type U32ChunkIter<'a> = Map<ChunksExact<'a, u8>, fn(&[u8]) -> Result<u32>>;
+type U32ChunkIter<'a> = Map<Iter<'a, [u8; 4]>, fn(&[u8; 4]) -> Result<u32>>;
 
 fn read_next(chunks: &mut U32ChunkIter) -> Result<u32> {
     chunks
@@ -34,7 +34,11 @@ impl TryFrom<[u8; std::mem::size_of::<Self>()]> for FrameBufferInfoV1 {
     fn try_from(
         value: [u8; std::mem::size_of::<Self>()],
     ) -> std::result::Result<Self, Self::Error> {
-        let mut chunks: U32ChunkIter = value.chunks_exact(4).map(|v| Ok(LittleEndian::read_u32(v)));
+        let mut chunks: U32ChunkIter = value
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|v| Ok(LittleEndian::read_u32(v)));
 
         Ok(Self {
             _bpp: read_next(&mut chunks)?,
@@ -76,7 +80,11 @@ impl TryFrom<[u8; std::mem::size_of::<Self>()]> for FrameBufferInfoV2 {
     fn try_from(
         value: [u8; std::mem::size_of::<Self>()],
     ) -> std::result::Result<Self, Self::Error> {
-        let mut chunks: U32ChunkIter = value.chunks_exact(4).map(|v| Ok(LittleEndian::read_u32(v)));
+        let mut chunks: U32ChunkIter = value
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|v| Ok(LittleEndian::read_u32(v)));
 
         Ok(Self {
             _bpp: read_next(&mut chunks)?,

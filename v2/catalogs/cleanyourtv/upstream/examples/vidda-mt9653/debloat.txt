@@ -1,0 +1,126 @@
+# Vidda VIDAA_TV (Hisense sub-brand; device MT9653, board mt5879), Android TV 11, build
+# RP1A.200720.011 (02.02.70.01). Vidda is Hisense's youth sub-brand, sold in China with 聚好看 JuUI:
+# the model string is VIDAA_TV and the package namespace is com.jamdeo.* / com.hisense.*, so it shares
+# nothing with the export Hisense lists in this folder (com.hisense.evservice, com.mediatek.*).
+# 3.8 GB RAM, 41 GB storage, UI at 1080p / 320 dpi.
+# Same build as examples/hisense-e5q-pro/, a smaller list that keeps the stock home.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/vidda-mt9653/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/vidda-mt9653/debloat.txt com.jamdeo.tv.vod
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# ADB: turning USB debugging on opens network ADB on 5555 directly; no wireless pairing needed.
+# ro.adb.secure=0, so the TV does not even show "Allow USB debugging?" — any device on the LAN gets a
+# shell with no prompt. Close the port when you are done, or keep the TV on a trusted network only.
+#
+# ⚠ com.hisense.tv.tiletransition is NOT in this list on purpose. Its name reads like a transition or
+# boot-ad layer, but it hosts TileAnimationService, which the vendor source panel binds to before it
+# switches inputs. Disabled, the panel still opens and still animates, but picking HDMI does nothing:
+#   W/ActivityManager: Unable to start service Intent {
+#       act=com.hisense.tv.tiletransition.TileAnimationService
+#       pkg=com.hisense.tv.tiletransition } not found
+#   W/a: switchToAppViaRemote, no service found
+# Re-enabling it fixes input switching immediately. This is the "package names often don't say what a
+# package does" warning in PROMPT.md, made concrete.
+#
+# Stock launcher: com.jamdeo.tv.vod (JuUI). launcher/build-and-install.sh does not know that name:
+#   TV_HOST=<tv ip> HOME_KEY_SERVICE=1 STOCK_LAUNCHER=com.jamdeo.tv.vod launcher/build-and-install.sh
+# Enabling it again (pm enable) makes the TV reclaim Home even after an explicit set-home-activity;
+# to go back, disable it first and set Home afterwards.
+#
+# Remote Home key: the physical button is Linux scancode 102, but the keylayout maps it to
+# KEYCODE_F12 (142), and the vendor SysUIMerge app used that to switch to the previous app — which was
+# the stock launcher until it got disabled, so Home stopped working. WARNING: the fix the author tested
+# (a home_key_scancodes=[102] option for HomeKeyService) is not in the launcher on main yet, so with the
+# stock launcher disabled the remote's Home button does nothing until that option lands. Injected
+# KEYCODE_HOME cannot test it: the vendor framework swallows injected keycode 3 and the scancode is 0.
+#
+# Second vendor home: com.keylab.speech.view.vidaa hosts com.ju.secondscreen.HomeActivity, started by
+# component name at boot, so it takes the foreground even though Home resolves to your launcher. It
+# carries a "39% memory boost" nag, music/video card rows and a NewTV badge. Component-level disable is
+# refused (SecurityException from setEnabledSetting), so this list disables the whole package instead:
+# that also removes the voice-assistant UI (AgentDisplayService, ViewService, SIWindowMonitorService,
+# memo, task master) and the remote's mic key. Re-enable it if voice matters more than the card home.
+#
+# Inputs menu: dumpsys tv_input is empty on this firmware (no TvInputManager inputs), so the launcher's
+# Inputs pill uses source_panel_service = com.hisense.tv.inputs/com.hisense.tv.InputsUIService with
+# action com.hisense.tv.start_inputs. That panel does perform the switch itself. With nothing to list,
+# showInputs() now opens it on the first OK instead of showing a one-row dropdown.
+#
+# Debloat does NOT change the visual home screen on this set: the sponsored rows and the VIP banner are
+# fetched by com.jamdeo.tv.vod itself, not by the ad sidecars this list disables. Only the launcher swap
+# removes them. What this list buys is the telemetry, the push channel, the persistent poller and the
+# stray ad processes.
+#
+# Verified: applied in batches with a screenshot between them, then two cold reboots. Home survived,
+# Wi-Fi (owned by android.uid.system) survived, casting, the input panel, the IME, Bluetooth pairing and
+# the remote all still work. Applied and reboot-verified on day one; not yet lived with for weeks.
+
+# Hisense telemetry, reporting and push
+com.hisense.hitv.das                            # DasApp: DataReportReceiver only
+com.hisense.platformreport
+com.hisense.logupload
+com.hisense.service.hproxy                      # LoopingService + network-change receiver, polls forever
+com.hisense.service.message                     # HiMsgService, the vendor push channel
+
+# Ads, shopping and home operator rows
+com.hisense.business.ad                         # ships Alibaba Baichuan + CIBN shopping SDKs; installed as a user app
+com.hisense.service.ad                          # its WatchingAccessibilityService was registered in enabled_accessibility_services
+com.hisense.widget.pro                          # home operator widget rows
+com.hisense.tv.weather                          # weather card, another content feed
+
+# Retail, hotel, factory and leftovers
+com.hisense.demonstrate                         # DbxDemo / multi-channel sound demo reels
+com.hisense.hotelmenu
+com.meetingroom
+com.hisense.autotest
+com.hisense.electronictutorial                  # e-manual
+com.hisense.ar.baike
+com.jamdeo.tv.fte                               # first-run wizard, done; the saved Wi-Fi belongs to android.uid.system
+com.hisense.usbupgrade
+
+# Duplicate / unused sharing and lifestyle apps (casting stacks deliberately kept)
+com.hisense.tv.videoconference
+com.hisense.tv.fitmirror
+com.hisense.tv.foodmanage
+com.jamdeo.calendar
+com.vision.aibook
+
+# Screensaver is an ad surface on this firmware: 拍信创意 stock photos with a caption and a like button.
+# Also run: settings put secure screensaver_enabled 0
+com.jamdeo.screensaver
+
+# AOSP leftovers on a TV
+com.android.printspooler
+
+# The two vendor home screens. Disable both so yours keeps the foreground; see the notes above.
+# The stock launcher stays enabled here: disabling it before your launcher is Home leaves the TV with
+# none. STOCK_LAUNCHER=com.jamdeo.tv.vod (above) makes build-and-install.sh disable it after the swap.
+# com.jamdeo.tv.vod
+com.keylab.speech.view.vidaa
+
+# ---------------------------------------------------------------------------------------------
+# Do NOT disable (verified on this device):
+#   com.jamdeo.tv.livetv          Live TV and the HDMI/AV renderer
+#   com.jamdeo.tv.service         TVServices: the TIL/JNI side of source switching
+#   com.hisense.tv.inputs         SysUIMerge: the source panel and TaskCenter
+#   com.hisense.tv.baseservice    TV base services
+#   com.hisense.tv.tiletransition TileAnimationService, required by the source panel (see above)
+#   com.hisense.bluetoothpair     remote pairing; losing it can leave you without a remote
+#   com.sohu.inputmethod.sogou.tv the only IME on the device
+#   com.hisense.padinputmethod    fallback IME
+#   com.hisense.raycodereceiver   was running in the process list; likely a remote path
+#   com.hisense.uifac             factory UI component
+#   com.hisense.systeminfo        system info provider
+#   com.hisense.hiservice         MQTT base service
+#   com.hisense.aiod, .aiservice  AI picture quality (AIPQ) and gestures
+#   com.keylab.speech.core.vidaa  voice core, left enabled even with the voice UI disabled
+#   com.vt.mic.service, .point.remoteservice  mic and pointer remote
+#   com.dolby.android.audio.service, .audio.calibration
+#   com.jamdeo.updateservice      OTA; disable it and firmware updates stop
+# Kept by choice: com.ms.weshare, com.ms.ucast.ucastapp, com.hisense.multiscreen.screenhelper,
+#   com.hisense.pcm.share, com.kookong.tvplus (five coexisting casting stacks), com.hisense.tv.familycloud,
+#   com.hisense.nasservice, com.hisense.nas.pt (NAS), com.hisense.tv.aivirtualassistant and the rest of the
+#   voice assistant, com.hisense.childlock, com.hisense.multiwindow.
+# Already disabled at the factory: com.android.contacts, camera2, calendar, settings, music,
+#   providers.userdictionary, deskclock, providers.contacts.

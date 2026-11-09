@@ -5,7 +5,9 @@ Two products live in this tree:
 - **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy**: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
-The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
+- **Android app** — `v2/mobile/`, shipped on Google Play. Released on `mobile-v*` tags via `.github/workflows/mobile-play-release.yml`, which uploads a draft to the internal track; see `v2/mobile/RELEASE.md`.
+
+The release tracks are intentionally separate. Don't mix tag namespaces and don't edit one track's workflow when shipping another.
 
 Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the priority list, and any in-flight scope that isn't yet in the code.
 
@@ -23,14 +25,17 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-01)
+### What is in flight right now (2026-11-04)
 
-`v2-2.4.1` (2026-10-23) is still the latest desktop release; the `v2-2.4.0` tag's build failed and
-was never published. Merged on `main` since then and not yet in a release:
+`v2-2.5.0` (2026-11-04) is the latest desktop release. It completed the rename to ATV Optimizer
+(identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
+device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
+Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
   `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`. Repo variable `ATVOPT_TELEMETRY_URL`
-  points release builds at it; repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
+  points release builds at it (and the PR's native test packages, which set `ATVOPT_TEST_BUILD`:
+  their Send logs uploads are marked `-dev` and they send no automatic reports); repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
   Production details, where the secrets live (1Password item names only) and how to redeploy or
   rotate: [`v2/telemetry-worker/README.md`](v2/telemetry-worker/README.md#production).
 - **Device support tiers, anonymous telemetry and structured error codes** in both apps (#266).
@@ -39,9 +44,12 @@ was never published. Merged on `main` since then and not yet in a release:
   workflow rewrites the "Device support report" issue with suggested tier moves. A tier changes
   only by a PR to that file. Process, criteria and the evidence rule:
   [`docs/DEVICE-SUPPORT.md`](docs/DEVICE-SUPPORT.md).
-- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, with the purchase
-  signature checked on the phone (no server).
-  Past Ko-fi supporters get Pro through Play promo codes.
+- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, plus "Support me"
+  tiers `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99) that unlock the same Pro
+  and nothing more, with the purchase signature checked on the phone (no server).
+  Past Ko-fi supporters get Pro through Play promo codes. **Keep Ko-fi out of the Play app**:
+  offering Pro for an outside donation in-app breaks Play's payments policy. The Ko-fi link and the
+  "donate, get a Pro code" offer live on the root README.
 
 Play submission path: the developer account is personal and new, so Google requires a closed test
 with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi
@@ -75,6 +83,13 @@ These are load-bearing — break them and the safety story falls over.
 - **Snapshots are versioned.** `schema_version == 0` is rejected. `schema_version > current` is rejected. Bump the constant in `engine/snapshot.rs` when the schema changes and write an explicit migration.
 - **Snapshot reads are path-confined** to `snapshot_dir` via `canonicalize` + `starts_with`. Keep that check on any new read path that takes a user-supplied snapshot location — zip-slip / traversal protection is the same pattern in `adb/install.rs`.
 - **The do-not-disable list is mandatory for curated actions.** `engine::safety::classify` / `is_never_disable` must gate every typed disable code path (apply-snapshot, optimize wizard, memory-table Disable button, stock-launcher wizard, panic-recovery's inverse, …). Desktop expert shell is an explicit opt-in exception: arbitrary shell expressions can bypass its lexical checks. It must remain bounded, clearly warn about destructive effects, and never claim the curated actions' safety guarantee. Mobile does not expose it.
+- **macOS cuts off an adb server left over from an older build.** macOS charges the adb server's
+  network use to the app that started it. The server outlives the app, and once a newer build
+  launches, every connection that old server makes fails with "No route to host" while the app
+  itself still reaches the TV. `v2/src-tauri/src/adb/server_repair.rs` restarts the server when a
+  connect or pair fails that way for an address the app reaches. Don't remove it, and don't
+  "fix" updates by changing the signing identifier: that was tested on macOS 26.6 and doesn't
+  lose or restore anything.
 - **Tauri commands return `Result<T, String>`.** The error type is serialized to the frontend. Convert with `.map_err(|e| e.to_string())`.
 - **Frontend is Svelte 5 runes** (`$state`, `$derived`, `$effect`, `$props`) on SvelteKit in SPA mode (`adapter-static`). No legacy stores.
 
@@ -121,7 +136,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures 16 screens in both themes and rebuilds both GIFs
+cd v2 && npm run screenshots   # captures 17 screens in both themes and rebuilds both GIFs
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:
@@ -144,7 +159,8 @@ The release workflow also regenerates the gallery on every `v2-*` tag (the `refr
 - **Windows MSI versioning gotcha** (two parts):
   - WiX rejects non-numeric pre-release identifiers — `0.1.0-beta` fails with "optional pre-release identifier in app version must be numeric-only…". So `release.sh` sets a numeric-only `bundle.windows.wix.version` (the human version stays as-is for Linux/macOS/NSIS).
   - **Windows Installer ignores the 4th version field** for upgrade detection — it compares only `major.minor.build`. An earlier scheme put the pre-release counter in the 4th field (`0.1.0.N`), so every beta read as `0.1.0` and Windows refused in-place upgrades ("uninstall the existing version first"). `release.sh` now encodes the counter into the **3rd (build)** field so each release strictly increases in semver order: `build3 = patch*1000 + typeBase + n` with type bands alpha 0 / beta 300 / rc 600 / stable 999 (e.g. `0.1.0-beta.3` → `0.1.303`, `0.1.0-rc.1` → `0.1.601`, `0.1.0` → `0.1.999`). If you hand-bump, set `bundle.windows.wix.version` with the same scheme.
-  - The MSI **UpgradeCode** is auto-derived by Tauri from `productName`/`identifier` and must stay stable for upgrades to work — **don't rename the product or change the identifier** without understanding it resets the UpgradeCode and orphans existing installs.
+  - The MSI **UpgradeCode** must stay stable for upgrades to work. Tauri derives it from the product name unless it is set, so it is **pinned** in `tauri.conf.json` (`bundle.windows.wix.upgradeCode`) to the value the original name produced; never change or remove it. `bundle.publisher` is pinned the same way (`shieldoptimizer`, what the original identifier derived): NSIS and WiX key `Software\<publisher>\<product>` and the remembered install folder on it.
+  - The 2.5.0 rename (identifier `com.atvoptimizer.app`, data folder `ATVOptimizer`, binary `atv-optimizer`) copies the old data and WebView profile on first launch (`v2/src-tauri/src/rename.rs`), and `v2/src-tauri/windows/hooks.nsh` removes a side-by-side "Shield Optimizer" NSIS install left by the 2.3.0 product rename. Overrides are `ATV_OPTIMIZER_ADB` / `ATV_OPTIMIZER_SUBNET`; the `SHIELD_OPTIMIZER_*` names still work. See `v2/HANDOFF.md`.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or pass `--yes` if you have deliberately decided to skip the gates (CI, or an agent acting on an explicit instruction).
 
 ### Still undone: signing and update-key custody
@@ -159,6 +175,10 @@ doc that held them has been deleted.
   than it looks for this audience specifically: people installing a debloater already have reason
   to be suspicious, and a SmartScreen "this looks like malware" banner confirms the fear. Linux
   needs no signing. Setup notes for when we do this are at the top of `.github/workflows/v2-release.yml`.
+  Until then macOS builds are **ad-hoc signed as `com.atvoptimizer.app`**
+  (`bundle.macOS.signingIdentity: "-"`), and the release fails if they aren't: the linker-only
+  signature's identifier (`atv_optimizer-<hash>`, `shield_optimizer_v2-<hash>` before 2.5.0) changes every build and leaves the bundle
+  unsigned. Apple's local network guidance asks for a stable identity.
 - **Update-key custody.** The Tauri updater signs with Ed25519, and **the private key must never
   rotate** — doing so breaks auto-update for every installed copy on an older version, permanently.
   There is no recovery path except telling users to reinstall by hand. Where the key lives, who can
@@ -166,10 +186,38 @@ doc that held them has been deleted.
 
 ### Homebrew tap
 
-The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `shield-optimizer`, pointing at the universal `.dmg` from the latest `v2-*` release.
+The macOS distribution channel is a Homebrew tap at [`bryanroscoe/homebrew-shield-optimizer`](https://github.com/bryanroscoe/homebrew-shield-optimizer). One cask, `atv-optimizer` (renamed from `shield-optimizer` through the tap's `cask_renames.json`, so `brew upgrade` moves existing installs), pointing at the universal `.dmg` from the latest `v2-*` release. The tap repo keeps its name.
 
 - The cask strips `com.apple.quarantine` in a `postflight` block. This is what lets users skip the macOS 15+ Gatekeeper dance after `brew install --cask`. Don't remove that block unless we start signing the build.
-- The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/shield-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
+- The `bump-tap` job in `.github/workflows/v2-release.yml` updates the cask on every release: downloads the universal DMG, computes the SHA256, rewrites `version` and `sha256` in `Casks/atv-optimizer.rb`, and pushes to the tap. It needs the `HOMEBREW_TAP_TOKEN` secret — a fine-grained PAT scoped to the tap repo with `contents:write`. If the secret is missing the job logs that and skips (rather than failing the whole release).
+
+## Interface copy: disclose help on demand
+
+Keep controls readable without a paragraph beneath each one. Use a clear label and show only
+current status or a consequence the person needs before acting. Remove text that merely narrates
+an obvious button or repeats its label. Put explanations, examples, troubleshooting, privacy
+details and advanced setup behind a nearby question-mark help control, expandable help, or an
+appropriate confirmation. Do not shrink text to make it fit.
+
+Help must work with click, touch and keyboard, have an accessible name and visible focus, and be
+readable at narrow widths and increased text size. Hover-only text is insufficient. Preserve
+privacy and sharing disclosures and destructive consequences in the relevant decision or
+confirmation; moving routine explanations into help must not remove informed consent. Review the
+whole changed screen for repeated microcopy before calling UI work finished.
+
+## Layout polish before handoff
+
+Review the whole changed desktop screen and similar rows before calling UI work finished. In
+summary rows, vertically center trailing actions against the complete title and metadata block,
+keep related controls grouped with consistent gaps, and let them wrap below the content when
+space is limited. Keep table cells in table layout; put flex action groups inside the cell.
+Preserve intentional top alignment for multi-section panels, warnings and directional controls.
+
+Run `cd v2 && npm run test:icon-alignment` and inspect both themes at a wide viewport, the
+720px desktop minimum and larger text. Check long names, selected/disabled states, spacing,
+clipping and keyboard access. Fix comparable layout problems found in the pass, and record the
+screens and remaining limits in PR evidence. Do not reduce text size or add explanatory copy to
+hide a layout problem.
 
 ## Conventions
 

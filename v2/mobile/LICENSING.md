@@ -8,7 +8,7 @@ tweaks writes, and the rest of the `Feature` list in
 There are two independent ways to get Pro:
 
 - **Google Play builds** (`ATVOPT_DISTRIBUTION=play`): a one-time Play purchase of
-  `atvopt_pro`, verified on the phone. See `BILLING-IMPLEMENTATION-PLAN.md`
+  `atvopt_pro` (or one of its same-Pro support tiers), verified on the phone. See `BILLING-IMPLEMENTATION-PLAN.md`
   ("Implemented v1") and `RELEASE.md`. Offline license keys are **not accepted** in
   these builds: the UI hides key entry and `activate_license` refuses (Play's
   Payments policy). Existing Ko-fi supporters get Pro through Play promo codes.

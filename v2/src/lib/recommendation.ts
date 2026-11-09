@@ -104,13 +104,48 @@ export function recommendation(
   return { kind: "keep", label: NO_CHANGE_LABEL };
 }
 
-/// The extra paragraph an uninstall confirm carries when the store can't give
-/// the app back. Null when it can, so store apps keep the short prompt.
-export function uninstallNote(pkg: string, entry: AppEntry | null): string | null {
-  if (entry && isReinstallable(entry)) return null;
+export interface UninstallOutcome {
+  /// One line for the row, shown while Uninstall is the chosen action.
+  short: string;
+  /// The paragraph the confirm prompt carries.
+  detail: string;
+}
+
+/// What getting an app back takes after Uninstall. Every uninstall is
+/// `pm uninstall --user 0`: it removes the app for this TV's user. A copy that
+/// came with the TV keeps its APK, but the App List offers Reinstall only for
+/// apps the catalog recommends restoring, so only those say so.
+export function uninstallOutcome(pkg: string, entry: AppEntry | null): UninstallOutcome {
+  const reinstall = entry?.default_restore
+    ? " If it came with the TV, Reinstall in the App List can bring it back while its APK is still on the TV."
+    : "";
+  if (entry?.play_store) {
+    return {
+      short: "Get it back from the Play Store",
+      detail: `Uninstall removes it for this TV's user. Get it back from the Play Store.${reinstall}`,
+    };
+  }
   const source = sideloadSource(pkg);
   if (source) {
-    return `Not on the Play Store. To get it back you would reinstall ${source.name} from ${source.url} — back up its APK first if you might want this exact version.`;
+    return {
+      short: `Not on the Play Store: reinstall from ${source.name}`,
+      detail: `Not on the Play Store. To get it back you would reinstall ${source.name} from ${source.url}. Back up its APK first if you might want this exact version.${reinstall}`,
+    };
   }
-  return "We can't confirm this is on the Play Store. If it isn't, getting it back needs its APK — back it up first.";
+  if (entry?.defunct) {
+    return {
+      short: "Discontinued: no way to download it again",
+      detail: `This service is discontinued and has no store listing, so once it is uninstalled there is nowhere to download it again.${reinstall}`,
+    };
+  }
+  return {
+    short: "May not be on the Play Store",
+    detail: `We can't confirm this is on the Play Store. If it isn't, getting it back needs its APK, so back it up first.${reinstall}`,
+  };
+}
+
+/// The paragraph an uninstall confirm carries: how, or whether, the app can
+/// come back.
+export function uninstallNote(pkg: string, entry: AppEntry | null): string {
+  return uninstallOutcome(pkg, entry).detail;
 }

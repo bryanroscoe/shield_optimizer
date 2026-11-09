@@ -1,9 +1,109 @@
 # Releasing ATV Optimizer for Android
 
-End-to-end checklist for cutting an Android build. Nothing here is automated on a tag yet — the
-desktop app's `v2-*` tag pipeline (`.github/workflows/v2-release.yml`) is a separate track and must
-not be reused for mobile. `.github/workflows/v2-tests.yml` already runs the mobile gates on every change;
-building and uploading is still a local, manual step.
+End-to-end checklist for cutting an Android build. The build, verification and Play upload are
+automated on `mobile-v*` tags by `.github/workflows/mobile-play-release.yml` (see
+[Automated release (CI)](#automated-release-ci)); the desktop app's `v2-*` tag pipeline
+(`.github/workflows/v2-release.yml`) is a separate track and must not be reused for mobile.
+`.github/workflows/v2-tests.yml` runs the mobile gates on every change. The local commands below
+remain the reference and the fallback.
+
+## Automated release (CI)
+
+Push a tag `mobile-vX.Y.Z[-pre]` on a commit that is on `main`:
+
+```sh
+mobile/scripts/bump-version.sh 0.1.2   # then commit, PR and merge as usual
+git tag -a mobile-v0.1.2 -m "ATV Optimizer for Android 0.1.2" <merged commit> && git push origin mobile-v0.1.2
+```
+
+The `release` job of `mobile-play-release.yml` then, in the `google-play` environment:
+
+1. refuses a revision that is not on `main`, the `production` track and a tag that disagrees with
+   `tauri.conf.json`, resolves the versionCode (`bundle.android.versionCode` if set, else derived
+   from the version, see §2) and checks that every secret and variable below is set;
+2. installs the Android toolchain and npm dependencies before writing any credential, then checks
+   the keystore's certificate against the recorded upload certificate;
+3. asks Play for the highest versionCode it holds across every bundle, APK and track release; a
+   code that is not above it fails here, before anything is built;
+4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
+5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
+   validate`, manifest package and versionCode, then the universal APK bundletool generates and the
+   Gradle universal APK through `verify-release-apk.py` with the same certificate check;
+6. keeps the AAB, APK, build receipt and verification JSON as a 30-day workflow artifact;
+7. uploads the AAB with `scripts/play-publish.py` and creates a **draft** release on the
+   **internal** track. Nothing reaches testers until you open Play Console → Test and release →
+   Internal testing → the draft → **Review release** → **Start rollout**.
+
+**Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
+and verified, no upload), `publish` (pick the track, e.g. `alpha` for the default Closed testing
+track, or a custom closed track id, and `draft` or `completed`) or `smoke`. The `production`
+track is refused: promote a tested release to production in Play Console. `completed` is refused
+by Play while the app has never been published. A versionCode override is there for re-spinning
+one version; it must still be above everything on Play.
+
+The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or their shared
+inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
+verification with a throwaway keystore and a random license key, no secrets and no upload.
+Both smoke and real release jobs run the Kotlin discovery/network JVM tests and require
+nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
+Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
+
+CI covers the build, signature and static artifact gates and the versionCode check. It does not
+cover the Play pre-launch report, actual 16 KB page-size runtime, the phone/TV matrix or the
+purchase script; those stay in [Testing-candidate gates](#testing-candidate-gates).
+
+### One-time setup
+
+1. **First upload by hand.** The Play Developer API cannot create the first release of a new app.
+   If Play Console shows no upload yet, do §5 and §7 once locally.
+2. **Service account.** Google Cloud console (any project) → enable the *Google Play Android
+   Developer API* → IAM → Service accounts → create one (no Cloud roles) → Keys → Add key → JSON.
+   Save it as `~/.config/atv-optimizer/play-service-account.json` (mode 600) and in 1Password.
+   Then Play Console → **Users and permissions** → Invite new users → the service account's email
+   → App permissions → ATV Optimizer → grant *View app information* and *Release apps to testing
+   tracks*. CI never releases to production, so it does not need *Release to production*. Access
+   can take a few minutes to apply.
+3. **Load the environment.** `mobile/scripts/setup-play-ci.sh --dry-run` prints what it will set;
+   without `--dry-run` it creates the `google-play` environment (deploys only from `main` and
+   `mobile-v*` tags) and sets, from the same local files `build-play-release.py` reads:
+
+   | Name | Kind | Value |
+   | --- | --- | --- |
+   | `ATVOPT_UPLOAD_KEYSTORE_B64` | secret | base64 of the upload keystore |
+   | `ATVOPT_UPLOAD_KEYSTORE_PASSWORD` / `ATVOPT_UPLOAD_KEY_PASSWORD` | secret | its passwords |
+   | `PLAY_SERVICE_ACCOUNT_JSON` | secret | the service-account key |
+   | `ATVOPT_UPLOAD_KEY_ALIAS` | variable | the key alias |
+   | `ATVOPT_UPLOAD_CERT_SHA256` | variable | SHA-256 of the upload certificate; CI refuses any other keystore |
+   | `ATVOPT_PLAY_LICENSE_KEY` | variable | the Play licensing public key (public, kept out of Git) |
+
+   Re-run it after rotating any of them. Optionally add yourself as a required reviewer on the
+   environment so every run waits for an approval click; re-running the script keeps the
+   environment's reviewers, wait timer and self-review setting.
+
+If a run fails, read the step that failed: credential and versionCode problems stop before the
+build, and a rejected artifact is never uploaded. Delete a wrong tag with
+`git push origin :refs/tags/mobile-vX.Y.Z` before re-tagging; a versionCode Play has already
+accepted can never be reused, even if its release is discarded.
+
+## First install through Google Play
+
+The owner's first Play Store install uses **Internal testing**. It does not have to wait for
+public production access or the 12-tester / 14-day closed test. Use the same package and billing
+implementation as the eventual public release; do not substitute a debug or fixture build.
+
+1. Create the free app shell and configure the real per-app Play licensing public key. Set up
+   the merchant profile for the Pro product; Google may require owner identity, bank/tax details
+   or agreements. Finish the signed-artifact gates below.
+2. Test and release → Testing → Internal testing: add the owner's phone Google account to the
+   tester email list, upload the verified AAB, and roll out the internal release. Record the
+   versionCode, artifact SHA-256, app-signing certificate fingerprints and opt-in URL.
+3. On the phone, sign in with that tester account, open the opt-in link, join, then install from
+   Google Play. Verify the installed version and that Free access and recovery work.
+4. Add the owner's account to License testing before purchase tests; use Google's test payment
+   instruments, not a real charge. Complete the purchase/restore/pending/refund matrix in §6.
+5. Complete the physical phone/TV matrix and fix any failures. Internal availability alone is
+   not product acceptance. Then finish listing/declarations and roll out Closed testing to
+   start the account's required production-access clock.
 
 ## 0. Prerequisites (one time)
 
@@ -99,8 +199,8 @@ From `v2/`:
 
 ```
 cargo fmt --all --check
-cargo clippy -p shield-optimizer-core -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing --all-targets -- -D warnings
-cargo test -p shield-optimizer-core -p atv-optimizer-mobile
+cargo clippy -p atv-optimizer-core -p atv-optimizer-mobile -p tauri-plugin-atv-adb -p tauri-plugin-atv-billing --all-targets -- -D warnings
+cargo test -p atv-optimizer-core -p atv-optimizer-mobile
 ```
 
 From `v2/mobile/`:
@@ -127,6 +227,27 @@ than something to work around: it is the licence check that keeps the app sellab
 
 ## 5. Build
 
+For the owner-authorized Play rollout, `scripts/build-play-release.py` reads signing inputs from
+`~/.config/atv-optimizer/play-upload.json` and the app's real Play Console RSA public key from
+`~/.config/atv-optimizer/play-license-key`. Both stay outside Git. It verifies the key parses,
+the upload keystore opens, the privacy page is live, source is clean, capacity is available and
+the proposed `versionCode` exceeds the operator-confirmed highest code on every track. It
+refuses fixture mode and unsigned-release overrides, keeps build jobs at one and sets Play mode.
+
+```sh
+python3 scripts/build-play-release.py --version-code 1000 --previous-version-code 0 --preflight-only
+python3 scripts/build-play-release.py --version-code 1000 --previous-version-code 0
+```
+
+Use `--previous-version-code 0` only when the Console confirms no upload exists. Set
+`JAVA_HOME`, `ANDROID_HOME` and `NDK_HOME` first. The default builds all four Android targets;
+`--target aarch64` narrows a deliberately arm64-only candidate. The build receipt records source,
+targets, artifact hashes, policy hash and public-key/certificate fingerprints; it deliberately
+leaves signature/bundletool/APK verification, 16 KiB runtime, Play pre-launch and device/purchase
+acceptance open. The command never uploads or installs anything.
+`scripts/verify-play-bundle.py` closes the signature, bundletool and APK gates for that output
+(CI runs it with the same arguments; see the workflow's Verify step).
+
 ### Build-time inputs for a Play build
 
 | Variable | Value | Effect |
@@ -145,7 +266,8 @@ export ATVOPT_PLAY_LICENSE_KEY='MIIBIjANBgkqh…'   # one line, from Play Consol
 npm run tauri android build -- --aab
 ```
 
-The product id is the constant `PRO_PRODUCT_ID = "atvopt_pro"` in `src-tauri/src/play_billing.rs`.
+The product ids are constants in `src-tauri/src/play_billing.rs`: `PRO_PRODUCT_ID = "atvopt_pro"`
+and the two pay-more tiers in `SUPPORT_PRODUCT_IDS` (`atvopt_pro_support_1`, `atvopt_pro_support_2`).
 
 Tauri drives Gradle, and the generated `RustPlugin` already defines one product flavor per ABI
 (`universal`, `arm64`, `arm`, `x86`, `x86_64`), so per-ABI output needs CLI flags, not Gradle edits.
@@ -229,7 +351,10 @@ uploaded to some track.
 7. **Product.** Monetize with Play → Products → **One-time products** → create product id
    **`atvopt_pro`** (exactly; it is permanent), name "ATV Optimizer Pro", one purchase option, buy
    (not rent), US price **$4.99** and let Play derive other countries' prices. Activate it. The app
-   shows Play's localized price, never a hard-coded one.
+   shows Play's localized price, never a hard-coded one. Then create the two optional **Support me**
+   tiers the same way: `atvopt_pro_support_1` at **$9.99** and `atvopt_pro_support_2` at **$19.99**.
+   They unlock exactly the same Pro, so their names and descriptions must not promise anything
+   extra. See [`PLAY-CONSOLE-WALKTHROUGH.md`](PLAY-CONSOLE-WALKTHROUGH.md) §3.3.
 8. **License testers.** Settings → **License testing**: add the Google accounts of everyone testing
    purchases: the owner and closed-track testers who will try the purchase flow, so they can
    test-purchase Pro without being charged. Leave Ko-fi supporters who get a promo code (step 10)
@@ -275,7 +400,10 @@ Starting state: Free (the account doesn't own `atvopt_pro`).
 7. Refund the order with "Remove entitlement" in Order management, reopen the app: back to Free;
    More → Emergency recovery and Apps → re-enable still work. **Now Free.**
 8. Buy with "always approves": Pro unlocks at once; repeat the step 4 acknowledgment check.
-9. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
+9. Support tier: refund again as in step 7, then tap the $9.99 **Support me** price: Play's sheet
+   names the supporter product, Pro unlocks, and the Support me row and Buy Pro disappear. Repeat
+   the step 4 acknowledgment check for this order.
+10. Promo code, on an account that doesn't own Pro (a supporter account that isn't a license
    tester, or this one after another refund as in step 7): redeem in the Play Store app, then open
    the app: Pro unlocks.
 
@@ -336,11 +464,12 @@ implemented; see `LICENSING.md`. Neither implementation establishes current phon
 
 ### Still missing or unresolved
 
-SAF import/export, mobile release automation, verified signed APK/AAB evidence, complete resolved
+SAF import/export, verified signed APK/AAB evidence, complete resolved
 Android dependency notices (now including the Play Billing Library) and privacy/store disclosures
 remain open. Play billing v1 is implemented but has not run against a real Play account.
-The `mobile-release-preflight.yml` workflow tests the APK checker with synthetic artifacts/mocked SDK outcomes;
-it does not build/sign an APK, validate the native Android transport, or publish anything.
+The `mobile-release-preflight.yml` workflow unit-tests the release scripts with synthetic artifacts and
+mocked SDK/Play responses. `mobile-play-release.yml` builds, signs, verifies and uploads (see
+[Automated release (CI)](#automated-release-ci)); neither validates the native Android transport.
 
 ### Current external requirements to verify at submission
 

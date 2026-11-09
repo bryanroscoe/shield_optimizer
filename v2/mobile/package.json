@@ -1,6 +1,6 @@
 {
   "name": "atv-optimizer-mobile",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "type": "module",
   "private": true,
   "scripts": {
@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "subset-icons": "python3 scripts/subset-material-symbols.py",
     "tauri": "tauri",
-    "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh"
+    "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
+    "store-assets": "node screenshots/capture.mjs --play-store && node scripts/store-graphic.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

@@ -1,0 +1,104 @@
+# TCL 43P615 (ro.product.model BeyondTV, board RTD2851, Android TV 11, API 30,
+# build PPR1.180610.011 AR06, fingerprint TCL/BeyondTV/BeyondTV:11/PPR1.180610.011/AR06).
+# Sibling firmware of examples/tcl-beyondtv2-android-11 (AR05, board rtd285o): same package
+# set except com.tcl.tv.tclhome_master (absent here; only tclhome_passive) plus a few extras
+# below that AR05 does not ship. UK/EU set: the 15 uk.co.freeview.* catch-up apps, au.com.stan.and,
+# com.google.android.apps.nbu.smartconnect.tv and com.tcl.gallery were already disabled at the
+# factory and are left alone.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-43p615/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-43p615/debloat.txt
+# Install the launcher BEFORE disabling the stock launcher (launcher/build-and-install.sh).
+# Stock launcher: com.google.android.tvlauncher (priority 2). Other HOME claimants are only
+# fallbacks: com.tcl.keycustomfunctionservice/.FallbackHome and com.android.tv.settings
+# FallbackHome; setupwraith does not claim HOME on this build.
+# Live TV app: com.tcl.tv. Tuner and HDMI: com.tcl.tvinput (never disable either).
+# 2 HDMI ports and AV through the TV input framework, TvInputManager lists them normally
+# (with the input labels the owner set in Settings), so the launcher's Inputs menu needs
+# no source_panel_service.
+#
+# Tested 2026-10-21 on a real unit, applied in six batches with a screenshot after each,
+# and then verified over three reboots (final state identical). Wi-Fi, D-pad, the Inputs
+# menu, Live TV, Play Store, TV Bro, SmartTube and the remote's app/Input/Settings buttons
+# all worked after the changes, also after replacing the stock launcher. Not yet lived
+# with for weeks; treat the list as reboot-checked rather than long-term.
+#
+# DO NOT DISABLE (load-bearing on this firmware):
+# com.tcl.tv com.tcl.tvinput                          # Live TV, tuner, HDMI
+# com.tcl.keycustomfunctionservice                    # remote key handling, fallback home
+# com.tcl.common.shortcutmenu                         # custom-key/quick-start menu module
+# com.tcl.inputmethod.international                   # default keyboard
+# com.tcl.settings com.tcl.initsetup com.tcl.factory.view
+# com.tcl.xian.StartandroidService                    # device authentication
+# com.tcl.partnercustomizer                           # carries the remote's TKey activity (see
+#                                                     # examples/tcl-beyondtv2-android-11)
+# com.tcl.systemserver com.tcl.autopair               # system service, BT remote pairing
+# com.tvos                                            # /system/framework/tvos-framework-res.apk
+# com.google.android.apps.mediashell                  # Chromecast (kept by choice)
+# com.tcl.versionUpdateApp                            # TCL OTA updater (kept by choice)
+# com.google.android.tv.remote.service                # phone-app remote (kept by choice)
+
+# 1. Telemetry, analytics and attribution
+com.tcl.bi                                  # TCL BI analytics (Firebase, Crashlytics, net monitor)
+com.google.android.feedback                 # "send feedback"
+com.google.android.tvrecommendations        # home-screen recommendation rows
+com.google.android.partnersetup             # partner-app attribution
+com.google.android.onetimeinitializer       # one-time setup leftovers
+android.autoinstalls.config.tcl.device      # partner-app auto installer
+
+# 2. TCL content, promos and background extras
+com.tcl.overseasappshow                     # factory promo/app-show service; re-enables partner
+                                            # packages on every boot (see AR05 entry) - key entry
+com.tcl.tv.tclhome_passive                  # pushes TCL content onto the home screen at boot
+com.tcl.waterfall.overseas                  # TCL web content feed / recommendation waterfall
+com.tcl.messagebox                          # pushed messages and promos (ttvs)
+com.tcl.esticker                            # retail demo energy-label sticker
+com.tcl.guard                               # TGuard: device-use tracking, "health info", cleaner
+com.tcl.usercenter                          # TCL account / bind-phone centre
+com.tcl.dashboard                           # TCL IoT dashboard, giftbox and MessageBox promos
+com.tcl.copydatatotv                         # phone-to-TV data migration app (boot receiver)
+com.tcl.useragreement                       # end-user agreement screens
+com.tcl.notereminder                        # notes & reminder widget, has a launcher tile
+com.tcl.ui_mediaCenter                      # USB media centre (nothing on USB; players kept)
+
+# 3. Voice, off by choice. The mic button goes dead. Comment out to keep the assistant.
+com.google.android.katniss                  # Google Assistant / voice search
+com.google.android.tv.assistant             # Assistant LED service
+com.tcl.assistant                           # TCL voice service
+com.tcl.micmanager                          # TCL microphone manager
+com.tcl.smartalexa                          # Alexa (enabled on this unit, unlike AR05)
+
+# 4. Mirroring, off by choice. Chromecast itself stays (com.google.android.apps.mediashell).
+com.tcl.miracast                            # Miracast screen mirroring
+com.tcl.MultiScreenInteraction_TV           # MagiConnect mirroring/casting companion
+
+# 5. Stock screensaver, off by choice (the replacement launcher has a clock screensaver).
+com.google.android.backdrop                 # stock ambient photo screensaver
+
+# 6. Streaming apps and preloads, off by choice on this unit: reinstalled from the Play Store
+# as wanted. All reversible; tools/restore.sh re-enables them.
+# Boot test 2026-10-21: after two reboots everything below stayed disabled EXCEPT
+# com.google.android.videos, which the firmware re-enables on every boot, right after
+# `pm disable-user`. Leave it enabled and let the launcher hide its tile (hidden_apps), per the
+# boot-re-enable rule. com.tcl.usercenter stays off here, unlike on the Android 9 RTD2851 sets
+# (see examples/tcl-beyondtv-rt2851).
+com.netflix.ninja                           # Netflix
+com.google.android.youtube.tvmusic          # YouTube Music
+com.amazon.amazonvideo.livingroom           # Prime Video
+com.disney.disneyplus                       # Disney+
+com.disney.starplus                         # Star+
+com.wbd.stream                              # Max
+com.dazn                                    # DAZN
+com.spotify.tv.android                      # Spotify
+tv.pluto.android                            # Pluto TV
+tv.wuaki.apptv                              # Rakuten TV
+com.internet.tvbrowser                      # TV browser (Play-installed)
+com.apgsolutionsllc.APGSOLUTIONSLLC0007     # white-label TV browser (Play, 2022), replaced by
+                                            # TV Bro on this unit
+com.google.android.play.games               # Play Games (off by choice on this unit)
+com.android.printspooler                    # printing service, nothing to print from
+com.android.dreams.basic                    # stock "colors" screensaver
+# com.google.android.videos                 # Play Movies & TV: firmware re-enables it on every
+                                            # boot; hidden in the launcher via hidden_apps instead
+# com.google.android.youtube.tv             # also came back enabled (Play update or boot, observed
+                                            # 2026-10-21); the owner keeps it, disable again if wanted

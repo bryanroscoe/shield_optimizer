@@ -1,0 +1,120 @@
+# AIWA AI PONT SA (Changhong, brand AIWA, device osaka, product ISDB86AW)
+# Google TV 14 (API 34), firmware UKNV.260603.001, security patch 2026-06-01,
+# MediaTek mt5867. About 1.4 GB RAM (MemTotal 1448260 kB).
+# Same "AI PONT" family as examples/rca-ai-pont (device redwood, stock tvlauncher)
+# and examples/benq-e55-735 (launcherx), but this board is osaka.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/aiwa-ai-pont-sa/debloat.txt
+# Dock:    TV_HOST=<tv ip> tools/theme.sh examples/aiwa-ai-pont-sa
+#          config.json is the layout that was on the test set. The dock is 4 columns:
+#          TV ao vivo, Netflix, YouTube, Prime Video. Globoplay is the 5th favourite,
+#          so it is the first tile of the row below. Edit dock_apps before pushing.
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/aiwa-ai-pont-sa/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+# The remote's source button is not KEYCODE_TV (it sends KEY_G), so INPUT_KEY_SERVICE=1
+# alone doesn't bring it back yet; see the quirks below.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx
+# Live TV: com.mediatek.wwtv.tvcenter
+# Pass launcherx to restore.sh. Its default stock launcher is
+# com.google.android.tvlauncher, which this firmware does not have.
+#
+# Tested the same day on one set, not a multi-day soak. Packages marked
+# "already disabled" shipped that way. The others were disabled in this session
+# and were still disabled after a power cycle, before the new launcher was
+# installed. launcher/build-and-install.sh with INPUT_KEY_SERVICE=1 then set
+# com.gathin.tvhome as Home.
+#
+# Checked on that home, by screenshot and by the window in front:
+# - D-pad moves focus across the dock and down into the grid.
+# - With config.json applied, the focused hero is "TV ao vivo" and the dock is
+#   TV ao vivo, Netflix, YouTube, Prime Video. Globoplay is the first tile below.
+# - Inputs lists HDMI 1, HDMI 2, composite ("No device") and Live TV.
+# - HDMI opens com.google.android.tv.inputplayer/.player.PassthroughPlayerActivity.
+# - Live TV in that menu, and the TV ao vivo tile, both open
+#   com.mediatek.wwtv.tvcenter/.nav.TurnkeyUiMainActivity. The system input player
+#   on the tuner URI stays black on this set, so the menu must not use it.
+# - com.netflix.ninja/.MainActivity starts, and Home returns to the new launcher.
+# - Streaming apps left enabled: Netflix, YouTube, Prime Video, Globoplay,
+#   Disney+, Max, Apple TV, Claro tv+, Paramount+, Spotify.
+# - The remote's source button was captured with getevent on
+#   "MStar Smart TV IR Receiver": MSC_SCAN 0040bf5b and linux KEY_G (scan 34),
+#   19 times across 6 presses because the IR code repeats. It is not KEYCODE_TV,
+#   which is why the button did nothing at first. On the author's branch (a separate
+#   launcher change, not on main yet), treating KEYCODE_G / scan 34 from that IR
+#   device as the Inputs button made one press on the home screen open the Inputs menu. Confirmed by the person
+#   holding the remote. Not rechecked from inside another app. A keyboard G is
+#   not consumed. sendevent on the IR device is denied to the shell, so the
+#   press could not be injected.
+#
+# KEEP, even though some names look like bloat:
+# - com.homwee.dmt.upgrade: firmware updates. com.homwee.upgrade below is the
+#   vendor app updater; the Play Store still updates apps.
+# - com.homwee.factory, com.homwee.synckey, com.homwee.dynamicbacklight (picture).
+# - com.homwee.mmp.fileexplorer, com.homwee.mmp.imageplayer.
+# - com.mediatek.* (Live TV, inputs, remote pairing), including
+#   com.mediatek.tv.service, com.mediatek.tvinput, com.mediatek.autopair and
+#   com.mediatek.androidbox.
+# - com.mediatek.android.leanbacklauncher.partnercustomizer. Left enabled. On the
+#   Android 11 CHiQ list, disabling it crash-loops com.mediatek.tv.service after
+#   a reboot, and this set was not reboot-tested with it off.
+# - com.google.android.gms, com.android.vending, and the streaming apps.
+#
+# Quirks on this firmware:
+# - USB debugging alone opens network ADB on port 5555. There is no separate
+#   wireless-debugging pairing step.
+# - Standby can drop the TV off Wi-Fi. After a power cycle, check port 5555
+#   before assuming the old address.
+# - Home claimants, in order: launcherx/.home.HomeActivity (priority 2),
+#   setupwraith/.MainActivity and setupwraith/.RecoveryActivity (priority 1),
+#   then com.android.tv.settings/.system.FallbackHome. Disable setupwraith
+#   before launcherx, or Home lands on the setup wizard. The launcher package
+#   is commented out below so disable.sh does not remove Home first;
+#   launcher/build-and-install.sh disables it after the new home is set.
+# - The stock screensaver was com.google.android.apps.tv.dreamx/.service.Backdrop.
+#   After dreamx is disabled, com.android.dreams.basic/.Colors is the fallback
+#   until the launcher Clock dream is selected.
+# - The launcher's Wi-Fi pill shows the network name only while Location is on.
+#   On the test set location_mode was 0, so the pill read "Wi-Fi".
+# - Two hardware tuners are registered: AnalogInputService/HW7 and
+#   TunerInputService/HW0. Alphabetical order picks the analog one. Live TV in
+#   the menu still launches the app above, not a passthrough URI.
+# - Inputs on this remote: see the getevent note above. The source button isn't mapped
+#   on main yet. input_key_keycodes [35] (KEYCODE_G) with INPUT_KEY_SERVICE=1 would
+#   catch it, but also every G typed on a keyboard.
+
+# Content recognition (reports what is on screen)
+tv.anoki.acr.anokiacroptin
+
+# Ambient screensaver. Mixes recommendations into the backdrop.
+com.google.android.apps.tv.dreamx
+
+# Partner auto-installs and feedback
+com.google.android.partnersetup
+com.android.tv.feedbackconsent
+com.google.android.feedback                 # already disabled on the test set
+
+# Vendor store, help, app updater and screen sharing.
+# Already disabled on the test set. Re-enable a screenshare package to mirror.
+com.homwee.store
+com.homwee.help
+com.homwee.upgrade                          # vendor app updater, not firmware
+com.homwee.multiscreenshare
+com.homwee.mmp.screenshare
+
+# Preloaded apps. Already disabled on the test set.
+com.google.android.play.games
+com.google.android.youtube.tvmusic
+com.google.android.syncadapters.calendar
+
+# Personal choice. Already disabled on the test set; comment out what you use.
+com.google.android.katniss                  # microphone / Assistant
+com.google.android.apps.mediashell          # Chromecast built-in
+
+# First-run wizard. Its RecoveryActivity takes Home once launcherx is gone.
+com.google.android.tungsten.setupwraith
+
+# Stock launcher, replaced by launcher/. Left to launcher/build-and-install.sh,
+# which disables it only after the new home is installed and set as default.
+# The Undo command above passes the package so restore.sh brings it back.
+# com.google.android.apps.tv.launcherx

@@ -1,0 +1,111 @@
+# Philips 65PUS9435/12 (65" 4K UHD LED, 4-sided Ambilight, "The One", 2020 model), Germany
+# Android TV 12 (API 31), firmware STT2.230526.001
+# ro.product.model=TPM191E  ro.product.device=PH9M_EA_5599
+# Fingerprint: Philips/PH9M_EA_5599/PH9M_EA_5599:12/STT2.230526.001/4215:user/release-keys
+# TP Vision build: MediaTek MT5887, vendor packages use the org.droidtv prefix.
+#
+# Same board AND firmware build as examples/philips-75pus8505 and examples/philips-tpm191e (identical
+# fingerprint). Batches 1-3 follow the 8505 list, minus Apple TV, which this owner uses, and minus
+# usagelogger and demome (note 1). Batches 4 and 5 are this owner's unused streaming apps and Philips
+# web-app tiles.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/philips-65pus9435/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/philips-65pus9435/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher
+# Live TV app:    org.droidtv.playtv
+# The uk.co.freeview.* packages and org.droidtv.freeviewplayers are disabled from the factory on
+# this unit, so they are not listed (restore.sh would turn them ON).
+#
+# Notes from this unit:
+# 1. Re-enabled at every boot, so left out below: com.phorus.playfi.tv (as on the 8505),
+#    org.droidtv.usagelogger and org.droidtv.demome. disable.sh skips the last two anyway, as both ask
+#    for TV_INPUT_HARDWARE. Neither serves android.media.tv.TvInputService here (only
+#    com.mediatek.tvinput, org.droidtv.fastip and com.google.android.videos do), so that skip is a
+#    false positive on this set; disabled with TVINPUT_ALLOW=1 they were back on after one reboot.
+#    The other entries stayed disabled across two reboots. The 8505 and tpm191e lists disable
+#    usagelogger (and the 8505 demome) with no such note, so other units may differ.
+# 2. com.google.android.tvrecommendations went off while the stock launcher was still Home, the
+#    order the 8505 notes warn against. The stock home still drew and opened apps afterwards, and
+#    build-and-install.sh moved Home without trouble, so on this unit the order did not matter.
+# 3. Launcher: build-and-install.sh ran through on its own, without the `am start -W` timeout the
+#    8505 saw (cold start 2.2 s), and Home resolved to com.gathin.tvhome. config.xml used:
+#    live_tv_package org.droidtv.playtv; hidden_apps org.droidtv.playtv, org.droidtv.demome,
+#    org.droidtv.eum, org.droidtv.channels, com.vewd.core.browserui (hidden, not disabled: eum and
+#    channels back the SOURCES drawer, vewd is the HbbTV engine).
+# 4. Private DNS set to dns.adguard-dns.com (mode hostname); Netflix still plays. Both settings were
+#    null before. Undo: settings delete global private_dns_mode; settings delete global private_dns_specifier
+# 5. Checked with the real remote after the launcher took over: Home, SOURCES drawer, the launcher's
+#    Inputs menu, Ambilight, and casting YouTube from a phone.
+#
+# Second unit: Philips 55PUS9435/12, Germany, on Wi-Fi. Same firmware and fingerprint as above
+# (STT2.230526.001/4215). Cleaned on 27 Oct 2026 and used for one day with one reboot, not a
+# several-day test.
+# - Every entry of batches 1-3 that is installed on this unit was disabled; Fitness Buddy, YouTube
+#   Music and Play Games were not installed or already off from the factory. Batches 4 and 5 were not
+#   installed at all. usagelogger and demome left alone, as note 1 says.
+# - build-and-install.sh with HOME_KEY_SERVICE=1 ran through, Home resolved to com.gathin.tvhome, and it
+#   still did after the reboot, without a key press. Same live_tv_package and hidden_apps as note 3.
+# - The firmware opens org.droidtv.playtv at power-on; power_on_home sent it back to Home.
+# - The remote's TV button sends scancode 170 (KEY_ISO). app_keys scan:170:<package> made it open a
+#   streaming app instead of Live TV; with the key filter that needs, a held Volume Up/Down steps
+#   once per press, as on the tpm191e units.
+# - The first SOURCES press opened org.droidtv.fastip's FAST channels promo page
+#   (fastIPPromoActivity); its "don't ask again" option brings the input bar back. fastip stays
+#   enabled, as in the 8505 list's DO NOT DISABLE block.
+#
+# Kept on purpose: Ambilight (org.droidtv.ambihuecommon, org.droidtv.ambiair, org.droidtv.alhuewizard),
+# Chromecast (com.google.android.apps.mediashell), firmware updates (org.droidtv.oad, com.easy.oad),
+# the HbbTV browser engine (com.vewd.core.browserui), ARTE and ARD Mediathek web apps
+# (org.droidtv.nettvapp1814, org.droidtv.nettvapp3093), and everything in the DO NOT DISABLE block of
+# examples/philips-75pus8505 (org.droidtv.eum, org.droidtv.fastip, org.droidtv.settings, USB media).
+
+# Batch 1: telemetry
+org.droidtv.candeebug                     # "DAC" analytics uploader
+org.droidtv.gel                           # metrics collector sharing candeebug's process
+com.google.android.feedback               # Market Feedback Agent
+com.google.android.partnersetup           # partner referrer / attribution
+com.google.android.onetimeinitializer     # runs once at first setup, nothing afterwards
+com.google.android.syncadapters.calendar  # Google Calendar sync; no calendar app on this TV
+
+# Batch 2: Philips and Google content promotion
+org.droidtv.nettvrecommender              # "Top Picks" content promotion row
+org.droidtv.recommendation                # its headless backend
+org.droidtv.nettv.market                  # "Philips TV Collection" app storefront
+org.droidtv.android.fitness               # Fitness Buddy
+org.droidtv.sticker                       # e-sticker and shop banners
+# The 8505 list disables the stock launcher first; see note 2 and its "ORDER MATTERS" block.
+com.google.android.tvrecommendations      # "Android TV Core Services": recommendation rows, notification panel
+
+# Batch 3: voice assistants and speakers this owner does not use. Chromecast stays.
+# Disabling katniss clears secure voice_interaction_service and assistant, and restore.sh does not
+# put them back; see examples/philips-75pus8505 for the two settings commands.
+com.google.android.katniss                # Google Assistant and voice search; the remote's mic button stops
+org.droidtv.amazonalexa                   # Alexa bridge
+com.phorus.playfi.softap                  # Play-Fi speaker setup access point
+
+# Batch 4: streaming and game apps this owner does not use
+com.google.android.youtube.tvmusic        # YouTube Music
+com.crunchyroll.crunchyroid               # Crunchyroll
+de.prosiebensat1digital.seventv           # Joyn / 7TV
+de.rtli.tvnow                             # RTL+
+com.novoda.dch                            # discovery+
+tv.wuaki.apptv                            # Rakuten TV
+com.mgmedia.androidApp                    # CHILI film store
+tv.pluto.android                          # Pluto TV
+com.zeasn.whalelive                       # Whale Live channels, a /data app
+com.blacknut.client                       # Blacknut cloud games
+com.boosteroidtv.streaming                # Boosteroid cloud games
+com.ted.android.tv                        # TED
+com.nbaimd.gametime.nba2011               # NBA
+dw.com.androidtv.live                     # DW
+com.google.android.play.games             # Google Play Games
+
+# Batch 5: Philips web-app tiles this owner does not use. All are /data apps; the name is the
+# application-label from the APK.
+org.droidtv.nettvapp3463                  # Videociety
+org.droidtv.nettvapp4546                  # MEGOGO
+org.droidtv.nettvapp5245                  # TV SpieleCenter
+org.droidtv.nettvapp5326                  # Toon Goggles
+org.droidtv.nettvapp5512                  # Fishing TV

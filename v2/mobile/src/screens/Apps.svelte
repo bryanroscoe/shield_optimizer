@@ -1,13 +1,21 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { recordUnknownDiagnostics } from "../lib/unknownDiagnostics";
   import { isBlocked, safetyLabel, tierOf, verdictOf, verdictSummary, type SafetyStatus } from "../lib/safety";
   import { canOfferUninstall, recommendation, uninstallNote, type PackageState, type Recommendation } from "../lib/recommendation";
-  import { isReportablePackage, reportFamily, type AppReportDevice, type AppReportState } from "../lib/app-report";
-  import { hasStorage, idleMeasurements, type AppMeasurements, type ApkReportMeasurement, type MeasureStatus } from "../lib/app-details";
-  import { normalizeHardwareId } from "../lib/identity";
+  import { isReportablePackage, type AppReportState } from "../lib/app-report";
+  import {
+    idleMeasurements,
+    reportDeviceOf,
+    reportFigures,
+    reportLiveState,
+    type AppMeasurements,
+    type ApkReportMeasurement,
+    type MeasureStatus,
+  } from "../lib/app-details";
   import {
     catalogItems,
     filterCatalog,
@@ -23,7 +31,7 @@
     type StatusFilter,
   } from "../lib/appsList";
   import packageMetadata from "../../package.json";
-  import type { Screen } from "../lib/router.svelte";
+  import { router, type Screen } from "../lib/router.svelte";
   import type { AppEntry, AppStorage, AppUsage, DeviceType, OtherPackage, Safety } from "../lib/types";
   import BottomTabs from "../components/BottomTabs.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -82,6 +90,8 @@
   let catalogStates = $state<Record<string, PackageState>>({});
   let catalogSafety = $state<Record<string, SafetyStatus>>({});
   let catalogError = $state("");
+  /// Some recognised apps' states were not read: a warning, not a failure.
+  let catalogNote = $state("");
   // Lazily-loaded, best-effort enrichment maps for the detail sheet, each
   // stamped with when it was read.
   let memoryMap = $state<Record<string, number>>({});
@@ -212,7 +222,7 @@
     error = "";
     try {
       const [otherResult, catalogResult] = await Promise.allSettled([
-        api.listOtherPackages(serial),
+        api.listOtherPackages(serial, device.device_type),
         readCatalog(serial, device.device_type),
       ]);
       if (request !== loadRequest || !sessionCurrent(serial, generation)) return;
@@ -229,13 +239,15 @@
         catalog = catalogResult.value.entries;
         catalogStates = catalogResult.value.states;
         const unread = catalog.length - Object.keys(catalogStates).length;
-        catalogError =
+        catalogError = "";
+        catalogNote =
           unread > 0
             ? `State unavailable for ${unread} recognised ${unread === 1 ? "app" : "apps"}. Refresh before changing them.`
             : "";
       } else {
         catalog = [];
         catalogStates = {};
+        catalogNote = "";
         catalogError = String(catalogResult.reason);
       }
       catalogSafety = {};
@@ -258,6 +270,7 @@
             registryVersion: null,
             deviceFamily: device?.device_type ?? "unknown",
             deviceOs: device?.properties?.android_release || null,
+            system: app.system,
           })),
           () => listCurrent(identity),
         );
@@ -434,6 +447,17 @@
     return request === actionRequest && listCurrent(identity);
   }
 
+  /// A change can land even when its reply is lost or arrives after a
+  /// reconnect, so the shared caches are dropped as soon as the call settles,
+  /// before any currency check can return early.
+  async function settleChange<T>(change: Promise<T>): Promise<T> {
+    try {
+      return await change;
+    } finally {
+      session.invalidateAll();
+    }
+  }
+
   async function enableCurrent(input: AppItem) {
     if (busyAction) return;
     const app = currentTarget(input);
@@ -445,16 +469,14 @@
     patch(app.package, "enabled", identity);
     selectedPkg = null;
     try {
-      const r = await api.enablePackage(identity.serial, app.package);
+      const r = await settleChange(api.enablePackage(identity.serial, app.package));
       if (!actionCurrent(request, identity)) return;
       if (r.ok) {
         showToast(`Enabled ${label(app)}`, "success");
-        session.invalidateAll();
       } else {
         // Not-ok can still have landed (stock enabled, its setup helper not),
         // so reload the real state instead of reverting the row.
         showFailure(`Couldn't enable ${label(app)}`, r.message || "Action failed.");
-        session.invalidateAll();
         await loadApps(true);
       }
     } catch (e) {
@@ -582,10 +604,11 @@
         patch(intent.app.package, "disabled", intent);
         selectedPkg = null;
       }
-      const r =
+      const r = await settleChange(
         intent.action === "disable"
-          ? await api.disablePackage(intent.serial, intent.app.package)
-          : await api.uninstallPackage(intent.serial, intent.app.package);
+          ? api.disablePackage(intent.serial, intent.app.package)
+          : api.uninstallPackage(intent.serial, intent.app.package),
+      );
       if (!actionCurrent(request, intent)) return;
       if (r.ok) {
         if (intent.action === "uninstall") {
@@ -601,7 +624,6 @@
           }
         }
         showToast(`${intent.action === "disable" ? "Disabled" : "Uninstalled"} ${label(intent.app)}.`, "success");
-        session.invalidateAll();
       } else {
         // A not-ok result can still have landed (stock disabled with its
         // setup helper left on), so reload the real state instead of
@@ -610,7 +632,6 @@
           `Couldn't ${intent.action === "disable" ? "disable" : "uninstall"} ${label(intent.app)}`,
           r.message || `${intent.action === "disable" ? "Disable" : "Uninstall"} failed.`,
         );
-        session.invalidateAll();
         await loadApps(true);
       }
     } catch (e) {
@@ -637,14 +658,13 @@
     busyAction = app.package;
     actionFailure = null;
     try {
-      const r = await api.reinstallExisting(target.serial, app.package);
+      const r = await settleChange(api.reinstallExisting(target.serial, app.package));
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
       if (r.ok) {
         showToast(`Reinstalled ${label(app)}.`, "success");
         selectedPkg = null;
         sheetUninstalled = false;
         removedIdentity = null;
-        session.invalidateAll();
         await loadApps(true);
       } else {
         showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Reinstall failed. Try the Play Store.");
@@ -681,19 +701,7 @@
 
   // ---- Report this app (#100) ----
 
-  const reportDevice = $derived.by((): AppReportDevice | null => {
-    const d = session.connectedDevice;
-    if (!d) return null;
-    return {
-      family: reportFamily(d.device_type, d.tv_evidence),
-      androidVersion: d.properties?.android_release || null,
-      // A placeholder ro.serialno ("unknown") identifies nothing, and
-      // scrubbing it would eat that word from the user's note.
-      redact: [session.serial, d.serial, d.properties?.serial_number].filter(
-        (id): id is string => !!normalizeHardwareId(id),
-      ),
-    };
-  });
+  const reportDevice = $derived(reportDeviceOf(session.connectedDevice, session.serial));
 
   function canReport(app: AppItem | null): boolean {
     return !!app && !!reportDevice && isReportablePackage(app.package);
@@ -725,28 +733,23 @@
     );
   }
 
+  /// A recognised row reports the page's current state, and none while the
+  /// list is being re-read; anything else reports its own row.
   function reportState(app: AppItem): AppReportState {
     const pkg = app.package;
-    const memRead = measures.memory.status === "ready";
-    const mb = memoryMap[pkg];
-    const running = memRead ? mb !== undefined && mb > 0 : null;
-    const stored = storageMap[pkg];
     const apk = reportApk;
-    const apkCurrent = apk && listCurrent() && sessionCurrent(apk.serial, apk.generation)
+    const apkCurrent = !!apk && listCurrent() && sessionCurrent(apk.serial, apk.generation)
       && apk.package === pkg && apk.measurementId === enrichmentRequest
-      && (measures.storage.status === "ready" || measures.storage.status === "unavailable")
-      && !sheetUninstalled && app.state !== "missing"
-      && Number.isFinite(apk.appBytes) && apk.appBytes >= 0 && Number.isFinite(apk.at);
+      && !sheetUninstalled && app.state !== "missing";
+    const live = reportLiveState(
+      catalogPackages.has(pkg),
+      catalogStates[pkg],
+      !listCurrent(),
+      session.applyInProgress,
+    );
     return {
-      status: app.state,
-      running,
-      ramMb: running ? (mb ?? null) : null,
-      storage:
-        measures.storage.status === "ready" && hasStorage(stored)
-          ? { source: "diskstats", ...stored }
-          : apkCurrent
-            ? { source: "apk_files", app_bytes: apk.appBytes, data_bytes: null, cache_bytes: null }
-            : null,
+      status: live !== undefined ? live : app.state,
+      ...reportFigures(measures, memoryMap[pkg], storageMap[pkg], apkCurrent ? apk : null),
     };
   }
 
@@ -829,6 +832,7 @@
         label: "Disable",
         icon: "block",
         danger: true,
+        pro: !session.isPro,
         disabled: !live || busy || isBlocked(verdict),
         run: () => void requestRemoval(app, "disable"),
       });
@@ -888,10 +892,9 @@
     />
   </div>
 
-  <details class="help-disclosure">
-    <summary>Using the app list</summary>
+  <HelpSheet title="Using the app list">
     <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; Everything else does not. All removals use the same safety checks.</p>
-  </details>
+  </HelpSheet>
 
   <div class="filters-row">
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
@@ -954,49 +957,64 @@
         {@const safety = rowSafety(app)}
         {@const rec = rowRecommendation(app)}
         {@const badge = stateBadge(app)}
-        <button
-          class="app-row"
-          class:selected={selectedPkg === app.package}
-          class:missing={app.state === "missing"}
-          data-package={app.package}
-          onclick={() => onRowClick(app)}
-          onpointerdown={(e) => startPress(e, app)}
-          onpointermove={movePress}
-          onpointerup={cancelPress}
-          onpointercancel={cancelPress}
-          onpointerleave={cancelPress}
-          oncontextmenu={(e) => onRowContextMenu(e, app)}
-        >
-          <div class="app-avatar"><span class="msr">{iconFor(app)}</span></div>
-          <div class="app-details">
-            <span class="app-name-text" class:mono={!app.name}>{label(app)}</span>
-            {#if app.name}
-              <span class="mono app-pkg-text">{app.package}</span>
-            {/if}
-            {#if app.entry}
-              <span class="row-meta">
-                {#if app.state === "missing"}
-                  <span class="chip muted-chip">Not installed</span>
-                {/if}
-                <span
-                  class="chip verdict-chip {safety?.status === 'ready' ? (tierOf(safety.verdict)?.cls ?? '') : safety?.status === 'checking' ? 'checking' : 'unavailable'}"
-                >{safetyLabel(safety)}</span>
-                {#if rec}
-                  <span class="rec-text" class:act={rec.kind === "act" || rec.kind === "restore"} data-rec={rec.label}>{recText(rec)}</span>
-                {/if}
-              </span>
-            {/if}
-          </div>
-          {#if badge}
-            <span class="status-badge" class:off={badge.off}>{badge.text}</span>
-          {/if}
-          <span class="msr more-icon">more_vert</span>
-        </button>
+        <div class="app-card" class:selected={selectedPkg === app.package} class:missing={app.state === "missing"}>
+          <button
+            class="app-row"
+            data-package={app.package}
+            onclick={() => onRowClick(app)}
+            onpointerdown={(e) => startPress(e, app)}
+            onpointermove={movePress}
+            onpointerup={cancelPress}
+            onpointercancel={cancelPress}
+            onpointerleave={cancelPress}
+            oncontextmenu={(e) => onRowContextMenu(e, app)}
+          >
+            <div class="app-avatar"><span class="msr">{iconFor(app)}</span></div>
+            <div class="app-details">
+              <span class="app-name-text" class:mono={!app.name}>{label(app)}</span>
+              {#if app.name}
+                <span class="mono app-pkg-text">{app.package}</span>
+              {/if}
+              {#if badge || app.entry}
+                <span class="row-meta">
+                  {#if badge}
+                    <span class="status-badge" class:off={badge.off}>{badge.text}</span>
+                  {/if}
+                  {#if app.entry}
+                    {#if app.state === "missing"}
+                      <span class="chip muted-chip">Not installed</span>
+                    {/if}
+                    <span
+                      class="chip verdict-chip {safety?.status === 'ready' ? (tierOf(safety.verdict)?.cls ?? '') : safety?.status === 'checking' ? 'checking' : 'unavailable'}"
+                    >{safetyLabel(safety)}</span>
+                    {#if rec}
+                      <span class="rec-text" class:act={rec.kind === "act" || rec.kind === "restore"} data-rec={rec.label}>{recText(rec)}</span>
+                    {/if}
+                  {/if}
+                </span>
+              {/if}
+            </div>
+          </button>
+          <button
+            class="more-btn"
+            aria-label={`More actions for ${label(app)}`}
+            aria-haspopup="menu"
+            onclick={() => openMenu(app)}
+            oncontextmenu={(e) => onRowContextMenu(e, app)}
+          >
+            <span class="msr" aria-hidden="true">more_vert</span>
+          </button>
+        </div>
       {/snippet}
 
       {#if catalogError}
-        <div class="section-error" role="alert">
-          <span>{catalogError}</span>
+        <div class="section-error">
+          <ErrorNotice error={catalogError} title="Couldn't load recognised apps" action="List recognised apps" />
+          <button class="ghost small" onclick={() => loadApps(true)}>Retry</button>
+        </div>
+      {:else if catalogNote}
+        <div class="section-note" role="alert">
+          <span>{catalogNote}</span>
           <button class="ghost small" onclick={() => loadApps(true)}>Retry</button>
         </div>
       {/if}
@@ -1010,8 +1028,8 @@
       {/if}
 
       {#if othersError}
-        <div class="section-error" role="alert">
-          <span>{othersError}</span>
+        <div class="section-error">
+          <ErrorNotice error={othersError} title="Couldn't load the rest of this TV's apps" action="List apps" />
           <button class="ghost small" onclick={() => loadApps(true)}>Retry</button>
         </div>
       {/if}
@@ -1072,6 +1090,7 @@
     uninstalled={sheetUninstalled}
     canReport={canReport(sheetApp)}
     onClose={closeDetail}
+    onResearch={(packageId) => { closeDetail(); router.navigate("catalog", packageId); }}
     onToggle={handleToggle}
     onForceStop={handleForceStop}
     onUninstall={requestUninstall}
@@ -1167,6 +1186,11 @@
   }
   .search-input:focus {
     outline: none;
+  }
+  .search-box:focus-within {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-color: transparent;
   }
 
   .search-hint {
@@ -1325,23 +1349,36 @@
   .empty-actions button {
     width: auto;
   }
-  .app-row {
+  .app-card {
     /* Long package lists: let the browser skip offscreen row layout. */
     content-visibility: auto;
     contain-intrinsic-size: auto 62px;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 11px 13px;
+    align-items: stretch;
     border-radius: 14px;
     background: var(--surface);
     border: 1px solid var(--line);
+  }
+  .app-card.selected {
+    border-color: var(--accent);
+  }
+  .app-row {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 11px 0 11px 13px;
+    border: 0;
+    border-radius: 14px 0 0 14px;
+    background: transparent;
+    font: inherit;
     text-align: left;
     color: var(--text);
     cursor: pointer;
-    width: 100%;
   }
-  .app-row {
+  .app-row,
+  .more-btn {
     /* A long-press opens the action menu; it must not start a text
        selection or the WebView's own callout. */
     user-select: none;
@@ -1349,12 +1386,33 @@
     -webkit-touch-callout: none;
     -webkit-tap-highlight-color: transparent;
   }
-  .app-row.selected {
-    border-color: var(--accent);
+  .app-row:focus-visible,
+  .more-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
   }
-  .app-row.missing .app-avatar,
-  .app-row.missing .app-name-text {
+  .app-card.missing .app-avatar,
+  .app-card.missing .app-name-text {
     opacity: 0.6;
+  }
+  .more-btn {
+    flex: none;
+    width: 44px;
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 0;
+    border-radius: 0 14px 14px 0;
+    background: transparent;
+    color: var(--dim);
+    cursor: pointer;
+  }
+  .more-btn .msr {
+    font-size: 22px;
+  }
+  .more-btn:active {
+    background: var(--surface-2);
   }
   .app-desc {
     font-size: 11px;
@@ -1380,7 +1438,9 @@
     font-weight: 700;
     padding: 2px 7px;
     border-radius: 6px;
-    white-space: nowrap;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow-wrap: anywhere;
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 6%, transparent);
   }
@@ -1430,6 +1490,15 @@
   }
   .section-error {
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .section-error > button {
+    align-self: flex-start;
+    width: auto;
+  }
+  .section-note {
+    display: flex;
     align-items: center;
     gap: 10px;
     padding: 10px 12px;
@@ -1438,12 +1507,12 @@
     font-size: 12px;
     color: var(--amber);
   }
-  .section-error span {
+  .section-note span {
     flex: 1;
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  .section-error button {
+  .section-note button {
     width: auto;
     flex: none;
   }
@@ -1470,9 +1539,7 @@
   .app-name-text {
     font-size: 14px;
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .app-name-text.mono {
     font-size: 12px;
@@ -1490,17 +1557,12 @@
     font-weight: 700;
     color: var(--teal);
     background: color-mix(in srgb, var(--teal) 14%, transparent);
-    padding: 3px 8px;
+    padding: 2px 7px;
     border-radius: 6px;
     flex-shrink: 0;
   }
   .status-badge.off {
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 6%, transparent);
-  }
-  .more-icon {
-    font-size: 22px;
-    color: var(--dim);
-    flex-shrink: 0;
   }
 </style>

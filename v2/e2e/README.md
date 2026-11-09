@@ -48,9 +48,10 @@ The bridge forwards app commands verbatim. Plugin calls (opener, dialog,
 updater, process, events) and `navigator.clipboard` get recording stubs instead,
 because they would otherwise reach the host desktop. A scenario reads them
 from `window.__E2E__.calls` or `.clipboard`, and can preset
-`window.__E2E__.dialogResult` for a file picker. Three commands are answered by the server
-instead of dispatched, because they would reach the internet or the desktop:
-`check_for_update`, `install_adb` and `open_log_dir`.
+`window.__E2E__.dialogResult` for a file picker. Five commands are answered by the server
+instead of dispatched, because they would reach the internet, the desktop or the host's real
+network: `check_for_update`, `install_adb`, `open_log_dir`, `local_network_access` (answers
+`not_applicable`) and `open_local_network_settings`.
 
 The subnet sweep in Scan LAN is answered from the simulated network
 (`SWEEP_OVERRIDE` in `src-tauri/src/adb/scan.rs`, which compiles only with `e2e`), on
@@ -138,8 +139,8 @@ e2e/capture-device.sh <adb-transport> <profile-name> --leanback true|false|unkno
 #   --anonymize-third-party [--keep-package PKG]   for a personal phone
 ```
 
-It uses the bundled adb at `~/Library/Application Support/ShieldOptimizer/platform-tools/adb`
-(override with `ADB=`), and refuses to touch a transport that is not already
+It uses the bundled adb at `~/Library/Application Support/ATVOptimizer/platform-tools/adb`
+(or the pre-2.5 `ShieldOptimizer` one; override with `ADB=`), and refuses to touch a transport that is not already
 `device`, so it never connects anything. It runs only `getprop`, `pm list packages` in every
 variant, `settings list`, `dumpsys meminfo`/`diskstats`/`package <home app>`,
 `cmd package query-activities`/`resolve-activity`, `wm size`/`density`,
@@ -167,9 +168,9 @@ can be toggled in Report a bug. The files are written to:
 
 | OS | Session files |
 |---|---|
-| macOS | `~/Library/Application Support/ShieldOptimizer/logs/sessions/` |
-| Windows | `%LOCALAPPDATA%\ShieldOptimizer\logs\sessions\` |
-| Linux | `~/.local/share/ShieldOptimizer/logs/sessions/` |
+| macOS | `~/Library/Application Support/ATVOptimizer/logs/sessions/` |
+| Windows | `%LOCALAPPDATA%\ATVOptimizer\logs\sessions\` |
+| Linux | `~/.local/share/ATVOptimizer/logs/sessions/` |
 
 Each run gets one file, `<startup UTC time>-<pid>.jsonl`. A file stops at 20 MB, and
 the newest 10 files are kept. The pairing PIN, typed Remote text and
@@ -181,7 +182,7 @@ never `logs/sessions/`.
 Replay one:
 
 ```sh
-npm run e2e:replay -- ~/Library/Application\ Support/ShieldOptimizer/logs/sessions/2026-09-30T14-03-22.123Z-4242.jsonl
+npm run e2e:replay -- ~/Library/Application\ Support/ATVOptimizer/logs/sessions/2026-09-30T14-03-22.123Z-4242.jsonl
 ```
 
 The server answers every adb call with what the device said at the time, in order. The
@@ -204,3 +205,26 @@ e2e/capture-device.sh --scrub-only crates/core/tests/fixtures/devices/<name>
 
 The same read-only and scrubbing rules apply as for a capture. Read the result before
 committing it.
+
+## Explicit offline aggregate
+
+Run `npm run e2e:offline` for the reviewed selection in
+`e2e/offline-selection.json`. Every existing fixture scenario is currently
+selected; new files must be classified before this mode will run. Exclusions
+require a recorded reason. The separate hardware acceptance list is not a list
+of passed or simulated hardware tests.
+
+The server has always installed a synthetic subnet-sweep provider. This pass
+makes that contract fail closed: E2E builds panic instead of probing a real
+network if the provider is missing. The runner verifies the policy before
+opening a page, limits browser requests to its two localhost origins and fails
+if a scenario attempts an unreviewed command or external browser request.
+`local_address_for` is synthetic; update/install/open-directory host adapters
+remain explicitly intercepted. The simulator handles ADB commands; no host adb
+server or device is contacted. `offline-summary.json` records the policy,
+scenario results, explicit exclusions and hardware acceptance not run.
+
+These checks exercise UI and actual command dispatch against fixtures. They do
+not certify real multicast, authorization, TLS/PIN interoperability, physical
+cleanup or packaged platform behavior. No new credentials or network permissions
+are needed to run them.

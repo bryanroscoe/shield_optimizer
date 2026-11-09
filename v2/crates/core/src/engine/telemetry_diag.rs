@@ -74,7 +74,7 @@ pub enum AdbSource {
     Sdk,
     /// PATH or a well-known install location (Homebrew, /usr/bin…).
     System,
-    /// `SHIELD_OPTIMIZER_ADB`, set by the user.
+    /// `ATV_OPTIMIZER_ADB` (or its old name), set by the user.
     Custom,
     /// The phone app's in-process adb client; no binary or server.
     Builtin,
@@ -137,7 +137,7 @@ pub struct MdnsDiag {
 pub enum Gateway {
     Detected,
     NotDetected,
-    /// `SHIELD_OPTIMIZER_SUBNET` chose the subnet.
+    /// `ATV_OPTIMIZER_SUBNET` (or its old name) chose the subnet.
     Override,
 }
 
@@ -253,7 +253,11 @@ static ERROR_RULES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
             r"(?i)cannot connect to daemon|daemon not running|failed to start daemon|could not install \*smartsocket\*|adb server version .* doesn't match|server version .* doesn't match",
             "adb_server",
         ),
-        (r"(?i)mdns daemon unavailable", "mdns_unavailable"),
+        // Before the network shapes: a bind failure can say "address in use".
+        (
+            r"(?i)mdns\b.*(failed to bind|address already in use|address in use|EADDRINUSE)|mdns daemon unavailable",
+            "mdns_unavailable",
+        ),
         (
             r"(?i)failed to authenticate|in state 'unauthorized'|\bunauthori[sz]ed\b",
             "device_unauthorized",
@@ -263,7 +267,10 @@ static ERROR_RULES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
             r"(?i)no devices/emulators found|device .* not found|not connected to a device",
             "not_connected",
         ),
-        (r"(?i)wrong password|incorrect (pin|code|password)|bad (pin|code)", "wrong_pin"),
+        (
+            r"(?i)wrong password|incorrect (pin|code|password)|bad (pin|code)|code (didn't|didn’t|did not) match",
+            "wrong_pin",
+        ),
         (
             r"(?i)pairing (was )?(cancel|aborted|expired)|unable to start pairing client",
             "pairing_expired",
@@ -837,6 +844,24 @@ mod tests {
             ("protocol fault (couldn't read status): Connection reset by peer", "connection_reset"),
             ("device profile unavailable: ", "empty_response"),
             ("something new", "unknown"),
+        ] {
+            assert_eq!(classify_error_text(text), code, "{text}");
+        }
+    }
+
+    /// Same codes `shared/errors.ts` shows for these texts, so a report and
+    /// the message the user saw name the same thing.
+    #[test]
+    fn pairing_code_and_mdns_bind_failures_match_the_shared_error_table() {
+        for (text, code) in [
+            ("The pairing code didn't match", "wrong_pin"),
+            ("The pairing code didn\u{2019}t match", "wrong_pin"),
+            ("Pairing failed: code did not match", "wrong_pin"),
+            ("mdns: failed to bind 0.0.0.0:5353", "mdns_unavailable"),
+            ("mDNS responder: address already in use", "mdns_unavailable"),
+            ("mdns socket: EADDRINUSE", "mdns_unavailable"),
+            ("mdns daemon unavailable", "mdns_unavailable"),
+            ("bind: address already in use", "unknown"),
         ] {
             assert_eq!(classify_error_text(text), code, "{text}");
         }

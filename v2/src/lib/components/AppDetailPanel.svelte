@@ -243,8 +243,8 @@
       {/each}
     </dl>
   {/if}
-  {#if (measures && onRemeasure) || reportDevice}
     <div class="panel-actions">
+      <a class="remeasure" href={`/catalog?package=${encodeURIComponent(pkg)}`}>Research sources</a>
       {#if measures && onRemeasure}
         <button class="remeasure" onclick={() => onRemeasure?.()} disabled={busy}>
           <Icon name="refresh" size={14} /> {busy ? "Measuring…" : "Re-measure"}
@@ -256,7 +256,6 @@
         </button>
       {/if}
     </div>
-  {/if}
 </div>
 {#if reportOpen && reportDevice}
   <AppReportDialog

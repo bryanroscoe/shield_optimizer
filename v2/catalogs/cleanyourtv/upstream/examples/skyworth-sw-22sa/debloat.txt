@@ -1,0 +1,74 @@
+# Skyworth SW-22SA (device SW6H, MediaTek, ~1.9 GB RAM), Android TV 14 (API 34), build UTT1.250517.001
+# Google TV home: com.google.android.apps.tv.launcherx (owns HOME; setupwraith RecoveryActivity also claims it).
+# Live TV / inputs: com.smartdevice.livetv (+ overlay_SANLUX), com.mediatek.tvinput, com.mediatek.tv.service.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/skyworth-sw-22sa/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/skyworth-sw-22sa/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Disabled from the factory, so not listed (restore.sh would turn them ON):
+# com.smartdevice.myapp.
+#
+# Quirks on this firmware, checked on the TV 2026-10-21:
+# - Port 5555 goes flaky: opens when USB debugging is switched, may close again on its own, and
+#   the adb client can go "offline" mid-session; reconnect with `adb connect <ip>:5555`.
+#   The stock adb client (platform-tools 37.0.1) authenticates reliably; delete tools/adbkey to let
+#   tools/tv.py fall back to ~/.android/adbkey when the TV already trusts that key.
+# - Forget + re-join Wi-Fi changes the TV's DHCP address; rediscover it (Google Cast port 8008
+#   answers before ADB does).
+# - `adb exec-out screencap -p` is corrupted by an adbd stdout wrapper ("Init wrapper sys mutex
+#   successful", LF->CRLF). Screenshots must go screencap to a file + `adb pull`.
+# - No dedicated updater package; com.smartdevice.aftersale can push APKs on boot, so it is disabled.
+#
+# Kept on purpose: com.smartdevice.factory, com.smartdevice.dailyshortcut (quick menu),
+# com.smartdevice.duplebluetooth + com.smartdevice.bleconnectservice (BLE remote pairing),
+# com.smartdevice.livetv + overlay_SANLUX (Live TV), com.mediatek.tvinput / tv.service /
+# tv.globalkeyoverlay (HDMI + hot keys), com.dolby.android.audio.service,
+# com.google.android.apps.mediashell (Chromecast, by choice), com.google.android.katniss +
+# com.google.android.tv.assistant (Assistant, by choice), com.google.android.youtube.tv,
+# com.netflix.ninja, com.tianci.localmedia, Play Store + Play Services, all system/Google core.
+
+# Skyworth content, ads, demos and preloads
+com.smartdevice.recommendation               # Coocaa recommendation rows; bundles Sensors Data analytics
+com.smartdevice.leanbacklauncher.customizer  # partner config that injects rows into the home screen
+com.smartdevice.epopplayer                   # ePop shop demo player (USB-triggered)
+fusion.android.tv.demo                       # shop demo player (Skyworth ePop)
+com.coocaa.demonow.lightining                # "Demo Now" retail mode, auto-starts from home
+com.Smartdevice.emanual                      # on-screen manual
+com.mstar.android.tv.disclaimercustomization # retail legal-disclaimer dialogs
+com.smartdevice.setupwraith                  # Skyworth first-run/privacy wizard; setup is finished
+
+# Telemetry and after-sale push
+com.smartdevice.aftersale                    # boot + network receivers, can install APKs
+com.smartdevice.dailymanage                  # "Daily Manage" boot service, no documented purpose (like 24NA)
+com.google.android.feedback
+com.android.tv.feedbackconsent
+
+# Android ad and personalisation services
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Not needed on a TV
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+com.security.SwaiotTV                        # Tuya smart-home preload, unrelated to TV operation
+org.liskovsoft.androidtv.rukeyboard          # Russian soft keyboard, not used
+
+# Casting / local media stack not used (Chromecast kept)
+com.smartdevice.dtv.icast                    # Miracast + DLNA
+
+# Unused streaming apps, off by owner's choice
+com.wbd.stream                               # HBO Max
+com.disneyplus.ph                            # Disney+
+com.iqiyi.i18n.tv                            # iQIYI
+com.amazon.amazonvideo.livingroom            # Prime Video
+com.google.android.videos                    # Play Movies
+com.hisense.odinbrowser                      # sideloaded Hisense browser
+
+# Handover (applied 2026-10-21: build-and-install.sh disabled launcherx as Home was handed over;
+# setupwraith applied in a FORCE_SETUPWRAITH=1 pass after the connected network had been
+# forgotten + re-joined — dumpsys events show Globe1524 re-added under android.uid.system;
+# the stale setupwraith networks (Globe1524masters etc.) went with it, harmlessly).
+com.google.android.apps.tv.launcherx         # stock Google TV home; com.gathin.tvhome is Home now
+com.google.android.tungsten.setupwraith      # its RecoveryActivity otherwise steals Home and crash-loops system_server

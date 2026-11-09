@@ -8,7 +8,7 @@
 //! bug can capture the run that failed.
 //!
 //! The bundle itself is formatted by the pure
-//! [`shield_optimizer_core::engine::diagnostics`] module; everything here is
+//! [`atv_optimizer_core::engine::diagnostics`] module; everything here is
 //! the I/O that feeds it.
 
 use std::io::{Read, Seek, SeekFrom};
@@ -22,20 +22,22 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer};
 
-use shield_optimizer_core::adb::AdbDriver;
-use shield_optimizer_core::commands::{devices, launcher, AppState};
-use shield_optimizer_core::engine::diagnostics::{
+use atv_optimizer_core::adb::AdbDriver;
+use atv_optimizer_core::commands::{devices, launcher, AppState};
+use atv_optimizer_core::engine::diagnostics::{
     format_diagnostics, DeviceDiagnostics, DiagnosticsInput,
 };
-use shield_optimizer_core::engine::log_redact::{self, Scrub};
-use shield_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
-use shield_optimizer_core::engine::telemetry_diag::{
+use atv_optimizer_core::engine::log_redact::{self, Scrub};
+use atv_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
+use atv_optimizer_core::engine::telemetry_diag::{
     adb_diag, mdns_diag, net_diag, transport_counts, AdbSource, Diag, Gateway, NetInterface,
 };
-use shield_optimizer_core::telemetry::ExcerptSource;
+use atv_optimizer_core::telemetry::ExcerptSource;
 
 /// Subdirectory of the app data dir that holds the rolling log files.
-const LOG_DIR_NAME: &str = "logs";
+pub(crate) const LOG_DIR_NAME: &str = "logs";
+/// Daily log files are `<prefix>.<date>.log`.
+pub(crate) const LOG_FILE_PREFIX: &str = "atv-optimizer";
 /// One file per day, a week back. Long enough to cover "it broke sometime last
 /// week", short enough that nobody's disk notices.
 const KEEP_LOG_FILES: usize = 7;
@@ -48,7 +50,7 @@ const LOG_TAIL_LINES: usize = 200;
 /// and reqwest internals, which makes the bundle worse, not better.
 const INFO_FILTER: &str = "info";
 const DEBUG_FILTER: &str =
-    "info,shield_optimizer_v2_lib=debug,shield_optimizer_core=debug,shield_optimizer_v2=debug";
+    "info,atv_optimizer_lib=debug,atv_optimizer_core=debug,atv_optimizer=debug";
 
 /// Managed state for the log file: where it is, whether debug is on, and the
 /// switch that changes the running filter.
@@ -58,9 +60,9 @@ pub struct LogControl {
     /// `None` when the file layer could not be created — the app still runs
     /// and still logs to stdout, the toggle just has nothing to switch.
     apply: Option<Box<dyn Fn(bool) -> bool + Send + Sync>>,
-    /// Dropping this stops the background writer flushing, so it has to live
-    /// as long as the app does.
-    _guard: Option<tracing_appender::non_blocking::WorkerGuard>,
+    /// Dropping this flushes the background writer and stops it, so it lives
+    /// until `flush_and_close` on exit.
+    guard: std::sync::Mutex<Option<tracing_appender::non_blocking::WorkerGuard>>,
 }
 
 impl LogControl {
@@ -70,6 +72,13 @@ impl LogControl {
 
     pub fn debug_enabled(&self) -> bool {
         self.debug.load(Ordering::Relaxed)
+    }
+
+    /// Flush the log file and stop writing it. Lines logged afterwards reach
+    /// stdout only. Called last thing on exit.
+    pub fn flush_and_close(&self) {
+        let guard = self.guard.lock().map(|mut g| g.take()).unwrap_or_default();
+        drop(guard);
     }
 }
 
@@ -97,7 +106,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
     let appender = match std::fs::create_dir_all(&dir).ok().and_then(|()| {
         tracing_appender::rolling::Builder::new()
             .rotation(tracing_appender::rolling::Rotation::DAILY)
-            .filename_prefix("shield-optimizer")
+            .filename_prefix(LOG_FILE_PREFIX)
             .filename_suffix("log")
             .max_log_files(KEEP_LOG_FILES)
             .build(&dir)
@@ -113,7 +122,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
                 dir,
                 debug: AtomicBool::new(false),
                 apply: None,
-                _guard: None,
+                guard: std::sync::Mutex::new(None),
             };
         }
     };
@@ -139,7 +148,7 @@ pub fn init_logging(data_dir: &Path) -> LogControl {
             let filter = EnvFilter::new(if debug { DEBUG_FILTER } else { INFO_FILTER });
             handle.reload(filter).is_ok()
         })),
-        _guard: Some(guard),
+        guard: std::sync::Mutex::new(Some(guard)),
     }
 }
 
@@ -282,28 +291,28 @@ fn home_handler_components(stdout: &str) -> Vec<String> {
 /// Read from the package lists because a disabled one never answers the HOME
 /// query; `None` when they could not be read.
 async fn setup_helper_states(
-    adb: &dyn shield_optimizer_core::adb::AdbDriver,
+    adb: &dyn atv_optimizer_core::adb::AdbDriver,
     serial: &str,
 ) -> Option<Vec<(String, bool)>> {
-    let cmd = shield_optimizer_core::adb::checked_batch_command(&[
+    let cmd = atv_optimizer_core::adb::checked_batch_command(&[
         "pm list packages",
         "pm list packages -d",
     ]);
     let out = adb.shell(serial, &cmd).await.ok()?;
-    let sections = shield_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
+    let sections = atv_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
     setup_helper_states_from(&sections[0], &sections[1])
 }
 
 /// An Android device always has packages, so an empty installed list is an
 /// unreadable answer, not proof the helper is absent.
 fn setup_helper_states_from(installed: &str, disabled: &str) -> Option<Vec<(String, bool)>> {
-    let installed = shield_optimizer_core::adb::parse_installed_packages_output(installed);
+    let installed = atv_optimizer_core::adb::parse_installed_packages_output(installed);
     if installed.is_empty() {
         return None;
     }
-    let disabled = shield_optimizer_core::adb::parse_disabled_packages_output(disabled);
+    let disabled = atv_optimizer_core::adb::parse_disabled_packages_output(disabled);
     Some(
-        shield_optimizer_core::commands::loader::launchers()
+        atv_optimizer_core::commands::loader::launchers()
             .transient_home_holders
             .iter()
             .filter(|p| installed.contains(p))
@@ -324,8 +333,12 @@ pub async fn collect_diagnostics(
     logs: State<'_, LogControl>,
     serial: Option<String>,
 ) -> Result<String, String> {
-    let adb_path = crate::adb::cached_adb_binary().map(|p| p.display().to_string());
     let adb = state.adb_snapshot().await;
+    let adb_path = if adb.uses_host_server() {
+        crate::adb::cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        Some("(not applicable: direct network transport, no host binary)".into())
+    };
     let adb_version = adb
         .raw(&["version"])
         .await
@@ -395,29 +408,31 @@ pub(crate) fn adb_source() -> AdbSource {
     let Some(path) = crate::adb::cached_adb_binary() else {
         return AdbSource::None;
     };
-    let custom = std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from);
+    let custom = crate::rename::adb_override();
     let sdk_roots: Vec<PathBuf> = ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
         .into_iter()
         .filter_map(std::env::var_os)
         .map(PathBuf::from)
         .collect();
-    classify_adb_source(
-        &path,
-        custom.as_deref(),
-        crate::adb::adb_path_in_install_root().as_deref(),
-        &sdk_roots,
-    )
+    let managed: Vec<PathBuf> = [
+        crate::adb::adb_path_in_install_root(),
+        crate::adb::install::adb_path_in_legacy_install_root(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    classify_adb_source(&path, custom.as_deref(), &managed, &sdk_roots)
 }
 
 fn classify_adb_source(
     path: &Path,
     custom: Option<&Path>,
-    managed: Option<&Path>,
+    managed: &[PathBuf],
     sdk_roots: &[PathBuf],
 ) -> AdbSource {
     if custom == Some(path) {
         AdbSource::Custom
-    } else if managed == Some(path) {
+    } else if managed.iter().any(|m| m == path) {
         AdbSource::Bundled
     } else if sdk_roots.iter().any(|root| path.starts_with(root)) {
         AdbSource::Sdk
@@ -456,6 +471,22 @@ pub(crate) async fn host_diag(
     swept: Option<[u8; 3]>,
     gateway: Option<Gateway>,
 ) -> Diag {
+    let ifaces = local_interfaces();
+    let ifaces: Vec<NetInterface> = ifaces
+        .iter()
+        .map(|(name, addr, prefix)| NetInterface {
+            name,
+            addr: *addr,
+            prefix: *prefix,
+        })
+        .collect();
+    if !adb.uses_host_server() {
+        return Diag {
+            adb: Some(adb_diag(AdbSource::Builtin, None, None)),
+            net: Some(net_diag(&ifaces, gateway, swept)),
+            ..Default::default()
+        };
+    }
     let version = adb.raw(&["version"]).await.ok().map(|o| o.combined());
     let devices = adb
         .raw(&["devices"])
@@ -474,15 +505,6 @@ pub(crate) async fn host_diag(
         .map(|o| crate::adb::parse_mdns_services(&o.stdout))
         .unwrap_or_default();
     let types: Vec<&str> = services.iter().map(|s| s.service.as_str()).collect();
-    let ifaces = local_interfaces();
-    let ifaces: Vec<NetInterface> = ifaces
-        .iter()
-        .map(|(name, addr, prefix)| NetInterface {
-            name,
-            addr: *addr,
-            prefix: *prefix,
-        })
-        .collect();
     Diag {
         adb: Some(adb_diag(
             adb_source(),
@@ -605,7 +627,7 @@ pub struct DiagnosticsUploadResult {
 struct UploadBody<'a> {
     schema: u32,
     install_id: &'a str,
-    app: shield_optimizer_core::engine::telemetry::AppKind,
+    app: atv_optimizer_core::engine::telemetry::AppKind,
     app_version: &'a str,
     os: &'a str,
     ts: String,
@@ -630,7 +652,7 @@ fn transport_serials(devices_output: &str) -> Vec<String> {
 
 /// One line per adb transport: state, transport and the TV's public build
 /// properties. No serial or name.
-fn device_lines(list: &[shield_optimizer_core::engine::types::Device]) -> Vec<String> {
+fn device_lines(list: &[atv_optimizer_core::engine::types::Device]) -> Vec<String> {
     list.iter()
         .map(|d| {
             let status = serde_json::to_value(d.status)
@@ -659,6 +681,35 @@ fn device_lines(list: &[shield_optimizer_core::engine::types::Device]) -> Vec<St
             }
         })
         .collect()
+}
+
+/// The upload's own lines, written before redaction so the id survives it.
+/// A test build's upload starts with `Test build <commit>`.
+fn upload_preamble(
+    target: &atv_optimizer_core::telemetry::UploadTarget,
+    reports_enabled: bool,
+) -> String {
+    let mut text = String::new();
+    if let Some(commit) = &target.test_build {
+        text.push_str(&format!("Test build {commit}\n\n"));
+    }
+    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
+    text.push_str(&format!(
+        "- Support ID: {} (`{}`)\n",
+        format_support_id(&target.install_id),
+        target.install_id
+    ));
+    text.push_str(&format!("- App version: {}\n", target.app_version));
+    text.push_str(&format!(
+        "- OS: {} ({})\n",
+        target.os,
+        std::env::consts::ARCH
+    ));
+    text.push_str(&format!(
+        "- Automatic reports: {}\n",
+        if reports_enabled { "on" } else { "off" }
+    ));
+    text
 }
 
 /// `upload_diagnostics` — Send logs to developer.
@@ -707,23 +758,7 @@ pub async fn upload_diagnostics(
         .unwrap_or_else(|e| vec![format!("- (could not list devices: {e})")]);
 
     // Our own values, written before redaction so the id survives it.
-    let mut text = String::new();
-    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
-    text.push_str(&format!(
-        "- Support ID: {} (`{}`)\n",
-        format_support_id(&target.install_id),
-        target.install_id
-    ));
-    text.push_str(&format!("- App version: {}\n", target.app_version));
-    text.push_str(&format!(
-        "- OS: {} ({})\n",
-        target.os,
-        std::env::consts::ARCH
-    ));
-    text.push_str(&format!(
-        "- Automatic reports: {}\n",
-        if reports_enabled { "on" } else { "off" }
-    ));
+    let mut text = upload_preamble(&target, reports_enabled);
 
     let mut header = String::new();
     header.push_str("\n### Devices\n\n");
@@ -849,7 +884,7 @@ mod tests {
         assert!(log_tail(dir.path(), 200).is_empty());
 
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-09-30.log"),
+            dir.path().join("atv-optimizer.2026-09-30.log"),
             "log line\n",
         )
         .unwrap();
@@ -877,6 +912,32 @@ mod tests {
     }
 
     #[test]
+    fn a_test_build_upload_says_so_first_and_a_release_upload_does_not() {
+        let target = |test_build: Option<&str>| atv_optimizer_core::telemetry::UploadTarget {
+            url: "https://t.example/v1/diagnostics".into(),
+            install_id: "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11".into(),
+            app: atv_optimizer_core::engine::telemetry::AppKind::Desktop,
+            app_version: if test_build.is_some() {
+                "2.5.0-dev"
+            } else {
+                "2.5.0"
+            }
+            .into(),
+            os: "macos 26.6".into(),
+            test_build: test_build.map(str::to_string),
+        };
+        let test = upload_preamble(&target(Some("4f156e4")), false);
+        assert!(test.starts_with("Test build 4f156e4\n"), "{test}");
+        assert!(test.contains("- App version: 2.5.0-dev"));
+        let release = upload_preamble(&target(None), true);
+        assert!(
+            release.starts_with("## ATV Optimizer logs (Send logs)"),
+            "{release}"
+        );
+        assert!(!release.contains("Test build"));
+    }
+
+    #[test]
     fn every_listed_transport_is_scrubbed_from_an_upload() {
         let out = "List of devices attached\nQWERTYUIOPAS           device usb:1-1 product:mdarcy model:SHIELD_Android_TV device:mdarcy transport_id:2\nZXCVBNMLKJHG\tunauthorized usb:1-2 transport_id:3\n";
         let serials = transport_serials(out);
@@ -889,14 +950,51 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn native_diagnostics_do_not_probe_sessions_or_a_host_server() {
+        struct Native;
+        #[async_trait::async_trait]
+        impl AdbDriver for Native {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(
+                &self,
+                _: &[&str],
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not probe native sessions")
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not read a TV")
+            }
+        }
+        let diag = host_diag(&Native, None, Some(Gateway::NotDetected)).await;
+        assert_eq!(diag.adb.unwrap().source, AdbSource::Builtin);
+        assert!(diag.mdns.is_none());
+        assert!(diag.transports.is_none());
+        assert!(diag.net.is_some());
+    }
+
     #[test]
     fn adb_source_follows_discovery_priority() {
-        let managed = PathBuf::from("/data/ShieldOptimizer/platform-tools/adb");
+        let managed = vec![
+            PathBuf::from("/data/ATVOptimizer/platform-tools/adb"),
+            PathBuf::from("/data/ShieldOptimizer/platform-tools/adb"),
+        ];
         let custom = PathBuf::from("/opt/custom/adb");
         let sdk = vec![PathBuf::from("/sdk")];
-        let classify =
-            |p: &str| classify_adb_source(Path::new(p), Some(&custom), Some(&managed), &sdk);
+        let classify = |p: &str| classify_adb_source(Path::new(p), Some(&custom), &managed, &sdk);
         assert_eq!(classify("/opt/custom/adb"), AdbSource::Custom);
+        assert_eq!(
+            classify("/data/ATVOptimizer/platform-tools/adb"),
+            AdbSource::Bundled
+        );
         assert_eq!(
             classify("/data/ShieldOptimizer/platform-tools/adb"),
             AdbSource::Bundled
@@ -917,13 +1015,13 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-11-01.log"),
+            dir.path().join("atv-optimizer.2026-11-01.log"),
             "old 1\nold 2\n",
         )
         .unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
         std::fs::write(
-            dir.path().join("shield-optimizer.2026-11-02.log"),
+            dir.path().join("atv-optimizer.2026-11-02.log"),
             "new 1\nnew 2\n",
         )
         .unwrap();
@@ -940,10 +1038,10 @@ mod tests {
 
     #[test]
     fn device_summaries_carry_no_serial_or_name() {
-        use shield_optimizer_core::engine::types::{
+        use atv_optimizer_core::engine::types::{
             ConnectionType, Device, DeviceProperties, DeviceStatus,
         };
-        use shield_optimizer_core::engine::{DeviceType, SupportInfo, TvEvidence};
+        use atv_optimizer_core::engine::{DeviceType, SupportInfo, TvEvidence};
         let list = vec![
             Device {
                 id: 1,
@@ -995,7 +1093,7 @@ mod tests {
         assert!(log_tail(dir.path(), 200).is_empty());
 
         let body: String = (1..=300).map(|n| format!("line {n}\n")).collect();
-        std::fs::write(dir.path().join("shield-optimizer.2026-09-19.log"), body).unwrap();
+        std::fs::write(dir.path().join("atv-optimizer.2026-09-19.log"), body).unwrap();
 
         let tail = log_tail(dir.path(), 200);
         assert_eq!(tail.len(), 200);

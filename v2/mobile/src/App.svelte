@@ -4,6 +4,11 @@
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
   import { billing } from "./lib/billing.svelte";
+  import {
+    NETWORK_CHANGED_EVENT,
+    createNetworkProbe,
+    type NetworkChangePayload,
+  } from "./lib/networkWatch";
   import Onboarding from "./screens/Onboarding.svelte";
   import Dashboard from "./screens/Dashboard.svelte";
   import Diagnostics from "./screens/Diagnostics.svelte";
@@ -38,8 +43,9 @@
   }
 
   // A dropped TV socket is only visible when something talks to it. Probe on
-  // foreground resume and on a slow heartbeat so a dead connection turns into
-  // a silent reconnect (or the banner) within a minute instead of never.
+  // foreground resume, shortly after the phone's network changes, and on a
+  // slow heartbeat, so a dead connection turns into a silent reconnect (or the
+  // banner) within seconds of a Wi-Fi change and within a minute otherwise.
   const LIVENESS_HEARTBEAT_MS = 45_000;
 
   onMount(() => {
@@ -63,16 +69,29 @@
     // Fetched support tiers landed after the TV was profiled: re-read it so
     // the badge isn't stale. Absent outside Tauri (tests, the demo).
     let stopTierWatch: (() => void) | null = null;
+    let stopNetworkWatch: (() => void) | null = null;
     let unmounted = false;
+    const networkProbe = createNetworkProbe((reason) => {
+      if (document.visibilityState === "visible") void session.onNetworkChange(reason);
+    });
     const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
     if (hasEvents) listen("support-tiers-updated", () => {
-      if (session.connectedDevice) void session.refreshDevices().catch(() => {});
+      // Only a live connection has a profile to re-read; a lost one must keep
+      // its last profile for the banner and the network-return redial.
+      if (session.isConnected) void session.refreshDevices().catch(() => {});
     })
       .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
+      .catch(() => {});
+    if (hasEvents) listen<NetworkChangePayload>(NETWORK_CHANGED_EVENT, (event) => {
+      networkProbe.notify(event.payload?.reason);
+    })
+      .then((stop) => (unmounted ? stop() : (stopNetworkWatch = stop)))
       .catch(() => {});
     return () => {
       unmounted = true;
       stopTierWatch?.();
+      stopNetworkWatch?.();
+      networkProbe.cancel();
       cleanupBack();
       detachWatch();
       clearInterval(heartbeat);
@@ -96,13 +115,14 @@
   });
 </script>
 
+<!-- One stack so the report notice and the connection banner never cover
+     each other. Onboarding shows the notice in its own page flow instead, so
+     nothing floats over the buttons that get the user connected. -->
 {#if router.current !== "onboarding" && router.current !== "addtv"}
-  <ConnectionBanner onSwitch={() => navigate("devices")} />
-{/if}
-<!-- Waits until the user is past onboarding and the saved-TV picker, so
-     it never sits over the buttons that get them connected. -->
-{#if router.current !== "onboarding" && router.current !== "addtv"}
-  <TelemetryNotice onOpenSettings={() => navigate("more")} />
+  <div class="bottom-stack">
+    <TelemetryNotice onOpenSettings={() => navigate("more")} />
+    <ConnectionBanner onSwitch={() => navigate("devices")} />
+  </div>
 {/if}
 {#if session.identityNote}
   <Toast message={session.identityNote} type="info" />
@@ -134,8 +154,29 @@
   <Devices {navigate} {back} onDisconnect={handleDisconnect} />
 {:else if router.current === "riskguide"}
   <RiskGuide {navigate} {back} />
+{:else if router.current === "catalog"}
+  {#await import("./screens/Catalog.svelte") then { default: Catalog }}
+    <Catalog {back} initialPackage={router.catalogPackage} />
+  {:catch}
+    <p role="alert">The catalog could not be loaded. Go back and try again.</p>
+    <button onclick={back}>Back</button>
+  {/await}
 {:else if router.current === "files"}
   <Files {back} />
 {:else if router.current === "backups"}
   <Backups {back} />
 {/if}
+
+<style>
+  .bottom-stack {
+    position: fixed;
+    /* Same column as the screens, which cap at --content-max on tablets. */
+    left: max(16px, calc((100% - var(--content-max)) / 2));
+    right: max(16px, calc((100% - var(--content-max)) / 2));
+    bottom: calc(env(safe-area-inset-bottom) + 88px);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+</style>

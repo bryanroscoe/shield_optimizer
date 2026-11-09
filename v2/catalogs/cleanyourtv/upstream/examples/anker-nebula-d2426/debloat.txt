@@ -1,0 +1,75 @@
+# Anker Nebula projector, model D2426 (build name D2426_CapsuleIIIPro, device baekdu, SDMC board,
+# MediaTek m7632, ~1.7 GB RAM), Android TV 14 (SDK 34), build UKNV.260603.001.
+#
+# Apply:   TV_HOST=<projector ip> tools/disable.sh examples/anker-nebula-d2426/debloat.txt
+# Undo:    TV_HOST=<projector ip> tools/restore.sh examples/anker-nebula-d2426/debloat.txt com.google.android.tvlauncher
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+#
+# Re-enabled by the firmware at every boot (checked with one reboot on 2026-10-22): com.cltv.fast and
+# com.google.android.katniss come back as enabled=1. Disabling them again only lasts until the next boot.
+# With the stock launcher gone, the Free TV rows have nowhere to show anyway.
+#
+# Second unit (France, 2026-10-27), same build UKNV.260603.001, same result after three reboots. Two more
+# findings on it: com.zhixin.logservice.nebula keeps a process after pm disable-user (it is persistent and
+# shares the system uid, so dumpsys activity processes still lists it as *PERS*), and it reaches
+# aiot-nebula-api-pr.goroav.com at boot; the README says what com.oceanwing.nebulalinker, kept below, sends
+# to the same host. com.android.devicelockcontroller answers pm disable-user with
+# "Cannot disable a protected package", so it is not listed.
+#
+# Stock launcher: com.google.android.tvlauncher (classic Android TV home, HOME priority 2). The setup wizard
+# (setupwraith) does NOT claim HOME on this build, but it owns the Wi-Fi network saved during first setup,
+# so it is deliberately not in this list. Wireless debugging is on from the factory and port 5555 was open.
+# Remote global keys go to com.mediatek.tv.service, com.zhixin.nebulasmart, com.sdmc.btservice and
+# com.sdmc.projector (dumpsys window policy), none to the stock launcher.
+# Launcher config: config.json in this folder (tools/theme.sh examples/anker-nebula-d2426). The installed Netflix
+# is the phone app (com.netflix.mediaclient, no TV banner), so it was added to Home through the App library.
+# HDMI 1 opens in com.google.android.tv.inputplayer from the Inputs menu; no tuner, so live_tv_package is "".
+#
+# DO NOT DISABLE on this model (projector hardware, inputs, remote):
+# com.mediatek.tvinput                  # HDMI input service
+# com.mediatek.tv.service               # TV service, global remote keys, Netflix key
+# com.google.android.tv.inputplayer     # HDMI passthrough player
+# com.oceanwing.receiver                # remote control, Nebula IME, accessibility, screen control
+# com.zhixin.nebulasmart                # remote events (GLOBAL_BUTTON), accessibility service
+# com.sdmc.btservice                    # Bluetooth remote auto-pairing, speaker
+# com.sdmc.projector                    # projector picture settings, brightness adaptation keys
+# com.sdmc.service                      # SDMC service manager, picture, USB OTA
+# com.oceanwing.nebulalinker            # device info, custom shutdown, eMMC, firmware update dispatch
+# com.zhixin.apphelper                  # McuHelper: package install helper, HTML viewer (purpose partly unclear)
+# com.google.android.tungsten.setupwraith  # owns the Wi-Fi saved during setup
+# Factory tools left alone and never opened: com.nebula.factorytest, mediatek.factorymenu.ui, com.sdmc.keyburn
+
+# --- Telemetry and feedback ---
+com.zhixin.logservice.nebula                 # Nebula log collector/uploader (UPLOAD_LOG, runs at boot)
+com.google.android.feedback                  # Google feedback
+com.android.tv.feedbackconsent               # feedback consent prompt
+com.android.adservices.api                   # Privacy Sandbox ad services
+com.android.federatedcompute.services        # federated learning
+com.android.ondevicepersonalization.services # on-device ad personalisation
+
+# --- Content and ad services ---
+com.cltv.fast                                # Anoki/iWedia "Free TV" FAST channels (ad-supported TV input, ACR)
+android.autoinstalls.config.sdmc             # Play auto-install of partner apps
+com.google.android.partnersetup              # partner-app attribution
+fusion.android.tv.demo                       # RetailDisplay store demo
+
+# --- Off by owner's choice (comment out to keep) ---
+# Set the screensaver to com.android.dreams.basic/.Colors before disabling backdrop:
+#   settings put secure screensaver_components com.android.dreams.basic/.Colors
+com.google.android.backdrop                  # Ambient Mode screensaver
+com.google.android.katniss                   # Google Assistant / voice search (mic button stops working)
+com.google.android.play.games                # Google Play Games
+com.google.android.marvin.talkback           # TalkBack screen reader
+# The second unit also turned these off and lived with them; uncomment the ones you do not use:
+# com.google.android.videos                  # Google Play Movies & TV
+# com.google.android.youtube.tvmusic         # YouTube Music
+# com.google.android.tts                     # Google text-to-speech, idle once Assistant and TalkBack are off
+# com.google.android.syncadapters.calendar   # Google Calendar sync
+# com.android.healthconnect.controller       # Health Connect
+# com.android.health.connect.backuprestore   # Health Connect backup
+# com.android.nearby.halfsheet               # Nearby device pop-ups
+
+# --- Stock home screen (only after the new launcher is installed: launcher/build-and-install.sh) ---
+com.google.android.tvlauncher                # stock Android TV home: sponsored banner, "Free TV" and recommendation rows
+com.google.android.tvrecommendations         # recommendation rows for the stock home
+com.mediatek.android.leanbacklauncher.partnercustomizer  # partner rows/config for the stock home

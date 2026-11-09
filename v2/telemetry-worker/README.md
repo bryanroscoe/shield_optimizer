@@ -16,6 +16,13 @@ code; this directory is only the backend. It runs on the Cloudflare free plan.
 
 ## What is collected
 
+The Android privacy policy is served at `GET /privacy` (also `HEAD`). Set the public
+`PRIVACY_CONTACT_EMAIL` Worker variable to the owner's approved support/privacy email before
+publication. The endpoint returns 503 with no caching until a valid email is configured; it
+never publishes a placeholder or reads request location. The mobile app links this page in
+More → Privacy and exposes the current full installation Support ID for deletion requests.
+The policy describes Android only: desktop's opt-in Send logs upload is a separate data flow.
+
 Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diagnostic`, with:
 
 | Field | Example | Notes |
@@ -34,6 +41,12 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 1 event cannot be a `diagnostic` and any `diag` or `log_excerpt` on it is ignored.
 
 ### Send logs uploads
+
+A test build (a native test package marked with `ATVOPT_TEST_BUILD`) can send logs too. Its upload
+carries `app_version` as `<version>-dev`, which the version check here already accepts, and its text
+starts with `Test build <commit>`: the commit that was built (a PR's merge commit), followed by
+`(merge commit; PR head <head>)` when the PR head differs. Test builds never send automatic reports, so they add nothing to
+`events` or the device-support aggregates.
 
 `diag_uploads` holds what a desktop user sent with **Send logs to developer**: a summary (support
 ID, app and OS, TVs by state and public build properties, `adb devices -l` and a `diag` object)
@@ -239,13 +252,20 @@ Live since 2026-11-01 on the owner's Cloudflare account (free plan). The deploy 
 [PR #269](https://github.com/bryanroscoe/shield_optimizer/pull/269); that does not by itself show
 that a real app build has sent events.
 
+Diagnostics deployment verified 2026-11-03: migration `0003_diagnostics.sql` is applied and
+Worker version `7e0652bf-703c-4896-9a51-7c524943ff4d` serves the code from main
+`f52a73e00822e246f9a69d2e73ba9115f12ee035`. A synthetic desktop upload returned `201`,
+was retrievable through both admin support routes, and had its test address redacted.
+The support-tier endpoint remained available. This checks production storage and retrieval;
+it does not substitute for a native app or physical TV test.
+
 | | |
 | --- | --- |
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
 | Worker | `atv-optimizer-telemetry` |
 | D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
 | Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters |
-| Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it; the sync and report workflows call it. |
+| Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it, and so do the PR's native test packages (`v2-tests.yml`), which also set `ATVOPT_TEST_BUILD` to the merge commit they build and the PR head; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
 
 Secrets live in the owner's personal 1Password (`my.1password.com`, vault **Bryan Code**), never

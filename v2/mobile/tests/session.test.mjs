@@ -89,6 +89,27 @@ async function createPage(t, options = {}) {
         default: return { ok: true, transport: "channel", message: "done" };
       }
     } };
+    if (options.events) {
+      // Just enough of Tauri's event plugin for App.svelte's `listen` calls, plus
+      // `emitTauriEvent` to deliver a backend event to them.
+      const callbacks = new Map();
+      let nextId = 0;
+      window.eventListeners = [];
+      window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+      window.__TAURI_INTERNALS__.transformCallback = (callback) => {
+        callbacks.set(++nextId, callback);
+        return nextId;
+      };
+      window.handlers["plugin:event|listen"] = ({ event, handler }) => {
+        window.eventListeners.push({ event, handler, id: ++nextId });
+        return nextId;
+      };
+      window.emitTauriEvent = (event, payload) => {
+        for (const listener of window.eventListeners) {
+          if (listener.event === event) callbacks.get(listener.handler)?.({ event, id: listener.id, payload });
+        }
+      };
+    }
   }, options);
   await page.goto(origin);
   await page.evaluate(async () => {
@@ -134,6 +155,31 @@ async function connectManually(page, host) {
   await page.getByRole("button", { name: "Connect (no code)" }).click();
   await page.getByRole("button", { name: "Open dashboard" }).waitFor();
 }
+
+test("surrounding whitespace in a manual IP keeps the authenticated TV selected", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = ({ host }) => {
+      window.activeHost = host.trim();
+      return { ok: true, message: "Connected." };
+    };
+  });
+  const result = await page.evaluate(async () => {
+    const result = await window.session.connect(" 192.0.2.10 ", 5555);
+    return {
+      ok: result.ok,
+      live: window.session.isConnected,
+      host: window.session.host,
+      serial: window.session.connectedDevice?.serial,
+      invokedHost: window.calls.find(c => c.command === "wireless_connect").args.host,
+      savedHost: window.savedDevices.listSavedDevices()[0]?.host,
+    };
+  });
+  assert.deepEqual(result, {
+    ok: true, live: true, host: "192.0.2.10", serial: "192.0.2.10:5555",
+    invokedHost: "192.0.2.10", savedHost: "192.0.2.10",
+  });
+});
 
 test("hardware Back and direct navigation keep Optimize cancellable", async (t) => {
   const page = await open(t, "optimize");
@@ -243,6 +289,98 @@ test("one failed recovery stays lost until an explicit retry", async (t) => {
     return { automatic, lost, retried: window.session.isConnected };
   });
   assert.deepEqual(result, { automatic: 1, lost: "lost", retried: true });
+});
+
+async function openWithNetworkEvents(t) {
+  const page = await createPage(t, { activeHost: "A", events: true });
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.router.reset("dashboard");
+  });
+  await page.waitForFunction(() => window.eventListeners.some((l) => l.event === "network-changed"));
+  await page.evaluate(() => {
+    window.calls = [];
+    // The phone moved networks: the old socket is dead, a fresh connect works.
+    window.handlers.wireless_status = () => ({ connected: false });
+  });
+  return page;
+}
+
+test("a phone network change probes the TV within seconds, not on the heartbeat", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  const started = Date.now();
+  await page.evaluate(() => window.emitTauriEvent("network-changed", { reason: "changed" }));
+  await page.waitForFunction(
+    () => window.session.liveness === "live" && window.calls.some((c) => c.command === "wireless_connect"),
+    null,
+    { timeout: 5_000 },
+  );
+  const elapsed = Date.now() - started;
+  const commands = await page.evaluate(() => window.calls.map((c) => c.command));
+  assert.equal(commands.filter((c) => c === "wireless_status").length, 1);
+  assert.equal(commands.filter((c) => c === "wireless_connect").length, 1, "the one silent redial");
+  assert.ok(elapsed >= 900, `waited for the network to settle (${elapsed} ms)`);
+});
+
+test("a network that comes back redials a lost session once, with no tap on Retry", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  // The Wi-Fi went away: the probe fails and the one silent redial finds no route.
+  await page.evaluate(async () => {
+    window.handlers.wireless_connect = () => ({ ok: false, message: "Network is unreachable: no route." });
+    await window.session.checkLiveness();
+  });
+  assert.equal(await page.evaluate(() => window.session.liveness), "lost");
+  await page.evaluate(() => {
+    window.calls = [];
+    delete window.handlers.wireless_connect;
+    window.emitTauriEvent("network-changed", { reason: "changed" });
+  });
+  await page.waitForFunction(() => window.session.liveness === "live", null, { timeout: 5_000 });
+  const commands = await page.evaluate(() => window.calls.map((c) => c.command));
+  assert.equal(commands.filter((c) => c === "wireless_connect").length, 1);
+  assert.equal(commands.filter((c) => c === "wireless_status").length, 0, "a lost session is not probed first");
+});
+
+test("a lost session spends no redial on a network loss or on the heartbeat", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  const connects = await page.evaluate(async () => {
+    window.handlers.wireless_connect = () => ({ ok: false, message: "Network is unreachable: no route." });
+    await window.session.checkLiveness();
+    window.calls = [];
+    await window.session.onNetworkChange("lost");
+    await window.session.checkLiveness();
+    const afterLoss = window.calls.filter((c) => c.command === "wireless_connect").length;
+    // A returning network that still can't reach the TV leaves the banner up.
+    await window.session.onNetworkChange("addresses");
+    const afterReturn = window.calls.filter((c) => c.command === "wireless_connect").length;
+    await window.session.checkLiveness();
+    return { afterLoss, afterReturn, final: window.calls.filter((c) => c.command === "wireless_connect").length, liveness: window.session.liveness };
+  });
+  assert.deepEqual(connects, { afterLoss: 0, afterReturn: 1, final: 1, liveness: "lost" });
+});
+
+test("a network change after an explicit disconnect dials nothing", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  await page.evaluate(async () => {
+    await window.session.disconnect();
+    window.calls = [];
+    await window.session.onNetworkChange("changed");
+  });
+  assert.deepEqual(await page.evaluate(() => window.calls.map((c) => c.command)), []);
+});
+
+test("a network change while the app is hidden leaves the probe to the resume check", async (t) => {
+  const page = await openWithNetworkEvents(t);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" });
+    window.emitTauriEvent("network-changed", { reason: "changed" });
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 1_500)));
+  const probes = await page.evaluate(() =>
+    window.calls.filter((c) => c.command === "wireless_status" || c.command === "wireless_connect").length,
+  );
+  assert.equal(probes, 0);
+  assert.equal(await page.evaluate(() => window.session.liveness), "live");
 });
 
 test("a silent recovery onto a different device does not inherit the old saved row or its name (#154 follow-up)", async (t) => {
@@ -411,8 +549,9 @@ test("canceled connect cannot update the session when its old reply arrives", as
   const page = await open(t);
   const result = await page.evaluate(async () => {
     window.handlers.wireless_connect = () => new Promise((resolve) => { window.releaseConnect = resolve; });
-    const old = window.session.connect("B", 5555);
-    await window.session.cancelConnect();
+    let attempt = 0;
+    const old = window.session.connect("B", 5555, (generation) => { attempt = generation; });
+    await window.session.cancelConnect(attempt);
     window.releaseConnect({ ok: true });
     const canceled = await old;
     window.handlers.wireless_connect = () => ({ ok: false });
@@ -521,6 +660,53 @@ test("authorization failure stays honest and a deliberate retry can open Dashboa
     stack: [...window.router.stack],
     connects: window.calls.filter((c) => c.command === "wireless_connect").length,
   })), { stack: ["dashboard"], connects: 2 });
+});
+
+test("a connect that never reached the TV doesn't send the user to look for an approval prompt", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "Connection refused: nothing at that address accepts ADB connections on this port. Check the port, and that Network debugging is enabled on the TV.",
+    });
+  });
+  await page.getByRole("button", { name: "Enter IP address manually" }).click();
+  await page.getByRole("textbox", { name: "TV IP address" }).fill("A");
+  await page.getByRole("button", { name: "Connect (no code)" }).click();
+  await page.getByRole("heading", { name: "Couldn't connect" }).waitFor();
+  assert.equal(await page.locator(".error-notice").getAttribute("data-code"), "connection_refused");
+  assert.equal(await page.getByText(/Allow debugging/).count(), 0);
+
+  for (const message of [
+    "Connection timed out: nothing answered at that address. Check the TV's IP address.",
+    "Network is unreachable: this phone has no route to that address.",
+  ]) {
+    await page.evaluate((message) => { window.handlers.wireless_connect = () => ({ ok: false, message }); }, message);
+    await page.getByRole("button", { name: "Try again" }).click();
+    await page.locator(".error-notice", { hasText: /took too long|Couldn't reach/ }).waitFor();
+    assert.equal(await page.getByText(/Allow debugging/).count(), 0, message);
+  }
+
+  // A TV that was reached but never approved still gets the prompt guidance.
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "The TV didn't approve debugging in time. Try again, then choose Allow on the TV within 30 seconds (and select Always allow when offered).",
+    });
+  });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.getByText(/look at the TV for/).waitFor();
+
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = () => ({
+      ok: false,
+      message: "The TV connection timed out during setup. If the TV shows an Allow debugging prompt, approve it, then retry. If no prompt appears, restart the TV before trying again.",
+    });
+  });
+  await page.getByRole("button", { name: "Try again" }).click();
+  await page.locator(".en-msg", { hasText: "If no prompt appears" }).waitFor();
+  assert.equal(await page.locator(".error-notice").getAttribute("data-code"), "timeout");
+  assert.equal(await page.locator(".callout").count(), 0);
 });
 
 test("explicit disconnect suppresses automatic saved-TV redial", async (t) => {

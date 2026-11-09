@@ -1,0 +1,32 @@
+# TCL BeyondTV (ro.product.model BeyondTV, TCL), Android TV 9 (API 28), build PPR1.180610.011,
+# security patch 2021-01-05, 512 MB Dalvik heap. India-market set (Jio, Airtel, Hotstar apps preloaded).
+# Tested: applied once and checked on the device with screenshots (launcher, dock, Inputs menu, Netflix
+# launch). Not yet lived with for days; this list is deliberately conservative (telemetry, ads, promo only).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-beyondtv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-beyondtv/debloat.txt
+# Stock launcher: com.google.android.tvlauncher (restore.sh default). Disable it only after the new launcher is installed.
+# Live TV app: com.tcl.tv (keep it, it owns HDMI/tuner playback). Also keep com.tcl.tvinput.
+# Already disabled at the factory: com.tcl.bootadservice, com.tcl.tv.tclhome_master, com.tcl.cyberui,
+# and the uk.co.freeview.* UK catch-up apps.
+#
+# Deliberately NOT disabled (ambiguous or system-relevant): com.tcl.showmode (sound modes, not just
+# demo), com.tcl.messagebox, com.tcl.usercenter, com.tcl.framework.custom (key handling),
+# com.tcl.xian.StartandroidService, com.tcl.browser, voice assistant (katniss, tcl.assistant, smartalexa),
+# casting (mediashell, tcl.miracast, MultiScreenInteraction_TV), firmware updates (versionUpdateApp, rc.ota).
+
+# TCL analytics, content and promos
+com.tcl.bi                              # analytics / telemetry service
+com.tcl.tv.tclhome_passive              # pushes TCL content to the home screen at boot
+com.tcl.waterfall.overseas              # TCL web content feed
+com.tcl.esticker                        # retail demo stickers
+com.tcl.tvweishi                        # "cleaner" widget service
+com.tcl.notereminder
+com.tcl.appmarket2                      # TCL app store (Google Play Store stays)
+
+# Google extras and recommendation rows (only useful with the stock launcher)
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.google.android.videos               # Play Movies & TV
+com.google.android.play.games
+com.google.android.youtube.tvmusic

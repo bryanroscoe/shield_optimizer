@@ -1,0 +1,53 @@
+# BenQ E55-735 (55" 4K, Taiwan), Google TV 14, firmware UKNV.260506.001
+# Built by Changhong (ro.product.manufacturer=Changhong, ro.product.model="AI PONT", product DVB96BQ),
+# MediaTek SoC, about 1.8 GB RAM. Changhong's own packages use the com.homwee prefix; the same
+# "AI PONT" platform is sold as CHiQ (see the CHiQ DVB93CQ example in PR #10).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/benq-e55-735/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/benq-e55-735/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it as STOCK_LAUNCHER).
+# Already disabled from the factory: com.mediatek.wwtv.tvcenter, com.google.android.marvin.talkback.
+#
+# Quirks on this firmware, all checked on the TV:
+# - USB debugging alone does NOT open port 5555 until the first reboot. Pair once with Wireless
+#   debugging instead: `adb mdns services` shows the random pairing and connect ports, then
+#   `adb pair <ip>:<pairing port> <code>` and `adb connect <ip>:<connect port>`. After a reboot,
+#   with USB debugging still on, plain port 5555 answers.
+# - Home keeps going to com.google.android.tungsten.setupwraith/.RecoveryActivity after the stock
+#   launcher is disabled: setupwraith must be disabled too (listed below).
+# - Standby is MediaTek suspend-to-RAM: once the CPU suspends (seconds after the screen goes off,
+#   when no wakelock is held), Bluetooth and Wi-Fi stop. A Chromecast voice remote (Bluetooth only)
+#   then cannot turn the TV on; the BenQ IR remote and the power button can. Holding a wakelock
+#   to prevent it confuses the vendor standby (panel off, system awake, ARC broken). Wake-on-LAN
+#   does work from deep standby: a magic packet to the Wi-Fi MAC brings the TV up in about 5 s.
+# - The Chromecast remote's Input button sends KEYCODE_TV, which the stock launcher handled. Its
+#   YouTube and Netflix buttons have no key layout on this TV (HID usages 0x0c0077 / 0x0c0078
+#   both arrive as KEYCODE_UNKNOWN), so they do nothing once the stock launcher is gone.
+
+# Changhong / Homwee store and help
+com.homwee.store
+com.homwee.help
+
+# Automatic content recognition (reports what is on screen)
+tv.anoki.acr.anokiacroptin
+
+# Google TV recommendations and screensaver (set another screensaver first)
+com.google.android.videos              # Google TV app, the home screen's recommendation source
+com.google.android.apps.tv.dreamx      # ambient mode; mixes recommendations into the screensaver
+com.google.android.play.games
+
+# Streaming apps not used in this home (by choice; keep the ones you use)
+com.amazon.amazonvideo.livingroom
+com.taiwanmobile.myVideotv
+com.google.android.youtube.tvmusic
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.google.android.tungsten.setupwraith  # its RecoveryActivity otherwise takes over Home
+com.google.android.apps.tv.launcherx
+
+# Kept on purpose: com.homwee.upgrade and com.homwee.dmt.upgrade (firmware updates),
+# com.google.android.katniss (voice), com.google.android.apps.mediashell (Chromecast),
+# com.homwee.mmp.screenshare / com.homwee.multiscreenshare (Miracast), com.mediatek.autopair
+# (pairs and wakes the BenQ remote), com.homwee.synckey (remote keys).

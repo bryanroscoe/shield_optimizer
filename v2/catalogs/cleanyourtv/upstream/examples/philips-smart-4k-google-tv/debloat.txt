@@ -1,0 +1,66 @@
+# Philips Smart 4K TV (India), Google TV 14, firmware UKN5.251016.083
+# Built by Skyworth (ro.product.manufacturer=skyworth, ro.product.brand=Philips,
+# ro.product.model="Philips Smart 4K TV", device eleonas), MediaTek SoC, about 1.8 GB RAM.
+# Skyworth's own packages use the com.smartdevice, com.sky and com.tianci prefixes.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/philips-smart-4k-google-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/philips-smart-4k-google-tv/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it as STOCK_LAUNCHER / to restore.sh).
+# Live TV app: com.cltv.hybrid (iWedia CanaliTV); set it as live_tv_package and in hidden_apps in
+# launcher config.xml. com.mediatek.tv.oneworld.tvcenter is already disabled from the factory.
+# Also disabled from the factory, so not listed (restore.sh would turn them ON): com.sky.market
+# (Skyworth store), com.mediatek.opapp, com.mediatek.tv.retaildemo, the ATSC and ISDB tuners.
+#
+# Quirks on this firmware, all checked on the TV:
+# - USB debugging alone does NOT open port 5555, not even after a restart. Pair once with Wireless
+#   debugging (`dns-sd -B _adb-tls-pairing._tcp` or `adb mdns services` shows the random ports,
+#   then `adb pair <ip>:<port> <code>`, `adb connect <ip>:<connect port>`), then `adb tcpip 5555`
+#   and tools/tv.py works.
+# - Assistant/Gemini is com.google.android.katniss. In-app speech recognition is a separate
+#   service in com.google.android.tts, which stays enabled; with katniss off the remote's mic
+#   button does nothing.
+# - SonyLIV and ZEE5 ship as archived stubs (ReactivateActivity): they reinstall from Play on
+#   first launch.
+# - Tested on the day of the debloat, not yet lived with for days.
+# - A second Google TV profile is a second Android user, and this board's key service
+#   (com.smartdevice.global.service, kept) then takes a provider client for launcherx's LiveTvContentProvider
+#   on every gear/Input hotkey: with launcherx disabled it throws, and RescueParty climbs to the level that
+#   switches the launcher's accessibility helpers off. Seen on a Coocaa Y74 Pro 65" (SW10_TG, Google TV 14,
+#   UKN4.250714.140). Run `pm list users` first, and see
+#   docs/TROUBLESHOOTING.md#app-buttons-crash-the-tvs-own-key-service-on-a-set-with-a-second-user-skyworthcoocaa
+
+# Skyworth recommendations, telemetry and preloads
+com.smartdevice.recommendation               # content/recommendation rows (coolita channels)
+com.smartdevice.aftersale                    # "after-sale" tracker: boot + network receivers, location
+com.smartdevice.recordactivation             # records first activation
+com.smartdevice.dailymanage                  # background service started at boot
+com.smartdevice.myapp                        # Skyworth "My Apps" screen
+com.smartdevice.leanbacklauncher.customizer  # partner config that injects rows into the home screen
+com.Smartdevice.emanual                      # on-screen manual
+
+# Google extras
+com.google.android.feedback
+com.google.android.play.games
+
+# Casting (by choice; keep if you cast from your phone or mirror an iPhone/PC)
+com.google.android.apps.mediashell           # Chromecast built-in
+com.mediatek.dialservice                     # DIAL, phone apps' "cast to TV" discovery
+com.smartdevice.dtv.icast                    # Skyworth/Coocaa AirPlay + Miracast; bundles Sensors Data analytics
+
+# Google Assistant / Gemini (by choice)
+com.google.android.katniss
+com.android.hotwordenrollment.okgoogle
+com.android.hotwordenrollment.xgoogle
+
+# Stock home. Disable only after the new launcher is installed and set as home.
+com.google.android.tungsten.setupwraith      # its RecoveryActivity otherwise takes over Home
+com.google.android.apps.tv.launcherx
+
+# Kept on purpose: com.mediatek.tv.systemupdater (firmware updates), com.cltv.hybrid / com.cltv.mal
+# (Live TV), com.smartdevice.bleconnectservice (remote over BLE, battery), com.smartdevice.global.service
+# (remote hot keys, find my remote), com.smartdevice.duplebluetooth (Bluetooth audio),
+# com.smartdevice.factory (panel calibration service), com.smartdevice.dailyshortcut (quick menu,
+# Art Time, IP control), com.tianci.localmedia (USB media player), org.liskovsoft.androidtv.rukeyboard
+# and com.google.android.inputmethod.latin (keyboards), com.mediatek.tv.agent (power, HbbTV, keys).

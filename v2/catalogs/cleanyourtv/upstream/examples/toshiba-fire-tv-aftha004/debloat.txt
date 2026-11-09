@@ -1,0 +1,67 @@
+# Toshiba Fire TV (AFTHA004, codename hazel), Fire OS 7 / Android 9 (SDK 28), build PS7717.5741N.0036408028416
+# Contributed by umang350 (PR #4). Also a fair start for other Toshiba / Insignia Fire TV Edition sets on Fire OS 7.
+#
+# FIRE OS: DEBLOAT ONLY. Fire OS will not let a third-party launcher take over Home: com.amazon.tv.launcher and
+# com.amazon.firehomestarter are protected packages (pm disable-user is refused), their HOME filter has priority 950,
+# and `cmd package set-home-activity` prints Success but is ignored. launcher/build-and-install.sh does not apply
+# here; this list removes Amazon's ads, telemetry and preloads around the stock home screen.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/toshiba-fire-tv-aftha004/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/toshiba-fire-tv-aftha004/debloat.txt com.amazon.tv.launcher
+# (restore.sh re-enables every package the record holds as on, the stock launcher included, since it is what owned
+# Home. On Fire OS it was never off, and Fire OS refuses the attempt with a `Cannot disable a protected package`
+# stack trace once per run (reported on Fire OS 8), which the batch carries on past:
+# docs/TROUBLESHOOTING.md, 'Fire TV (Fire OS)'.)
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Kept on purpose: Alexa, OTA updates, AirPlay, DIAL/whisperplay (Netflix and YouTube casting), the streaming apps
+# this owner uses (Netflix, YouTube, Spotify, Plex, VLC, MX Player) and the stock launcher.
+# Two packages tried on this set would not disable (protected): com.amazon.device.metrics and
+# com.amazon.ftvads.deeplinking. They are left out; the Insignia list mentions the same two.
+
+# Ads, shopping, content recognition
+com.amazon.shoptv.client
+com.amazon.shoptv.firetv.client
+com.amazon.tv.acr
+com.amazon.tv.democontent.provider
+
+# Telemetry and metrics
+com.amazon.tv.fw.metrics
+com.amazon.neo.minerva
+com.amazon.neo.minerva.logcat
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.dp.logger
+
+# Tutorials and promos
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial
+com.amazon.gamehub
+
+# Amazon content apps
+com.amazon.bueller.music
+com.amazon.bueller.photos
+com.amazon.minitv.android.app
+com.amazon.naatyam
+
+# Cast-to-Fire-TV receiver (Miracast), personal choice
+com.amazon.cast.sink
+
+# Streaming apps not used (personal choice: comment out the ones you watch)
+com.disney.disneyplus
+in.startv.hotstar
+com.hbo.hbonow
+com.hulu.plus
+com.peacock.peacockfiretv
+com.tubitv.ott
+tv.pluto.android
+com.onemainstream.sonyliv.android
+com.zee5.amazon
+com.suntv.sunnxt
+com.yupptv.firetv
+com.jio.media.stb.ondemand
+com.hungama.movies
+com.aajtak.firetv
+com.july.ndtv
+com.nexgtv.tv

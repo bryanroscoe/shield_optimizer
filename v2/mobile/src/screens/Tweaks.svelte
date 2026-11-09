@@ -10,6 +10,7 @@
 </script>
 
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { normalizeHardwareId } from "../lib/identity";
@@ -658,13 +659,12 @@
     </div>
   </div>
 
-  <details class="help-disclosure">
-    <summary>About these settings</summary>
+  <HelpSheet title="About these settings">
     <p class="intro">
       Settings Android hides or buries, read straight from the TV. Reset puts a setting back to the
       TV's default.
     </p>
-  </details>
+  </HelpSheet>
 
   {#if !session.isPro}
     <div class="pro-banner">
@@ -702,15 +702,14 @@
               </div>
             </div>
             <p class="t-note">Controls whether the Xbox Guide button acts as Home.</p>
-            <details class="help-disclosure">
-              <summary>About System Hooks</summary>
+            <HelpSheet title="About System Hooks">
               <p class="t-note">
                 Turning the hooks off can fix
                 Guide button conflicts in Steam Link and Moonlight. This doesn't change the Shield
                 remote's Netflix button, which is handled in firmware; use a button remapper app for
                 that. Turning the hooks back on is always free.
               </p>
-            </details>
+            </HelpSheet>
             {#if hooksError}
               {@render readError(hooksError)}
             {:else}
@@ -801,10 +800,9 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <details class="help-disclosure">
-              <summary>About long presses</summary>
+            <HelpSheet title="About long presses">
               <p class="t-note">How long you hold OK before it counts as a long press.</p>
-            </details>
+            </HelpSheet>
             <p class="t-note">Shorter reacts sooner but makes accidental long presses more likely.</p>
             <div class="segmented">
               {#each longPressPresets as ms (ms)}
@@ -883,13 +881,12 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <details class="help-disclosure">
-              <summary>About frame-rate matching</summary>
+            <HelpSheet title="About frame-rate matching">
               <p class="t-note">
                 Lets apps switch the TV's refresh rate to match the video, such as 24 Hz for films.
                 Seamless only switches without a black screen. The app and TV both have to support it.
               </p>
-            </details>
+            </HelpSheet>
             <div class="segmented">
               {#each framePresets as p (p.value)}
                 <button
@@ -929,13 +926,21 @@
               {/each}
             </div>
             {#if surroundMode === "3"}
-              <p class="t-desc">Enable only formats supported by your receiver. Existing encodings not listed below are preserved.</p>
-              {#each audioChoices as format (format.value)}
-                <label class="subrow">
-                  <span class="t-subtitle">{format.label}</span>
-                  <input type="checkbox" checked={audioFormats.includes(format.value)} disabled={busy !== ""} onchange={() => toggleAudioFormat(format.value)} />
-                </label>
-              {/each}
+              <p class="t-desc" id="audio-formats-note">Enable only formats supported by your receiver. Existing encodings not listed below are preserved.</p>
+              <div class="format-list" role="group" aria-label="Manual audio formats" aria-describedby="audio-formats-note">
+                {#each audioChoices as format (format.value)}
+                  <label class="format-row">
+                    <input
+                      class="format-check"
+                      type="checkbox"
+                      checked={audioFormats.includes(format.value)}
+                      disabled={busy !== ""}
+                      onchange={() => toggleAudioFormat(format.value)}
+                    />
+                    <span class="format-label">{format.label}</span>
+                  </label>
+                {/each}
+              </div>
               <span class="t-desc">Configured: {audioFormats.length ? audioFormats.map(audioLabel).join(", ") : "None / unset"}</span>
             {/if}
           </div>
@@ -949,11 +954,14 @@
               <span class="t-desc mono">{scalingError ? "Couldn't read the current size" : scaleLine}{scalingCustom ? " · Custom size / density" : ""}</span>
             </div>
           </div>
-          <p class="t-note">
-            The resolution Android draws its menus at. The TV's output resolution doesn't change and
-            video still decodes at full resolution. Lower is lighter on the TV but looks softer.
-            Restarting the TV does not undo this; use Reset.
-          </p>
+          <p class="t-note">Restarting the TV does not undo this; use Reset.</p>
+          <HelpSheet title="About display scaling">
+            <p class="t-note">
+              The resolution Android draws its menus at. The TV's output resolution doesn't change
+              and video still decodes at full resolution. Lower is lighter on the TV but looks
+              softer.
+            </p>
+          </HelpSheet>
           <div class="segmented scaling-presets">
             {#each scalePresets as p (p.value)}
               <button
@@ -985,13 +993,13 @@
                 <span class="t-desc">Current: <span class="state wrap">{screensaverLabel(ssComponent, ssEnabled)}</span></span>
               </div>
             </div>
-            <details class="help-disclosure">
-              <summary>About screensavers</summary>
+            <HelpSheet title="About screensavers">
               <p class="t-note">
                 Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is the plain one
-                built into Android.
+                built into Android. Names come from the app catalog; Restore previous also brings
+                back a custom screensaver this app can't name.
               </p>
-            </details>
+            </HelpSheet>
             <div class="segmented">
               <button
                 class="seg"
@@ -1026,10 +1034,7 @@
                   <span class="mono restore-value">{screensaverLabel(screensaverOriginal.components, screensaverOriginal.enabled)}</span>
                 </span>
               </button>
-              <span class="t-desc">
-                Previous is what was set when Tweaks first read this TV. Names come from the
-                app catalog; custom screensavers may have no known name.
-              </span>
+              <span class="t-desc">Previous is what was set when Tweaks first read this TV.</span>
             {/if}
             <details class="screensaver-details">
               <summary>Component details</summary>
@@ -1057,10 +1062,9 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <details class="help-disclosure">
-              <summary>About animation speed</summary>
+            <HelpSheet title="About animation speed">
               <p class="t-note">Sets Android's three animation speeds together. 0.5× makes menus feel quicker.</p>
-            </details>
+            </HelpSheet>
             <div class="segmented">
               {#each animPresets as p (p.value)}
                 <button
@@ -1084,12 +1088,17 @@
                 </span>
               </div>
             </div>
-            <p class="t-note">
-              Android’s reported cap on cached processes, not a count of running apps. Apps may use multiple
-              processes. This app does not change this cap. Developer options behavior varies by Android version.
-            </p>
+            <HelpSheet title="About cached processes">
+              <p class="t-note">
+                Android’s reported cap on cached processes, not a count of running apps. Apps may use
+                multiple processes. This app does not change this cap; Developer options on the TV
+                can, and that behavior varies by Android version. The legacy
+                global.background_process_limit key had no effect on the tested Shield TV running
+                Android 11; vendor behavior may differ.
+              </p>
+            </HelpSheet>
             {#if bgLimit != null}
-              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap. This key had no effect on the tested Shield TV running Android 11; vendor behavior may differ.</p>
+              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap.</p>
                 <button
                   class="reset-btn"
                   class:busy={busy === "bg-remove"}
@@ -1373,6 +1382,48 @@
     overflow-wrap: anywhere;
   }
 
+  .format-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .format-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 44px;
+    padding: 4px 0;
+    border-top: 1px solid var(--line);
+    cursor: pointer;
+  }
+  .format-row:first-child {
+    border-top: none;
+  }
+  /* Sized here so the row never depends on the global input rule. */
+  .format-check {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
+    border-radius: 4px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .format-check:disabled {
+    cursor: default;
+  }
+  .format-check:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .format-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 13px;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+  }
   .subrows {
     display: flex;
     flex-direction: column;

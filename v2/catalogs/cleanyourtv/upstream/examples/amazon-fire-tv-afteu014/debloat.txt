@@ -1,0 +1,95 @@
+# Amazon Fire TV smart TV (AFTEU014, codename greta), Fire OS 7.6.8.5 (PS7685/4487), Android 9 (SDK 28),
+# MediaTek m7322, 3 HDMI + DVB tuner, 1.6 GB RAM. Germany.
+#
+# FIRE OS: DEBLOAT ONLY. Home is com.amazon.tv.launcher/.ui.HomeActivity_vNext (priority 950), with
+# com.amazon.firehomestarter and com.amazon.tv.settings.v2/.system.FallbackHome behind it; the launcher package is
+# protected and `cmd package set-home-activity` prints Success but is ignored, so launcher/ does not take Home here.
+# Amazon's input player and Live TV are closed to other apps (com.amazon.tv.permission.TUNE_INPUT and
+# com.amazon.tv.livetv.permission.TUNE_CHANNEL; the LAUNCH_INPUTS picker is signature|privileged).
+# KEYCODE_TV_INPUT_HDMI_1..3 switch inputs from the ADB shell, but not when an app injects them into its own window.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/amazon-fire-tv-afteu014/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/amazon-fire-tv-afteu014/debloat.txt com.amazon.tv.launcher
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+#
+# Applied 2026-10-21 in four batches with a screenshot after each, then rebooted: 34 of 35 stayed disabled. Home,
+# the Live tab with DVB channels, Netflix, Joyn, ZDF and ARD Mediathek open. com.amazon.vizzini (Alexa voice) comes
+# back enabled at every boot, as on hisense-fire-tv-aftcibfbd1; it is listed anyway and simply does not stick.
+# Protected on this build ("Cannot disable a protected package"): com.amazon.device.software.ota and
+# com.amazon.device.software.ota.override, so firmware updates keep arriving, plus the Fire OS 7 set commented below.
+# Private DNS dns.adguard-dns.com (private_dns_mode hostname) works: doubleclick.net resolves to 127.0.0.1 and YouTube
+# still plays, but the hero banner and the "Gesponsert" row stay, since they come from the launcher's own feed.
+# ARD Mediathek registers only LEANBACK_LAUNCHER: start de.swr.ard.avp.mobile.android.amazon/.TvActivity to test it.
+#
+# Already disabled on this TV before this list (left as they were; restore does not touch them):
+# com.amazon.tv.acr, com.amazon.hybridadidservice, com.amazon.ftv.screensaver, com.android.nfc,
+# com.amazon.tv.democontent.provider, com.amazon.sneakpeek, com.amazon.wirelessmetrics.service,
+# com.amazon.tv.fw.metrics, com.amazon.tv.ottssocompanionapp, com.amazon.tv.alexanotifications,
+# com.amazon.tv.alexaalerts, com.amazon.shoptv.client, com.amazon.perfcollection, com.amazon.hedwig.
+#
+# Kept on purpose: Live TV, tuner and HDMI (com.amazon.tv.livetv, com.amazon.mediatek.livetv, com.mediatek.tvinput*,
+# com.amazon.tv.channelscan, com.amazon.tv.conditionalaccess, HbbTV com.vewd.*), com.amazon.tv.launcher,
+# com.amazon.firehomestarter, settings, com.amazon.tv.ime, remote/Bluetooth (fireinputdevices, uxcontrollerservice,
+# autopairservice, bluetoothpa/blepa), Appstore (venezia, tigris), Prime Video (firebat, avod), casting
+# (cast.sink, dialservice, awvflingreceiver, whisperplay, whisperlink), account and sync, com.amazon.tv.oobe,
+# accessibility and TTS (logan, ivona), com.amazon.providers.contentsupport (also switches the TTS engine).
+# Looked at with dumpsys and left alone because their role is unclear: com.amazon.katoch, com.amazon.centrix,
+# com.amazon.cpl, com.amazon.tifobserver, com.amazon.connectivitydiag, com.amazon.neopactservice, com.amazon.dpcclient.
+
+# Amazon telemetry, metrics, logs, usage reporting
+com.amazon.client.metrics.api
+com.amazon.dp.logger
+com.amazon.ceviche                         # data collection pipelines
+com.amazon.tv.developer.dataservice        # content personalization data for third-party apps
+com.amazon.livedeviceservice
+com.amazon.privacypassservice              # privacy pass token service
+com.amazon.wifilocker                      # uploads Wi-Fi passwords to Amazon
+# com.amazon.device.metrics                # protected on Fire OS 7
+# com.amazon.device.logmanager             # protected on Fire OS 7
+# com.amazon.device.crashmanager           # protected on Fire OS 7
+# com.amazon.diode                         # protected on Fire OS 7
+# com.amazon.minerva.client.api            # protected on Fire OS 7
+# com.fireos.usagestats.proxy              # protected on Fire OS 7
+# com.amazon.ftvads.deeplinking            # protected on Fire OS 7
+
+# Ads, promos, notices, tutorials
+com.amazon.kso.blackbird                   # launcher ad sync / bidding
+com.amazon.device.sale.service             # sale / deal campaign service
+com.amazon.tv.easyupgrade                  # "upgrade your Fire TV" promos
+com.amazon.systemnotices
+com.amazon.tv.releasenotes                 # "what's new" release notes
+com.amazon.uxnotification                  # UX notification popups
+com.amazon.storm.lightning.tutorial
+com.amazon.tmm.tutorial                    # remote tutorial
+
+# Preloaded Amazon apps (owner's choice)
+com.amazon.bueller.music                   # Amazon Music
+com.amazon.bueller.photos                  # Amazon Photos
+com.amazon.tv.localgallery                 # USB photo/video viewer
+com.amazon.tahoe                           # Amazon Kids (FreeTime)
+com.amazon.gamehub                         # Luna / games hub
+com.amazon.imdb.tv.android.app             # Freevee stub
+com.amazon.minitv.android.app              # miniTV
+com.amazon.naatyam
+com.amazon.audiohome                       # Alexa Home Theater
+
+# Alexa voice (owner's choice; TTS and accessibility kept)
+com.amazon.vizzini                         # Alexa voice on Fire TV
+com.amazon.alexamediaplayer.runtime.ftv
+com.amazon.alexa.externalmediaplayer.fireos
+com.amazon.wha.mediabrowserservice
+com.amazon.spotify.mediabrowserservice     # Spotify for Alexa (the Spotify app is separate)
+com.amazon.ods.kindleconnect               # "show on Fire TV" from Echo / Fire tablet
+
+# Silk browser (owner's choice)
+com.amazon.cloud9                          # Silk browser
+com.amazon.tv.website_launcher
+
+# Fire OS updates (owner's choice). The OTA service itself is protected, so updates still arrive; only the forced updater is off
+# com.amazon.device.software.ota           # protected on Fire OS 7
+# com.amazon.device.software.ota.override  # protected on Fire OS 7
+com.amazon.tv.forcedotaupdater.v2
+
+# Printing (nothing to print from on a TV)
+com.android.printspooler
+com.android.bips

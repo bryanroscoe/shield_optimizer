@@ -1,0 +1,108 @@
+# TCL 32S5K (32" FHD QLED, S5K series), EU unit: device C06, product C06_2K_GB, model "Smart TV".
+# Android TV 11 (SDK 30), build AR2101, TCL software V8-T221T05-LF1V361.000823, security patch 2025-03-05.
+# MediaTek MT9221 (ro.board.platform mt5867), 918 MB RAM (low_ram=true), 8 GB ROM, ro.adb.secure=1.
+#
+# Same platform and build family as examples/tcl-40s5400a (that unit: LF1V325). This list is that
+# list, verified package by package against this unit first: all 22 entries present and enabled,
+# none missing, none already disabled.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-32s5k/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-32s5k/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher. Live TV app: com.tcl.tv (also plays HDMI).
+# Inputs come from com.tcl.tvinput.
+#
+# TESTING, honestly: applied in three rounds on 2026-10-20 and used for a few hours only, which is
+# shorter than CONTRIBUTING.md asks. What was actually checked, each after a reboot: Netflix and
+# YouTube open and play, HDMI input switching works, the Live TV source picker works, Wi-Fi survives,
+# picture/sound settings open, the firmware update check still runs, the screensaver still starts.
+# The full list was also restored (tools/restore.sh) and re-applied once, so the undo path is tested
+# on this unit. I will report back if something breaks.
+#
+# Measured effect on this unit, idle, settled, after reboot:
+#   MemAvailable 307 MB -> 363 MB with the stock launcher (+56 MB), 391 MB with launcher/ (+84 MB).
+#   This TV is RAM-bound, not I/O-bound: 0% iowait, ~88% idle CPU, but ~330 MB of zram swap in use.
+#   Every MB freed here is a MB less swapped, which is why debloating helps this set noticeably.
+#
+# Unit-specific notes (these differ from the 40S5400A list, check yours before copying):
+# - The saved Wi-Fi network belongs to com.android.tv.settings, NOT setupwraith, so setupwraith is
+#   safe to disable here and the network survives. disable.sh checks this for you; do not force it.
+# - The photo screensaver (com.google.android.backdrop) must be swapped before it is disabled:
+#   tools/tv.py 'settings put secure screensaver_components com.android.dreams.basic/.Colors'
+#   (restore: com.google.android.backdrop/com.google.android.backdrop.Backdrop)
+# - com.tcl.usercenter does NOT stay disabled. com.tcl.ttvs contains a service logging as
+#   "OverSeasAppShow" which reads /tclconfig/software/param/apps/app_EU_4K.json and re-enables it,
+#   at every boot and again whenever ttvs itself restarts. Disabling com.tcl.ttvs does not help:
+#   it is re-enabled too. /tclconfig is mounted ro and is not even readable from an adb shell.
+#   The entry is left in the list because it does get disabled; it just does not stay that way.
+# - On this set "standby" from the remote is a full power-down: the TV leaves the network entirely
+#   and cold-boots on the next power-on. There is no network wake, and nothing applied with adb that
+#   the firmware re-asserts at boot will survive being switched off.
+#
+# PRE-EXISTING FIRMWARE BUG, not caused by debloating (verified by restoring every package to stock,
+# rebooting, and reproducing it again):
+#   com.android.tv.settings crashes every single time you leave the Settings app.
+#     java.lang.IllegalArgumentException: Service not registered:
+#       com.tcl.android.tv.settings.accounts.TCLAccountManager$1
+#     at TCLAccountManager.destroyManager -> MainSettings.onDestroy
+#   In TvSettings 1.3.0, destroyManager() calls unbindService() on the Activity context while
+#   bindRemoteServiceIfNeverBind() binds on the Application context, and it guards on mInstall
+#   ("is the TCL User Center activity installed") instead of isConnection, so it also double-unbinds.
+#   The correctly written sibling method unbindRemoteServiceIfHasBind() is right there in the class.
+#   Workaround while the TV stays on: disabling com.tcl.usercenter makes mInstall false and the bad
+#   branch is skipped (verified, 0 crashes over repeated open/exit cycles). It does not survive a
+#   power cycle, see the note above. Mentioned here so nobody files it against this project.
+#
+# DO NOT DISABLE on this TV (kept and working):
+# com.tcl.tv                           # Live TV app, plays HDMI, source picker on the Input key
+# com.tcl.tvinput                      # TV input services for HDMI, AV and the tuner
+# com.tcl.ttvs                         # firmware updater; also hosts the BI telemetry and the
+#                                      # OverSeasAppShow service described above
+# com.tcl.messagebox                   # carries a ttvs receiver; kept to be safe
+# com.tcl.system.server                # remote-key plumbing
+# com.tcl.tcl_bt_rcu_service           # Bluetooth remote
+# com.tcl.autopair                     # Bluetooth remote auto-pairing
+# com.tcl.settings                     # picture/sound settings
+# com.tcl.dashboard                    # "TCL HOME" tile
+# com.tcl.suspension                   # Quick Panel
+# com.tcl.providers.config             # reported to drop Wi-Fi on the 65C725; not tried here
+# com.tcl.keyhelp                      # remote-key help/virtual keys
+
+# TCL account, promos and content
+com.tcl.usercenter                     # TCL account; re-enabled by ttvs, see notes above
+com.tcl.guard                          # TGuard cleaner/support
+com.tcl.partnercustomizer              # promo rows on the stock home
+com.tcl.waterfall.overseas             # TCL web-video portal
+com.tcl.esticker                       # store-demo sticker
+android.autoinstalls.config.tcl.device # partner-app auto installer config
+
+# Google extras
+com.google.android.feedback
+com.google.android.play.games
+com.google.android.videos              # Play Movies
+com.google.android.youtube.tvmusic
+com.google.android.syncadapters.calendar
+com.google.android.tungsten.setupwraith # first-run wizard, setup already done (owns no Wi-Fi here)
+
+# Stock home recommendation rows. The stock launcher itself is NOT disabled here: launcher/ was
+# built and installed, worked and survived a reboot, but was reverted by choice on this unit.
+# The home screen renders fine with tvrecommendations off.
+# com.google.android.tvlauncher   # launcher/build-and-install.sh disables this itself if you use it
+com.google.android.tvrecommendations
+
+# Off by choice on this unit: comment out what you use
+com.google.android.katniss             # Google search/voice; the stock home's search bar goes dead
+com.google.android.tv.remote.service   # phone-app remote (casting does not need it)
+com.google.android.tts                 # Google text-to-speech
+com.google.android.marvin.talkback     # TalkBack
+com.google.android.backdrop            # photo screensaver, switch the screensaver first (see notes)
+com.tcl.ui_mediaCenter                 # USB media player, together with the next three
+com.tcl.audioplayer
+com.tcl.videoplayer
+com.tcl.imageplayer
+# com.google.android.apps.mediashell   # Cast receiver: kept here for casting from a phone
+
+# Already disabled when this unit arrived; left as-is.
+# au.com.stan.and                      # Stan
+# com.tcl.smartalexa                   # TCL Alexa bridge

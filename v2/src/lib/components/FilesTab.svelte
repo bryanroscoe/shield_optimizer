@@ -443,41 +443,43 @@
             <!-- Icon-only, per the board, so the verbs do not crowd out the
                  names they belong to. Each has a title and an aria-label, and
                  the legend is under the table. -->
-            <td class="row-actions">
-              {#if f.is_dir}
+            <td class="actions-cell">
+              <div class="row-actions">
+                {#if f.is_dir}
+                  <button
+                    class="file-tool"
+                    onclick={() => loadFiles(`${filesPath}/${f.name}`)}
+                    title="Open {f.name}"
+                    data-tip="Open folder"
+                    aria-label={`Open the folder ${f.name}`}
+                  ><Icon name="chevron_right" size={16} /></button>
+                {:else if !f.is_symlink}
+                  <button
+                    class="file-tool"
+                    onclick={() => downloadFile(f.name)}
+                    disabled={filesBusy !== null}
+                    title="Save this file to a folder on this computer"
+                    data-tip="Download"
+                    aria-label={`Download ${f.name}`}
+                  ><Icon name="download" size={16} /></button>
+                  <button
+                    class="file-tool"
+                    onclick={() => startFileCopy(f.name)}
+                    disabled={filesBusy !== null}
+                    title="Copy this file to another connected device"
+                    data-tip="Copy to device"
+                    aria-label={`Copy ${f.name} to another device`}
+                  ><Icon name="swap_horiz" size={16} /></button>
+                {/if}
                 <button
-                  class="file-tool"
-                  onclick={() => loadFiles(`${filesPath}/${f.name}`)}
-                  title="Open {f.name}"
-                  data-tip="Open folder"
-                  aria-label={`Open the folder ${f.name}`}
-                ><Icon name="chevron_right" size={16} /></button>
-              {:else if !f.is_symlink}
-                <button
-                  class="file-tool"
-                  onclick={() => downloadFile(f.name)}
+                  class="file-tool danger"
+                  onclick={() => deleteEntry(f)}
                   disabled={filesBusy !== null}
-                  title="Save this file to a folder on this computer"
-                  data-tip="Download"
-                  aria-label={`Download ${f.name}`}
-                ><Icon name="download" size={16} /></button>
-                <button
-                  class="file-tool"
-                  onclick={() => startFileCopy(f.name)}
-                  disabled={filesBusy !== null}
-                  title="Copy this file to another connected device"
-                  data-tip="Copy to device"
-                  aria-label={`Copy ${f.name} to another device`}
-                ><Icon name="swap_horiz" size={16} /></button>
-              {/if}
-              <button
-                class="file-tool danger"
-                onclick={() => deleteEntry(f)}
-                disabled={filesBusy !== null}
-                title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
-                  data-tip="Delete from TV" data-tip-align="end"
-                aria-label={`Delete ${f.name} from the device`}
-              ><Icon name="delete" size={16} /></button>
+                  title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
+                    data-tip="Delete from TV" data-tip-align="end"
+                  aria-label={`Delete ${f.name} from the device`}
+                ><Icon name="delete" size={16} /></button>
+              </div>
             </td>
           </tr>
         {/each}
@@ -737,7 +739,7 @@
     border-bottom: 1px solid var(--border);
   }
   .files-table .num { text-align: right; white-space: nowrap; }
-  .files-table .row-actions { text-align: right; white-space: nowrap; }
+  .files-table .actions-cell { text-align: right; white-space: nowrap; }
   /* Icon + name share a baseline row; the icon is the file-type cue so it
      takes the muted colour until the row is hovered. */
   .dir-link,
@@ -745,6 +747,8 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
   .dir-link {
     background: none;

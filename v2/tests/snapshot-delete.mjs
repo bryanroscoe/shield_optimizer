@@ -140,6 +140,90 @@ try {
   await context.close();
   if (videoPath) await rename(videoPath, resolve(evidence, "snapshot-deletion-simulated.webm"));
   console.log("PASS: device/global Delete controls; labeled confirmation; cancel; file errors; pending-operation guards; selected preview cleanup; empty/refresh state; only local delete calls and zero TV mutations.");
+
+  // Restore preview and result for a plan that skips a disabled snapshot
+  // launcher and keeps stock on as the only Home app (core 341f117).
+  const restoreContext = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const restorePage = await restoreContext.newPage();
+  restorePage.setDefaultTimeout(10000);
+  const restoreErrors = [];
+  restorePage.on("pageerror", error => restoreErrors.push(error.message));
+  await restorePage.goto(base, { waitUntil: "networkidle" });
+  await restorePage.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__RESTORE_TEST__ = { applies: 0, plan: null };
+    window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (command === "preview_apply") {
+        const plan = {
+          ...(await original(command, args)),
+          launcher_to_set: null,
+          current_launcher: "com.google.android.tvlauncher",
+          launcher_disabled: "com.spocky.projengmenu",
+          packages_kept: [{ package: "com.google.android.tvlauncher", reason: "only Home app" }],
+        };
+        window.__RESTORE_TEST__.plan = plan;
+        return plan;
+      }
+      if (command === "apply_snapshot") {
+        window.__RESTORE_TEST__.applies++;
+        return {
+          packages_disabled: ["com.google.android.feedback"],
+          packages_failed: ["com.google.android.tvlauncher (kept: only Home app)", "com.android.printspooler (exit 1)"],
+          launcher_set: false,
+          launcher_message: "com.spocky.projengmenu is disabled; enable it first, then restore",
+          settings_written: [],
+          settings_deleted: [],
+          settings_failed: [],
+          summary: "Disabled 1 packages (2 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
+        };
+      }
+      return original(command, args);
+    };
+  });
+  const acceptNextConfirm = () => restorePage.once("dialog", dialog => dialog.accept());
+
+  await restorePage.getByText("NVIDIA SHIELD", { exact: false }).first().click();
+  await restorePage.locator("#tab-snapshot").click();
+  await restorePage.locator(".snap-list li").first().getByRole("button", { name: "Preview restore", exact: true }).click();
+  await restorePage.getByRole("button", { name: "Restore this snapshot", exact: true }).waitFor();
+  const deviceLauncherRow = restorePage.locator('.plan-table [data-plan-item="launcher"]');
+  assert.equal(await deviceLauncherRow.count(), 1);
+  assert.match(await deviceLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; enable it first, then restore/);
+  assert.doesNotMatch(await deviceLauncherRow.innerText(), /no change/, "a skipped launcher is never shown as unchanged Home");
+  const deviceKeptRow = restorePage.locator('.plan-table [data-plan-item="kept"]');
+  assert.equal(await deviceKeptRow.count(), 1);
+  assert.match(await deviceKeptRow.innerText(), /com\.google\.android\.tvlauncher\s+ENABLED\s+→ kept on: only Home app/);
+  const plan = await restorePage.evaluate(() => window.__RESTORE_TEST__.plan);
+  const unchangedCount = plan.packages_already_disabled.length + plan.packages_not_installed.length
+    + plan.settings_already_set.length + plan.packages_kept.length + 1;
+  assert.match(await restorePage.locator(".plan-totals .foot-card").filter({ hasText: "Unchanged" }).innerText(), new RegExp(`Unchanged\\s+${unchangedCount} items`, "i"));
+  acceptNextConfirm();
+  await restorePage.getByRole("button", { name: "Restore this snapshot", exact: true }).click();
+  const deviceResult = restorePage.locator(".apply-result");
+  await deviceResult.getByText("Kept on: com.google.android.tvlauncher (only Home app)", { exact: true }).waitFor();
+  await deviceResult.getByText("failed: com.android.printspooler (exit 1)", { exact: false }).waitFor();
+  assert.doesNotMatch(await deviceResult.innerText(), /2 failed:|failed:.*kept: only Home app/, "kept packages are not listed as failures");
+  assert.doesNotMatch(await deviceResult.innerText(), /re-enabled/i);
+
+  await restorePage.getByRole("link", { name: "Snapshots", exact: true }).click();
+  await restorePage.getByRole("combobox", { name: /Restore .* to a device/ }).first().selectOption({ label: "Preview restore → NVIDIA SHIELD Android TV" });
+  await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).waitFor();
+  const globalLauncherRow = restorePage.locator('.plan-table [data-plan-item="launcher"]');
+  assert.equal(await globalLauncherRow.count(), 1);
+  assert.match(await globalLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; enable it first, then restore/);
+  assert.equal(await restorePage.locator(".plan-table").getByText("Already Home", { exact: true }).count(), 0);
+  assert.match(await restorePage.locator('.plan-table [data-plan-item="kept"]').innerText(), /com\.google\.android\.tvlauncher\s+enabled\s+Kept on: only Home app/);
+  assert.match(await restorePage.locator(".plan-summary").innerText(), /1 kept on for Home/);
+  acceptNextConfirm();
+  await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).click();
+  const globalResult = restorePage.locator(".apply-result");
+  await globalResult.getByText("Home app: com.spocky.projengmenu is disabled; enable it first, then restore", { exact: true }).waitFor();
+  await globalResult.getByText("Kept on: com.google.android.tvlauncher (only Home app)", { exact: true }).waitFor();
+  await globalResult.getByText("1 failed: com.android.printspooler (exit 1)", { exact: true }).waitFor();
+  assert.equal(await restorePage.evaluate(() => window.__RESTORE_TEST__.applies), 2);
+  assert.deepEqual(restoreErrors, []);
+  await restoreContext.close();
+  console.log("PASS: restore preview names a disabled snapshot launcher and kept Home apps on both screens; results list kept packages apart from failures.");
 } finally {
   await browser?.close();
   await server?.close();

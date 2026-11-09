@@ -1,0 +1,167 @@
+# Amazon Fire TV Stick 4K, 1st gen 2018 (AFTMM, codename mantis), Fire OS 6.7.1.1 (NS6711/5908), Android 7.1.2 (SDK 25)
+# Also a fair start for other Fire OS 6 sticks and boxes (Fire TV Stick 4K / Cube 1st gen). Fire OS 7 sets differ:
+# see insignia-ns55f301na25/ and toshiba-fire-tv-aftha004/.
+#
+# FIRE OS: DEBLOAT ONLY. com.amazon.tv.launcher is a protected package and keeps Home; launcher/ does not apply.
+# A custom home is still possible on top of the stock one: the community route is "Launcher Manager Mini" (XDA,
+# SweenWolf), which watches the Home press in the system log and brings a sideloaded launcher such as Projectivy to the
+# front. Both are third-party sideloads, and Amazon has broken earlier versions with OTA updates, so it is not part of
+# this list.
+#
+# Apply:   TV_HOST=<stick ip> tools/disable.sh examples/amazon-fire-tv-stick-4k-2018/debloat.txt
+# Undo:    TV_HOST=<stick ip> tools/restore.sh examples/amazon-fire-tv-stick-4k-2018/debloat.txt com.amazon.tv.launcher
+# (restore.sh re-enables every package the record holds as on, the stock launcher included, since it is what owned
+# Home. On Fire OS it was never off, and Fire OS refuses the attempt with a `Cannot disable a protected package`
+# stack trace once per run (reported on Fire OS 8), which the batch carries on past:
+# docs/TROUBLESHOOTING.md, 'Fire TV (Fire OS)'.)
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+# ADB on Fire OS 6: Settings > My Fire TV > Developer options > ADB debugging. If Developer options is hidden,
+# Settings > My Fire TV > About > highlight the first entry and press select 7 times. Port 5555, no pairing.
+#
+# Lived with since 2026-10-18 on one stick (the group dated 2026-10-19 for one day less). Nothing had to be re-enabled.
+# Protected by Fire OS 6 (pm disable-user is refused without root), so commented out below: com.amazon.client.metrics,
+# com.amazon.device.metrics, com.amazon.minerva.client.api, com.amazon.device.logmanager, com.amazon.device.crashmanager,
+# com.amazon.diode, com.fireos.usagestats.proxy, com.amazon.ftvads.deeplinking, com.amazon.tv.csapp, com.amazon.tv.oobe.
+# No com.amazon.tv.acr on a stick (ACR is a TV-set thing).
+#
+# Second unit, same model and build (AFTMM, NS6711/5908), Europe, 2026-10-22: the list above applied cleanly.
+# Three more packages are protected on this build: com.amazon.tcomm, com.amazon.securitysyncclient and
+# com.amazon.whisperlink.core.android ("Cannot disable a protected package"). With com.amazon.vizzini disabled, Fire OS
+# re-enables it at every boot (all other disabled packages stay off), so dropping voice search means re-running
+# disable.sh after each reboot. Disabling the casting group at the end closed ports 8009, 55442 and 60000 on the LAN.
+# With Fire OS parental controls on ("PIN protect app launches"), any start of another app over Amazon's home,
+# including a Home-watcher launcher from SHOWCASE.md, opens the Prime Video PIN prompt every time.
+# After 10 days two disabled third-party apps (Disney+, RaiPlay) were enabled again, both updated meanwhile, most likely
+# by Appstore auto-update; the Amazon packages all stayed off. Check `pm list packages -d` now and then.
+#
+# Kept on purpose: com.amazon.tv.launcher, com.amazon.tv.settings.*, com.amazon.venezia (Appstore),
+# com.amazon.tigris (Appstore UI), OTA updates, remote/Bluetooth services, com.amazon.tv.ime (keyboard),
+# com.amazon.vizzini (Alexa voice search for the remote mic) with com.amazon.aria/cardinal (its screens),
+# Prime Video (com.amazon.firebat, com.amazon.tv.support), display mirroring and DIAL casting
+# (com.amazon.cast.sink, dialservice, ssdpservice, whisperlink/whisperplay, awvflingreceiver),
+# screensaver, profile picker, accessibility (com.amazon.logan) and TTS. The streaming apps this owner uses
+# (Netflix, Prime Video, Disney+, Apple TV, DirecTV, Crunchyroll, YouTube) are not listed; the rest are, by choice.
+#
+# What the list cannot remove: the "Sponsored" hero banner and sponsored app row are fetched by the launcher itself
+# from amazon-adsystem.com. Private DNS needs Android 9, so on Fire OS 6 set an ad-blocking DNS (AdGuard 94.140.14.14 /
+# 94.140.15.15) through a static IP in the Wi-Fi advanced settings, or block *.amazon-adsystem.com on the router.
+# Also turn off Settings > Preferences > Featured Content autoplay and the three Privacy Settings toggles.
+# Gotchas: a reboot resets the favourites bar to Amazon's defaults; OTA updates may re-enable packages, re-run
+# disable.sh afterwards; Netflix is DRM-black in screenshots.
+
+# Amazon telemetry, metrics, logs, crash and usage reporting
+# com.amazon.client.metrics                 # protected by Fire OS, cannot be disabled without root
+com.amazon.client.metrics.api
+# com.amazon.device.metrics                 # protected by Fire OS
+com.amazon.metrics.api
+# com.amazon.minerva.client.api            # protected by Fire OS
+com.amazon.tv.fw.metrics
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+# com.amazon.device.logmanager              # protected by Fire OS
+# com.amazon.device.crashmanager            # protected by Fire OS
+com.amazon.dp.logger
+# com.amazon.diode                        # on-device analysis / diagnostics uploader (protected by Fire OS)
+com.amazon.ceviche                      # data collection pipelines
+com.amazon.tv.developer.dataservice     # "Alberto": content personalization data for third-party apps
+# com.fireos.usagestats.proxy             # reports app usage to Amazon (protected by Fire OS)
+com.amazon.wifilocker                   # uploads Wi-Fi passwords to Amazon
+
+# Ads, sponsored rows, recommendations, promos
+com.amazon.kso.blackbird                # launcher ad sync / bidding (sponsored banner and rows)
+com.amazon.sneakpeek                    # sponsored "Sneak Peek" previews
+# com.amazon.ftvads.deeplinking           # ad deep links (protected by Fire OS)
+com.amazon.hybridadidservice            # advertising ID service
+com.amazon.hedwig                       # Fire TV Channels (free ad-supported channels row and Live input)
+com.amazon.tv.easyupgrade               # "upgrade your Fire TV" promos
+com.amazon.device.sale.service          # sale / deal campaign service
+com.amazon.shoptv.client                # Amazon Shopping on TV
+com.amazon.shoptv.firetv.client
+com.amazon.tv.livetv                    # Live tab and guide
+com.amazon.franktvinput                 # live TV input feeding the Live tab
+com.amazon.livedeviceservice
+com.amazon.gamehub                      # games hub / Luna cards
+com.amazon.imdb.tv.android.app          # Freevee stub
+com.amazon.minitv.android.app           # miniTV stub
+
+# Preloaded Amazon apps and services not used
+com.amazon.tahoe                        # Amazon Kids (FreeTime)
+com.amazon.bueller.music                # Amazon Music
+com.amazon.bueller.photos               # Amazon Photos
+com.amazon.cloud9                       # Silk browser
+com.amazon.tv.website_launcher          # opens websites in Silk
+com.imdb.livingroom.firetv              # IMDb app
+com.amazon.tmm.tutorial                 # remote tutorial
+com.amazon.storm.lightning.tutorial     # remote app tutorial
+com.amazon.whad                         # whole-home audio (multi-room music)
+com.amazon.whasettings
+com.amazon.wha.mediabrowserservice
+com.amazon.whisperjoin.middleware.np    # frustration-free setup of other Amazon devices
+com.amazon.whisperjoin.wss.wifiprovisioner
+com.amazon.tv.ffsprovisioneeclient
+com.amazon.ods.kindleconnect            # "show on Fire TV" from Echo / Fire tablet (Tarazed)
+
+# Alexa extras (voice search itself stays on)
+com.amazon.tv.alexaalerts               # alarms, timers, reminders
+com.amazon.tv.alexanotifications
+com.amazon.alexa.externalmediaplayer.fireos   # Alexa music playback
+com.amazon.alexamediaplayer.runtime.ftv
+com.amazon.aiondec                      # Alexa skill connections
+
+# Streaming apps not used (kept: Netflix, Prime Video, Disney+, Apple TV, DirecTV, Crunchyroll, YouTube)
+com.adultswim.firetv
+com.cbs.ott                             # Paramount+
+com.espn.gtv
+com.fox.fts.android                     # FOX
+com.foxsports.videogo
+com.fubo.firetv.screen
+com.hbo.hbonow                          # Max
+com.hulu.plus
+com.nbcuni.telemundostation.houston.firetv
+com.amazon.webapps.nbc.telemundo
+com.peacock.peacockfiretv
+com.tubitv.ott
+com.univision.android
+tv.pluto.android
+com.amazon.rialto.cordova.webapp.webapp855cc15add08457a8a1fe62312eab585   # Fox News web app
+
+# Added 2026-10-19 from the Insignia and Toshiba Fire OS 7 lists in this repo
+# com.amazon.tv.csapp                   # customer service / help app (protected by Fire OS, cannot be disabled)
+com.amazon.privacypassservice           # privacy pass token service
+com.amazon.providers.contentsupport     # content support provider
+com.amazon.systemnotices                # system notices
+com.amazon.tv.releasenotes              # "what's new" release notes
+com.amazon.uxnotification               # UX notification popups
+# com.amazon.tv.oobe                    # out-of-box setup wizard (protected by Fire OS, cannot be disabled). If it ever is disabled it must be re-enabled before a factory reset
+
+# Second unit, disabled since 2026-10-22, 10 days on a signage stick running one player app all day (rebooted on day one, then up
+# for all 10 days, little remote use): nothing broke. It also had voice search, Prime Video and casting off, so the groups below stay
+# commented out as options: the combination with those kept on was not tried.
+# Alexa and Prime Video leftovers, for an owner who also drops voice search and Prime Video (see the header)
+# com.amazon.vizzini                    # Alexa voice search; Fire OS re-enables it at every boot
+# com.amazon.vizzini.ftvcds
+# com.amazon.aria                       # voice search screens
+# com.amazon.cardinal                   # voice search screens
+# com.amazon.alexa.datastore.app
+# com.amazon.aca                        # Alexa hints/cues
+# com.amazon.audiohome                  # Alexa Home Theater
+# com.amazon.spotify.mediabrowserservice  # Spotify for Alexa (the Spotify app is separate)
+# com.amazon.firebat                    # Prime Video
+# com.amazon.tv.support                 # Prime Video helper
+# com.amazon.whisperplay.service.install  # remote app install from the phone app (part of the whisperplay casting stack)
+# Firmware update push: Amazon no longer ships updates for this stick, the OTA packages themselves stay protected
+# com.amazon.tv.forcedotaupdater.v2
+# Casting and mirroring (no Miracast, no DIAL/Fling from phones afterwards)
+# com.amazon.cast.sink                  # Miracast receiver
+# com.amazon.awvflingreceiver
+# com.amazon.dialservice
+# com.amazon.ssdpservice
+# com.amazon.whisperplay.contracts
+
+# Added 2026-11-01 from the second unit, also disabled in other Fire OS lists here. Their role is not documented;
+# nothing visible changed in 10 days, but see the note above on what that stick had off.
+com.amazon.recess
+com.amazon.naatyam
+com.amazon.neodelegate
+com.amazon.csm.htmlruntime              # HTML runtime for Amazon promos
+com.android.printspooler                # no printing on a TV
