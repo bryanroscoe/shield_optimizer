@@ -932,8 +932,10 @@ mod tests {
         let bundle = load_embedded_app_lists().expect("parse");
         for (list, entries) in named_lists(&bundle) {
             for e in entries {
-                if matches!(e.risk, RiskTier::Safe | RiskTier::Medium | RiskTier::Advanced)
-                    && !e.default_optimize
+                if matches!(
+                    e.risk,
+                    RiskTier::Safe | RiskTier::Medium | RiskTier::Advanced
+                ) && !e.default_optimize
                     && !PREINSTALLED_NOT_REVIEW.contains(&e.package.as_str())
                 {
                     assert!(
