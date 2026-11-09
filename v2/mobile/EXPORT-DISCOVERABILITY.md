@@ -93,16 +93,22 @@ One explicitly selected file, both actions, no export centre:
   the app already resolved.
 - **Save a copy.** `ACTION_CREATE_DOCUMENT` with the file's MIME type and suggested name; the
   ContentResolver copy runs off the main thread and only then resolves `saved` with the provider's
-  `DISPLAY_NAME`. A dismissed picker resolves `canceled`. A failed write deletes the half-written
-  document and reports the error. The original is never touched. The request gives up after
-  15 minutes if Android never answers (e.g. the activity was destroyed), and says to check the
-  chosen folder; the next Save a copy rejects that stale request on the Kotlin side. Share's
-  staging copy has no timeout, so it never overlaps another export.
-- **Share.** The file is copied to `<cache>/exports/share-<n>/<name>` (512 MiB cap; larger files
-  are told to use Save a copy), and `ACTION_SEND` goes through `Intent.createChooser` with
-  `EXTRA_STREAM`, `ClipData` and `FLAG_GRANT_READ_URI_PERMISSION`. `FileProvider.getUriForFile`
-  refuses anything outside the mapped folder. Staged copies older than an hour are removed at the
-  next share and at app start. The UI says only that the sheet opened.
+  `DISPLAY_NAME`. A dismissed picker resolves `canceled`. A failed write attempts to delete the
+  half-written document; if deletion fails or is refused, the error warns that a partial document
+  may remain. The original is never touched. After 15 minutes the caller reports an unknown result,
+  not cancellation. The worker retains the export gate until Android returns a terminal result,
+  including provider copy/cleanup, and Kotlin never replaces a pending save. A lost callback keeps
+  exports blocked for this process rather than risking overlapping writes. Check the chosen folder
+  before retrying after a restart; restart cannot guarantee a provider canceled its work.
+- **Share.** The file is copied to `<cache>/exports/share-<n>/<name>` (512 MiB **per-file** cap, not
+  an aggregate cache budget; larger files are told to use Save a copy), and `ACTION_SEND` goes
+  through `Intent.createChooser` with `EXTRA_STREAM`, `ClipData` and
+  `FLAG_GRANT_READ_URI_PERMISSION`. `FileProvider.getUriForFile` refuses anything outside the
+  mapped folder. Staged copies older than an hour are eligible for removal at the next share or
+  app start. This is lazy cleanup, not a hard expiry or a revocation of a receiver's own copy.
+  Staging and native dispatch retain the same gate even if the caller is canceled or its 30-second
+  wait expires. A timeout reports unknown because delayed UI can still open; retry stays blocked
+  until Android answers. Success claims only that the sheet opened, not delivery to a receiver.
 - **Names.** Screenshots leave as `tv-screenshot-<YYYY-MM-DD_HH-MM-SS>.png`, without the TV's
   serial/address. Pulled files keep their TV file name.
 - **Privacy.** Nothing leaves the phone except through the system UI the user completes. Export
@@ -134,12 +140,18 @@ The other direction, for the documents the user picks and only for the selected 
   which names already exist (`[ -d ]` / `[ -e ]` per target); a file conflict opens Replace / Don't
   upload, and a same-named folder is never replaced (that file is skipped and said). Then
   `upload_imported` sends one file at a time ("Uploading 2 of 3: name…"): it re-checks the target,
-  refuses to replace without the user's yes, and pushes through `WirelessAdb`'s push under a
-  hidden name (`.<name>.atvopt-part` in the same folder). It reads that copy's size back with
-  `stat -c %s` and only then moves it over the target (`mv -f`), so an interrupted, short or
-  unplaceable upload is removed and never replaces or poses as the user's file; an unreadable size
-  is "size not confirmed by the TV". The push has the transport's 15-minute deadline, which a
-  2 GiB file on slow Wi-Fi can exceed. Targets go through the same `/sdcard` bound as delete. Two
+  uses one dedicated hardware-verified connection for all phases, and reserves a fresh random
+  `.atvopt-upload-<uuid>` directory using exclusive `mkdir`. Only its `payload` is pushed and
+  cleanup never removes the final target. The staged size is checked with `stat -c %s`; an
+  unreadable size is "size not confirmed by the TV". New destinations use exclusive-create
+  copying, with a regular-file check on the opened descriptor. This requires the audited mksh
+  R59/R59b/R59c family; older or unknown shells refuse new-file uploads rather than risking
+  replacement. An interrupted final copy can leave a new partial destination, and a lost commit
+  acknowledgement explicitly reports uncertainty. User-approved replacements use `mv -fT`, so
+  a directory appearing at commit is refused rather than receiving a hidden file. Temporary-copy
+  cleanup is best effort and any unconfirmed residue is disclosed. The whole transaction has the
+  transport's 15-minute deadline, which a 2 GiB file on slow Wi-Fi can exceed. No step reconnects
+  by address after a failure. Targets use the same `/sdcard` bound as delete. Two
   picked files with one name (compared without case) get ` (2)`, ` (3)` suffixes. Uploaded files
   are listed for the session with their TV path, and the folder can't be left or deleted from
   while an upload runs.

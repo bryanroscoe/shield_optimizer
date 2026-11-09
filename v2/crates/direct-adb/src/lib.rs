@@ -42,6 +42,7 @@ mod bound_service;
 mod bounded_shell;
 mod limited_writer;
 mod streamed_install;
+mod upload;
 
 #[cfg(test)]
 mod connection_tests;
@@ -1112,6 +1113,18 @@ impl AdbDriver for WirelessAdb {
                 operation: "raw_transfer",
             }),
         }
+    }
+
+    async fn upload_file(
+        &self,
+        serial: &str,
+        local: &Path,
+        target: &str,
+        expected_size: u64,
+        overwrite: bool,
+    ) -> AdbResult<atv_optimizer_core::adb::upload::UploadResult> {
+        self.upload_file_impl(serial, local, target, expected_size, overwrite)
+            .await
     }
 
     async fn shell_bounded(
