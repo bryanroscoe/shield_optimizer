@@ -294,6 +294,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         apps::open_play_store,
         apps::package_states,
         apps::list_other_packages,
+        apps::user_installed_packages,
         apps::list_installed_packages,
         apps::app_memory_map,
         apps::app_storage_map,

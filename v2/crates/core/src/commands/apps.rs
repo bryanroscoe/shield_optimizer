@@ -143,6 +143,35 @@ pub async fn package_states_impl(
     Ok(out)
 }
 
+/// `user_installed_packages` — what this TV's user installed
+/// (`pm list packages -3 --user 0`). The App List suggests Uninstall only for
+/// an ordinary store app in this list; anything else, and every app when this
+/// read fails or comes back empty, gets Disable.
+#[tauri::command]
+pub async fn user_installed_packages(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<String>, String> {
+    user_installed_packages_impl(state.inner(), &serial).await
+}
+
+pub async fn user_installed_packages_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<String>, String> {
+    let adb = state.adb_snapshot().await;
+    let out = adb
+        .shell(
+            serial,
+            &checked_batch_command(&[super::LIST_THIRD_PARTY_PACKAGES]),
+        )
+        .await
+        .map_err(|e| format!("pm list packages -3: {e}"))?;
+    let sections = parse_checked_batch(&out.stdout, 1, &[0])
+        .map_err(|e| format!("pm list packages -3: {e}"))?;
+    Ok(parse_installed_packages_output(&sections[0]))
+}
+
 #[derive(Serialize)]
 pub struct OtherPackage {
     pub package: String,
@@ -993,6 +1022,32 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn user_installed_packages_reads_third_party_for_user_zero_or_fails() {
+        use crate::adb::batch::BATCH_STATUS;
+        use crate::commands::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default().on_shell(
+            "pm list packages -3",
+            &format!("package:com.netflix.ninja\npackage:com.example.sideload\n{BATCH_STATUS}0\n"),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        assert_eq!(
+            user_installed_packages_impl(&state, "serial")
+                .await
+                .unwrap(),
+            ["com.netflix.ninja", "com.example.sideload"]
+        );
+        assert!(log.lock().unwrap()[0].contains("(pm list packages -3 --user 0)"));
+        // A failed or cut-off read is an error, never "nothing user-installed".
+        for output in [format!("{BATCH_STATUS}1\n"), "package:com.a\n".to_string()] {
+            let state = state_with(MockAdb::default().on_shell("pm list packages -3", &output));
+            assert!(user_installed_packages_impl(&state, "serial")
+                .await
+                .is_err());
+        }
+    }
 
     /// The catalog lookup is wiring, not engine: an engine-level test passes
     /// even if `safety_info` ignores the app lists, so this one goes through

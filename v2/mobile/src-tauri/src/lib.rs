@@ -335,6 +335,7 @@ pub fn run() {
             screenshot::take_screenshot,
             apps::package_states,
             apps::list_other_packages,
+            apps::user_installed_packages,
             apps::list_installed_packages,
             apps::app_memory_map,
             apps::app_storage_map,

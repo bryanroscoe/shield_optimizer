@@ -50,6 +50,7 @@
   import {
     canOfferStoreUninstall,
     canOfferUninstall,
+    installSource,
     isReinstallable,
     recommendation,
     sideloadSource,
@@ -58,6 +59,7 @@
     type Recommendation,
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
+  import RemovalHelp from "$lib/components/RemovalHelp.svelte";
   import BreakableId from "$lib/components/BreakableId.svelte";
   import {
     idleMeasurements,
@@ -266,6 +268,9 @@
   let appsErr = $state<string | null>(null);
   /// Missing or invalid entries stay absent: absence means inventory unavailable.
   let appStates = $state<Record<string, PackageState>>({});
+  /// `pm list packages -3`. Null until read, or when the read failed: every
+  /// review row then suggests Disable.
+  let userInstalled = $state<ReadonlySet<string> | null>(null);
   /// True while appStates is being re-read after a run that changed the
   /// device. The cached states may predate the run, so nothing reports them.
   let appStatesResyncing = $state(false);
@@ -772,6 +777,7 @@
     appsLoaded = false;
     apps = [];
     appStates = {};
+    userInstalled = null;
     packageSafety = {};
     otherPackages = [];
     othersLoaded = false;
@@ -798,12 +804,14 @@
         ...packageSafety,
         ...Object.fromEntries(packages.map((pkg) => [pkg, { status: "checking" }])),
       };
-      const [stateResult, safetyResults] = await Promise.all([
+      const [stateResult, safetyResults, thirdParty] = await Promise.all([
         api.packageStates(context.serial, packages),
         Promise.allSettled(packages.map((pkg) => api.safetyInfo(pkg))),
+        api.userInstalledPackages(context.serial).catch(() => null),
       ]);
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
       appStates = validatedPackageStates(packages, stateResult);
+      userInstalled = thirdParty ? new Set(thirdParty) : null;
       statesUnreadAfterRun = false;
       keptPackages = getKeptPackages(hardwareId);
       catalogInventoryVersion++;
@@ -1296,7 +1304,7 @@
     if (entry) {
       return {
         kind: "recommendation",
-        rec: recommendation(entry, appStates[pkg] ?? null, packageSafety[pkg]),
+        rec: recommendation(entry, appStates[pkg] ?? null, packageSafety[pkg], installSource(pkg, userInstalled)),
       };
     }
     return { kind: "verdict", status: memorySafety[m.process] };
@@ -3198,6 +3206,7 @@
           <input type="checkbox" bind:checked={showSystemOthers} />
           Show system packages
         </label>
+        <RemovalHelp />
       </div>
       {#if appsErr}
         <div class="error">{appsErr}</div>
@@ -3255,7 +3264,7 @@
             {#each visibleApps as a (a.package)}
               {@const state = appStates[a.package] ?? null}
               {@const safety = packageSafety[a.package]}
-              {@const rec = recommendation(a, state, safety)}
+              {@const rec = recommendation(a, state, safety, installSource(a.package, userInstalled))}
               {@const kept = keptPackages.has(a.package) && rec.kind !== "restore"}
               {@const canRemove = (state === "enabled" || state === "disabled") && safety?.status === "ready" && !isBlocked(safety.verdict)}
               <AppRow
@@ -3565,7 +3574,7 @@
       </div>
       <HelpDetails label="Snapshot contents">
         <p class="muted small snap-explainer">
-          A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
+          A snapshot records which apps are disabled, which known apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds turned on; it never uninstalls.
         </p>
       </HelpDetails>
       <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
@@ -3668,7 +3677,11 @@
             </thead>
             <tbody>
               {#each preview.packages_to_disable as pkg (pkg)}
-                <tr><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
+                {#if preview.packages_absent_in_snapshot?.includes(pkg)}
+                  <tr data-plan-item="absent"><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED (not installed in snapshot)</td></tr>
+                {:else}
+                  <tr><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
+                {/if}
               {/each}
               {#if preview.launcher_to_set}
                 <tr data-plan-item="launcher">

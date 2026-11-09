@@ -284,9 +284,10 @@
       <span class="locked-icon msr">photo_camera_back</span>
       <h2>Snapshots are a Pro feature</h2>
       <p class="locked-desc">
-        A snapshot records which apps are disabled, your Home app and a set of display, audio,
-        HDMI-CEC and screensaver settings. Restoring it disables those apps again and puts the
-        settings back. It never re-enables anything or reinstalls apps.
+        A snapshot records which apps are disabled, which known apps weren't installed, your Home
+        app and a set of display, audio, HDMI-CEC and screensaver settings. Restoring it disables
+        those apps if they're on and puts the settings back. It never re-enables anything, and it
+        never uninstalls or reinstalls apps.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro

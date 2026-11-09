@@ -5,7 +5,7 @@
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
   import { safetyLabel, safetyReason, type SafetyStatus } from "../lib/safety";
-  import type { PackageState } from "../lib/recommendation";
+  import { installSource, type PackageState } from "../lib/recommendation";
   import {
     memorySuggestion,
     safetyQuery,
@@ -182,7 +182,8 @@
         const list = await api.listInstalledPackages(serial);
         const packages = new Map<string, PackageState>();
         for (const p of list) packages.set(p.package, p.enabled ? "enabled" : "disabled");
-        next = { status: "ready", packages };
+        const user = list.filter((p) => !p.system).map((p) => p.package);
+        next = { status: "ready", packages, userInstalled: user.length > 0 ? new Set(user) : null };
         if (current()) installedRows = new Map(list.map((p) => [p.package, p]));
       } catch {
         // No installed list means nothing is confirmed as an app.
@@ -553,6 +554,9 @@
 
   <AppSheetHost
     app={sheetApp}
+    installSource={sheetApp && installed.status === "ready"
+      ? installSource(sheetApp.package, installed.userInstalled ?? null)
+      : "unknown"}
     {navigate}
     onClose={() => (sheetApp = null)}
     onChanged={afterSheetChange}

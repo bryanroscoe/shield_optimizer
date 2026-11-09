@@ -60,6 +60,7 @@ pub fn allowed(command: &str) -> bool {
             | "open_play_store"
             | "package_states"
             | "list_other_packages"
+            | "user_installed_packages"
             | "list_installed_packages"
             | "app_memory_map"
             | "app_storage_map"

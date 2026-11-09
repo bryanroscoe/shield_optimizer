@@ -12,7 +12,8 @@ use std::collections::{HashMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::types::{
-    ActionMethod, AppEntry, OptimizeAction, OptimizeMode, OptimizePlanItem, SkipReason,
+    ActionMethod, AppEntry, InstallSource, OptimizeAction, OptimizeMode, OptimizePlanItem,
+    SkipReason,
 };
 
 /// What the host knows about the device right now — fed into `compute_plan`.
@@ -22,6 +23,9 @@ pub struct OptimizeInputs<'a> {
     pub disabled_packages: &'a HashSet<String>,
     /// Package → MB currently in use. Missing key = not running.
     pub memory_map: &'a HashMap<String, f64>,
+    /// `pm list packages -3`: what this TV's user installed. `None` when that
+    /// read failed, which makes every source `Unknown`.
+    pub user_installed_packages: Option<&'a HashSet<String>>,
 }
 
 /// Output of `compute_plan`. One item per app entry in input order.
@@ -38,7 +42,10 @@ pub struct OptimizePlan {
 /// - Already disabled and method is disable → `Skip(AlreadyDisabled)`
 /// - Not installed (and method is uninstall) → `Skip(NotInstalled)` (covers the
 ///   "already uninstalled" branch since they're both absent from `pm list packages`)
-/// - Otherwise → `Disable` or `Uninstall` per entry.method.
+/// - Otherwise → `Disable` or `Uninstall`: `safe_method` for default
+///   Optimize rows, and for review rows the suggestion
+///   (`AppEntry::suggested_method`), which uninstalls only an ordinary store
+///   app the user installed.
 ///
 /// Restore mode:
 /// - Not installed → `Skip(NotInstalled)` (host can surface Play Store
@@ -53,19 +60,39 @@ pub fn compute_plan(
     let items = apps
         .iter()
         .map(|entry| {
-            let action = decide(entry, mode, inputs);
+            let install_source = install_source(&entry.package, inputs);
+            let action = decide(entry, mode, inputs, install_source);
             let memory_mb = inputs.memory_map.get(&entry.package).copied();
             OptimizePlanItem {
                 entry: entry.clone(),
                 action,
                 memory_mb,
+                install_source,
             }
         })
         .collect();
     OptimizePlan { mode, items }
 }
 
-fn decide(entry: &AppEntry, mode: OptimizeMode, inputs: &OptimizeInputs) -> OptimizeAction {
+/// How `pkg` got onto the TV. Only an installed package has a source, and
+/// only a successful third-party read can say which.
+pub fn install_source(pkg: &str, inputs: &OptimizeInputs) -> InstallSource {
+    if !inputs.installed_packages.contains(pkg) {
+        return InstallSource::Unknown;
+    }
+    match inputs.user_installed_packages {
+        Some(user) if user.contains(pkg) => InstallSource::User,
+        Some(_) => InstallSource::Preinstalled,
+        None => InstallSource::Unknown,
+    }
+}
+
+fn decide(
+    entry: &AppEntry,
+    mode: OptimizeMode,
+    inputs: &OptimizeInputs,
+    source: InstallSource,
+) -> OptimizeAction {
     let installed = inputs.installed_packages.contains(&entry.package);
     let disabled = inputs.disabled_packages.contains(&entry.package);
 
@@ -82,8 +109,15 @@ fn decide(entry: &AppEntry, mode: OptimizeMode, inputs: &OptimizeInputs) -> Opti
                 };
             }
             // Gate uninstall to reinstallable apps — never recommend removing
-            // something the user can't get back from the Play Store.
-            match entry.safe_method() {
+            // something the user can't get back from the Play Store. A review
+            // row follows the suggestion: Uninstall only for a store app the
+            // user installed.
+            let method = if entry.review && !entry.default_optimize {
+                entry.suggested_method(source)
+            } else {
+                entry.safe_method()
+            };
+            match method {
                 ActionMethod::Disable => OptimizeAction::Disable,
                 ActionMethod::Uninstall => OptimizeAction::Uninstall,
             }
@@ -149,6 +183,7 @@ mod tests {
                 installed_packages: &installed,
                 disabled_packages: &disabled,
                 memory_map: &memory,
+                user_installed_packages: None,
             },
         );
         assert_eq!(plan.items[0].action, OptimizeAction::Disable);
@@ -183,6 +218,7 @@ mod tests {
                 installed_packages: &installed,
                 disabled_packages: &disabled,
                 memory_map: &memory,
+                user_installed_packages: None,
             },
         );
         assert_eq!(
@@ -214,6 +250,7 @@ mod tests {
                 installed_packages: &installed,
                 disabled_packages: &disabled,
                 memory_map: &memory,
+                user_installed_packages: None,
             },
         );
         assert_eq!(plan.items[0].memory_mb, Some(153.4));
@@ -234,6 +271,7 @@ mod tests {
                 installed_packages: &installed,
                 disabled_packages: &disabled,
                 memory_map: &memory,
+                user_installed_packages: None,
             },
         );
         assert_eq!(plan.items[0].action, OptimizeAction::Uninstall);
@@ -252,8 +290,112 @@ mod tests {
                 installed_packages: &installed,
                 disabled_packages: &HashSet::new(),
                 memory_map: &HashMap::new(),
+                user_installed_packages: None,
             },
         );
         assert_eq!(plan.items[0].action, OptimizeAction::Disable);
+    }
+
+    fn review_store_app(pkg: &str, method: ActionMethod) -> AppEntry {
+        let mut a = app(pkg, method);
+        a.default_optimize = false;
+        a.default_restore = false;
+        a.review = true;
+        a.play_store = true;
+        a
+    }
+
+    #[test]
+    fn suggestion_uninstalls_only_an_ordinary_store_app_the_user_installed() {
+        for method in [ActionMethod::Disable, ActionMethod::Uninstall] {
+            let a = review_store_app("com.store", method);
+            assert_eq!(
+                a.suggested_method(InstallSource::User),
+                ActionMethod::Uninstall
+            );
+            for source in [InstallSource::Preinstalled, InstallSource::Unknown] {
+                assert_eq!(
+                    a.suggested_method(source),
+                    ActionMethod::Disable,
+                    "{method:?} {source:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn suggestion_disables_anything_that_is_not_an_ordinary_store_app() {
+        let mut sideload = review_store_app("com.sideload", ActionMethod::Uninstall);
+        sideload.play_store = false;
+        let mut defunct = review_store_app("com.defunct", ActionMethod::Uninstall);
+        defunct.defunct = true;
+        let mut restore = review_store_app("com.shipped", ActionMethod::Disable);
+        restore.default_restore = true;
+        let mut high = review_store_app("com.high", ActionMethod::Disable);
+        high.risk = RiskTier::High;
+        let mut advanced = review_store_app("com.advanced", ActionMethod::Disable);
+        advanced.risk = RiskTier::Advanced;
+        for a in [sideload, defunct, restore, high, advanced] {
+            assert_eq!(
+                a.suggested_method(InstallSource::User),
+                ActionMethod::Disable,
+                "{}",
+                a.package
+            );
+        }
+        let mut medium = review_store_app("com.medium", ActionMethod::Disable);
+        medium.risk = RiskTier::Medium;
+        assert_eq!(
+            medium.suggested_method(InstallSource::User),
+            ActionMethod::Uninstall
+        );
+    }
+
+    #[test]
+    fn review_rows_follow_the_install_source_and_default_rows_do_not() {
+        let mine = review_store_app("com.mine", ActionMethod::Disable);
+        let shipped = review_store_app("com.shipped", ActionMethod::Uninstall);
+        let mut defunct_default = app("com.defunct", ActionMethod::Uninstall);
+        defunct_default.defunct = true;
+        defunct_default.default_restore = false;
+        let installed = set(&["com.mine", "com.shipped", "com.defunct"]);
+        let user = set(&["com.mine", "com.defunct"]);
+        let plan = compute_plan(
+            &[mine, shipped, defunct_default],
+            OptimizeMode::Optimize,
+            &OptimizeInputs {
+                installed_packages: &installed,
+                disabled_packages: &HashSet::new(),
+                memory_map: &HashMap::new(),
+                user_installed_packages: Some(&user),
+            },
+        );
+        assert_eq!(plan.items[0].install_source, InstallSource::User);
+        assert_eq!(plan.items[0].action, OptimizeAction::Uninstall);
+        assert_eq!(plan.items[1].install_source, InstallSource::Preinstalled);
+        assert_eq!(plan.items[1].action, OptimizeAction::Disable);
+        // A default Optimize row keeps its curated, store-gated method.
+        assert_eq!(plan.items[2].action, OptimizeAction::Uninstall);
+    }
+
+    #[test]
+    fn a_missing_package_or_unread_source_is_unknown() {
+        let installed = set(&["com.a"]);
+        let user = set(&["com.a", "com.gone"]);
+        let empty = HashMap::new();
+        let disabled = HashSet::new();
+        let read = OptimizeInputs {
+            installed_packages: &installed,
+            disabled_packages: &disabled,
+            memory_map: &empty,
+            user_installed_packages: Some(&user),
+        };
+        assert_eq!(install_source("com.a", &read), InstallSource::User);
+        assert_eq!(install_source("com.gone", &read), InstallSource::Unknown);
+        let unread = OptimizeInputs {
+            user_installed_packages: None,
+            ..read
+        };
+        assert_eq!(install_source("com.a", &unread), InstallSource::Unknown);
     }
 }

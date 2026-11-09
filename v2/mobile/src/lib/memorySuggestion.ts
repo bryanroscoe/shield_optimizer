@@ -9,14 +9,20 @@
 // package shape says so instead of being called "Not an app".
 
 import type { AppEntry, MemoryEntry } from "./types";
-import { recommendation, type PackageState, type Recommendation } from "./recommendation";
+import { installSource, recommendation, type PackageState, type Recommendation } from "./recommendation";
 import { CHECKING_LABEL, safetyLabel, type SafetyStatus } from "./safety";
 
 /// Installed packages and their state, or why we don't have them.
 export type InstalledState =
   | { status: "loading" }
   | { status: "failed" }
-  | { status: "ready"; packages: Map<string, PackageState> };
+  | {
+      status: "ready";
+      packages: Map<string, PackageState>;
+      /// The third-party ones. Null or absent when none read as third-party,
+      /// which leaves every install source unknown.
+      userInstalled?: ReadonlySet<string> | null;
+    };
 
 export type CatalogState =
   | { status: "loading" }
@@ -66,7 +72,8 @@ export function memorySuggestion(
   const entry = catalog.status === "ready" ? catalog.entries.get(pkg) : undefined;
   if (entry && installed.status === "ready") {
     const state = installed.packages.get(pkg) ?? null;
-    return { kind: "recommendation", pkg, rec: recommendation(entry, state, safety) };
+    const source = installSource(pkg, installed.userInstalled ?? null);
+    return { kind: "recommendation", pkg, rec: recommendation(entry, state, safety, source) };
   }
   return { kind: "verdict", pkg, status: safety };
 }

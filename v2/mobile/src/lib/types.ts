@@ -190,10 +190,16 @@ export type OptimizeAction =
   | { kind: "enable" }
   | { kind: "skip"; reason: SkipReason };
 
+/// How an app got onto this TV, for user 0. Mirrors the engine's
+/// `InstallSource`; `unknown` claims nothing.
+export type InstallSource = "user" | "preinstalled" | "unknown";
+
 export interface OptimizePlanItem {
   entry: AppEntry;
   action: OptimizeAction;
   memory_mb?: number | null;
+  /// Absent from plans built before install sources were read.
+  install_source?: InstallSource;
 }
 
 export interface OptimizePlan {
@@ -384,6 +390,9 @@ export interface SnapshotFile {
 export interface SnapshotApplyPlan {
   cross_device_warning: string | null;
   packages_to_disable: string[];
+  /// Which of `packages_to_disable` weren't installed when the snapshot was
+  /// saved. A restore disables them; it never uninstalls.
+  packages_absent_in_snapshot?: string[];
   packages_already_disabled: string[];
   packages_not_installed: string[];
   launcher_to_set: string | null;

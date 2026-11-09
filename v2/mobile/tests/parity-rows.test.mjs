@@ -223,6 +223,44 @@ test("snapshot preview: launcher change, skipped launcher, and an unset Now", ()
   assert.equal(snap.previewRows(legacy, null).unchanged[0].now, "unset");
 });
 
+test("snapshot preview: an app the snapshot didn't have is disabled, never uninstalled", () => {
+  const { acting } = snap.previewRows(
+    plan({ packages_to_disable: ["com.a", "com.new"], packages_absent_in_snapshot: ["com.new"] }),
+    null,
+  );
+  assert.deepEqual(
+    acting.map((r) => [r.item, r.result, r.kind]),
+    [
+      ["com.a", "Disable", "disable"],
+      ["com.new", "Not installed in snapshot — will be disabled", "disable"],
+    ],
+  );
+});
+
+test("Health: a review app's suggestion follows how it got onto the TV", () => {
+  const store = entry({ play_store: true, review: true, default_optimize: false });
+  const catalog = { status: "ready", entries: new Map([["com.example.app", store]]) };
+  const read = (userInstalled) =>
+    mem.memorySuggestion(
+      row("com.example.app"),
+      { ...installedReady([["com.example.app", "enabled"]]), userInstalled },
+      catalog,
+      ready("safe"),
+    ).rec.label;
+  assert.equal(read(new Set(["com.example.app"])), "Review: uninstall if unused");
+  assert.equal(read(new Set(["com.other"])), "Review: disable if unused");
+  assert.equal(read(null), "Review: disable if unused");
+  assert.equal(read(undefined), "Review: disable if unused");
+});
+
+test("Optimize never pre-selects a review row, whatever its install source", () => {
+  const store = entry({ play_store: true, review: true, default_optimize: false });
+  for (const install_source of ["user", "preinstalled", "unknown", undefined]) {
+    const item = { entry: store, action: { kind: "uninstall" }, memory_mb: null, install_source };
+    assert.equal(rows.isPlanRecommended(item, "optimize", ready("safe")), false, String(install_source));
+  }
+});
+
 test("snapshot preview summary matches desktop's wording", () => {
   assert.equal(
     snap.previewSummary(plan({ packages_to_disable: ["a"], settings_to_write: { k: "v" }, launcher_to_set: "h" })),

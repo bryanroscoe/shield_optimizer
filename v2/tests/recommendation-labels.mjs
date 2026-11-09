@@ -17,6 +17,12 @@ const NOT_REINSTALLABLE = "com.philo.philo";
 // Installed catalog app in Top memory users whose recommendation is an
 // action (Disable), so a match is not two screens agreeing on "nothing".
 const HEALTH_APP = "com.nvidia.tegrazone3";
+// Catalog "uninstall if unused" store apps: one the demo TV shipped with, one
+// its owner installed (demo-mock's USER_INSTALLED).
+const PREINSTALLED_STORE_APP = "com.netflix.ninja";
+const USER_STORE_APP = "com.plexapp.android";
+// The demo Optimize plan carries Hulu but not Plex.
+const USER_REVIEW_IN_PLAN = "com.hulu.livingroomplus";
 
 function serverURL(server) {
   const address = server.httpServer?.address();
@@ -60,6 +66,41 @@ async function actionLabels(panel) {
       .map((el) => el.innerText.trim())
       .filter(Boolean),
   );
+}
+
+// The "?" beside the filters: reachable by keyboard and pointer, names its
+// purpose, explains the suggestion, and stays inside a narrow window.
+async function checkRemovalHelp(page, root, where) {
+  const trigger = root.getByRole("button", { name: "About Disable or uninstall", exact: true });
+  assert.equal(await trigger.count(), 1, `${where} has one Disable-or-uninstall help control`);
+  const panel = root.getByRole("region", { name: "Disable or uninstall", exact: true });
+  assert.equal(await panel.isVisible(), false, `${where}: help starts closed`);
+  // Reach it by keyboard so :focus-visible applies, as it does for a person.
+  await trigger.focus();
+  await page.keyboard.press("Shift+Tab");
+  await page.keyboard.press("Tab");
+  assert.equal(await trigger.evaluate((el) => document.activeElement === el), true, `${where}: Tab reaches the help control`);
+  const ring = await trigger.evaluate((el) => getComputedStyle(el).outlineStyle);
+  assert.notEqual(ring, "none", `${where}: the help control shows keyboard focus`);
+  await page.keyboard.press("Enter");
+  await panel.waitFor({ state: "visible" });
+  const text = await panel.innerText();
+  assert.match(text, /Uninstall is suggested for Play Store apps that were added to this TV/);
+  assert.match(text, /Disable is suggested for apps that came with the TV or were sideloaded/);
+  assert.match(text, /Snapshots record both/);
+  await page.keyboard.press("Escape");
+  await panel.waitFor({ state: "hidden" });
+  assert.equal(await trigger.evaluate((el) => document.activeElement === el), true, `${where}: Escape returns focus`);
+  const size = page.viewportSize();
+  await page.setViewportSize({ width: 720, height: 900 });
+  await trigger.scrollIntoViewIfNeeded();
+  await trigger.click();
+  await panel.waitFor({ state: "visible" });
+  const box = await panel.boundingBox();
+  assert.ok(box && box.x >= 0 && box.x + box.width <= 720, `${where}: help fits a 720px window: ${JSON.stringify(box)}`);
+  await trigger.click();
+  await panel.waitFor({ state: "hidden" });
+  await page.setViewportSize(size);
 }
 
 async function exercise({ browser, base }) {
@@ -153,12 +194,28 @@ async function exercise({ browser, base }) {
   const appRemove = appLabels.filter((l) => /\bremove\b/i.test(l));
   assert.deepEqual(appRemove, [], `App List action labels must never say Remove: ${JSON.stringify(appRemove)}`);
 
+  // Uninstall is suggested only for a store app this TV's user installed.
+  // In the demo, Netflix came with the Shield and Plex was installed from the
+  // Play Store; both are catalog "uninstall if unused" store apps.
+  const reviewRec = async (root, pkg) =>
+    root.locator("tr", { has: page.locator(".pkg-id", { hasText: new RegExp(`^${pkg.replaceAll(".", "\\.")}\\s*$`) }) })
+      .first().locator("[data-rec]").first().getAttribute("data-rec");
+  assert.equal(await reviewRec(apps, PREINSTALLED_STORE_APP), "Review: disable if unused", "a preinstalled store app suggests Disable");
+  assert.equal(await reviewRec(apps, USER_STORE_APP), "Review: uninstall if unused", "a store app the user installed suggests Uninstall");
+  await checkRemovalHelp(page, apps, "App List");
+
   // Optimize.
   await page.getByRole("tab", { name: "Optimize" }).click();
   await page.getByRole("button", { name: "Optimize", exact: true }).click();
   const opt = page.locator("#tabpanel-optimize");
   await opt.locator("table.optimize-table tbody tr").first().waitFor();
   await waitResolved(page, "#tabpanel-optimize td.verdict-cell");
+
+  const reviewPill = async (pkg) =>
+    (await opt.locator("tr", { has: page.locator(".pkg-id", { hasText: pkg }) }).first().locator(".review-pill").innerText()).trim();
+  assert.equal(await reviewPill(PREINSTALLED_STORE_APP), "Review: disable if unused", "Optimize agrees for a preinstalled store app");
+  assert.equal(await reviewPill(USER_REVIEW_IN_PLAN), "Review: uninstall if unused", "Optimize agrees for a user-installed store app");
+  await checkRemovalHelp(page, opt, "Optimize");
 
   const optLabels = await actionLabels(opt);
   const optRemove = optLabels.filter((l) => /\bremove\b/i.test(l));

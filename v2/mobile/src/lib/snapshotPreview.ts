@@ -59,8 +59,15 @@ export function previewRows(plan: SnapshotApplyPlan, snapshotLauncher: string | 
   const acting: PreviewRow[] = [];
   const unchanged: PreviewRow[] = [];
 
+  const absent = new Set(plan.packages_absent_in_snapshot ?? []);
   for (const pkg of plan.packages_to_disable) {
-    acting.push({ item: pkg, now: "enabled", result: "Disable", kind: "disable" });
+    acting.push({
+      item: pkg,
+      now: "enabled",
+      // A restore never uninstalls: an app the snapshot didn't have goes off.
+      result: absent.has(pkg) ? "Not installed in snapshot — will be disabled" : "Disable",
+      kind: "disable",
+    });
   }
   if (plan.launcher_to_set) {
     acting.push({

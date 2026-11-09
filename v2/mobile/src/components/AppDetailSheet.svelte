@@ -15,7 +15,7 @@
   import { router } from "../lib/router.svelte";
   import { formatBytes, hasStorage, measuredAt, type AppMeasurements, type ApkReportMeasurement, type MeasureStatus } from "../lib/app-details";
   import type { AppItem } from "../lib/appsList";
-  import type { AppStorage, AppUsage, Safety } from "../lib/types";
+  import type { AppStorage, AppUsage, InstallSource, Safety } from "../lib/types";
 
   let {
     app,
@@ -27,6 +27,7 @@
     onRemeasure,
     busy,
     uninstalled = false,
+    installSource = "unknown",
     canReport = false,
     onClose,
     onToggle,
@@ -49,6 +50,8 @@
     /// True once the package has been removed for the TV's current user, so
     /// the only meaningful actions left are Reinstall / Play Store.
     uninstalled?: boolean;
+    /// Whether this TV's user installed it; picks a review row's suggestion.
+    installSource?: InstallSource;
     canReport?: boolean;
     onClose: () => void;
     onToggle: (app: AppItem) => void;
@@ -245,7 +248,9 @@
         ? { status: "checking" }
         : { status: "unavailable", reason: "lookup failed" },
   );
-  const rec = $derived(app?.entry && !uninstalled ? recommendation(app.entry, app.state, safetyStatus) : null);
+  const rec = $derived(
+    app?.entry && !uninstalled ? recommendation(app.entry, app.state, safetyStatus, installSource) : null,
+  );
   const showDescription = $derived(
     !!app?.description && !(reason && reason.includes(app.description.trim())),
   );

@@ -22,7 +22,7 @@
   } from "../lib/app-details";
   import type { AppItem } from "../lib/appsList";
   import { router, type Screen } from "../lib/router.svelte";
-  import type { AppStorage, AppUsage, Safety } from "../lib/types";
+  import type { AppStorage, AppUsage, InstallSource, Safety } from "../lib/types";
   import { destructiveWarning } from "../../../shared/support";
   import packageMetadata from "../../package.json";
   import AppDetailSheet from "./AppDetailSheet.svelte";
@@ -32,12 +32,15 @@
 
   let {
     app,
+    installSource = "unknown",
     navigate,
     onClose,
     onChanged,
     onToast,
   }: {
     app: AppItem | null;
+    /// Whether this TV's user installed `app`; picks a review row's suggestion.
+    installSource?: InstallSource;
     navigate: (screen: Screen) => void;
     onClose: () => void;
     /// Something on the TV changed; the caller's data is stale.
@@ -368,6 +371,7 @@
 
 <AppDetailSheet
   app={shown}
+  {installSource}
   memoryMb={shown ? (memoryMap[shown.package] ?? null) : null}
   usage={shown ? (usageMap[shown.package] ?? null) : null}
   storage={shown ? (storageMap[shown.package] ?? null) : null}
