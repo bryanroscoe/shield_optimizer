@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
@@ -367,6 +368,8 @@
     return safety?.status === "ready" ? safety.verdict : null;
   }
 
+  const CONFIRM_DETAIL_LIMIT = 8;
+
   async function executeOptimize() {
     // A snapshot being saved records the TV as it is, so nothing changes it
     // until the save is done.
@@ -396,22 +399,29 @@
       return;
     }
     const label = mode === "optimize" ? "Optimize" : "Restore";
-    const removalDetails = selected
-      .filter((item) => item.verdict)
+    // The desktop app shows this in a native alert, which grows rather than
+    // scrolls, so a long plan names the first few and points at the rows.
+    const removals = selected.filter((item) => item.verdict);
+    const shown = removals.length > CONFIRM_DETAIL_LIMIT ? removals.slice(0, CONFIRM_DETAIL_LIMIT - 1) : removals;
+    const removalDetails = shown
       .map((item) => {
         const entry = plan.items.find((i) => i.entry.package === item.package)?.entry ?? null;
         const note = item.action === "uninstall" ? uninstallNote(item.package, entry) : null;
         return `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${verdictLabel(item.verdict!)}\nReason: ${item.verdict!.reason}${note ? `\n${note}` : ""}`;
       })
-      .join("\n\n");
+      .join("\n\n")
+      + (removals.length > shown.length
+        ? `\n\n…and ${removals.length - shown.length} more. Each is listed with its safety and reason in the plan.`
+        : "");
     const tierWarning = mode === "optimize" ? destructiveWarning(support) : null;
     const confirmation = (removalDetails
       ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
       : `Run ${label} on ${selected.length} package(s)?`) + (tierWarning ? `\n\n${tierWarning}` : "");
-    if (!confirm(confirmation)
+    if (!(await confirmAction(confirmation))
       || !contextIsCurrent(context)
       || optimizePlan !== plan
       || optimizeMode !== mode
+      || optimizeRunning
       || snapshotSaving) return;
 
     const request = ++runRequest;
