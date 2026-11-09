@@ -9,6 +9,7 @@ pub mod app_lists;
 pub mod cast_name;
 pub mod detection;
 pub mod diagnostics;
+pub mod install_outcome;
 pub mod launcher;
 pub mod log_redact;
 pub mod logcat;

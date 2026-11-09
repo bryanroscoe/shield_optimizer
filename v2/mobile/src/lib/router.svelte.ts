@@ -29,6 +29,7 @@ export type Screen =
   | "riskguide"
   | "catalog"
   | "files"
+  | "logs"
   | "backups";
 
 /// Screens that live behind the bottom tab bar (top-level). Everything else

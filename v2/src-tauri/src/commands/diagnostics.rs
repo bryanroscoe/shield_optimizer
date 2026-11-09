@@ -23,10 +23,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, reload, EnvFilter, Layer};
 
 use atv_optimizer_core::adb::AdbDriver;
-use atv_optimizer_core::commands::{devices, launcher, AppState};
-use atv_optimizer_core::engine::diagnostics::{
-    format_diagnostics, DeviceDiagnostics, DiagnosticsInput,
-};
+use atv_optimizer_core::commands::diagnostics as core_diagnostics;
+use atv_optimizer_core::commands::{devices, AppState};
 use atv_optimizer_core::engine::log_redact::{self, Scrub};
 use atv_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
 use atv_optimizer_core::engine::telemetry_diag::{
@@ -41,9 +39,6 @@ pub(crate) const LOG_FILE_PREFIX: &str = "atv-optimizer";
 /// One file per day, a week back. Long enough to cover "it broke sometime last
 /// week", short enough that nobody's disk notices.
 const KEEP_LOG_FILES: usize = 7;
-/// Log lines carried in a bug report. Enough to hold a failed device scan and
-/// everything around it, not so many that the report stops being readable.
-const LOG_TAIL_LINES: usize = 200;
 
 /// Quiet by default, verbose for our own code when debug logging is on.
 /// Turning *everything* to `debug` buries the interesting lines under hyper
@@ -270,63 +265,15 @@ fn log_tail(dir: &Path, lines: usize) -> Vec<String> {
     let Ok(text) = std::fs::read_to_string(&path) else {
         return Vec::new();
     };
-    let all: Vec<&str> = text.lines().collect();
-    all[all.len().saturating_sub(lines)..]
-        .iter()
-        .map(|l| (*l).to_string())
-        .collect()
-}
-
-/// Parse `HOME_HANDLER_QUERY`'s `cmd package query-activities` output down to
-/// the packages it reported. Reuses the launcher tab's own parser rather than
-/// a second one: Android's ResolveInfo dump exposes the class under `name=`
-/// and the package separately under `packageName=` — `name=` has no slash, so
-/// treating it as a flattened `pkg/activity` component would drop every real
-/// handler.
-fn home_handler_components(stdout: &str) -> Vec<String> {
-    launcher::parse_home_handler_packages(stdout)
-}
-
-/// `(package, enabled)` for each catalogued setup helper that is installed.
-/// Read from the package lists because a disabled one never answers the HOME
-/// query; `None` when they could not be read.
-async fn setup_helper_states(
-    adb: &dyn atv_optimizer_core::adb::AdbDriver,
-    serial: &str,
-) -> Option<Vec<(String, bool)>> {
-    let cmd = atv_optimizer_core::adb::checked_batch_command(&[
-        "pm list packages",
-        "pm list packages -d",
-    ]);
-    let out = adb.shell(serial, &cmd).await.ok()?;
-    let sections = atv_optimizer_core::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
-    setup_helper_states_from(&sections[0], &sections[1])
-}
-
-/// An Android device always has packages, so an empty installed list is an
-/// unreadable answer, not proof the helper is absent.
-fn setup_helper_states_from(installed: &str, disabled: &str) -> Option<Vec<(String, bool)>> {
-    let installed = atv_optimizer_core::adb::parse_installed_packages_output(installed);
-    if installed.is_empty() {
-        return None;
-    }
-    let disabled = atv_optimizer_core::adb::parse_disabled_packages_output(disabled);
-    Some(
-        atv_optimizer_core::commands::loader::launchers()
-            .transient_home_holders
-            .iter()
-            .filter(|p| installed.contains(p))
-            .map(|p| (p.clone(), !disabled.contains(p)))
-            .collect(),
-    )
+    core_diagnostics::tail_lines(&text, lines)
 }
 
 /// `collect_diagnostics` — the text a user pastes into a bug report.
 ///
 /// Nothing is sent anywhere: this command returns a string and the UI puts it
-/// on the clipboard. Deliberately narrow — host facts, one device's identity
-/// and TV evidence, its HOME handlers, and the tail of the log. No package
-/// inventory.
+/// on the clipboard. The device half is shared with mobile
+/// ([`core_diagnostics::collect_diagnostics_text`]); this adds where the adb
+/// binary came from and the tail of the desktop log file.
 #[tauri::command]
 pub async fn collect_diagnostics(
     state: State<'_, AppState>,
@@ -339,68 +286,19 @@ pub async fn collect_diagnostics(
     } else {
         Some("(not applicable: direct network transport, no host binary)".into())
     };
-    let adb_version = adb
-        .raw(&["version"])
-        .await
-        .ok()
-        .map(|out| out.stdout.trim().to_string());
-
-    // Resolve the device first so a failure there is reported as "no device
-    // section" rather than failing the whole bundle — the host half is still
-    // worth having when the device is the thing that is broken.
-    let mut unreadable: Option<String> = None;
-    let device = match serial.as_deref() {
-        None => None,
-        Some(serial) => match devices::device_profile_impl(state.inner(), serial).await {
-            Ok(device) => {
-                let handlers = adb
-                    .shell(serial, launcher::HOME_HANDLER_QUERY)
-                    .await
-                    .ok()
-                    .map(|out| home_handler_components(&out.stdout))
-                    .unwrap_or_default();
-                let current_home = launcher::read_current_home(&*adb, serial).await.ok();
-                let helpers = setup_helper_states(&*adb, serial).await;
-                Some((device, handlers, current_home, helpers))
-            }
-            Err(e) => {
-                tracing::warn!(serial, error = %e, "diagnostics: device unavailable");
-                unreadable = Some(e);
-                None
-            }
+    let tail = log_tail(logs.dir(), core_diagnostics::LOG_TAIL_LINES);
+    Ok(core_diagnostics::collect_diagnostics_text(
+        state.inner(),
+        core_diagnostics::HostDiagnostics {
+            app_version: env!("CARGO_PKG_VERSION"),
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            adb_path: adb_path.as_deref(),
+            log_tail: &tail,
         },
-    };
-
-    let tail = log_tail(logs.dir(), LOG_TAIL_LINES);
-    let support_id = state.telemetry.settings().support_id;
-
-    Ok(format_diagnostics(&DiagnosticsInput {
-        app_version: env!("CARGO_PKG_VERSION"),
-        os: std::env::consts::OS,
-        arch: std::env::consts::ARCH,
-        adb_path: adb_path.as_deref(),
-        adb_version: adb_version.as_deref(),
-        device: device
-            .as_ref()
-            .map(
-                |(device, handlers, current_home, helpers)| DeviceDiagnostics {
-                    serial: &device.serial,
-                    connection: device.connection,
-                    properties: device.properties.as_ref(),
-                    tv_evidence: device.tv_evidence,
-                    device_type: device.device_type,
-                    home_handlers: handlers,
-                    current_home: current_home.as_ref(),
-                    setup_helpers: helpers.as_deref(),
-                },
-            ),
-        unreadable_device: match (serial.as_deref(), unreadable.as_deref()) {
-            (Some(serial), Some(error)) => Some((serial, error)),
-            _ => None,
-        },
-        log_tail: &tail,
-        support_id: support_id.as_deref(),
-    }))
+        serial.as_deref(),
+    )
+    .await)
 }
 
 /// Where the adb in use came from, by the same priority discovery uses.
@@ -837,39 +735,6 @@ fn without_url(e: reqwest::Error) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn an_empty_installed_list_is_unknown_not_absent() {
-        assert_eq!(setup_helper_states_from("", ""), None);
-        assert_eq!(setup_helper_states_from("\n", "package:a\n"), None);
-        let some = setup_helper_states_from("package:com.android.settings\n", "");
-        assert_eq!(some, Some(vec![]));
-    }
-
-    #[test]
-    fn home_handlers_are_read_from_the_real_resolveinfo_shape() {
-        // `name=` is the bare class (no slash) and `packageName=` is the
-        // separate field that actually names the package — the shape Android
-        // emits, not a flattened `pkg/activity` component.
-        let stdout = "Activity #0:\n  \
-                      Priority=0 PreferredOrder=0 Match=0x108000 Specific=null\n  \
-                      ActivityInfo:\n    \
-                      name=com.spocky.projengmenu.ui.home.MainActivity\n    \
-                      packageName=com.spocky.projengmenu\n    \
-                      labelRes=0x7f0e0000\n\n\
-                      Activity #1:\n  \
-                      ActivityInfo:\n    \
-                      name=com.google.android.tvlauncher.MainActivity\n    \
-                      packageName=com.google.android.tvlauncher\n";
-
-        assert_eq!(
-            home_handler_components(stdout),
-            vec![
-                "com.spocky.projengmenu".to_string(),
-                "com.google.android.tvlauncher".to_string(),
-            ]
-        );
-    }
 
     #[test]
     fn session_recordings_never_reach_the_bug_report_tail() {

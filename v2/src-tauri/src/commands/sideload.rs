@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use tauri::State;
 
 use super::AppState;
+use atv_optimizer_core::engine::install_outcome::{
+    combine_streams, decode_install_error, install_succeeded,
+};
 
 #[derive(Serialize)]
 pub struct InstallApkResult {
@@ -58,32 +61,8 @@ async fn install_apk_impl(
         .raw_transfer(&args_ref)
         .await
         .map_err(|e| format!("adb install: {e}"))?;
-    let combined = match (out.stdout.trim().is_empty(), out.stderr.trim().is_empty()) {
-        (true, _) => out.stderr.clone(),
-        (_, true) => out.stdout.clone(),
-        _ => format!(
-            "{}{}{}",
-            out.stdout,
-            if out.stdout.ends_with('\n') { "" } else { "\n" },
-            out.stderr
-        ),
-    };
-    let failed = combined.lines().any(|line| {
-        let line = line.trim_start().to_ascii_lowercase();
-        let status = line.split([' ', '\t', ':', '[']).next().unwrap_or_default();
-        matches!(status, "failure" | "error" | "failed" | "exception")
-            || [
-                "install_failed",
-                "install_parse_failed",
-                "delete_failed",
-                ": failed ",
-                ": error:",
-                "exception:",
-            ]
-            .iter()
-            .any(|marker| line.contains(marker))
-    });
-    let ok = out.success() && combined.lines().any(|line| line.trim() == "Success") && !failed;
+    let combined = combine_streams(&out.stdout, &out.stderr);
+    let ok = install_succeeded(out.success(), &combined);
     let hint = decode_install_error(&combined);
 
     Ok(InstallApkResult {
@@ -307,50 +286,9 @@ pub async fn list_apks_in_folder(folder: String) -> Result<Vec<DiscoveredApk>, S
     Ok(out)
 }
 
-/// Decode the common `INSTALL_FAILED_*` / `DELETE_FAILED_*` codes into a one-line
-/// hint. Mirrors v1's `Get-UninstallErrorReason` + the inline decoder in
-/// `Install-ApkFile`.
-pub(crate) fn decode_install_error(text: &str) -> Option<String> {
-    for (needle, hint) in [
-        (
-            "INSTALL_FAILED_INSUFFICIENT_STORAGE",
-            "Not enough free storage on the device — free up space and retry.",
-        ),
-        (
-            "INSTALL_FAILED_VERSION_DOWNGRADE",
-            "Installed version is newer than this APK. Uninstall the device's copy first, or use a newer APK.",
-        ),
-        (
-            "INSTALL_FAILED_ALREADY_EXISTS",
-            "Same version already installed. Pass `reinstall=true` to force.",
-        ),
-        (
-            "INSTALL_FAILED_OLDER_SDK",
-            "APK requires a newer Android version than this device runs.",
-        ),
-        (
-            "INSTALL_FAILED_NO_MATCHING_ABIS",
-            "APK doesn't include a native library for this device's CPU architecture.",
-        ),
-        (
-            "INSTALL_FAILED_INVALID_APK",
-            "APK file is corrupt or malformed.",
-        ),
-        (
-            "INSTALL_PARSE_FAILED",
-            "APK couldn't be parsed (may be corrupt or not actually an APK).",
-        ),
-    ] {
-        if text.contains(needle) {
-            return Some(hint.to_string());
-        }
-    }
-    None
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{decode_install_error, trusted_package_id};
+    use super::trusted_package_id;
 
     #[test]
     fn a_manifest_package_id_with_shell_syntax_is_treated_as_unreadable() {
@@ -365,20 +303,6 @@ mod tests {
             Some("org.smarttube.stable".to_string())
         );
         assert_eq!(trusted_package_id(None), None);
-    }
-
-    #[test]
-    fn decodes_common_install_failures() {
-        assert!(decode_install_error("INSTALL_FAILED_INSUFFICIENT_STORAGE")
-            .unwrap()
-            .contains("storage"));
-        assert!(decode_install_error("INSTALL_FAILED_VERSION_DOWNGRADE")
-            .unwrap()
-            .contains("newer"));
-        assert!(decode_install_error("INSTALL_FAILED_NO_MATCHING_ABIS")
-            .unwrap()
-            .contains("architecture"));
-        assert!(decode_install_error("Success").is_none());
     }
 
     enum Reply {
