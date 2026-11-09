@@ -18,6 +18,13 @@ export async function startViteServer() {
   const server = await createServer({
     root: fileURLToPath(new URL("../../", import.meta.url)),
     logLevel: "silent",
+    // Vite's dependency scan fails on src/screens/More.svelte (its "<!--" /
+    // "-->" string literals break the scanner's comment stripping), so deps
+    // are only found lazily and a late one reloads the page mid-test. List
+    // every bare package import from src/ here.
+    optimizeDeps: {
+      include: ["@tauri-apps/api/app", "@tauri-apps/api/core", "@tauri-apps/api/event"],
+    },
     server: { host: "127.0.0.1", port: 5200, strictPort: false },
   });
   await server.listen();
