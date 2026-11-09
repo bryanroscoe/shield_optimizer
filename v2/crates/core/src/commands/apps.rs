@@ -973,19 +973,20 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
         .shell(serial, cmd)
         .await
         .map_err(|e| format!("{cmd}: {e}"))?;
-    let message = if !out.stdout.trim().is_empty() {
-        out.stdout
-    } else if !out.stderr.trim().is_empty() {
-        out.stderr
+    let ok = super::verification::succeeded(&out);
+    let output = out.combined();
+    let message = if ok {
+        if output.trim().is_empty() {
+            "(no output)".to_string()
+        } else {
+            output.trim().to_string()
+        }
     } else {
-        "(no output)".to_string()
+        format!(
+            "Command failed: {}",
+            super::verification::failure_text(&out)
+        )
     };
-    // pm's exit codes are unreliable across Android versions — inspect the
-    // output for the known failure markers instead.
-    let ok = !message.contains("Failure")
-        && !message.contains("Error")
-        && !message.contains("Exception")
-        && !message.contains("not installed for");
     Ok(ActionResult { ok, message })
 }
 
@@ -2001,5 +2002,28 @@ mod tests {
         };
         assert_eq!(err, "LOCKED:app_permission_write");
         assert!(log.lock().unwrap().is_empty(), "ADB must not be called");
+    }
+    #[tokio::test]
+    async fn package_writes_reject_mobile_nonzero_and_mixed_stream_failure() {
+        for output in [
+            crate::adb::AdbOutput {
+                stdout: "".into(),
+                stderr: "".into(),
+                exit_code: Some(1),
+            },
+            crate::adb::AdbOutput {
+                stdout: "enabled".into(),
+                stderr: "Exception: denied".into(),
+                exit_code: Some(0),
+            },
+        ] {
+            let mock =
+                super::super::test_support::MockAdb::default().on_shell_output("pm enable", output);
+            let state = super::super::test_support::state_with(mock);
+            let result = enable_package_impl(&state, "TV", "com.example.app")
+                .await
+                .unwrap();
+            assert!(!result.ok);
+        }
     }
 }

@@ -145,6 +145,30 @@ for (const screen of ["optimize", "diagnostics"]) {
   });
 }
 
+for (const screen of ["optimize", "diagnostics"]) {
+  test(`${screen}: Back up APK saves to this phone and says where, with no export claim`, async (t) => {
+    const page = await open(t, screen);
+    await page.evaluate(() => {
+      handlers.backup_apk = (args) => ({ package: args.package, path: "/data/backups/video", size_bytes: 4096, apk_count: 2, complete: true, saved_at: "2026-11-08T00:00:00Z" });
+    });
+    const sheet = await openSheet(page, screen);
+    // The removal line names how this Play Store app comes back.
+    await sheet.getByText("After Uninstall: Get it back from the Play Store.", { exact: false }).waitFor();
+    await sheet.getByRole("button", { name: "Back up APK" }).click();
+    const note = sheet.getByRole("status").filter({ hasText: "APK parts" });
+    await note.waitFor();
+    assert.match(await note.innerText(), /Saved 2 APK parts to this phone, in ATV Optimizer's private storage\./);
+    assert.doesNotMatch(await note.innerText(), /export|share|download/i);
+    assert.deepEqual(
+      await page.evaluate(() => calls.filter((c) => c.command === "backup_apk").map((c) => c.args)),
+      [{ serial: "A:5555", package: pkg }],
+    );
+    await note.getByRole("button", { name: "View in Backups" }).click();
+    await page.waitForFunction(() => router.current === "backups");
+    assert.equal(await page.locator(".sheet").count(), 0);
+  });
+}
+
 test("diagnostics: memory rows give the process name the row at 320px and show the whole suggestion", async (t) => {
   const page = await open(t, "diagnostics", {
     viewport: { width: 320, height: 640 },
