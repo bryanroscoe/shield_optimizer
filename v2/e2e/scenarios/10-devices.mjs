@@ -41,9 +41,10 @@ export const scenarios = [
       await ctx.step("scan connected the Shield and found an unauthorized box");
       await ctx.text("need", { exact: false }).first().waitFor();
       ctx.assert.match(await ctx.page.locator(".connect-message").allInnerTexts().then((t) => t.join(" ")), /1 needs authorization/);
-      await row(ctx, "192.0.2.71:5555").getByText("UNAUTHORIZED").waitFor();
-      await row(ctx, "192.0.2.71:5555").getByText("This device needs to be authorized", { exact: false }).waitFor();
-      await ctx.step("unauthorized row explains the on-TV prompt");
+      await row(ctx, "192.0.2.71:5555").getByText("NOT ALLOWED YET").waitFor();
+      await row(ctx, "192.0.2.71:5555").getByText("it's probably asking now", { exact: false }).waitFor();
+      await row(ctx, "192.0.2.71:5555").getByRole("button", { name: "Request approval from 192.0.2.71:5555" }).waitFor();
+      await ctx.step("unauthorized row is one compact row with Request approval");
       const state = await ctx.state();
       const keys = state.transports.map((t) => `${t.key}=${t.state}`).sort();
       ctx.assert.deepEqual(keys, ["192.0.2.1:5555=device", "192.0.2.71:5555=unauthorized"]);

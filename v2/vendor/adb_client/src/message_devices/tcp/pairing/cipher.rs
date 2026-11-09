@@ -88,6 +88,8 @@ fn sequence_nonce(sequence: u64) -> [u8; NONCE_LEN] {
 }
 
 #[cfg(test)]
+// Fixture bytes are built from small loop counters, and hex is only for failure output.
+#[allow(clippy::cast_possible_truncation, clippy::format_collect)]
 mod tests {
     use super::{HKDF_INFO, KEY_LEN, PairingCipher, TAG_LEN, derive_key, sequence_nonce};
     use aes_gcm::{

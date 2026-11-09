@@ -243,8 +243,10 @@ test("disconnected state and APK-only limits are stated plainly", async (t) => {
 
   await page.getByText("Connect a TV to choose an installed app.").waitFor();
   assert.equal(await page.getByRole("button", { name: "Choose an app" }).isDisabled(), true);
-  await page.getByText(/base APK and every installed split APK/).waitFor();
   await page.getByText(/App data, settings, and sign-in details are not included/).waitFor();
+  // The routine how-to sits behind help; the limits above stay visible.
+  await page.getByText("About APK backups", { exact: true }).click();
+  await page.getByText(/base APK and every installed split APK/).waitFor();
   const systemWarning = await page.locator(".system-note").textContent();
   assert.match(systemWarning, /system APK restore may[\s\S]*Android signatures[\s\S]*system dependencies/);
   assert.match(systemWarning, /not a full-TV[\s\S]*recovery backup/);

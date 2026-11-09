@@ -27,6 +27,7 @@ CARGO_TOML="src-tauri/Cargo.toml"
 CORE_CARGO_TOML="crates/core/Cargo.toml"
 CARGO_LOCK="Cargo.lock"
 PACKAGE_JSON="package.json"
+METAINFO="flatpak/io.github.bryanroscoe.ATVOptimizer.metainfo.xml"
 
 # --- Parse flags -------------------------------------------------------------
 
@@ -149,7 +150,7 @@ confirm "Bump + tag? (y/N)" || { echo "Aborted."; exit 1; }
 
 NEW="$NEW" TAURI_CONF="$TAURI_CONF" CARGO_TOML="$CARGO_TOML" \
 CORE_CARGO_TOML="$CORE_CARGO_TOML" CARGO_LOCK="$CARGO_LOCK" \
-PACKAGE_JSON="$PACKAGE_JSON" python3 - <<'PY'
+PACKAGE_JSON="$PACKAGE_JSON" METAINFO="$METAINFO" python3 - <<'PY'
 import os
 import json, re, pathlib
 
@@ -223,13 +224,28 @@ p = pathlib.Path(os.environ["PACKAGE_JSON"])
 pkg = json.loads(p.read_text())
 pkg["version"] = new
 p.write_text(json.dumps(pkg, indent=2) + "\n")
+
+# Flatpak metainfo — Flathub shows this list as the version history.
+import datetime
+p = pathlib.Path(os.environ["METAINFO"])
+xml = p.read_text()
+if f'<release version="{new}"' not in xml:
+    kind = ' type="development"' if "-" in new else ""
+    entry = (
+        f'    <release version="{new}" date="{datetime.date.today().isoformat()}"{kind}>\n'
+        f'      <url type="details">https://github.com/bryanroscoe/shield_optimizer/releases/tag/v2-{new}</url>\n'
+        f'    </release>\n'
+    )
+    xml, n = re.subn(r"(<releases>\n)", lambda m: m.group(1) + entry, xml, count=1)
+    assert n == 1, f"{p}: no <releases> element found"
+    p.write_text(xml)
 PY
 
-git diff --stat "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
+git diff --stat "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON" "$METAINFO"
 
 # --- Commit + tag + push -----------------------------------------------------
 
-git add "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON"
+git add "$TAURI_CONF" "$CARGO_TOML" "$CORE_CARGO_TOML" "$CARGO_LOCK" "$PACKAGE_JSON" "$METAINFO"
 git commit -m "Release $TAG"
 git tag -a "$TAG" -m "Release $TAG"
 

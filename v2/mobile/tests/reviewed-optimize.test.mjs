@@ -50,12 +50,20 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
       assert.equal(await row.getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"), "true", entry.package);
       assert.equal(await row.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "false", entry.package);
       await row.getByText("Review: disable if unused", { exact: true }).waitFor();
+      for (const fragment of entry.consequence_fragments ?? []) {
+        assert.ok((await row.innerText()).includes(fragment), `visible consequence: ${entry.package}: ${fragment}`);
+      }
     }
     const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
     assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
     const first = page.locator(".optimize-item").filter({ hasText: focusPackage });
+    if (evidence) {
+      await first.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(600);
+    }
     await first.getByRole("button", { name: "Disable", exact: true }).click();
     assert.equal(await first.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "true");
+    if (evidence) await page.waitForTimeout(400);
     await first.getByRole("button", { name: "Keep", exact: true }).click();
     await page.getByRole("button", { name: /^Recommended/ }).click();
     for (const entry of reviewed) assert.equal(await page.getByRole("button", { name: `Details for ${entry.name}`, exact: true }).count(), 0);

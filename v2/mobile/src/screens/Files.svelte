@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -462,14 +463,19 @@
     {/if}
 
     <div class="callout accent">
-      <span class="msr">bolt</span>
+      <span class="msr" aria-hidden="true">info</span>
       <span class="callout-text">
-        Files transfer over your LAN — no cloud round-trip. Tap a file to copy it into ATV
-        Optimizer's private storage on this phone, not the phone's public Downloads. Sharing and export
-        to other apps are not available yet. The list below shows copies from this session.
-        Items under /sdcard can be deleted from the TV with the bin icon.
+        Copies go to ATV Optimizer's private storage on this phone,
+        not the phone's public Downloads. Sharing and export to other apps are not available yet.
       </span>
     </div>
+    <HelpSheet title="About file transfers">
+      <p>
+        Tap a file to copy it. Files transfer over your LAN, with no cloud round-trip. Copied this
+        session lists the copies made since you opened Files. Items under /sdcard can be deleted
+        from the TV with the bin icon.
+      </p>
+    </HelpSheet>
 
     {#if pulled.length > 0}
       <span class="section-label">Copied this session</span>

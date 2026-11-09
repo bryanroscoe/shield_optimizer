@@ -271,6 +271,8 @@ fn mul_wide(point: &EdwardsPoint, scalar: &[u8; 32]) -> EdwardsPoint {
 }
 
 #[cfg(test)]
+// Fixture bytes are built from small loop counters, and hex is only for failure output.
+#[allow(clippy::cast_possible_truncation, clippy::format_collect)]
 mod tests {
     use super::{
         CLIENT_NAME, KEY_SIZE, M_COMPRESSED, MSG_SIZE, N_COMPRESSED, Role, SERVER_NAME, Spake2,

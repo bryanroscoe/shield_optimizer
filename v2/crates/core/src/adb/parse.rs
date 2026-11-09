@@ -109,6 +109,31 @@ pub fn instance_serial(instance: &str) -> Option<&str> {
     Some(serial)
 }
 
+/// A DNS-SD instance name is one DNS label, at most 63 bytes.
+const MAX_INSTANCE_NAME_LEN: usize = 63;
+
+/// Can this name a device's mDNS service instance in adb's text output?
+/// Printable ASCII without spaces or brackets, and no longer than a DNS
+/// label, so it survives `[guid=...]` and the whitespace-separated
+/// `adb mdns services` columns unchanged. Anything else is not repeated.
+pub fn is_reportable_instance_name(name: &str) -> bool {
+    (1..=MAX_INSTANCE_NAME_LEN).contains(&name.len())
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && b != b'[' && b != b']')
+}
+
+/// The name a device gave itself while pairing, from `adb pair` output:
+/// `Successfully paired to 192.168.1.5:37199 [guid=adb-SERIAL-a1B2c3]`.
+/// The device sends it inside the PIN-authenticated exchange, so it names
+/// the device that showed the PIN. `None` when absent or unusable.
+pub fn pair_output_guid(output: &str) -> Option<&str> {
+    let start = output.find("[guid=")? + "[guid=".len();
+    let rest = &output[start..];
+    let guid = &rest[..rest.find(']')?];
+    is_reportable_instance_name(guid).then_some(guid)
+}
+
 /// Parse `adb mdns services` output.
 ///
 /// Sample input (tab-separated in real output):
@@ -155,6 +180,76 @@ pub fn parse_mdns_services(output: &str) -> Vec<MdnsService> {
         });
     }
     out
+}
+
+/// `adb mdns services` text for services a driver observed itself, in the
+/// format [`parse_mdns_services`] reads back. A row whose instance the
+/// columns cannot carry is left out rather than mangled.
+pub fn render_mdns_services(services: &[MdnsService]) -> String {
+    let mut out = String::from("List of discovered mdns services\n");
+    for s in services {
+        if !is_reportable_instance_name(&s.instance)
+            || !s.service.starts_with("_adb")
+            || s.service.chars().any(char::is_whitespace)
+            || s.host.is_empty()
+            || s.host.chars().any(char::is_whitespace)
+            || s.port == 0
+        {
+            continue;
+        }
+        out.push_str(&format!(
+            "{}\t{}\t{}\n",
+            s.instance,
+            s.service,
+            s.endpoint()
+        ));
+    }
+    out
+}
+
+/// The usable services in a native discovery snapshot `elapsed` after it was
+/// received: observed in that browse window, younger than the observation
+/// limit, and with an endpoint the snapshot validated. The host keeps the
+/// numeric IPv6 scope from that endpoint.
+pub fn native_mdns_services(
+    report: &super::NativeDiscoveryReport,
+    elapsed: std::time::Duration,
+) -> Vec<MdnsService> {
+    use super::NativeServiceKind;
+    report
+        .advertisements
+        .iter()
+        .filter(|row| {
+            !row.cached
+                && u128::from(row.observed_age_ms) + elapsed.as_millis()
+                    < u128::from(report.observation_max_age_ms)
+        })
+        .filter_map(|row| {
+            let endpoint = row.connect_address.as_deref()?;
+            let socket = endpoint.parse::<std::net::SocketAddr>().ok()?;
+            if socket.port() == 0 || socket.port() != row.port {
+                return None;
+            }
+            let service = match row.service_kind {
+                NativeServiceKind::LegacyAdb => MDNS_SERVICE_LEGACY,
+                NativeServiceKind::TlsConnect => MDNS_SERVICE_CONNECT,
+                NativeServiceKind::TlsPairing => MDNS_SERVICE_PAIRING,
+            };
+            let suffix = format!(".{service}.local.");
+            let instance = if row.instance.to_ascii_lowercase().ends_with(&suffix) {
+                row.instance[..row.instance.len() - suffix.len()].to_string()
+            } else {
+                row.instance.clone()
+            };
+            let host = endpoint.rsplit_once(':')?.0.to_string();
+            Some(MdnsService {
+                instance,
+                service: service.to_string(),
+                host,
+                port: row.port,
+            })
+        })
+        .collect()
 }
 
 /// Parse `adb devices` output into a structured list.
@@ -1167,6 +1262,83 @@ mod tests {
     fn empty_mdns_output_is_not_an_error() {
         assert!(parse_mdns_services("List of discovered mdns services\n").is_empty());
         assert!(parse_mdns_services("").is_empty());
+    }
+
+    #[test]
+    fn pair_output_names_the_device_only_with_a_usable_guid() {
+        assert_eq!(
+            pair_output_guid(
+                "Successfully paired to 192.168.42.211:45439 [guid=adb-58040DLCH005YV-A1b2C3]\n"
+            ),
+            Some("adb-58040DLCH005YV-A1b2C3")
+        );
+        let too_long = format!(
+            "Successfully paired to 1.2.3.4:5 [guid=adb-{}-x]",
+            "S".repeat(60)
+        );
+        for unusable in [
+            "Successfully paired to 192.168.42.211:45439\n",
+            "Successfully paired to 192.168.42.211:45439 [guid=]\n",
+            "Successfully paired to 192.168.42.211:45439 [guid=Living Room TV]\n",
+            "Successfully paired to 192.168.42.211:45439 [guid=adb-SERIAL-x\n",
+            too_long.as_str(),
+        ] {
+            assert_eq!(pair_output_guid(unusable), None, "{unusable}");
+        }
+        assert!(is_reportable_instance_name("adb-EMULATOR37X1X11X0-LgzOi6"));
+        assert!(!is_reportable_instance_name("adb-SERIAL-é1"));
+        assert!(!is_reportable_instance_name("adb-SERIAL\t-x"));
+    }
+
+    #[test]
+    fn rendered_mdns_services_parse_back_unchanged() {
+        let services = vec![
+            MdnsService {
+                instance: "adb-58040DLCH005YV-jBeCEe".into(),
+                service: MDNS_SERVICE_CONNECT.into(),
+                host: "192.168.42.211".into(),
+                port: 41541,
+            },
+            MdnsService {
+                instance: "adb-58040DLCH005YV-A1b2C3".into(),
+                service: MDNS_SERVICE_PAIRING.into(),
+                host: "192.168.42.211".into(),
+                port: 37199,
+            },
+            MdnsService {
+                instance: "adb-0323716101827".into(),
+                service: MDNS_SERVICE_LEGACY.into(),
+                host: "192.168.42.71".into(),
+                port: 5555,
+            },
+            MdnsService {
+                instance: "adb-V6SER-c2".into(),
+                service: MDNS_SERVICE_CONNECT.into(),
+                host: "[fe80::1%7]".into(),
+                port: 41541,
+            },
+        ];
+        let text = render_mdns_services(&services);
+        assert!(text.starts_with("List of discovered mdns services\n"));
+        assert_eq!(parse_mdns_services(&text), services);
+        assert_eq!(
+            parse_mdns_services(&text)[3].endpoint(),
+            "[fe80::1%7]:41541"
+        );
+
+        let unprintable = MdnsService {
+            instance: "Living Room TV".into(),
+            ..services[0].clone()
+        };
+        assert_eq!(
+            render_mdns_services(&[unprintable]),
+            "List of discovered mdns services\n",
+            "a name the columns cannot carry is left out, not split"
+        );
+        assert_eq!(
+            render_mdns_services(&[]),
+            "List of discovered mdns services\n"
+        );
     }
 
     #[test]

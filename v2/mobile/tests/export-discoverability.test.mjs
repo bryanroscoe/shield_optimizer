@@ -106,7 +106,11 @@ async function openReport(page) {
 }
 test("report copy and oversized GitHub fallback use preview text and never claim a saved file", async t => {
   const page = await open(t); const report = await openReport(page);
-  await report.getByText(/Copy puts report text on your clipboard; it does not save a file/).waitFor();
+  await report.getByRole("button", { name: "How reporting works", exact: true }).click();
+  const howTo = page.getByRole("dialog", { name: "How reporting works" });
+  await howTo.getByText(/Copy puts report text on your clipboard; it does not save a file/).waitFor();
+  await howTo.getByRole("button", { name: "Done", exact: true }).click();
+  await howTo.waitFor({ state: "detached" });
   await report.getByRole("button", { name: "Show the full report" }).click();
   const text = await report.getByRole("textbox", { name: "Report preview" }).inputValue();
   await report.getByRole("button", { name: "Copy report" }).click(); await page.getByText("Report copied.", { exact: true }).waitFor();

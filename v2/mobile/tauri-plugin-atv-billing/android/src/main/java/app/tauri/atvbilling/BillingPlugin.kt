@@ -21,13 +21,12 @@ import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import java.util.concurrent.ConcurrentHashMap
@@ -58,9 +57,9 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   // Billing callbacks arrive on the main thread; keeping the plugin's own work
   // there too means `pendingPurchase` is only ever touched from one thread.
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-  private val connectLock = Mutex()
   private val products = ConcurrentHashMap<String, ProductDetails>()
   private var pendingPurchase: Invoke? = null
+  private var connecting: CompletableDeferred<BillingResult>? = null
 
   private val client: BillingClient by lazy {
     BillingClient.newBuilder(activity.applicationContext)
@@ -203,31 +202,47 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
     waiting.resolve(purchasesJson(result, purchases.orEmpty()))
   }
 
-  private suspend fun connect(): BillingResult = connectLock.withLock {
-    if (client.isReady) return@withLock okResult()
-    withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
-      suspendCancellableCoroutine { cont ->
-        client.startConnection(object : BillingClientStateListener {
-          override fun onBillingSetupFinished(result: BillingResult) {
-            if (cont.isActive) cont.resume(result)
-          }
+  // A timed-out caller stops waiting but the attempt carries on, and calling
+  // startConnection again while it does makes Play answer DEVELOPER_ERROR
+  // ("already in the process of connecting"). So there is at most one attempt:
+  // later callers wait on it until Play answers. Main thread only, like every
+  // other caller and the billing callbacks, so no lock is needed.
+  private suspend fun connect(): BillingResult {
+    if (client.isReady) return okResult()
+    val attempt = connecting ?: startConnecting()
+    return withTimeoutOrNull(CONNECT_TIMEOUT_MS) { attempt.await() }
+      ?: BillingResult.newBuilder()
+        .setResponseCode(BillingResponseCode.SERVICE_TIMEOUT)
+        .setDebugMessage("Timed out connecting to Google Play")
+        .build()
+  }
 
-          override fun onBillingServiceDisconnected() {
-            if (cont.isActive) {
-              cont.resume(
-                BillingResult.newBuilder()
-                  .setResponseCode(BillingResponseCode.SERVICE_DISCONNECTED)
-                  .setDebugMessage("Play Billing service disconnected")
-                  .build()
-              )
-            }
-          }
-        })
-      }
-    } ?: BillingResult.newBuilder()
-      .setResponseCode(BillingResponseCode.SERVICE_TIMEOUT)
-      .setDebugMessage("Timed out connecting to Google Play")
-      .build()
+  private fun startConnecting(): CompletableDeferred<BillingResult> {
+    val attempt = CompletableDeferred<BillingResult>()
+    // Set before startConnection: Play may answer synchronously.
+    connecting = attempt
+    try {
+      client.startConnection(object : BillingClientStateListener {
+        override fun onBillingSetupFinished(result: BillingResult) {
+          if (connecting === attempt) connecting = null
+          attempt.complete(result)
+        }
+
+        override fun onBillingServiceDisconnected() {
+          if (connecting === attempt) connecting = null
+          attempt.complete(
+            BillingResult.newBuilder()
+              .setResponseCode(BillingResponseCode.SERVICE_DISCONNECTED)
+              .setDebugMessage("Play Billing service disconnected")
+              .build()
+          )
+        }
+      })
+    } catch (error: Throwable) {
+      if (connecting === attempt) connecting = null
+      throw error
+    }
+    return attempt
   }
 
   private suspend fun queryDetails(productId: String): Pair<BillingResult, ProductDetails?> {

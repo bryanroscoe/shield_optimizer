@@ -478,7 +478,8 @@ test("modal long-sheet keyboard wrap reveals last action and Close without movin
   await trigger.click();
   const sheet = dialog(page);
   const close = sheet.getByRole('button', { name: 'Close', exact: true });
-  const last = sheet.getByRole('button', { name: /Re-measure/ });
+  // The Diagnostics sheet ends with Report this app, as Apps' does.
+  const last = sheet.getByRole('button', { name: /Report this app/ });
   await sheet.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)));
   await close.focus();
   await page.keyboard.press('Shift+Tab');

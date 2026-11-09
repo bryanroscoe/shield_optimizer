@@ -47,17 +47,30 @@
   --text: #f2f5f8;
   --text-soft: #c7cdd6;
   --muted: #8a929e;
-  --dim: #5b626d;
+  /* 5.3:1 on --canvas and 4.8:1 on --surface, the two backgrounds it is used
+     on; it sits under --muted (6.2:1 / 5.6:1). Not for text on --surface-2
+     (4.3:1). */
+  --dim: #7e8692;
   --teal: #35d6a5;
   --amber: #f5b544;
   --danger: #fb6b5f;
   --advanced: #a78bfa;
   --sans: "Geist", system-ui, -apple-system, sans-serif;
   --mono: "Geist Mono", ui-monospace, "Roboto Mono", monospace;
+  /* Widest a screen's content or a bottom sheet grows on a tablet. */
+  --content-max: 720px;
+  /* BottomTabs' rendered height; scroll padding keeps focus clear of it. */
+  --tabbar-height: calc(70px + env(safe-area-inset-bottom));
+  color-scheme: dark;
+  accent-color: var(--accent);
 }
 
 html {
   background: var(--canvas);
+  scroll-padding-top: calc(env(safe-area-inset-top) + 12px);
+}
+html:has(.bottom-tabs) {
+  scroll-padding-bottom: calc(var(--tabbar-height) + 12px);
 }
 body {
   margin: 0;
@@ -74,8 +87,10 @@ body {
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: calc(env(safe-area-inset-top) + 14px) max(24px, env(safe-area-inset-right))
-    calc(env(safe-area-inset-bottom) + 98px) max(24px, env(safe-area-inset-left));
+  padding: calc(env(safe-area-inset-top) + 14px)
+    max(24px, env(safe-area-inset-right), calc((100% - var(--content-max)) / 2))
+    calc(env(safe-area-inset-bottom) + 98px)
+    max(24px, env(safe-area-inset-left), calc((100% - var(--content-max)) / 2));
   background: radial-gradient(
     1200px 800px at 20% -5%,
     color-mix(in srgb, var(--accent) 5%, transparent),
@@ -431,7 +446,9 @@ label {
   font-weight: 600;
   color: var(--muted);
 }
-input {
+/* Text-like fields only. :where keeps this at plain `input` specificity so a
+   screen's own field class still wins. */
+input:where(:not([type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="file"], [type="image"], [type="hidden"], [type="button"], [type="submit"], [type="reset"])) {
   min-height: 48px;
   border-radius: 12px;
   border: 1px solid var(--line);
@@ -439,6 +456,11 @@ input {
   background: var(--canvas);
   color: var(--text);
   font: inherit;
+}
+input:where([type="checkbox"], [type="radio"]) {
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 input:focus-visible {
   outline: 2px solid var(--accent);
@@ -666,18 +688,23 @@ input:focus-visible {
   }
 }
 
+/* Closed, a disclosure is one row: the summary's own 44px touch target is the
+   only space it takes beyond the surrounding layout's gap. */
 .help-disclosure {
-  margin: 8px 0 14px;
+  margin: 0;
   color: var(--muted);
   font-size: 0.8125rem;
   line-height: 1.55;
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.help-disclosure[open] {
+  margin-bottom: 4px;
+}
 .help-disclosure > summary {
   box-sizing: border-box;
   min-height: 44px;
-  padding: 10px 0;
+  padding: 12px 0;
   color: var(--text-soft);
   cursor: pointer;
   font-weight: 500;
@@ -691,4 +718,20 @@ input:focus-visible {
   margin: 0 0 10px;
   font-size: inherit;
   line-height: inherit;
+}
+
+/* A long dialog's scroll area becomes a Tab stop (lib/modal.ts). The ring sits
+   inside it so the dialog's rounded clip doesn't cut it off. */
+[data-modal-scroll-stop]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+
+/* Bottom sheets span the phone's width but stop at the content width on a
+   tablet. The sheets keep their own `width: 100%`; this only caps and centres
+   them inside their flex overlay. */
+.sheet-overlay > .sheet,
+.menu-overlay > .menu {
+  max-width: var(--content-max);
+  margin-inline: auto;
 }

@@ -33,7 +33,7 @@ test("mobile type check, production and demo builds need no desktop generated fi
   const env = { ...process.env };
   delete env.VITE_DEMO;
   const vite = join(mobile, "node_modules/vite/bin/vite.js");
-  const check = await execute(process.execPath, [join(mobile, "node_modules/svelte-check/bin/svelte-check"), "--tsconfig", "./tsconfig.json"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
+  const check = await execute(process.execPath, [join(mobile, "node_modules/svelte-check/bin/svelte-check"), "--tsconfig", "./tsconfig.json", "--output", "human"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
   assert.match(check.stdout, /0 errors and 0 warnings/);
   await execute(process.execPath, [vite, "build"], { cwd: isolatedMobile, env, maxBuffer: 4 * 1024 * 1024 });
   const production = await bundleText(join(isolatedMobile, "build"));

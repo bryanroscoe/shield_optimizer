@@ -333,8 +333,12 @@ pub async fn collect_diagnostics(
     logs: State<'_, LogControl>,
     serial: Option<String>,
 ) -> Result<String, String> {
-    let adb_path = crate::adb::cached_adb_binary().map(|p| p.display().to_string());
     let adb = state.adb_snapshot().await;
+    let adb_path = if adb.uses_host_server() {
+        crate::adb::cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        Some("(not applicable: direct network transport, no host binary)".into())
+    };
     let adb_version = adb
         .raw(&["version"])
         .await
@@ -467,6 +471,22 @@ pub(crate) async fn host_diag(
     swept: Option<[u8; 3]>,
     gateway: Option<Gateway>,
 ) -> Diag {
+    let ifaces = local_interfaces();
+    let ifaces: Vec<NetInterface> = ifaces
+        .iter()
+        .map(|(name, addr, prefix)| NetInterface {
+            name,
+            addr: *addr,
+            prefix: *prefix,
+        })
+        .collect();
+    if !adb.uses_host_server() {
+        return Diag {
+            adb: Some(adb_diag(AdbSource::Builtin, None, None)),
+            net: Some(net_diag(&ifaces, gateway, swept)),
+            ..Default::default()
+        };
+    }
     let version = adb.raw(&["version"]).await.ok().map(|o| o.combined());
     let devices = adb
         .raw(&["devices"])
@@ -485,15 +505,6 @@ pub(crate) async fn host_diag(
         .map(|o| crate::adb::parse_mdns_services(&o.stdout))
         .unwrap_or_default();
     let types: Vec<&str> = services.iter().map(|s| s.service.as_str()).collect();
-    let ifaces = local_interfaces();
-    let ifaces: Vec<NetInterface> = ifaces
-        .iter()
-        .map(|(name, addr, prefix)| NetInterface {
-            name,
-            addr: *addr,
-            prefix: *prefix,
-        })
-        .collect();
     Diag {
         adb: Some(adb_diag(
             adb_source(),
@@ -672,6 +683,35 @@ fn device_lines(list: &[atv_optimizer_core::engine::types::Device]) -> Vec<Strin
         .collect()
 }
 
+/// The upload's own lines, written before redaction so the id survives it.
+/// A test build's upload starts with `Test build <commit>`.
+fn upload_preamble(
+    target: &atv_optimizer_core::telemetry::UploadTarget,
+    reports_enabled: bool,
+) -> String {
+    let mut text = String::new();
+    if let Some(commit) = &target.test_build {
+        text.push_str(&format!("Test build {commit}\n\n"));
+    }
+    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
+    text.push_str(&format!(
+        "- Support ID: {} (`{}`)\n",
+        format_support_id(&target.install_id),
+        target.install_id
+    ));
+    text.push_str(&format!("- App version: {}\n", target.app_version));
+    text.push_str(&format!(
+        "- OS: {} ({})\n",
+        target.os,
+        std::env::consts::ARCH
+    ));
+    text.push_str(&format!(
+        "- Automatic reports: {}\n",
+        if reports_enabled { "on" } else { "off" }
+    ));
+    text
+}
+
 /// `upload_diagnostics` — Send logs to developer.
 ///
 /// The user pressed a button that says it sends their logs, so this runs
@@ -718,23 +758,7 @@ pub async fn upload_diagnostics(
         .unwrap_or_else(|e| vec![format!("- (could not list devices: {e})")]);
 
     // Our own values, written before redaction so the id survives it.
-    let mut text = String::new();
-    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
-    text.push_str(&format!(
-        "- Support ID: {} (`{}`)\n",
-        format_support_id(&target.install_id),
-        target.install_id
-    ));
-    text.push_str(&format!("- App version: {}\n", target.app_version));
-    text.push_str(&format!(
-        "- OS: {} ({})\n",
-        target.os,
-        std::env::consts::ARCH
-    ));
-    text.push_str(&format!(
-        "- Automatic reports: {}\n",
-        if reports_enabled { "on" } else { "off" }
-    ));
+    let mut text = upload_preamble(&target, reports_enabled);
 
     let mut header = String::new();
     header.push_str("\n### Devices\n\n");
@@ -888,6 +912,32 @@ mod tests {
     }
 
     #[test]
+    fn a_test_build_upload_says_so_first_and_a_release_upload_does_not() {
+        let target = |test_build: Option<&str>| atv_optimizer_core::telemetry::UploadTarget {
+            url: "https://t.example/v1/diagnostics".into(),
+            install_id: "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11".into(),
+            app: atv_optimizer_core::engine::telemetry::AppKind::Desktop,
+            app_version: if test_build.is_some() {
+                "2.5.0-dev"
+            } else {
+                "2.5.0"
+            }
+            .into(),
+            os: "macos 26.6".into(),
+            test_build: test_build.map(str::to_string),
+        };
+        let test = upload_preamble(&target(Some("4f156e4")), false);
+        assert!(test.starts_with("Test build 4f156e4\n"), "{test}");
+        assert!(test.contains("- App version: 2.5.0-dev"));
+        let release = upload_preamble(&target(None), true);
+        assert!(
+            release.starts_with("## ATV Optimizer logs (Send logs)"),
+            "{release}"
+        );
+        assert!(!release.contains("Test build"));
+    }
+
+    #[test]
     fn every_listed_transport_is_scrubbed_from_an_upload() {
         let out = "List of devices attached\nQWERTYUIOPAS           device usb:1-1 product:mdarcy model:SHIELD_Android_TV device:mdarcy transport_id:2\nZXCVBNMLKJHG\tunauthorized usb:1-2 transport_id:3\n";
         let serials = transport_serials(out);
@@ -898,6 +948,37 @@ mod tests {
             !text.contains("QWERTYUIOPAS") && !text.contains("ZXCVBNMLKJHG"),
             "{text}"
         );
+    }
+
+    #[tokio::test]
+    async fn native_diagnostics_do_not_probe_sessions_or_a_host_server() {
+        struct Native;
+        #[async_trait::async_trait]
+        impl AdbDriver for Native {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(
+                &self,
+                _: &[&str],
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not probe native sessions")
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("diagnostics must not read a TV")
+            }
+        }
+        let diag = host_diag(&Native, None, Some(Gateway::NotDetected)).await;
+        assert_eq!(diag.adb.unwrap().source, AdbSource::Builtin);
+        assert!(diag.mdns.is_none());
+        assert!(diag.transports.is_none());
+        assert!(diag.net.is_some());
     }
 
     #[test]

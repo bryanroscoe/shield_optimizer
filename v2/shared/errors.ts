@@ -16,6 +16,7 @@ export type ErrorCode =
   | "not_connected"
   | "device_unauthorized"
   | "device_offline"
+  | "mdns_unavailable"
   | "wrong_pin"
   | "pairing_expired"
   | "connection_refused"
@@ -43,11 +44,13 @@ const RULES: ReadonlyArray<readonly [RegExp, ErrorCode]> = [
   [/^Log upload failed/i, "upload_failed"],
   [/could not locate an adb binary|adb binary at .* is not a regular file/i, "adb_missing"],
   [/the app is quitting/i, "app_quitting"],
+  // Before the network shapes: a bind failure can say "address in use".
+  [/mdns\b.*(failed to bind|address already in use|address in use|EADDRINUSE)|mdns daemon unavailable/i, "mdns_unavailable"],
   [/Connection to the TV was lost/i, "connection_lost"],
   [/in state 'unauthorized'|\bunauthori[sz]ed\b/i, "device_unauthorized"],
   [/in state 'offline'|device offline|\boffline\b/i, "device_offline"],
   [/Not connected to a device|no devices\/emulators found|device .* not found/i, "not_connected"],
-  [/wrong password|incorrect (pin|code|password)|bad (pin|code)/i, "wrong_pin"],
+  [/wrong password|incorrect (pin|code|password)|bad (pin|code)|code (didn't|didn’t|did not) match/i, "wrong_pin"],
   [
     /pairing (was )?(cancel|aborted|expired)|unable to start pairing client|connection was dropped/i,
     "pairing_expired",
@@ -74,6 +77,8 @@ const PLAIN: Record<ErrorCode, string> = {
   device_unauthorized:
     "The TV hasn't allowed this computer or phone yet. Accept the \"Allow debugging\" prompt on the TV.",
   device_offline: "The TV is listed but not responding. Check it's awake and on the same network.",
+  mdns_unavailable:
+    "Couldn't search the network for TVs because another app is using the search port. Enter the TV's IP address instead.",
   wrong_pin: "The pairing code didn't match. Open the pairing screen on the TV again for a fresh code.",
   pairing_expired: "The pairing screen on the TV closed or expired. Open it again and use the new code.",
   connection_refused:
@@ -122,6 +127,11 @@ export interface PresentedError {
   raw: string;
 }
 
+/// Text written for a log, not a person: OS error numbers, exit statuses,
+/// exceptions, or a `module: detail` chain. Shown behind Details instead.
+const DIAGNOSTIC_TEXT =
+  /\(os error \d+\)|\berrno\b|\bexit (status|code):? -?\d+|Exception\b|panicked at|^[a-z][\w-]*(::[\w-]+)*: |\bJoinError\b/;
+
 export function presentError(raw: unknown, support?: SupportInfo | null): PresentedError {
   const text = errorText(raw).trim();
   const code = classifyError(text);
@@ -137,9 +147,14 @@ export function presentError(raw: unknown, support?: SupportInfo | null): Presen
   ].includes(code);
   // The backend's own errors are mostly written for people ("not an IP
   // address…"). When none of the known shapes match, show that sentence
-  // rather than hiding it behind a generic one.
+  // rather than hiding it behind a generic one -- unless it is a raw
+  // diagnostic, which stays in Details and Copy details.
   const message =
-    code === "unknown" && text ? (text.length > 300 ? `${text.slice(0, 297)}…` : text) : PLAIN[code];
+    code === "unknown" && text && !DIAGNOSTIC_TEXT.test(text)
+      ? text.length > 300
+        ? `${text.slice(0, 297)}…`
+        : text
+      : PLAIN[code];
   return {
     code,
     message,

@@ -5,7 +5,9 @@ Two products live in this tree:
 - **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy**: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
-The two release tracks are intentionally separate. Don't mix tag namespaces and don't edit the v2 workflow when shipping v1 (or vice versa).
+- **Android app** — `v2/mobile/`, shipped on Google Play. Released on `mobile-v*` tags via `.github/workflows/mobile-play-release.yml`, which uploads a draft to the internal track; see `v2/mobile/RELEASE.md`.
+
+The release tracks are intentionally separate. Don't mix tag namespaces and don't edit one track's workflow when shipping another.
 
 Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the priority list, and any in-flight scope that isn't yet in the code.
 
@@ -32,7 +34,8 @@ Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
   `https://atv-optimizer-telemetry.bryanroscoe.workers.dev`. Repo variable `ATVOPT_TELEMETRY_URL`
-  points release builds at it; repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
+  points release builds at it (and the PR's native test packages, which set `ATVOPT_TEST_BUILD`:
+  their Send logs uploads are marked `-dev` and they send no automatic reports); repo secret `TELEMETRY_ADMIN_TOKEN` feeds the workflows below.
   Production details, where the secrets live (1Password item names only) and how to redeploy or
   rotate: [`v2/telemetry-worker/README.md`](v2/telemetry-worker/README.md#production).
 - **Device support tiers, anonymous telemetry and structured error codes** in both apps (#266).
@@ -41,9 +44,12 @@ Shipped in 2.5.0 or live on the server side:
   workflow rewrites the "Device support report" issue with suggested tier moves. A tier changes
   only by a PR to that file. Process, criteria and the evidence rule:
   [`docs/DEVICE-SUPPORT.md`](docs/DEVICE-SUPPORT.md).
-- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, with the purchase
-  signature checked on the phone (no server).
-  Past Ko-fi supporters get Pro through Play promo codes.
+- **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, plus "Support me"
+  tiers `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99) that unlock the same Pro
+  and nothing more, with the purchase signature checked on the phone (no server).
+  Past Ko-fi supporters get Pro through Play promo codes. **Keep Ko-fi out of the Play app**:
+  offering Pro for an outside donation in-app breaks Play's payments policy. The Ko-fi link and the
+  "donate, get a Pro code" offer live on the root README.
 
 Play submission path: the developer account is personal and new, so Google requires a closed test
 with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi
@@ -130,7 +136,7 @@ The Linux runner needs `libwebkit2gtk-4.1-dev libssl-dev libgtk-3-dev libayatana
 The README walkthrough (`v2/screenshots/gallery.gif`) is generated, not hand-captured. **When you change v2 UI in a way that alters any captured screen, regenerate it and commit the result** — don't let the gallery drift from the real app:
 
 ```
-cd v2 && npm run screenshots   # captures 16 screens in both themes and rebuilds both GIFs
+cd v2 && npm run screenshots   # captures 17 screens in both themes and rebuilds both GIFs
 ```
 
 It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated behind `VITE_DEMO=1`) — no device needed. Most changes (CSS, layout, copy, rows) flow through with no tooling edits. Two cases need a touch-up:

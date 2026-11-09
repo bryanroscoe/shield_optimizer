@@ -64,6 +64,24 @@
     "name": "JioHotstar"
   },
   {
+    "package": "com.tcl.waterfall.overseas",
+    "name": "TCL Channel",
+    "consequence_fragments": [
+      "TCL Channel viewing",
+      "updater may re-enable"
+    ]
+  },
+  {
+    "package": "com.tcl.channelplus",
+    "name": "TCL Live",
+    "consequence_fragments": [
+      "TCL free streaming channels",
+      "channel scan",
+      "Channel rows can remain blank",
+      "shortcut may stop working"
+    ]
+  },
+  {
     "package": "com.abc.abcnews",
     "name": "ABC News",
     "issue": 301,

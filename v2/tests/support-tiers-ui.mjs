@@ -53,8 +53,8 @@ async function tiersOnTheDeviceList({ browser, base }) {
 
   const shield = page.locator('[data-serial="192.168.1.42:5555"]');
   await shield.waitFor();
-  assert.equal(await shield.locator(".support-badge").innerText(), "Fully supported");
-  assert.match(await shield.innerText(), /NVIDIA SHIELD is the device this app is built and tested on\./);
+  assert.equal(await shield.locator(".support-badge").count(), 0, "supported Shields keep compact device cards");
+  assert.doesNotMatch(await shield.innerText(), /NVIDIA SHIELD is the device this app is built and tested on\./);
 
   // No rule matched: it says so, and claims nothing either way.
   const box = page.locator('[data-serial="192.168.1.77:5555"]');
@@ -172,7 +172,7 @@ async function main() {
     await telemetrySetting({ browser, base });
     await errorsAndReports({ browser, base });
     console.log(
-      "Support tiers UI passed: badges and one-line copy per tier, the not-supported banner on list and header (row still opens), the one-time report notice and the on-by-default switch (disabled when the build has no endpoint), and a failed connect shown with its code, Details and Copy details while the same code is reported.",
+      "Support tiers UI passed: compact supported Shield cards, warnings for other tiers, the not-supported banner on list and header (row still opens), the one-time report notice and the on-by-default switch (disabled when the build has no endpoint), and a failed connect shown with its code, Details and Copy details while the same code is reported.",
     );
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

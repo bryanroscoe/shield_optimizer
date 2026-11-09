@@ -29,11 +29,15 @@
   let copied = $state<"" | "ok" | "failed">("");
 
   async function copyDetails() {
+    // `support={null}` marks a failure that isn't about the connected TV
+    // (connecting to or switching to another one), so its model and tier
+    // would mislabel the report.
+    const aboutConnectedTv = support !== null && session.connectedDevice != null;
     const text = errorDetails(presented, {
       action: action || title || undefined,
       app: "ATV Optimizer (Android)",
-      device: session.connectedDevice?.model || undefined,
-      tier: session.connectedDevice ? session.support.tier : undefined,
+      device: aboutConnectedTv ? session.connectedDevice?.model || undefined : undefined,
+      tier: aboutConnectedTv ? (support ?? session.support).tier : undefined,
     });
     try {
       await navigator.clipboard.writeText(text);
