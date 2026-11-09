@@ -3211,7 +3211,7 @@
                          Never teal or lime — those mean verdict and action. -->
                     <span class="muted small done" data-rec="Kept"><Icon name="check" size={14} /> Kept</span>
                     <button
-                      class="small-action subtle"
+                      class="small-action subtle change-keep"
                       onclick={() => toggleKept(a.package)}
                       data-tip="Undo keeping this app"
                       aria-describedby={`undo-keep-${a.package}`}
