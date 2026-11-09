@@ -128,7 +128,12 @@ async function exercise({ browser, base }) {
   await page.getByRole("tab", { name: "Health" }).click();
   assert.equal((await healthCell.innerText()).trim(), "Kept", "Health reads Kept for a kept app");
   await healthRow.click();
-  await page.mouse.move(0, 0);
+  const describedBy = await change.getAttribute("aria-describedby");
+  assert.equal(
+    (await page.locator(`[id="${describedBy}"]`).textContent()).trim(),
+    `Undo keeping ${(await appRow.locator(".app-name").first().textContent()).trim()}`,
+    "Change says what it undoes without a hover tooltip",
+  );
   await change.click();
   await appRow.locator(`[data-rec="${appRec}"]`).waitFor();
   assert.equal(await appRow.locator('[data-rec="Kept"]').count(), 0, "Change returns the row to its recommendation");
