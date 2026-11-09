@@ -14,13 +14,17 @@
 import demoApps from "./demo-apps.json";
 import pkg from "../../package.json";
 import type {
+  AdbEngine,
+  AdbEngineStatus,
   AppEntry,
+  ApplyResult,
   Device,
   HealthReport,
   LauncherStatus,
   MediaCapabilities,
   OptimizePlan,
   OptimizePlanItem,
+  SnapshotApplyPlan,
   SnapshotFile,
   StopAdbOnQuit,
   TweaksState,
@@ -201,8 +205,93 @@ function demoFlag(name: string): boolean {
   }
 }
 
+/// A TV that hasn't allowed this computer: `approvalTv` adds it, and
+/// `approvalAutoAllow` makes it choose Allow 4 seconds after it is asked, so
+/// the approval dialog can be seen waiting and then closing by itself. Other
+/// flags vary how the request ends (see `approvalDemoFlags`).
+const APPROVAL_TV = "192.168.1.88:5555";
+/// The key the TV's row keeps when its approved transport is folded into
+/// another row by hardware id (`approvalMerges`).
+const APPROVAL_TV_MERGED = "192.168.1.88:40001";
+type ApprovalDemoState = "not_allowed" | "asked" | "allowing" | "allowed";
+const approvalDemo: {
+  state: ApprovalDemoState;
+  allowAt: number | null;
+  listedAt: number | null;
+  refuseAt: number | null;
+  lateAllowAt: number | null;
+  requests: number;
+  scanned: boolean;
+} = { state: "not_allowed", allowAt: null, listedAt: null, refuseAt: null, lateAllowAt: null, requests: 0, scanned: false };
+/// - `approvalGap`: after Allow the prompt is gone 3 seconds before the TV is
+///   listed (the request is still open meanwhile).
+/// - `approvalMerges`: once allowed, the TV is listed under another key.
+/// - `approvalRefuses`: the request ends without Allow 2 seconds after it
+///   asks; `approvalLateAllow` then lists the TV as allowed 3 seconds later.
+/// - `approvalUnreachable`: every request fails after 1.2 seconds.
+/// - `approvalFirstRequestFails`: the first request fails after 1.5 seconds.
+/// - `approvalTvAfterScan`: the TV is listed only once Scan LAN ran.
+/// - `transportStateFails` / `transportStateSlow`: the cheap per-transport
+///   read used while platform-tools waits fails, or takes 3 seconds.
+function approvalState(): ApprovalDemoState {
+  const now = Date.now();
+  if (approvalDemo.state === "asked" && approvalDemo.allowAt !== null && now >= approvalDemo.allowAt) {
+    approvalDemo.state = demoFlag("approvalGap") ? "allowing" : "allowed";
+    approvalDemo.listedAt = approvalDemo.allowAt + 3000;
+  }
+  if (approvalDemo.state === "allowing" && approvalDemo.listedAt !== null && now >= approvalDemo.listedAt) {
+    approvalDemo.state = "allowed";
+  }
+  if (approvalDemo.state === "asked" && approvalDemo.refuseAt !== null && now >= approvalDemo.refuseAt) {
+    approvalDemo.state = "not_allowed";
+    approvalDemo.lateAllowAt = demoFlag("approvalLateAllow") ? approvalDemo.refuseAt + 3000 : null;
+    approvalDemo.refuseAt = null;
+  }
+  if (approvalDemo.state === "not_allowed" && approvalDemo.lateAllowAt !== null && now >= approvalDemo.lateAllowAt) {
+    approvalDemo.state = "allowed";
+  }
+  return approvalDemo.state;
+}
+function askApprovalTv() {
+  const now = Date.now();
+  approvalDemo.state = "asked";
+  approvalDemo.allowAt = demoFlag("approvalAutoAllow") ? now + 4000 : null;
+  approvalDemo.refuseAt = demoFlag("approvalRefuses") ? now + 2000 : null;
+  approvalDemo.lateAllowAt = null;
+}
+function endApprovalWait() {
+  if (approvalState() === "asked") approvalDemo.state = "not_allowed";
+  approvalDemo.allowAt = null;
+  approvalDemo.refuseAt = null;
+}
+function approvalTvListed(): boolean {
+  return demoFlag("approvalTv") && (!demoFlag("approvalTvAfterScan") || approvalDemo.scanned);
+}
+function approvalTvRow(): Device {
+  if (approvalState() === "allowed") {
+    const serial = demoFlag("approvalMerges") ? APPROVAL_TV_MERGED : APPROVAL_TV;
+    return { ...device, id: 9, serial, name: "Bedroom TV", model: "SHIELD Android TV (2019 Tube)" };
+  }
+  return {
+    id: 9, serial: APPROVAL_TV, name: "Bedroom TV", model: "", device_type: "unknown",
+    tv_evidence: "unknown", status: "unauthorized", connection: "network", properties: null,
+    support: { tier: "unknown", note: null },
+  };
+}
+function demoDelay<T>(ms: number, run: () => T): Promise<T> {
+  return new Promise((resolve, reject) => setTimeout(() => {
+    try {
+      resolve(run());
+    } catch (e) {
+      reject(e);
+    }
+  }, ms));
+}
+
 function demoDevices(): Device[] {
+  if (demoFlag("noDevices")) return [];
   const list = [device, unconfirmedDevice, usbDevice];
+  if (approvalTvListed()) list.push(approvalTvRow());
   if (demoFlag("notTv")) list.push(phoneDevice);
   if (demoFlag("fireTv")) list.push(fireTvDevice);
   return list;
@@ -214,9 +303,28 @@ let debugLogging = false;
 /// covered by it; the `telemetryNotice` flag shows it, and
 /// `telemetryUnavailable` stands in for a build without an endpoint.
 let telemetry: { enabled: boolean; notice_seen: boolean } | null = null;
+/// The install id reports carry. Shown only while reports are on and the
+/// build has an endpoint, as the real backend does.
+const DEMO_SUPPORT_ID = "7f3a9c21-4b8e-4d2a-9e61-0c5d8b2f1a37";
 function telemetrySettings() {
   telemetry ??= { enabled: true, notice_seen: !demoFlag("telemetryNotice") };
-  return { ...telemetry, available: !demoFlag("telemetryUnavailable") };
+  const available = !demoFlag("telemetryUnavailable");
+  if (demoFlag("testBuild")) {
+    // A test build: reports always off, the upload id still shown when it
+    // can upload at all.
+    return {
+      enabled: false,
+      notice_seen: true,
+      available,
+      support_id: available ? DEMO_SUPPORT_ID : null,
+      test_build: "4f156e4 (merge commit; PR head 9a8b7c6)",
+    };
+  }
+  return {
+    ...telemetry,
+    available,
+    support_id: available && telemetry.enabled ? DEMO_SUPPORT_ID : null,
+  };
 }
 /// Every report the UI handed to the backend, for tests to read back.
 function recordTelemetry(command: string, args: Record<string, unknown>): null {
@@ -248,11 +356,52 @@ function storeNativeStopAdbOnQuit(next: StopAdbOnQuit): StopAdbOnQuit {
   return next;
 }
 
+/// The ADB engine setting, kept in memory like the real one for the app
+/// process. Flags: `adbEngineBuiltin` starts on the built-in engine,
+/// `adbEngineFallback` has the built-in engine selected but unable to start,
+/// `adbEngineEnv` stands in for an ATV_OPTIMIZER_TRANSPORT override, and
+/// `builtinUnavailable` for a build without the built-in engine.
+const DEMO_FALLBACK_REASON =
+  "The built-in engine couldn't set up its key, so this session uses Google platform-tools. Existing keys were not replaced. Details: demo storage is read-only.";
+let adbEngine: AdbEngineStatus | null = null;
+
+function adbEngineStatus(): AdbEngineStatus {
+  if (!adbEngine) {
+    const fallback = demoFlag("adbEngineFallback");
+    const selected: AdbEngine = fallback || demoFlag("adbEngineBuiltin") ? "builtin" : "platform_tools";
+    adbEngine = {
+      selected,
+      source: demoFlag("adbEngineEnv") ? "env" : selected === "builtin" ? "saved" : "default",
+      active: fallback ? "platform_tools" : selected,
+      fallback_reason: fallback ? DEMO_FALLBACK_REASON : null,
+      builtin_available: !demoFlag("builtinUnavailable"),
+    };
+  }
+  return { ...adbEngine };
+}
+
+function setAdbEngine(engine: AdbEngine): AdbEngineStatus {
+  const current = adbEngineStatus();
+  if (current.source === "env") {
+    throw "ATV_OPTIMIZER_TRANSPORT chooses the ADB engine for this launch. Remove it and reopen the app to use this setting.";
+  }
+  if (engine === "builtin" && !current.builtin_available) throw "This build doesn't include the built-in engine.";
+  const failsToStart = engine === "builtin" && demoFlag("adbEngineFallback");
+  adbEngine = {
+    ...current,
+    selected: engine,
+    source: "saved",
+    active: failsToStart ? "platform_tools" : engine,
+    fallback_reason: failsToStart ? DEMO_FALLBACK_REASON : null,
+  };
+  return { ...adbEngine };
+}
+
 // Replies to the Stop ADB when quitting commands that a test holds back, for
 // the `stopAdbOnQuitHeld` flag. The command takes effect at once; only its
 // reply waits, like a slow IPC answer, until the test releases it.
 const heldReplies: Array<() => void> = [];
-const LOG_DIR = "/Users/you/Library/Application Support/ShieldOptimizer/logs";
+const LOG_DIR = "/Users/you/Library/Application Support/ATVOptimizer/logs";
 
 /// Stand-in for the real `collect_diagnostics`, in the same shape: host facts,
 /// then one device's identity and TV evidence, then a log tail. No package
@@ -292,7 +441,7 @@ function demoDiagnostics(serial: string | null): string {
       "",
     );
   }
-  lines.push("### Recent log", "", "```", "INFO shield_optimizer_v2_lib: adb located", "```", "");
+  lines.push("### Recent log", "", "```", "INFO atv_optimizer_lib: adb located", "```", "");
   return lines.join("\n");
 }
 
@@ -428,9 +577,10 @@ const tweaks: TweaksState = {
   screensaver_enabled: "1",
 };
 
+let savedSnapshots = 0;
 const snapshots: SnapshotFile[] = [
   {
-    path: "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots/shield-living-room-2026-05-12.json",
+    path: "/Users/you/Library/Application Support/ATVOptimizer/snapshots/shield-living-room-2026-05-12.json",
     filename: "shield-living-room-2026-05-12.json",
     saved_at: "2026-05-12T18:42:09Z",
     label: "After debloat + Projectivy",
@@ -442,7 +592,7 @@ const snapshots: SnapshotFile[] = [
     launcher: "com.spocky.projengmenu",
   },
   {
-    path: "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots/shield-bedroom-2026-04-28.json",
+    path: "/Users/you/Library/Application Support/ATVOptimizer/snapshots/shield-bedroom-2026-04-28.json",
     filename: "shield-bedroom-2026-04-28.json",
     saved_at: "2026-04-28T09:15:33Z",
     label: null,
@@ -496,7 +646,7 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         // plan has to carry a row whose verdict the wizard must still resolve
         // even though it proposes no action on it — plus one enabled
         // medium-risk app, so the plan has a Caution row that is actionable
-        // and "Select all safe" has something it must leave alone — plus one
+        // and starts at Keep — plus one
         // uninstall-method app with no store listing, which Optimize must
         // offer Disable for and never Uninstall — plus TV Recommendations, for
         // tests/tvrecommendations-safety.mjs.
@@ -504,7 +654,8 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
         || entry.package === "com.android.providers.tv"
         || entry.package === "com.nvidia.tegrazone3"
         || entry.package === "com.philo.philo"
-        || entry.package === "com.google.android.tvrecommendations",
+        || entry.package === "com.google.android.tvrecommendations"
+        || (demoFlag("reviewedCatalog") && entry.review),
     )
     .map((entry) => {
       const state = MISSING.has(entry.package)
@@ -580,7 +731,27 @@ function demoShellOutput(command: string): string {
 export function handle(cmd: string, args: Record<string, unknown>): unknown {
   switch (cmd) {
     case "adb_status":
-      return { available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+      if (adbEngineStatus().active === "builtin") {
+        return {
+          backend: "direct",
+          available: true,
+          path: null,
+          last_probe: "Built-in ADB (demo); no host adb server",
+          connections: {
+            pending: [],
+            awaiting_authorization: approvalTvListed() && approvalState() === "asked" ? [APPROVAL_TV] : [],
+            requesting: approvalTvListed() && ["asked", "allowing"].includes(approvalState()) ? [APPROVAL_TV] : [],
+            not_allowed: approvalTvListed() && approvalState() === "not_allowed" ? [APPROVAL_TV] : [],
+            ready: [],
+            failed: [],
+          },
+        };
+      }
+      return { backend: "subprocess", available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
+    case "adb_engine":
+      return adbEngineStatus();
+    case "set_adb_engine":
+      return setAdbEngine(args.engine as AdbEngine);
     case "get_stop_adb_on_quit":
       if (demoFlag("stopAdbOnQuitReadFails")) throw "demo: the setting could not be read";
       return nativeStopAdbOnQuit();
@@ -616,10 +787,34 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         // from here. Null is what a failed or timed-out GitHub call returns.
         current_notes: null,
       };
+    case "update_channel":
+      return demoFlag("flatpak") ? "flatpak" : "self";
     case "list_devices":
-      return demoDevices();
+      // The built-in engine is network-only, so it never lists a USB device.
+      return adbEngineStatus().active === "builtin"
+        ? demoDevices().filter((d) => d.connection !== "usb")
+        : demoDevices();
+    case "scan_network": {
+      approvalDemo.scanned = true;
+      const connected = demoDevices().filter(d => d.connection === "network").map(d => d.serial);
+      return { subnet: null, found: connected, connected, unauthorized: [], failed: [], needs_pairing: [],
+        message: connected.length ? `Found ${connected.length} devices.` : "No devices found." };
+    }
     case "device_profile":
+      // A folded alias resolves to the row it was folded into, as
+      // `resolve_profile` does by hardware id.
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV) return approvalTvRow();
       return demoDevices().find((d) => d.serial === String(args.serial ?? "")) ?? device;
+    case "transport_state": {
+      const read = () => {
+        if (demoFlag("transportStateFails")) throw "demo: adb devices failed";
+        if (approvalTvListed() && String(args.serial) === APPROVAL_TV) {
+          return approvalState() === "allowed" ? "device" : "unauthorized";
+        }
+        return demoDevices().find((d) => d.serial === String(args.serial))?.status ?? null;
+      };
+      return demoFlag("transportStateSlow") ? demoDelay(3000, read) : read();
+    }
     case "collect_diagnostics":
       return demoDiagnostics((args.serial as string | null) ?? null);
     case "telemetry_settings":
@@ -635,6 +830,16 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "telemetry_action":
     case "telemetry_error":
       return recordTelemetry(cmd, args);
+    case "upload_diagnostics":
+      // "Send logs to developer". Nothing leaves the page: the call is
+      // recorded for tests, and `uploadFails` stands in for a failed upload.
+      recordTelemetry(cmd, args);
+      if (demoFlag("uploadFails")) throw "Log upload failed: the server answered 503 Service Unavailable.";
+      return { support_id: DEMO_SUPPORT_ID, bytes: 48_213 };
+    case "plugin:updater|check":
+      // The updater manifest has nothing newer. Without this the catch-all
+      // answer below reads as an update and puts "Update now" in the header.
+      return null;
     case "get_debug_logging":
       return debugLogging;
     case "set_debug_logging":
@@ -643,6 +848,12 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "log_dir_path":
       return LOG_DIR;
     case "open_log_dir":
+      return null;
+    case "local_network_access":
+      // The `localNetworkBlocked` flag shows the macOS notice; otherwise the
+      // demo is a computer with nothing to report.
+      return { status: demoFlag("localNetworkBlocked") ? "blocked" : "not_applicable" };
+    case "open_local_network_settings":
       return null;
     case "log_ui_event":
       return null;
@@ -886,9 +1097,37 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "set_private_dns":
       return { ok: true, message: "Private DNS updated.", reverted: false };
     case "list_snapshots":
-      return snapshots;
+      return [...snapshots];
+    case "save_snapshot": {
+      const label = typeof args.label === "string" ? args.label : null;
+      // Each save is a new file, as on disk: the Snapshot list keys rows by path.
+      savedSnapshots++;
+      const filename = `shield-living-room-2026-06-02-${String(savedSnapshots).padStart(2, "0")}.json`;
+      const saved: SnapshotFile = {
+        path: `/Users/you/Library/Application Support/ATVOptimizer/snapshots/${filename}`,
+        filename,
+        saved_at: new Date(Date.UTC(2026, 5, 2, 14, 51, 10) + savedSnapshots * 60_000)
+          .toISOString()
+          .replace(".000Z", "Z"),
+        label,
+        device_name: "NVIDIA SHIELD Android TV",
+        device_serial: SERIAL,
+        device_type: "shield",
+        disabled_count: DISABLED.size,
+        settings_count: 6,
+        launcher: "com.spocky.projengmenu",
+      };
+      snapshots.unshift(saved);
+      return saved;
+    }
+    case "delete_snapshot": {
+      const index = snapshots.findIndex((snapshot) => snapshot.path === args.snapshotPath);
+      if (index === -1) throw new Error("Snapshot not found");
+      snapshots.splice(index, 1);
+      return;
+    }
     case "snapshot_dir_path":
-      return "/Users/you/Library/Application Support/com.shieldoptimizer.app/snapshots";
+      return "/Users/you/Library/Application Support/ATVOptimizer/snapshots";
     case "find_files":
       return { hits: [], unsearched: [] };
     case "list_apks_in_folder":
@@ -921,6 +1160,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         launcher_to_set: snap.launcher && snap.launcher !== homeNow ? snap.launcher : null,
         current_launcher: homeNow,
         launcher_not_installed: null,
+        launcher_disabled: null,
+        packages_kept: [],
         settings_to_write: {
           "global.hdmi_control_enabled": "0",
           "secure.match_content_frame_rate": "1",
@@ -930,7 +1171,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         settings_already_set: ["global.transition_animation_scale", "global.animator_duration_scale"],
         current_values: now,
         cross_device_warning: null,
-      };
+      } satisfies SnapshotApplyPlan;
     }
     case "set_home_any": {
       // Only real Home apps are accepted; anything else gets the honest refusal
@@ -969,7 +1210,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         settings_deleted: ["global.encoded_surround_output"],
         settings_failed: [],
         summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written, 1 reset.",
-      };
+      } satisfies ApplyResult;
     case "prepare_optimize":
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
     case "report_all":
@@ -985,13 +1226,40 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "local_address_for":
       return "192.168.1.10";
     case "reprompt_device":
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        askApprovalTv();
+        return { ok: true, status: "unauthorized", message: "Approval requested again." };
+      }
       return {
         ok: true,
         status: "unauthorized",
         message:
-          'Asked again. Look at the TV, check "Always allow from this computer" and choose Allow.',
+          'Approval requested again. Check the device for the debugging prompt, select "Always allow from this computer" if offered, and choose Allow.',
       };
+    // Built-in engine: the demo TVs already allow this computer.
+    case "request_device_approval":
+      if (approvalTvListed() && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        approvalDemo.requests += 1;
+        if (demoFlag("approvalUnreachable")) {
+          return demoDelay(1200, () => {
+            throw `The TV at ${APPROVAL_TV} didn't answer within 20 seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.`;
+          });
+        }
+        if (demoFlag("approvalFirstRequestFails") && approvalDemo.requests === 1) {
+          return demoDelay(1500, () => {
+            throw "SIMULATED stale request failure";
+          });
+        }
+        askApprovalTv();
+        return { ok: true, status: "waiting", message: "Choose Allow on the TV." };
+      }
+      return { ok: true, status: "device", message: "Connected. This TV already allows this computer." };
+    case "cancel_device_approval":
+      endApprovalWait();
+      return null;
     case "forget_device":
+      // Forget ends a request's wait, as the built-in engine's disconnect does.
+      if (String(args.serial) === APPROVAL_TV) endApprovalWait();
       return {
         ok: true,
         disconnected: [String(args.serial)],
@@ -1007,6 +1275,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
       return null;
     }
+    case "remote_open":
+      return { generation: "1" };
+    case "remote_close":
+      return null;
     default:
       // Mutating commands (disable_package, set_default_launcher, …) aren't
       // exercised during capture; answer benignly just in case.

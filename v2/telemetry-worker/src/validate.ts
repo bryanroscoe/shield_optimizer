@@ -1,11 +1,17 @@
-import { clamp, redactMessage, redactShortField } from "./redact";
+import { plausibleErrorCode, REDACTED_CODE } from "./codes";
+import { cleanDiag } from "./diag";
+import { clamp, redactLogExcerpt, redactMessage, redactShortField } from "./redact";
 
-export const SCHEMA = 1;
+// 1: the original contract. 2: adds the `diagnostic` kind and the optional
+// `diag` and `log_excerpt` fields. Both are accepted, so apps that have not
+// updated keep reporting.
+export const SCHEMAS = [1, 2] as const;
+export const SCHEMA = 2;
 export const MAX_EVENTS = 50;
 export const MAX_BODY_BYTES = 64 * 1024;
 
 export const APPS = ["desktop", "mobile"] as const;
-export const KINDS = ["device_seen", "action_result", "error"] as const;
+export const KINDS = ["device_seen", "action_result", "error", "diagnostic"] as const;
 export const TIERS = ["unknown", "not_supported", "beta", "supported", "fully_supported"] as const;
 export const PROFILES = ["shield", "googletv", "androidtv", "fire", "unknown"] as const;
 export const ACTIONS = [
@@ -54,6 +60,10 @@ export interface CleanEvent {
   ok: boolean | null;
   error_code: string | null;
   message: string | null;
+  // Cleaned JSON text (src/diag.ts), or null.
+  diag: string | null;
+  // Desktop only, redacted again here; null for the phone app.
+  log_excerpt: string | null;
 }
 
 export type Result<T> = { ok: true; value: T } | { ok: false; reason: string };
@@ -67,15 +77,7 @@ const ANDROID_RELEASE = /^\d{1,2}(?:\.\d{1,2}){0,2}$/;
 // RFC 3339 date-time with a mandatory offset.
 const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 
-// Error codes are constants like pm_denied or adb_exit_255. More than four
-// digits means a serial, IP or timestamp was folded in (serial_0323220012345,
-// ip_192_168_1_5); license words mean licence data. Such codes are replaced
-// with redacted_code, since codes are kept forever in agg_error_daily.
-export const REDACTED_CODE = "redacted_code";
-
-function plausibleErrorCode(code: string): boolean {
-  return (code.match(/\d/g) ?? []).length <= 4 && !/licen[cs]/.test(code);
-}
+export { REDACTED_CODE } from "./codes";
 
 const FIELD_MAX = 64;
 const OS_MAX = 40;
@@ -123,7 +125,8 @@ function cleanDevice(raw: unknown): Result<DeviceInfo> {
 
 export function validateEvent(raw: unknown): Result<CleanEvent> {
   if (!isRecord(raw)) return { ok: false, reason: "event_not_object" };
-  if (raw.schema !== SCHEMA) return { ok: false, reason: "unsupported_schema" };
+  if (!(SCHEMAS as readonly unknown[]).includes(raw.schema)) return { ok: false, reason: "unsupported_schema" };
+  const schema = raw.schema as (typeof SCHEMAS)[number];
 
   const kind = oneOf(KINDS, raw.kind);
   if (!kind) return { ok: false, reason: "unknown_kind" };
@@ -179,6 +182,18 @@ export function validateEvent(raw: unknown): Result<CleanEvent> {
     message = redactMessage(clamp(raw.message, 2000)) || null;
   }
 
+  // Schema 1 clients never send these; anything they do send is ignored.
+  let diag: string | null = null;
+  let logExcerpt: string | null = null;
+  if (schema >= 2) {
+    diag = cleanDiag(raw.diag);
+    // The phone app's declared data does not include logs, so an excerpt
+    // from it is dropped even if a client bug sends one.
+    if (app === "desktop" && typeof raw.log_excerpt === "string") {
+      logExcerpt = redactLogExcerpt(raw.log_excerpt) || null;
+    }
+  }
+
   switch (kind) {
     case "device_seen":
       if (!device) return { ok: false, reason: "device_seen_without_device" };
@@ -197,7 +212,16 @@ export function validateEvent(raw: unknown): Result<CleanEvent> {
       if (!errorCode) return { ok: false, reason: "error_without_error_code" };
       ok = null;
       break;
+    case "diagnostic":
+      if (schema < 2) return { ok: false, reason: "unknown_kind" };
+      if (!errorCode) return { ok: false, reason: "diagnostic_without_error_code" };
+      if (!diag) return { ok: false, reason: "diagnostic_without_diag" };
+      ok = null;
+      message = null;
+      break;
   }
+  // Excerpts belong to failures and diagnostics, never to a success.
+  if (kind === "device_seen" || (kind === "action_result" && ok === true)) logExcerpt = null;
 
   return {
     ok: true,
@@ -213,6 +237,8 @@ export function validateEvent(raw: unknown): Result<CleanEvent> {
       ok,
       error_code: errorCode,
       message,
+      diag,
+      log_excerpt: logExcerpt,
     },
   };
 }

@@ -1,0 +1,55 @@
+# PRISM+ Q65 Ultra 2026 QLED 4K AI Google TV (device R10G, product PRISMPLUS_FFM, made by MOKA)
+# Android TV 14 (Google TV), firmware UKR1.251010.001, Realtek RTD2875 SoC, RTD6748 platform
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/prismplus-q65-ultra-r10g/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/prismplus-q65-ultra-r10g/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh, the default is wrong here).
+# Live TV and inputs: keep com.realtek.dtv and com.realtek.tv.atv (needed for HDMI and the other inputs).
+#
+# Tested on one set, disabled with pm disable-user --user 0 and lived with for a few days.
+# Checked over adb on 2026-10-20: HDMI input, ARC audio to a soundbar and Home work. Nothing else verified.
+
+# Launcher partner customization and Google partner setup
+com.realtek.leanbacklauncher.partnercustomizer
+com.google.android.partnersetup
+android.autoinstalls.config.google.gtvpai   # Play partner auto-installs
+
+# Preloaded services
+com.seraphic.media.tv.interactive.app
+com.google.android.apps.tv.dreamx           # ambient mode screensaver
+com.apps.scast                              # likely screen mirroring
+com.apps.wifihotspot
+com.mk.tv.meeting.service
+com.apps.esticker3
+com.android.printspooler
+com.android.tv.feedbackconsent
+
+# Privacy Sandbox and on-device personalization
+com.android.adservices.api
+com.android.federatedcompute.services
+com.android.ondevicepersonalization.services
+
+# Broadcast tuner apps not used here (DTMB, ISDB, ATSC)
+com.realtek.dtmb
+com.realtek.tv.isdb
+com.realtek.tv.atsc
+
+# Karaoke
+com.realtek.karaoke.userguide
+com.realtek.kara
+
+# Preloaded apps
+com.apps.mk.gameui
+com.apps.puresound
+com.apps.usbmediaplayer
+com.wbd.stream                              # Max, off by choice
+
+# Stock home. Disable only after the new launcher is installed and running, or Home lands on a factory test app.
+com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith     # setup wizard; on this set YouTube casting from a phone still works after a reboot (tested 2026-10-25)
+#   Careful: on most Google TV sets setupwraith's RecoveryActivity takes Home once launcherx is off and
+#   crash-loops system_server (docs/TROUBLESHOOTING.md). Forget and re-join Wi-Fi first, it owns the network.
+
+# KEEP: com.realtek.dtv, com.realtek.tv.atv (HDMI and other inputs). Left enabled: com.realtek.airplay2.

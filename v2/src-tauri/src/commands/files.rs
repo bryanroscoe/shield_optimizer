@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
-use shield_optimizer_core::commands::files::{
+use atv_optimizer_core::commands::files::{
     delete_path_with, find_files_with, validate_device_path, validate_sdcard_path, FindResult,
 };
 

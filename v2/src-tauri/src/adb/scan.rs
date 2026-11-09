@@ -6,18 +6,24 @@
 //! directly — it's the only port we care about, it's faster, and many TVs
 //! firewall ICMP but must expose 5555 for adb-over-network to work at all.
 
-use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
+use std::net::IpAddr;
+#[cfg(not(feature = "e2e"))]
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::{stream, stream::BoxStream, StreamExt};
+#[cfg(not(feature = "e2e"))]
 use tokio::net::TcpStream;
 use tokio::process::Command;
+#[cfg(not(feature = "e2e"))]
 use tokio::time::timeout;
 
 /// How long to wait per TCP connect before giving up.
+#[cfg(not(feature = "e2e"))]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// How many simultaneous probes to keep in flight.
+#[cfg(not(feature = "e2e"))]
 const PROBE_CONCURRENCY: usize = 64;
 
 /// ADB-over-network listening port.
@@ -26,11 +32,12 @@ pub const ADB_NETWORK_PORT: u16 = 5555;
 /// Determine the local /24 subnet by reading the default gateway. Returns the
 /// first three octets (e.g. `[192, 168, 42]`).
 ///
-/// Honors the `SHIELD_OPTIMIZER_SUBNET` env var (e.g. `"192.168.42"`) which
+/// Honors the `ATV_OPTIMIZER_SUBNET` env var (or its old name
+/// `SHIELD_OPTIMIZER_SUBNET`, e.g. `"192.168.42"`) which
 /// matches v1's `-Subnet` CLI flag. Falls back to OS-specific subprocess
 /// parsing when unset.
 pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
-    if let Ok(s) = std::env::var("SHIELD_OPTIMIZER_SUBNET") {
+    if let Some(s) = crate::rename::subnet_override() {
         if let Some(prefix) = parse_prefix(&s) {
             return Some(prefix);
         }
@@ -41,6 +48,13 @@ pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
         IpAddr::V6(_) => return None, // ADB-over-network is IPv4-only in practice.
     };
     Some([octets[0], octets[1], octets[2]])
+}
+
+/// Did `ATV_OPTIMIZER_SUBNET` choose the subnet, rather than the gateway?
+pub fn subnet_overridden() -> bool {
+    crate::rename::subnet_override()
+        .and_then(|s| parse_prefix(&s))
+        .is_some()
 }
 
 fn parse_prefix(s: &str) -> Option<[u8; 3]> {
@@ -186,54 +200,90 @@ pub static SWEEP_OVERRIDE: std::sync::RwLock<
     Option<Box<dyn Fn([u8; 3]) -> Vec<String> + Send + Sync>>,
 > = std::sync::RwLock::new(None);
 
-/// Probe all 254 addresses in the given /24 in parallel. Returns IPs that
-/// answered on the ADB port. Honors a global concurrency cap so we don't
-/// flood the user's network stack.
-pub async fn scan_subnet(prefix: [u8; 3]) -> Vec<ScanHit> {
-    #[cfg(feature = "e2e")]
-    if let Some(ips) = SWEEP_OVERRIDE
-        .read()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
-    {
-        return ips.into_iter().map(|ip| ScanHit { ip }).collect();
-    }
-    // Priority sweep mirroring v1: common DHCP range first, then the rest.
-    let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
-
-    let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
-    let mut iter = ordered_hosts.into_iter();
-    let mut hits = Vec::new();
-
-    // Prime the pump.
-    for _ in 0..PROBE_CONCURRENCY {
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
-        }
-    }
-
-    while let Some(result) = in_flight.next().await {
-        if let Some(hit) = result {
-            hits.push(hit);
-        }
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
-        }
-    }
-
-    hits
+/// How a port sweep went, for the "scan found nothing" report.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SweepStats {
+    pub probed: usize,
+    pub open: usize,
+    pub timeouts: usize,
+    pub refused: usize,
+    pub elapsed: Duration,
 }
 
-async fn probe(prefix: [u8; 3], host: u8) -> Option<ScanHit> {
+#[cfg_attr(feature = "e2e", allow(dead_code))]
+enum Probe {
+    Open(ScanHit),
+    Refused,
+    TimedOut,
+    Other,
+}
+
+/// Collect the same streaming sweep used by native discovery, with diagnostics.
+pub async fn scan_subnet_with_stats(prefix: [u8; 3]) -> (Vec<ScanHit>, SweepStats) {
+    let mut stats = SweepStats::default();
+    let hits = scan_subnet_hits(prefix, &mut stats).collect().await;
+    (hits, stats)
+}
+
+pub fn scan_subnet_hits(prefix: [u8; 3], stats: &mut SweepStats) -> BoxStream<'_, ScanHit> {
+    #[cfg(feature = "e2e")]
+    let probes = {
+        let ips = SWEEP_OVERRIDE
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
+            .expect("E2E fixture sweep is missing; live network probing was refused");
+        stream::iter(ips.into_iter().map(|ip| Probe::Open(ScanHit { ip })))
+    };
+    #[cfg(not(feature = "e2e"))]
+    let probes = stream::iter((100..=150).chain(2..=99).chain(151..=254))
+        .map(move |host| probe(prefix, host))
+        .buffer_unordered(PROBE_CONCURRENCY);
+    tracked_hits(probes, stats)
+}
+
+fn tracked_hits<'a>(
+    probes: impl futures_util::Stream<Item = Probe> + Send + 'a,
+    stats: &'a mut SweepStats,
+) -> BoxStream<'a, ScanHit> {
+    let started = Instant::now();
+    probes
+        .filter_map(move |probe| {
+            stats.probed += 1;
+            stats.elapsed = started.elapsed();
+            let hit = match probe {
+                Probe::Open(hit) => {
+                    stats.open += 1;
+                    Some(hit)
+                }
+                Probe::Refused => {
+                    stats.refused += 1;
+                    None
+                }
+                Probe::TimedOut => {
+                    stats.timeouts += 1;
+                    None
+                }
+                Probe::Other => None,
+            };
+            futures_util::future::ready(hit)
+        })
+        .boxed()
+}
+
+#[cfg(not(feature = "e2e"))]
+async fn probe(prefix: [u8; 3], host: u8) -> Probe {
     let addr = SocketAddr::from((
         std::net::Ipv4Addr::new(prefix[0], prefix[1], prefix[2], host),
         ADB_NETWORK_PORT,
     ));
     match timeout(PROBE_TIMEOUT, TcpStream::connect(addr)).await {
-        Ok(Ok(_)) => Some(ScanHit {
+        Ok(Ok(_)) => Probe::Open(ScanHit {
             ip: addr.ip().to_string(),
         }),
-        _ => None,
+        Ok(Err(e)) if e.kind() == std::io::ErrorKind::ConnectionRefused => Probe::Refused,
+        Ok(Err(_)) => Probe::Other,
+        Err(_) => Probe::TimedOut,
     }
 }
 
@@ -241,6 +291,44 @@ async fn probe(prefix: [u8; 3], host: u8) -> Option<ScanHit> {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(feature = "e2e")]
+    #[tokio::test]
+    #[should_panic(expected = "live network probing was refused")]
+    async fn missing_e2e_provider_never_falls_through_to_network_probes() {
+        assert!(SWEEP_OVERRIDE.read().unwrap().is_none());
+        scan_subnet_with_stats([192, 0, 2]).await;
+    }
+
+    #[tokio::test]
+    async fn sweep_statistics_do_not_buffer_early_responders() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let probes = stream::iter([
+            Probe::Refused,
+            Probe::Open(ScanHit {
+                ip: "192.0.2.1".into(),
+            }),
+        ])
+        .chain(stream::once(async move {
+            rx.await.unwrap();
+            Probe::TimedOut
+        }))
+        .chain(stream::iter([Probe::Other]));
+        let mut stats = SweepStats::default();
+        let mut hits = tracked_hits(probes, &mut stats);
+        let first = tokio::time::timeout(Duration::from_secs(1), hits.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.ip, "192.0.2.1");
+        tx.send(()).unwrap();
+        assert!(hits.next().await.is_none());
+        drop(hits);
+        assert_eq!(
+            (stats.probed, stats.open, stats.refused, stats.timeouts),
+            (4, 1, 1, 1)
+        );
+    }
 
     #[test]
     fn parses_dotted_prefix() {

@@ -4,32 +4,36 @@
   import BrandMark from "$lib/components/BrandMark.svelte";
   import ContextMenu from "$lib/components/ContextMenu.svelte";
   import ReleaseNotes from "$lib/components/ReleaseNotes.svelte";
+  import ThemeToggle from "$lib/components/ThemeToggle.svelte";
   import { onMount } from "svelte";
   import { page } from "$app/stores";
+  import { goto } from "$app/navigation";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
   import { relaunch } from "@tauri-apps/plugin-process";
+  import { watchOsTheme } from "$lib/theme";
   import {
-    getThemePref,
-    setThemePref,
-    watchOsTheme,
-    type ThemePref,
-  } from "$lib/theme";
-  import {
-    getAutoUpdate,
     getLegacyLastSeenVersion,
     getNotesSeenVersion,
-    setAutoUpdate,
     setNotesSeenVersion,
   } from "$lib/prefs";
   import { api, send } from "$lib/api";
   import {
+    formatSupportId,
     installGlobalErrorReporting,
     NOTICE_TEXT,
     TOGGLE_LABEL,
-    type TelemetrySettings,
   } from "../../shared/telemetry";
+  import {
+    dismissReportsNotice,
+    loadReports,
+    reports,
+    setReportsEnabled,
+  } from "$lib/reports.svelte";
+  import { loadUiPrefs, uiPrefs } from "$lib/ui-prefs.svelte";
+  import { watchLocalNetwork } from "$lib/local-network.svelte";
+  import { provideAppShell } from "$lib/app-shell";
   import { installBreadcrumbs, setBreadcrumbsEnabled } from "$lib/breadcrumbs";
   import { parseReleaseNotes, type NoteBlock } from "$lib/release-notes";
   import { notesFor, parseChangelog, recentReleases } from "$lib/changelog";
@@ -47,14 +51,15 @@
   const RELEASES_PAGE = "https://github.com/bryanroscoe/shield_optimizer/releases";
   const changelog = parseChangelog(changelogSource);
 
-  let theme = $state<ThemePref>("system");
-  let autoUpdate = $state(true);
   let update = $state<UpdateInfo | null>(null);
   /// The running version, read from the app itself rather than from the
   /// GitHub API call, which can take seconds or fail outright.
   let appVersion = $state<string | null>(null);
   const currentVersion = $derived(appVersion ?? update?.current ?? null);
   let pendingUpdate = $state<Update | null>(null);
+  /// Inside a Flatpak, /app is read-only and Flatpak delivers new versions, so
+  /// the in-app updater never runs and update notices point there instead.
+  let viaFlatpak = $state(false);
   let updateBusy = $state(false);
   let updateInstalled = $state(false);
   let updateProgress = $state("");
@@ -106,53 +111,127 @@
       : false,
   );
 
-  /// Anonymous reports. `null` until the backend answers.
-  let telemetry = $state<TelemetrySettings | null>(null);
-  let telemetryNoticeOpen = $state(false);
-  /// Desktop keeps its settings in the header and the Report a bug dialog,
-  /// so the notice points there rather than at a Settings screen.
+  /// Anonymous reports, shared with Settings. The notice says where the
+  /// switch is rather than repeating NOTICE_TEXT's closing sentence.
+  const telemetry = $derived(reports.settings);
   const telemetryNotice = NOTICE_TEXT.replace(/\s*You can turn this off at any time\.\s*$/, "");
-
-  async function loadTelemetry() {
-    try {
-      telemetry = await api.telemetrySettings();
-      telemetryNoticeOpen = telemetry.available && !telemetry.notice_seen;
-    } catch {
-      telemetry = null;
-    }
-  }
-
-  async function dismissTelemetryNotice() {
-    telemetryNoticeOpen = false;
-    try {
-      telemetry = await api.dismissTelemetryNotice();
-    } catch {
-      /* the notice stays closed for this session either way */
-    }
-  }
+  const supportId = $derived(formatSupportId(telemetry?.support_id));
 
   async function reviewTelemetry() {
-    await dismissTelemetryNotice();
-    await openBugReport();
+    await dismissReportsNotice();
+    await goto("/settings");
   }
 
   async function toggleTelemetry(e: Event) {
-    const wanted = (e.currentTarget as HTMLInputElement).checked;
+    const box = e.currentTarget as HTMLInputElement;
     try {
-      // Believe the backend, not the click.
-      telemetry = await api.setTelemetryEnabled(wanted);
+      await setReportsEnabled(box.checked);
     } catch (err) {
       bugMessage = String(err);
-      telemetry = await api.telemetrySettings().catch(() => telemetry);
+    }
+    box.checked = reports.settings?.enabled ?? false;
+  }
+
+  let supportCopied = $state(false);
+  async function copySupportId() {
+    try {
+      await navigator.clipboard.writeText(supportId);
+      supportCopied = true;
+    } catch (e) {
+      bugMessage = `Couldn't reach the clipboard (${e}). Your support ID is ${supportId}.`;
     }
   }
 
+  async function openSettingsFromBug() {
+    bugOpen = false;
+    await goto("/settings");
+  }
+
+  /// A check started from Settings. Unlike the one at launch it never
+  /// installs on its own: it finds the update and leaves the choice to the
+  /// person who asked.
+  let checking = $state(false);
+  let checkMessage = $state("");
+  async function checkForUpdatesNow() {
+    if (checking || updateBusy) return;
+    checking = true;
+    checkMessage = "";
+    try {
+      if (viaFlatpak) {
+        const u = await api.checkForUpdate();
+        update = u;
+        checkMessage =
+          u.update_available && u.latest
+            ? `v${u.latest} is out. Run flatpak update, or install the new .flatpak from the Releases page if you downloaded this one.`
+            : "No update found. You have the latest version.";
+        return;
+      }
+      const [available] = await Promise.all([
+        check(),
+        api
+          .checkForUpdate()
+          .then((u) => (update = u))
+          .catch(() => {}),
+      ]);
+      if (available) {
+        pendingUpdate = available;
+        checkMessage = `v${available.version} is available.`;
+      } else {
+        checkMessage = "No update found. You have the latest version the updater offers.";
+      }
+    } catch (e) {
+      checkMessage = `Couldn't check for updates: ${e}`;
+    } finally {
+      checking = false;
+    }
+  }
+
+  provideAppShell({
+    get currentVersion() {
+      return currentVersion;
+    },
+    get pendingVersion() {
+      return pendingUpdate ? pendingVersion : "";
+    },
+    get updateBusy() {
+      return updateBusy;
+    },
+    get updateInstalled() {
+      return updateInstalled;
+    },
+    get updateProgress() {
+      return updateProgress;
+    },
+    get restartFailed() {
+      return restartFailed;
+    },
+    get rollingOutVersion() {
+      return update && rollingOut ? update.latest : null;
+    },
+    get updatesViaFlatpak() {
+      return viaFlatpak;
+    },
+    get checking() {
+      return checking;
+    },
+    get checkMessage() {
+      return checkMessage;
+    },
+    checkForUpdates: checkForUpdatesNow,
+    openNotes: () => openNotes(),
+    openHistory: () => openHistory(),
+    restartApp: () => restartApp(),
+    openBugReport: () => openBugReport(),
+  });
+
   onMount(() => {
-    void loadTelemetry();
-    theme = getThemePref();
-    autoUpdate = getAutoUpdate();
+    void loadReports();
+    loadUiPrefs();
     // Keep Auto honest while the app is open, not just at launch.
     watchOsTheme();
+    // macOS: ask for Local Network access now, from the app itself, rather
+    // than from adb partway through the first scan.
+    const stopLocalNetworkWatch = watchLocalNetwork();
 
     getVersion()
       .then((running) => {
@@ -168,7 +247,16 @@
       })
       .catch(() => {});
 
-    checkForUpdate();
+    api
+      .updateChannel()
+      .then((channel) => {
+        viaFlatpak = channel === "flatpak";
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!viaFlatpak) checkForUpdate();
+      });
+    return stopLocalNetworkWatch;
   });
 
   function announceArrival(running: string) {
@@ -205,7 +293,7 @@
       const available = await check();
       if (available) {
         pendingUpdate = available;
-        if (autoUpdate) {
+        if (uiPrefs.autoUpdate) {
           await installUpdate();
         }
       }
@@ -290,9 +378,9 @@
   }
 
   // Report a bug. Everything here is text the user reads before anything
-  // leaves the machine. The app has no upload path: the only way out is the
+  // leaves the machine. This dialog has no upload path: the only way out is the
   // issue URL, which the user opens and GitHub shows as a form they still have
-  // to submit.
+  // to submit. Send logs (Settings) is the separate, explicit upload.
 
   const ISSUE_BASE =
     "https://github.com/bryanroscoe/shield_optimizer/issues/new" +
@@ -340,6 +428,8 @@
     bugOpen = true;
     bugBusy = true;
     bugCopied = false;
+    supportCopied = false;
+    void loadReports();
     bugMessage = "";
     bugBundle = "";
     try {
@@ -389,21 +479,6 @@
     }
   }
 
-  function toggleAutoUpdate() {
-    autoUpdate = !autoUpdate;
-    setAutoUpdate(autoUpdate);
-  }
-
-  function pickTheme(pref: ThemePref) {
-    theme = pref;
-    setThemePref(pref);
-  }
-
-  const THEMES: { id: ThemePref; label: string; title: string }[] = [
-    { id: "system", label: "Auto", title: "Follow the system appearance" },
-    { id: "light", label: "Light", title: "Always light" },
-    { id: "dark", label: "Dark", title: "Always dark" },
-  ];
 </script>
 
 <div class="app">
@@ -455,10 +530,12 @@
         <!-- Not a button: there is nothing useful to click yet. -->
         <span
           class="update-badge rolling"
-          data-tip="The in-app updater will offer it within a few minutes"
+          data-tip={viaFlatpak
+            ? "Run flatpak update, or download the new .flatpak from Releases"
+            : "The in-app updater will offer it within a few minutes"}
           data-tip-side="bottom"
         >
-          v{update.latest} rolling out
+          {viaFlatpak ? `v${update.latest} available` : `v${update.latest} rolling out`}
         </span>
       {/if}
     </div>
@@ -468,44 +545,42 @@
         <a href="/snapshots" class:active={$page.url.pathname.startsWith("/snapshots")}>
           Snapshots
         </a>
+        <a href="/catalog" class:active={$page.url.pathname.startsWith("/catalog")}>Catalog</a>
       </nav>
-      <button
-        class="bug-btn"
-        onclick={openBugReport}
-        aria-label="Report a bug"
-        data-tip="Report a bug"
-        data-tip-side="bottom"
-      >
-        <Icon name="bug_report" size={18} />
-      </button>
-      <label class="auto-update-toggle" title="Automatically download and install updates on launch">
-        <input type="checkbox" checked={autoUpdate} onchange={toggleAutoUpdate} />
-        Auto-update
-      </label>
-      <div class="theme-toggle" role="group" aria-label="Theme">
-        {#each THEMES as t (t.id)}
-          <button
-            class:active={theme === t.id}
-            title={t.title}
-            aria-pressed={theme === t.id}
-            onclick={() => pickTheme(t.id)}
-          >
-            {t.label}
-          </button>
-        {/each}
+      <div class="header-tools">
+        <button
+          class="bug-btn"
+          onclick={openBugReport}
+          aria-label="Report a bug"
+          data-tip="Report a bug"
+          data-tip-side="bottom"
+        >
+          <Icon name="bug_report" size={18} />
+        </button>
+        <a
+          href="/settings"
+          class="icon-link"
+          class:active={$page.url.pathname.startsWith("/settings")}
+          aria-label="Settings"
+          data-tip="Settings"
+          data-tip-side="bottom"
+        >
+          <Icon name="settings" size={18} />
+        </a>
       </div>
+      <ThemeToggle />
     </div>
   </header>
   <main>
-    {#if telemetryNoticeOpen}
+    {#if reports.noticeOpen}
       <div class="telemetry-notice" role="status">
         <Icon name="info" size={18} />
         <span>
-          {telemetryNotice} Turn it off any time under Report a bug (the bug icon above).
+          {telemetryNotice} Turn it off any time in Settings (the gear icon above).
         </span>
         <span class="telemetry-notice-actions">
           <button onclick={reviewTelemetry}>Change setting</button>
-          <button class="primary" onclick={dismissTelemetryNotice}>Got it</button>
+          <button class="primary" onclick={dismissReportsNotice}>Got it</button>
         </span>
       </div>
     {/if}
@@ -623,7 +698,7 @@
 
 {#if bugOpen}
   <div class="notes-backdrop" role="presentation" onclick={() => (bugOpen = false)}></div>
-  <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="bug-title">
+  <div class="notes-dialog bug-dialog" role="dialog" aria-modal="true" aria-labelledby="bug-title">
     <h2 id="bug-title">Report a bug</h2>
     <p class="notes-current muted">
       This report is never sent on its own. Open GitHub issue fills the text below into a new
@@ -645,14 +720,16 @@
       <input
         type="checkbox"
         checked={telemetry?.enabled ?? false}
-        disabled={!telemetry?.available}
+        disabled={!telemetry?.available || !!telemetry?.test_build}
         onchange={toggleTelemetry}
       />
       {TOGGLE_LABEL}
     </label>
-    <p class="bug-path muted">
+    <p class="bug-path muted" data-bug-reports-note>
       {#if telemetry && !telemetry.available}
         This build doesn't send reports.
+      {:else if telemetry?.test_build}
+        Test build {telemetry.test_build}: anonymous usage reports are always off.
       {:else}
         Make, model and Android version of your TVs, which actions worked or failed, and error
         messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
@@ -660,6 +737,28 @@
         not yet sent.
       {/if}
     </p>
+    <div class="bug-support">
+      {#if supportId}
+        <span>Support ID <code class="mono">{supportId}</code></span>
+        <button class="bug-inline" onclick={copySupportId}>
+          <Icon name="content_copy" size={14} /> {supportCopied ? "Copied" : "Copy ID"}
+        </button>
+        <span class="muted">
+          {telemetry?.test_build
+            ? "Quote it in the issue so the developer can find the logs you send."
+            : "Quote it in the issue so the developer can find your reports."}
+        </span>
+      {:else}
+        <span class="muted">
+          {telemetry?.available === false
+            ? "No support ID: this build doesn't send reports."
+            : "No support ID while reports are off."}
+        </span>
+      {/if}
+      <button class="bug-inline link" onclick={openSettingsFromBug}>
+        Send logs and more in Settings
+      </button>
+    </div>
     <textarea
       class="bug-bundle mono"
       readonly
@@ -842,9 +941,15 @@
     font-size: 0.76rem;
     word-break: break-all;
   }
+  /* Taller than the notes dialog: it carries more controls, and the
+     diagnostics box is the part that gives way on a short window, so the
+     actions row is never pushed out of the dialog. */
+  .bug-dialog {
+    max-height: min(42rem, calc(100vh - 2rem));
+  }
   .bug-bundle {
     flex: 1;
-    min-height: 12rem;
+    min-height: 7rem;
     resize: vertical;
     font-size: 0.76rem;
     line-height: 1.45;
@@ -854,6 +959,32 @@
   .bug-message {
     margin: 0;
     font-size: 0.8rem;
+  }
+  .bug-support {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.6rem;
+    font-size: 0.8rem;
+  }
+  .bug-support code {
+    font-size: 0.85rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .bug-inline {
+    font-size: 0.78rem;
+    padding: 0.15rem 0.5rem;
+  }
+  .bug-inline.link {
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+  }
+  .bug-inline.link:hover {
+    text-decoration: underline;
   }
   .bug-btn {
     display: inline-flex;
@@ -916,6 +1047,11 @@
     align-items: center;
     gap: 1.4rem;
   }
+  .header-tools {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
   nav {
     display: flex;
     align-items: center;
@@ -931,43 +1067,26 @@
     color: var(--accent);
     background: var(--bg-nav-active);
   }
-  .auto-update-toggle {
-    display: flex;
+  /* Same chrome as the bug button beside it, so the two read as a pair. */
+  .icon-link {
+    display: inline-flex;
     align-items: center;
-    gap: 0.35rem;
-    font-size: 0.82rem;
-    color: var(--fg-muted);
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .auto-update-toggle input {
-    accent-color: var(--accent-strong);
-    cursor: pointer;
-  }
-  .theme-toggle {
-    display: flex;
-    align-items: stretch;
+    justify-content: center;
+    padding: 0.3rem;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    overflow: hidden;
-  }
-  .theme-toggle button {
-    border: none;
-    border-radius: 0;
-    padding: 0.3rem 0.6rem;
-    font-size: 0.8rem;
-    background: transparent;
+    background: var(--bg-button);
     color: var(--fg-secondary);
   }
-  .theme-toggle button:not(:last-child) {
-    border-right: 1px solid var(--border);
-  }
-  .theme-toggle button.active {
-    background: var(--accent-strong);
-    color: var(--accent-ink);
-  }
-  .theme-toggle button:hover:not(.active) {
+  .icon-link:hover {
+    color: var(--fg-primary);
     background: var(--bg-button-hover);
+    text-decoration: none;
+  }
+  .icon-link.active {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+    background: var(--bg-nav-active);
   }
   main {
     padding: 1.5rem;

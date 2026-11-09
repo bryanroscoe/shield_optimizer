@@ -1,0 +1,171 @@
+# Amazon Fire TV Stick 4K, 2nd gen 2023 (AFTKM, codename karat), Fire OS 8.1.8.5 (RS8185.3891N, build 0033018557316),
+# Android 11 (SDK 30), Brazil. The first Fire OS 8 list here: it starts from amazon-fire-tv-stick-lite-2020/ and
+# amazon-fire-tv-stick-4k-2018/, and every package new in Fire OS 8 was checked with `dumpsys package` before listing.
+#
+# FIRE OS: DEBLOAT ONLY. Home is com.amazon.tv.launcher/.ui.HomeActivity_vNext (priority 950); launcher/ does not apply.
+#
+# Apply:   TV_HOST=<stick ip> tools/disable.sh examples/amazon-fire-tv-stick-4k-2023/debloat.txt
+# Undo:    TV_HOST=<stick ip> tools/restore.sh examples/amazon-fire-tv-stick-4k-2023/debloat.txt com.amazon.tv.launcher
+# For the whole list, put HANDLERS_ALLOW=1 in front of the Apply line ($env:HANDLERS_ALLOW=1 for disable.ps1). Since
+# 2026-10-23 disable.sh keeps the app that answers VIEW vnd.android.cursor.item/channel, read as the HDMI input
+# handler, and here that is com.amazon.tv.livetv/.TvChannelsPlayerActivityAlias: a stick has no tuner or HDMI input.
+# Seen 2026-10-25 on a Fire TV Stick 4K Plus (AFTMA08C15, karat, RS8185.3891N): livetv was the only listed package
+# the check held back; the Settings handlers (com.amazon.tv.launcher, com.amazon.tv.settings.v2) are not listed.
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+# ADB on Fire OS 8: Settings > My Fire TV > About > press select 7 times on the device name, back > Developer Options >
+# ADB Debugging. Port 5555, accept the prompt on the TV (ro.adb.secure=1).
+# The stick's USB port carries ADB too, over a data cable rather than a charge-only one: on Fire OS 8.1.8.5 an AFTKM
+# listed as "product:karat model:AFTKM" in `adb devices`, and its owner replayed this restore's `pm enable` lines
+# through the stock `adb -d shell` when network ADB was not answering (#2950). tools/tv.py, disable.sh and restore.sh
+# talk AdbDeviceTcp and never USB, so that cable is the stock adb by hand: docs/TROUBLESHOOTING.md's Connecting
+# section has the network routes.
+# Fire OS updates: one AFTKM, fine on 8.1.7.4 with 50 of these lines applied, updated itself by OTA to 8.1.8.5
+# (RS8185/3898) and then would not open Settings or most apps, and the screen flickered. Restoring all 50 and
+# rebooting fixed it; which package did it is not known yet (#2950). Until it is, keep that restore command at hand,
+# or run it before a Fire OS update you start yourself.
+#
+# Applied 2026-10-20 in four batches with a screenshot after each, then rebooted: all 57 stayed disabled, Home, Prime
+# Video, Netflix, Globoplay and Disney+ open, Wi-Fi validates.
+# Protected on this build (pm disable-user: "Cannot disable a protected package"), so commented out below, the same set
+# as Fire OS 7 plus the help app: com.amazon.device.metrics, com.amazon.device.logmanager, com.amazon.device.crashmanager,
+# com.amazon.diode, com.fireos.usagestats.proxy, com.amazon.ftvads.deeplinking, com.amazon.tv.csapp.
+#
+# Kept on purpose: com.amazon.tv.launcher, com.amazon.firehomestarter, com.amazon.tv.settings.*, com.amazon.venezia and
+# com.amazon.tigris (Appstore), com.amazon.tv.ime, remote/Bluetooth services, OTA updates (device.software.ota*,
+# tv.forcedotaupdater.v2), Alexa voice search, Prime Video (com.amazon.firebat, com.amazon.tv.support), casting and
+# mirroring (cast.sink, dialservice, awvflingreceiver, whisperplay, whisperlink, com.amazon.tv.matter for Matter
+# casting), Amazon sign-in for apps (com.amazon.tv.ottssocompanionapp, com.amazon.imp), profiles, com.amazon.tv.oobe
+# (needed for a factory reset), the screensaver, accessibility (com.amazon.logan), notification center.
+# com.amazon.imp confirmed load-bearing on a second AFTKRT unit (same karat board, Fire OS 8.1.8.5): disabling it
+# together with shoptv.client, shoptv.firetv.client, media.recommendations, sneakpeek, systemnotices, tv.earlyaccess
+# and tv.acr left HomeActivity_vNext resumed and the remote fully responsive, but painted nothing -- confirmed black
+# on the physical TV. Re-enabling just those eight (imp included) fixed it within seconds, no reboot needed; the
+# other seven were not re-tested standalone, so this list's existing success with them already disabled stands.
+# Fire OS 8 packages looked at and left alone: com.amazon.adep (package verification / security events),
+# com.amazon.platform.fdra (package allowlisting), com.amazon.tv.turnstile (PIN sign-in), com.amazon.tv.consents,
+# com.amazon.ssm / ssmsys (captive portal, error codes), com.amazon.tiramisubootsupport, com.amazon.d3 (has a demo
+# content provider but also OOBE and provisioning receivers).
+#
+# What the list cannot remove: the hero banner, the "Patrocinados" (Sponsored) row and the Luna tile in "Your apps"
+# come from the launcher's own feed. Point the stick's DNS at a blocker for those (Pi-hole, or Private DNS
+# dns.adguard-dns.com on Android 11). Also turn off Settings > Preferences > Privacy Settings (Device Usage Data,
+# Collect App Usage Data, Interest-based Ads) and Featured Content autoplay in the menus: those values sync with the
+# Amazon account, so the menu is the place to change them, not `settings put`.
+# Prime Video registers only LEANBACK_LAUNCHER, so `monkey -p com.amazon.firebat 1` does nothing; start
+# com.amazon.firebat/com.amazon.pyrocore.IgnitionActivity with `am start -n` to test it.
+# Leave the animation scales at 1.0 on this build. At 0.5 (window, transition and animator) every entry in the
+# side menu (☰: Settings, Appstore, My Stuff...) closes the menu and goes back to Home without opening anything:
+# NavigationActivity logs "onStop with slideoutState=false, finishing to prevent stuck menu" before the navigation
+# request is sent. Back at 1.0, Settings opens again with all 57 packages still disabled.
+
+# Additional AFTKRT / karat unit: Fire TV Stick 4K Max 2nd gen, Fire OS 8.1.7.4 (RS8174.3648N),
+# Android 11 / SDK 30, system incremental 0031877644420, boot-image fingerprint incremental 0031877644288,
+# kernel 5.10.43-android12-9-ge1cb3cb5ad98, armeabi-v7a app userspace. Report updated 2026-10-24.
+# Only the 22 packages recorded below were disabled without root on this unit, not the full 8.1.8.5 list.
+# Their state persisted through two instrumented reboot checks. On 2026-10-24 the owner also reported
+# continued trouble-free use and working configuration after reboot; duration is owner-reported, not timed.
+# Stock Home, native Settings, Appstore, keyboard, remote/Bluetooth, accounts, Alexa, casting, OTA and
+# screensaver services were retained during this no-root cleanup. Privacy Settings and Featured Content
+# autoplay were turned off through the native menus. Resolution stayed Auto and animation scales stayed stock;
+# the 0.5 animation issue above was not independently reproduced on this older build.
+# Amazon Kids, Amazon Music and Luna are owner choices; keep them if used. No measured speedup or playback/DRM
+# resolution claim. No third-party Home configuration is part of this report.
+# Every entry below already exists in the active list, so these commented records do not change what the
+# shared list disables. On 8.1.7.4, review the other active entries separately rather than treating them as tested.
+# Exact 22-package subset applied on the 8.1.7.4 unit:
+# com.amazon.tv.acr
+# com.amazon.hybridadidservice
+# com.amazon.shoptv.firetv.client
+# com.amazon.ceviche
+# com.amazon.dp.logger
+# com.amazon.client.metrics.api
+# com.amazon.tv.easyupgrade
+# com.amazon.perfc
+# com.amazon.tahoe
+# com.amazon.sneakpeek
+# com.amazon.storm.lightning.tutorial
+# com.amazon.wirelessmetrics.service
+# com.amazon.device.telemetry.emitter
+# com.amazon.minitv.android.app
+# com.amazon.tmm.tutorial
+# com.amazon.tv.developer.dataservice
+# com.amazon.kso.blackbird
+# com.amazon.shoptv.client
+# com.amazon.tv.releasenotes
+# com.amazon.gamehub
+# com.amazon.perfcollection
+# com.amazon.bueller.music
+#
+
+# Amazon telemetry, metrics, logs, usage and location reporting
+com.amazon.client.metrics.api
+# com.amazon.device.metrics                # protected by Fire OS
+com.amazon.neo.minerva
+com.amazon.neo.minerva.logcat
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+com.amazon.perfc
+# com.amazon.device.logmanager             # protected by Fire OS
+# com.amazon.device.crashmanager           # protected by Fire OS
+com.amazon.dp.logger
+# com.amazon.diode                         # protected by Fire OS
+com.amazon.ceviche                         # data collection pipelines
+com.amazon.tv.developer.dataservice        # content personalization data for third-party apps
+# com.fireos.usagestats.proxy              # protected by Fire OS
+com.amazon.device.telemetry.emitter        # new in Fire OS 8, no components of its own
+com.amazon.livedeviceservice
+com.amazon.privacypassservice              # privacy pass token service
+com.amazon.wifilocker                      # uploads Wi-Fi passwords to Amazon
+com.amazon.tv.acr                          # Automatic Content Recognition
+com.amazon.ftvspatial                      # presence and indoor-location sensing (SensorDataReceiver, IlsProximityReceiver)
+
+# Ads, sponsored rows, recommendations, promos, shopping
+com.amazon.kso.blackbird                   # launcher ad sync / bidding (aps.GetBidService)
+com.amazon.sneakpeek                       # sponsored "Sneak Peek" previews
+com.amazon.hybridadidservice               # advertising ID service
+# com.amazon.ftvads.deeplinking            # protected by Fire OS
+com.amazon.media.recommendations
+com.amazon.providers.contentsupport
+com.amazon.tv.easyupgrade                  # "upgrade your Fire TV" promos
+com.amazon.shoptv.client                   # Amazon Shopping on TV
+com.amazon.shoptv.firetv.client
+com.amazon.hedwig                          # Fire TV Channels
+com.amazon.tv.livetv                       # Live tab and guide (no tuner on a stick; Pluto TV and the like still open as apps)
+com.amazon.franktvinput                    # live TV input feeding the Live tab
+com.amazon.systemnotices
+com.amazon.tv.releasenotes                 # "what's new" release notes
+com.amazon.uxnotification                  # UX notification popups
+com.amazon.tv.earlyaccess                  # early-access / preview program stub
+
+# Preloaded Amazon apps and setup helpers (owner's choice)
+com.amazon.gamehub                         # Amazon Luna / Game Hub
+com.amazon.bueller.music                   # Amazon Music
+com.amazon.bueller.photos                  # Amazon Photos
+com.amazon.cloud9                          # Silk browser
+com.amazon.tv.website_launcher             # opens websites in Silk
+com.amazon.tahoe                           # Amazon Kids (FreeTime)
+com.amazon.minitv.android.app              # miniTV stub
+com.amazon.tmm.tutorial                    # remote tutorial
+com.amazon.storm.lightning.tutorial        # remote app tutorial
+# com.amazon.tv.csapp                      # protected by Fire OS (customer support / help app)
+com.amazon.whisperjoin.middleware.v2.np    # frustration-free setup of other Amazon devices
+com.amazon.tv.ffsprovisioneeclient
+com.amazon.ods.kindleconnect               # "show on Fire TV" from Echo / Fire tablet
+com.amazon.tv.ftvambient                   # Ambient Experience (the plain screensaver, com.amazon.ftv.screensaver, stays)
+
+# Alexa extras (voice search on the remote mic stays: vizzini, aria, cardinal, tcomm, ivona TTS, alexa.datastore,
+# alexadirectivebrokerservice are not listed)
+com.amazon.tv.alexaalerts                  # alarms, timers, reminders
+com.amazon.tv.alexanotifications
+com.amazon.alexa.externalmediaplayer.fireos   # Alexa music playback
+com.amazon.alexamediaplayer.runtime.ftv
+com.amazon.aiondec                         # Alexa skill connections
+com.amazon.firetv.androidskillconnectioncapability   # Alexa skill connections / Alexa+ events, new in Fire OS 8
+com.amazon.spotify.mediabrowserservice     # Spotify for Alexa (stub; the Spotify app is separate)
+com.amazon.audiohome                       # Alexa Home Theater
+com.amazon.whad                            # whole-home audio (multi-room music)
+com.amazon.whasettings
+com.amazon.aca                             # Alexa hints/cues providers
+com.amazon.rtcsessioncontroller            # Alexa calling / Drop In sessions
+com.amazon.smarthomemapviewapp             # smart home dashboard (cameras, lights)
+com.amazon.tv.mattercohost                 # Matter smart-home controller (com.amazon.tv.matter, Matter casting, stays)

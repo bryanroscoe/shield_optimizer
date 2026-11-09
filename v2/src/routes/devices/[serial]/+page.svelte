@@ -15,6 +15,7 @@
     AppEntry,
     SnapshotFile,
     SnapshotApplyPlan,
+    SnapshotSaveOutcome,
     ApplyResult,
     RecoveryResult,
     RebootMode,
@@ -22,8 +23,10 @@
     ScreenshotResult,
     ResourceSample,
     Safety,
+    DeviceType,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
   import type { MemoryEntry } from "$lib/types";
   import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
@@ -218,6 +221,10 @@
   // forever when a list is legitimately empty (e.g. zero snapshots).
   let launchersLoaded = $state(false);
   let currentLauncher = $state<CurrentLauncher | null>(null);
+  // With Home unknown (unread, or the TV named none), any stock row could be
+  // the only Home screen, so stock Disable stays off.
+  let stockDisableBlocked = $derived(!currentLauncher?.package);
+  const STOCK_DISABLE_BLOCKED = "Disable is off until the TV reports its current Home app. Refresh to try again.";
   let channelDisabled = $state<boolean | null>(null);
   let launcherLoading = $state(false);
   let launcherErr = $state<string | null>(null);
@@ -290,6 +297,7 @@
   }
   let catalogInventoryVersion = 0;
   let appSearch = $state("");
+  let packageStateFilter = $state<"all" | "enabled" | "disabled">("all");
   // Default on: the catalog lists ~70 known apps, most not present on any given
   // device, so an unfiltered list is mostly un-actionable "Missing" rows. Start
   // focused on what's installed; unticking reveals the full catalog.
@@ -354,6 +362,7 @@
 
   let visibleApps = $derived(
     apps.filter((a) => {
+      if (packageStateFilter !== "all" && appStates[a.package] !== packageStateFilter) return false;
       if (hideNotInstalled && appStates[a.package] === "missing") return false;
       // "Decided" is kept-by-you or already off the device; hiding both turns
       // the list into a worklist that shrinks as you work.
@@ -366,6 +375,7 @@
   );
   let visibleOthers = $derived(
     otherPackages.filter((o) => {
+      if (packageStateFilter !== "all" && (o.enabled ? "enabled" : "disabled") !== packageStateFilter) return false;
       if (!showSystemOthers && o.system) return false;
       return matchesSearch(o.name ?? o.package, o.package);
     }),
@@ -388,6 +398,9 @@
   let snapshots = $state<SnapshotFile[]>([]);
   let snapshotsLoaded = $state(false);
   let snapshotsErr = $state<string | null>(null);
+  let snapshotDeletePath = $state<string | null>(null);
+  let snapshotDeleteMsg = $state("");
+  let snapshotDeleteErr = $state<string | null>(null);
   let saveBusy = $state(false);
   let saveResult = $state<string>("");
   let previewPath = $state<string | null>(null);
@@ -691,14 +704,15 @@
     try {
       const [list, cur, chan] = await Promise.all([
         api.listLaunchers(context.serial),
-        api.currentLauncher(context.serial),
+        // An unreadable Home app still shows the list, with stock Disable off.
+        api.currentLauncher(context.serial).catch(() => null),
         api.channelProviderDisabled(context.serial),
       ]);
       if (!pageContextIsCurrent(context) || request !== launcherRequest) return false;
       launchers = list;
       currentLauncher = cur;
       channelDisabled = chan;
-      return true;
+      return cur !== null;
     } catch (e) {
       if (pageContextIsCurrent(context) && request === launcherRequest) launcherErr = String(e);
       return false;
@@ -710,6 +724,10 @@
     }
   }
 
+  /// The type the catalog section was read for; "other" excludes exactly it,
+  /// so every package lands in one section.
+  let catalogDeviceType: DeviceType = "unknown";
+
   async function loadApps() {
     if (!device) return;
     const context = capturePageContext();
@@ -720,6 +738,7 @@
     catalogInventoryVersion++;
     otherInventoryVersion++;
     const deviceType = device.device_type;
+    catalogDeviceType = deviceType;
     appsLoading = true;
     appsErr = null;
     appsLoaded = false;
@@ -828,7 +847,7 @@
     othersErr = null;
     otherPackages = [];
     try {
-      const list = await api.listOtherPackages(context.serial);
+      const list = await api.listOtherPackages(context.serial, catalogDeviceType);
       if (!pageContextIsCurrent(context) || request !== otherRequest) return;
       otherPackages = list;
       othersLoaded = true;
@@ -1258,6 +1277,7 @@
   /// Open the App List on exactly this package.
   function openInAppList(pkg: string) {
     appSearch = pkg;
+    packageStateFilter = "all";
     hideNotInstalled = false;
     hideDecided = false;
     showSystemOthers = true;
@@ -1459,8 +1479,10 @@
     if (!pkg) return;
     stockConfirmOpen = false;
     if (saveFirst) {
-      await saveSnapshot();
-      if (!saveResult.startsWith("Saved")) {
+      // Read this save's own outcome: a cancelled prompt leaves an earlier
+      // save's "Saved" message in place.
+      const saved = await saveSnapshot();
+      if (saved.kind !== "saved") {
         homePickerOk = false;
         homePickerMessage = "The snapshot wasn't saved, so the stock launcher was left alone.";
         return;
@@ -1605,6 +1627,10 @@
   async function disableLauncher(pkg: string) {
     launcherSetResult = null;
     const row = launchers.find((l) => l.entry.package === pkg);
+    if (row?.stock && stockDisableBlocked) {
+      launcherActionMessage = STOCK_DISABLE_BLOCKED;
+      return;
+    }
     const name = row?.entry.name ?? pkg;
     const advice = row?.other
       ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
@@ -1744,23 +1770,31 @@
     }
   }
 
-  async function saveSnapshot() {
-    if (!device) return;
-    const label = (prompt("Name this snapshot (optional):", "") ?? "").trim();
+  async function saveSnapshot(): Promise<SnapshotSaveOutcome> {
+    if (!device) return { kind: "busy", message: "Not saved: the TV isn't connected." };
+    if (saveBusy) return { kind: "busy", message: "Not saved: another snapshot is still being saved." };
+    if (snapshotDeletePath) return { kind: "busy", message: "Not saved: a snapshot is being deleted. Try again when it finishes." };
+    const answer = prompt("Name this snapshot (optional):", "");
+    // Cancel means no snapshot, not one without a name.
+    if (answer === null) return { kind: "cancelled", message: "" };
+    const label = answer.trim();
     saveBusy = true;
     saveResult = "";
     try {
       const result = await api.saveSnapshot(serial, device.name, label || null);
       saveResult = `Saved ${result.label ?? result.filename} — ${result.disabled_count} disabled packages captured.`;
       await loadSnapshots();
+      return { kind: "saved", message: saveResult };
     } catch (e) {
       saveResult = `Failed: ${e}`;
+      return { kind: "failed", message: saveResult };
     } finally {
       saveBusy = false;
     }
   }
 
   async function previewSnapshot(path: string) {
+    if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
     previewBusy = true;
     previewErr = null;
     preview = null;
@@ -1774,6 +1808,32 @@
       previewErr = String(e);
     } finally {
       previewBusy = false;
+    }
+  }
+
+  async function deleteSnapshot(snap: SnapshotFile) {
+    if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
+    if (!confirm(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`)) return;
+    const context = capturePageContext();
+    snapshotDeletePath = snap.path;
+    snapshotDeleteMsg = "";
+    snapshotDeleteErr = null;
+    try {
+      await api.deleteSnapshot(snap.path);
+      if (!pageContextIsCurrent(context)) return;
+      snapshots = snapshots.filter((s) => s.path !== snap.path);
+      if (previewPath === snap.path) {
+        previewPath = null;
+        preview = null;
+        previewErr = null;
+        applyResult = null;
+        applyErr = null;
+      }
+      snapshotDeleteMsg = `Deleted ${snap.label ?? snap.filename}.`;
+    } catch (e) {
+      if (pageContextIsCurrent(context)) snapshotDeleteErr = `Delete failed: ${e}`;
+    } finally {
+      if (pageContextIsCurrent(context)) snapshotDeletePath = null;
     }
   }
 
@@ -1808,7 +1868,7 @@
   }
 
   async function applySnapshot() {
-    if (!previewPath || !preview) return;
+    if (!previewPath || !preview || applyBusy || snapshotDeletePath) return;
     const total =
       preview.packages_to_disable.length +
       Object.keys(preview.settings_to_write).length +
@@ -1946,8 +2006,7 @@
     }
     if (activeTab === "launcher" && !launchersLoaded && !launcherLoading) loadLauncher();
     if (activeTab === "apps" && !appsLoaded && !appsLoading) loadApps();
-    // Health reads it too, for the snapshot callout.
-    if ((activeTab === "snapshot" || activeTab === "health") && !snapshotsLoaded) loadSnapshots();
+    if (activeTab === "snapshot" && !snapshotsLoaded) loadSnapshots();
   });
 
   // A device-state change (enable/disable/uninstall/launcher switch) in one tab
@@ -2028,9 +2087,10 @@
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
-    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; hideNotInstalled = true; showSystemOthers = false;
+    otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; packageStateFilter = "all"; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
+    snapshotDeletePath = null; snapshotDeleteMsg = ""; snapshotDeleteErr = null;
     headerActionMsg = ""; recoveryResult = null; recoveryErr = null; screenshot = null;
     renaming = false; renameValue = "";
     trimMessage = "";
@@ -2667,28 +2727,6 @@
         </div>
       </div>
 
-      <!-- The one piece of genuine state this screen can lead with, in place
-           of the board's invented score: whether the work is reversible. -->
-      {#if snapshots.length > 0}
-        {@const newest = snapshots[0]}
-        <div class="callout callout-ok">
-          <Icon name="check_circle" size={16} />
-          <span>
-            Snapshot saved {snapTimestamp(newest.saved_at)}. Restoring it re-disables its apps and puts back its Home app and settings; it can't re-enable or reinstall anything.
-          </span>
-          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
-            Open snapshots
-          </button>
-        </div>
-      {:else}
-        <div class="callout callout-warn">
-          <Icon name="warning" size={16} />
-          <span>No snapshot saved yet — save one before you change anything.</span>
-          <button class="callout-link" onclick={() => (activeTab = "snapshot")}>
-            Save a snapshot
-          </button>
-        </div>
-      {/if}
       {/if}
     </div>
   {:else if activeTab === "launcher"}
@@ -2740,12 +2778,16 @@
             {#each launchers as l}
               {@const isCurrent = currentLauncher?.package === l.entry.package}
               {@const busy = launcherActionBusy === l.entry.package}
+              {@const stockBlocked = l.stock && l.installed && l.enabled && !isCurrent && stockDisableBlocked}
               <li class:is-current={isCurrent}>
                 <div class="launcher-ident">
                   <span class="launcher-icon" aria-hidden="true"><Icon name="home" size={18} /></span>
                   <div class="launcher-text">
                     <div class="launcher-name">{l.entry.name}</div>
                     <div class="muted small mono launcher-pkg">{l.entry.package}</div>
+                    {#if stockBlocked && !busy}
+                      <p class="small launcher-blocked" id={`stock-blocked-${l.entry.package}`}>{STOCK_DISABLE_BLOCKED}</p>
+                    {/if}
                     {#if launcherSetResult?.package === l.entry.package}
                       <p class="small action-message launcher-set-result" role="status">{launcherSetResult.message}</p>
                     {/if}
@@ -2812,7 +2854,8 @@
                         class="small-action subtle"
                         class:danger={l.stock || l.setup_helper}
                         onclick={() => disableLauncher(l.entry.package)}
-                        disabled={launcherActionBusy !== null}
+                        disabled={launcherActionBusy !== null || stockBlocked}
+                        aria-describedby={stockBlocked ? `stock-blocked-${l.entry.package}` : undefined}
                         title={l.stock
                           ? `pm disable-user --user 0 ${l.entry.package} — this is the TV's stock home app`
                           : `pm disable-user --user 0 ${l.entry.package}`}
@@ -3018,7 +3061,7 @@
       <div class="card-header">
         <h2><Icon name="apps" size={20} /> App List for {deviceTypeLabel(device.device_type)}</h2>
         <div class="header-actions">
-          <span class="muted">{apps.length} curated · {otherPackages.length} other</span>
+          <span class="muted">{visibleApps.length} of {apps.length} curated · {visibleOthers.length} of {otherPackages.length} other</span>
           <button onclick={loadApps} disabled={appsLoading}>
             {appsLoading ? "Loading…" : "Refresh"}
           </button>
@@ -3030,6 +3073,14 @@
           placeholder="Search apps by name or package…"
           bind:value={appSearch}
         />
+        <label class="app-state-filter">
+          Package state
+          <select bind:value={packageStateFilter}>
+            <option value="all">All states</option>
+            <option value="enabled">Enabled only</option>
+            <option value="disabled">Disabled only</option>
+          </select>
+        </label>
         <label class="inline-check">
           <input type="checkbox" bind:checked={hideNotInstalled} />
           Hide not installed
@@ -3396,7 +3447,7 @@
             disabled apps, Home app &amp; system settings for this device
           </p>
         </div>
-        <button class="primary" onclick={saveSnapshot} disabled={saveBusy}>
+        <button class="primary" onclick={saveSnapshot} disabled={saveBusy || !!snapshotDeletePath}>
           <Icon name="save" size={16} /> {saveBusy ? "Saving…" : "Save snapshot"}
         </button>
       </div>
@@ -3405,8 +3456,10 @@
           A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
         </p>
       </HelpDetails>
-      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps.</p>
+      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
       {#if saveResult}<p class="muted small">{saveResult}</p>{/if}
+      {#if snapshotDeleteMsg}<p class="muted small" role="status">{snapshotDeleteMsg}</p>{/if}
+      {#if snapshotDeleteErr}<div class="error" role="alert">{snapshotDeleteErr}</div>{/if}
       {#if snapshotsErr}<div class="error">{snapshotsErr}</div>{/if}
 
       <div class="snap-layout">
@@ -3419,27 +3472,32 @@
           {#each snapshots as s (s.path)}
             {@const selected = previewPath === s.path}
             <li class:is-selected={selected}>
-              <span class="snap-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
-              <div class="snap-main">
-                <div class="snap-title">
-                  <strong>{s.label ?? s.device_name}</strong>
-                  {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
-                  <!-- The action rides on the title's line so the summary below
-                       gets the full width; squeezed beside it, the summary
-                       wraps onto five lines. -->
-                  <span class="snap-actions">
-                    {#if selected}
-                      <span class="tag installed">SELECTED</span>
-                    {:else}
-                      <button class="small-action" onclick={() => previewSnapshot(s.path)}>Preview restore</button>
-                    {/if}
-                  </span>
-                </div>
-                <div class="muted small mono snap-meta">
-                  {snapTimestamp(s.saved_at)} · {s.disabled_count} disabled ·
-                  {s.settings_count} settings · launcher {s.launcher ?? "—"}
+              <div class="snap-body">
+                <span class="snap-icon" aria-hidden="true"><Icon name="history" size={18} /></span>
+                <div class="snap-main">
+                  <div class="snap-title">
+                    <strong>{s.label ?? s.device_name}</strong>
+                    {#if s.label}<span class="muted small">{s.device_name}</span>{/if}
+                  </div>
+                  <div class="muted small mono snap-meta">
+                    {snapTimestamp(s.saved_at)} · {s.disabled_count} disabled ·
+                    {s.settings_count} settings · launcher {s.launcher ?? "—"}
+                  </div>
                 </div>
               </div>
+              <span class="snap-actions">
+                {#if selected}
+                  <span class="tag installed">SELECTED</span>
+                {:else}
+                  <button class="small-action" onclick={() => previewSnapshot(s.path)} disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}>Preview restore</button>
+                {/if}
+                <button
+                  class="small-action danger"
+                  onclick={() => deleteSnapshot(s)}
+                  disabled={saveBusy || previewBusy || applyBusy || !!snapshotDeletePath}
+                  aria-label={`Delete ${s.filename}`}
+                ><Icon name="delete" size={14} /> {snapshotDeletePath === s.path ? "Deleting…" : "Delete"}</button>
+              </span>
             </li>
           {/each}
         </ul>
@@ -3470,8 +3528,8 @@
         {@const settingsToWrite = Object.entries(preview.settings_to_write)}
         {@const nowValues = preview.current_values ?? {}}
         {@const snapLauncher = snapshots.find((s) => s.path === previewPath)?.launcher ?? null}
-        {@const launcherUnchanged =
-          !preview.launcher_to_set && !preview.launcher_not_installed && snapLauncher !== null}
+        {@const launcherUnchanged = homeAlreadyMatches(preview, snapLauncher)}
+        {@const launcherSkip = launcherSkipReason(preview)}
         {@const willChange =
           preview.packages_to_disable.length +
           settingsToWrite.length +
@@ -3481,7 +3539,8 @@
           preview.packages_already_disabled.length +
           preview.packages_not_installed.length +
           preview.settings_already_set.length +
-          (launcherUnchanged || preview.launcher_not_installed ? 1 : 0)}
+          preview.packages_kept.length +
+          (launcherUnchanged || launcherSkip ? 1 : 0)}
         <p class="rail-label">Restore plan — preview before running</p>
         {#if preview.cross_device_warning}
           <div class="warning">{preview.cross_device_warning}</div>
@@ -3526,13 +3585,20 @@
                   <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
                   <td class="plan-next">→ {snapLauncher} (no change)</td>
                 </tr>
-              {:else if preview.launcher_not_installed}
+              {:else if launcherSkip}
                 <tr class="plan-noop" data-plan-item="launcher">
                   <td class="mono">Home app</td>
                   <td class="plan-now mono">{preview.current_launcher ?? "—"}</td>
-                  <td class="plan-next">→ skipped ({preview.launcher_not_installed} isn't installed)</td>
+                  <td class="plan-next">→ {launcherSkip}</td>
                 </tr>
               {/if}
+              {#each preview.packages_kept as kept (kept.package)}
+                <tr class="plan-noop" data-plan-item="kept">
+                  <td class="mono">{kept.package}</td>
+                  <td class="plan-now">ENABLED</td>
+                  <td class="plan-next">→ kept on: {kept.reason}</td>
+                </tr>
+              {/each}
               {#each preview.settings_already_set as key (key)}
                 <tr class="plan-noop">
                   <td class="mono">{key}</td>
@@ -3563,7 +3629,7 @@
           <button
             class="primary apply-btn"
             onclick={applySnapshot}
-            disabled={applyBusy || applyResult !== null}
+            disabled={applyBusy || !!snapshotDeletePath || applyResult !== null}
           >
             {applyBusy ? "Restoring…" : applyResult ? "Restored" : "Restore this snapshot"}
           </button>
@@ -3582,12 +3648,16 @@
             />
           {/if}
           {#if applyResult}
+            {@const outcome = splitRestoreFailures(applyResult)}
             <div class="apply-result">
               <p><strong>{applyResult.summary}</strong></p>
               <ul>
                 <li><strong>{applyResult.packages_disabled.length}</strong> packages disabled</li>
-                {#if applyResult.packages_failed.length > 0}
-                  <li class="warn-text"><strong>{applyResult.packages_failed.length}</strong> failed: {applyResult.packages_failed.join(", ")}</li>
+                {#if outcome.kept.length > 0}
+                  <li>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</li>
+                {/if}
+                {#if outcome.failed.length > 0}
+                  <li class="warn-text"><strong>{outcome.failed.length}</strong> failed: {outcome.failed.join(", ")}</li>
                 {/if}
                 {#if applyResult.launcher_message}
                   <li>Launcher: {applyResult.launcher_message}</li>
@@ -3636,7 +3706,7 @@
   {/if}
   {#if visited.remote}
     <div hidden={activeTab !== "remote"}>
-      <RemoteTab {serial} />
+      <RemoteTab {serial} active={activeTab === "remote"} />
     </div>
   {/if}
   {#if visited.media}
@@ -3653,6 +3723,7 @@
     <div hidden={activeTab !== "shell"}>
       <ShellTab
         {serial}
+        active={activeTab === "shell"}
         acknowledged={shellAcknowledged}
         onacknowledge={(next) => {
           shellAcknowledged = next;
@@ -3672,9 +3743,11 @@
         {keptPackages}
         resetToken={optimizeResetToken}
         {pageEpoch}
+        active={activeTab === "optimize"}
         onRunStarted={optimizeRunStarted}
         onStatesChanged={resyncAppStates}
         onPlanLoaded={loadAppMemory}
+        onSaveSnapshot={saveSnapshot}
         support={device.support ?? null}
       />
     </div>
@@ -3683,6 +3756,7 @@
 
 <style>
   .launcher-set-result { overflow-wrap: anywhere; white-space: normal; max-width: 48rem; }
+  .launcher-blocked { margin: 0.3rem 0 0; color: var(--warn); max-width: 48rem; }
   .back-row {
     margin-bottom: 1rem;
   }
@@ -4628,7 +4702,8 @@
   }
   .snap-list li {
     display: flex;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 0.75rem;
     padding: 0.7rem 1rem;
     background: var(--bg-surface);
@@ -4733,6 +4808,13 @@
     justify-content: center;
     padding-block: 0.7rem;
   }
+  .snap-body {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1 1 20rem;
+    min-width: 0;
+  }
   .snap-main { flex: 1; min-width: 0; }
   .snap-title {
     display: flex;
@@ -4742,10 +4824,13 @@
     margin-bottom: 0.2rem;
   }
   .snap-actions {
-    display: inline-flex;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.4rem;
     align-items: center;
-    flex-shrink: 0;
+    min-width: 0;
+    max-width: 100%;
     margin-left: auto;
   }
   .snap-meta {
@@ -4940,12 +5025,15 @@
      centred on each other. */
   .device-title-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 1rem;
   }
   .device-header-actions {
     display: flex;
+    flex-wrap: wrap;
+    max-width: 100%;
     gap: 0.5rem;
     align-items: center;
     flex-shrink: 0;
@@ -5079,6 +5167,13 @@
     flex: 1;
     min-width: 220px;
     max-width: 380px;
+  }
+  .app-state-filter {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+    white-space: nowrap;
   }
   .inline-check {
     display: flex;

@@ -11,36 +11,78 @@ use crate::adb::{install_platform_tools, parse_device_list, AdbDriver, Subproces
 use crate::engine::types::ConnectionType;
 
 use super::AppState;
-use shield_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+use atv_optimizer_core::adb::{AdbError, ScanConnectionProgress};
+use atv_optimizer_core::commands::devices::{verify_connected_transport, TransportReadiness};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AdbStatusFailure {
+    MissingBinary,
+    ProbeFailed,
+}
 
 #[derive(Serialize)]
 pub struct AdbStatus {
-    /// Is an adb binary currently configured?
+    /// Can the selected backend respond?
     pub available: bool,
+    pub failure: Option<AdbStatusFailure>,
+    pub backend: &'static str,
     /// Path to the binary if discovery resolves one — useful in the UI for
     /// "Using adb at /opt/homebrew/bin/adb" diagnostics.
     pub path: Option<String>,
-    /// What the last `adb devices` call returned, as a quick connectivity probe.
-    /// `None` when adb isn't available.
+    /// Response from the backend availability probe.
     pub last_probe: Option<String>,
+    pub connections: ScanConnectionProgress,
 }
 
 /// `adb_status` — fast diagnostic the UI shows when devices fail to list.
 #[tauri::command]
 pub async fn adb_status(state: State<'_, AppState>) -> Result<AdbStatus, String> {
+    adb_status_impl(state.inner()).await
+}
+
+async fn adb_status_impl(state: &AppState) -> Result<AdbStatus, String> {
     let adb = state.adb_snapshot().await;
-    let path = cached_adb_binary().map(|p| p.display().to_string());
-    let probe = adb.raw(&["devices"]).await;
+    let backend = if adb.uses_host_server() {
+        "subprocess"
+    } else {
+        "direct"
+    };
+    let path = if adb.uses_host_server() {
+        cached_adb_binary().map(|p| p.display().to_string())
+    } else {
+        None
+    };
+    let probe = if adb.uses_host_server() {
+        adb.raw(&["devices"]).await
+    } else {
+        adb.raw(&["version"]).await
+    };
+    let connections = adb.scan_connection_progress().await;
     match probe {
         Ok(out) => Ok(AdbStatus {
-            available: true,
+            available: out.success(),
+            failure: (!out.success()).then_some(AdbStatusFailure::ProbeFailed),
+            backend,
             path,
-            last_probe: Some(out.stdout),
+            last_probe: Some(out.combined()),
+            connections,
         }),
         Err(e) => Ok(AdbStatus {
             available: false,
+            failure: Some(
+                if backend == "subprocess"
+                    && matches!(e, AdbError::BinaryNotFound | AdbError::BinaryMissing { .. })
+                {
+                    AdbStatusFailure::MissingBinary
+                } else {
+                    AdbStatusFailure::ProbeFailed
+                },
+            ),
+            backend,
             path,
             last_probe: Some(e.to_string()),
+            connections,
         }),
     }
 }
@@ -79,6 +121,9 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 /// the `State<'_, T>` lifetime constraint.
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let adb = state.adb_snapshot().await;
+    if !adb.uses_host_server() {
+        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, choose it under Settings > ADB engine.".into() });
+    }
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
     // their own after the daemon restarts; network devices (ip:port) do not —
@@ -125,13 +170,14 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     // Reconnect the network devices we saw before the restart.
     //
-    // Not on the first try. `start-server` returns as soon as the daemon has
-    // forked, and the TV's adbd needs a moment to free the socket the
-    // kill-server just tore down — connecting into that window fails with
-    // "No route to host" even though the device is up and port 5555 is open.
-    // Restarting by hand a second later then works, which is what makes this
-    // read as "ADB is broken" rather than "too early". So give each device a
-    // few attempts before calling it unreachable.
+    // Not on the first try only. `start-server` returns as soon as the daemon
+    // has forked, and a connect made straight after it has been seen to fail
+    // with "No route to host" and then work a second later. One cause is
+    // reproduced on macOS 26.6.2: a new binary's very first LAN connect can
+    // get EHOSTUNREACH even when Local Network access is allowed. Others are
+    // not ruled out (a TV still freeing the old socket), and a real Local
+    // Network block does not go away with retries (see `local_network.rs`).
+    // So give each device a few attempts before calling it unreachable.
     let mut reconnected = Vec::new();
     let mut failed = Vec::new();
     let mut unauthorized = Vec::new();
@@ -144,7 +190,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
             }
             // ADB auto-attaches paired mDNS services; their transport keys are
             // not socket addresses and must never be passed to `adb connect`.
-            if shield_optimizer_core::adb::is_network_endpoint(serial) {
+            if atv_optimizer_core::adb::is_network_endpoint(serial) {
                 match adb.raw(&["connect", serial]).await {
                     Ok(out) => {
                         let response = out.combined();
@@ -213,7 +259,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     if !unauthorized.is_empty() {
         message.push_str(&format!(
-            "\nAwaiting authorization: {} — approve this computer on the TV, then Refresh or Ask again.",
+            "\nAwaiting authorization: {} — approve this computer on the TV, or use Request approval on its row.",
             unauthorized.join(", ")
         ));
     }
@@ -237,9 +283,12 @@ pub(crate) async fn install_with<F, Fut>(
     installer: F,
 ) -> Result<InstallResult, String>
 where
-    F: FnOnce(Arc<shield_optimizer_core::adb::Lease>) -> Fut,
+    F: FnOnce(Arc<atv_optimizer_core::adb::Lease>) -> Fut,
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
+    if !state.adb_snapshot().await.uses_host_server() {
+        return Err("Installing platform-tools would change the selected direct backend. Choose Google platform-tools under Settings > ADB engine first.".into());
+    }
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {
         Ok(path) => {
@@ -266,6 +315,183 @@ where
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn status_distinguishes_absent_binary_from_failed_probe() {
+        use atv_optimizer_core::adb::{AdbOutput, AdbResult};
+        struct Probe(std::sync::Mutex<Option<AdbResult<AdbOutput>>>);
+        #[async_trait::async_trait]
+        impl AdbDriver for Probe {
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                assert_eq!(args, &["devices"]);
+                self.0.lock().unwrap().take().unwrap()
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("status must not query a TV")
+            }
+        }
+        for (probe, expected) in [
+            (
+                Err(AdbError::BinaryNotFound),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::BinaryMissing {
+                    path: "fixture/adb.exe".into(),
+                }),
+                Some(AdbStatusFailure::MissingBinary),
+            ),
+            (
+                Err(AdbError::Timeout { seconds: 30 }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::Io(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "fixture launch denied",
+                ))),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Err(AdbError::NonZeroExit {
+                    code: Some(1),
+                    stderr: "fixture server startup failed".into(),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: "fixture failed output".into(),
+                    exit_code: Some(1),
+                }),
+                Some(AdbStatusFailure::ProbeFailed),
+            ),
+            (
+                Ok(AdbOutput {
+                    stdout: "List of devices attached\n".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                }),
+                None,
+            ),
+        ] {
+            let detail = match &probe {
+                Ok(out) => out.combined(),
+                Err(e) => e.to_string(),
+            };
+            let state = AppState::new(
+                Arc::new(Probe(std::sync::Mutex::new(Some(probe)))),
+                crate::engine::AppListBundle::default(),
+                "not-created".into(),
+            );
+            let result = adb_status_impl(&state).await.unwrap();
+            assert_eq!(result.backend, "subprocess");
+            assert_eq!(result.failure, expected);
+            assert_eq!(result.available, expected.is_none());
+            assert_eq!(result.last_probe.as_deref(), Some(detail.as_str()));
+        }
+    }
+
+    struct DirectOnly;
+    #[async_trait::async_trait]
+    impl AdbDriver for DirectOnly {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+        async fn raw(
+            &self,
+            args: &[&str],
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+            assert_eq!(args, &["version"]);
+            Err(atv_optimizer_core::adb::AdbError::Initialization(
+                "direct configuration failed".into(),
+            ))
+        }
+        async fn shell(
+            &self,
+            _: &str,
+            _: &str,
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+            panic!("no shell call expected")
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_status_does_not_claim_host_binary_or_allow_restart_or_installer() {
+        let state = AppState::new(
+            Arc::new(DirectOnly),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("not-created"),
+        );
+        let status = adb_status_impl(&state).await.unwrap();
+        assert!(!status.available);
+        assert_eq!(status.backend, "direct");
+        assert_eq!(status.failure, Some(AdbStatusFailure::ProbeFailed));
+        assert!(status.path.is_none());
+        assert!(status
+            .last_probe
+            .unwrap()
+            .contains("direct configuration failed"));
+        let restarted = restart_adb_impl(&state).await.unwrap();
+        assert!(!restarted.ok);
+        assert!(restarted.message.contains("no host server"));
+        let installed = install_with(&state, |_| async {
+            panic!("installer must not run in direct mode")
+        })
+        .await;
+        assert!(
+            matches!(installed, Err(message) if message.contains("would change the selected direct backend"))
+        );
+        assert!(!state.adb_snapshot().await.uses_host_server());
+    }
+
+    #[tokio::test]
+    async fn direct_status_reads_progress_without_probing_devices() {
+        struct ReadyDirect;
+        #[async_trait::async_trait]
+        impl AdbDriver for ReadyDirect {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(
+                &self,
+                args: &[&str],
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                assert_eq!(args, &["version"]);
+                Ok(atv_optimizer_core::adb::AdbOutput {
+                    stdout: "native ADB".into(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+                ScanConnectionProgress {
+                    pending: vec!["192.0.2.1:5555".into()],
+                    failed: vec![],
+                    ..Default::default()
+                }
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput>
+            {
+                panic!("status must not query a TV")
+            }
+        }
+        let state = AppState::new(
+            Arc::new(ReadyDirect),
+            crate::engine::AppListBundle::default(),
+            std::path::PathBuf::from("not-created"),
+        );
+        let status = adb_status_impl(&state).await.unwrap();
+        assert!(status.available);
+        assert_eq!(status.connections.pending, vec!["192.0.2.1:5555"]);
+        assert!(status.connections.failed.is_empty());
+    }
 
     #[tokio::test(start_paused = true)]
     async fn restart_preserves_authorization_wait_without_repeated_connects() {

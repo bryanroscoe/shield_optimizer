@@ -22,6 +22,10 @@ export interface UnknownDiagnosticInput {
   registryVersion?: string | null;
   deviceFamily?: DiagnosticDeviceFamily | null;
   deviceOs?: string | null;
+  /// False for a third-party package. Never stored or exported: it only
+  /// decides what survives trimming, because a TV's many preinstalled
+  /// packages would otherwise push out the sideloaded apps worth triaging.
+  system?: boolean | null;
 }
 
 export interface UnknownDiagnosticRecord {
@@ -257,15 +261,21 @@ export class UnknownDiagnostics {
     }
   }
 
-  private persist(data: StoredDiagnostics): DiagnosticsResult {
-    while (data.records.length > this.maxRecords) {
-      data.records.shift();
+  /// Trims oldest first, but drops this save's third-party records only once
+  /// nothing else is left to drop.
+  private persist(
+    data: StoredDiagnostics,
+    preferred: ReadonlySet<UnknownDiagnosticRecord> = new Set(),
+  ): DiagnosticsResult {
+    const dropOne = () => {
+      const index = data.records.findIndex((record) => !preferred.has(record));
+      data.records.splice(Math.max(index, 0), 1);
       data.truncated = true;
-    }
+    };
+    while (data.records.length > this.maxRecords) dropOne();
     let serialized = JSON.stringify(data);
     while (data.records.length > 0 && byteLength(serialized) > this.maxBytes) {
-      data.records.shift();
-      data.truncated = true;
+      dropOne();
       serialized = JSON.stringify(data);
     }
     if (byteLength(serialized) > this.maxBytes) {
@@ -289,6 +299,7 @@ export class UnknownDiagnostics {
   observeMany(inputs: UnknownDiagnosticInput[]): DiagnosticsResult {
     const data = this.read();
     const now = this.now().toISOString();
+    const preferred = new Set<UnknownDiagnosticRecord>();
     let accepted = 0;
     for (const input of inputs) {
       if (
@@ -324,6 +335,7 @@ export class UnknownDiagnostics {
           last_seen: now,
           count: Math.min(this.maxCount, existing.count + 1),
         });
+        if (input.system === false) preferred.add(data.records[data.records.length - 1]);
       } else {
         data.records.push({
           kind: input.kind,
@@ -337,10 +349,11 @@ export class UnknownDiagnostics {
           last_seen: now,
           count: 1,
         });
+        if (input.system === false) preferred.add(data.records[data.records.length - 1]);
       }
     }
     if (accepted === 0) return { ok: false };
-    return this.persist(data);
+    return this.persist(data, preferred);
   }
 
   schedule(

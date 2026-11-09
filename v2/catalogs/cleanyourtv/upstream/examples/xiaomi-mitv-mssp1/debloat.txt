@@ -1,0 +1,74 @@
+# Xiaomi MiTV-MSSP1 (codename nino), Android TV 9 (SDK 28), firmware PI.5925 release-keys.
+#
+# Apply: TV_HOST=<tv ip> tools/disable.sh examples/xiaomi-mitv-mssp1/debloat.txt
+# Undo:  TV_HOST=<tv ip> tools/restore.sh examples/xiaomi-mitv-mssp1/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher. It is not listed here;
+# launcher/build-and-install.sh handles its cutover after the replacement Home is installed.
+# Live TV: com.mediatek.wwtv.tvcenter; HDMI/tuner service: com.mediatek.tvinput. Both kept enabled.
+# Also kept enabled: com.xiaomi.mitv.updateservice (firmware updates), Google Assistant,
+# Chromecast, com.xiaomi.mitv.mediaexplorer (USB media), Play Store and Play Services.
+#
+# Checks on this set: the replacement Home survived reboot; the owner confirmed streaming-app
+# playback. All eight packages below remain disabled.
+# No package from this list had to be re-enabled during those checks.
+# This is nino / PI.5925, not the MSSP0 (amelie), MSSP2 (volver) or MSSP3 (machuca) firmware.
+#
+# Second unit: sold as Mi TV 4S, About shows MiTV-MSSP1, same nino / PI.5925, Russian/CIS region
+# firmware (tuner country Belarus). Whole list applied plus the two packages in the last section.
+# Status: second unit, disabled since 2026-10-31, reboot-checked 2026-11-01 with the replacement
+# Home and an empty logcat -b crash; nothing re-enabled. MI button setup: README.md in this folder.
+
+# Xiaomi telemetry
+com.miui.tv.analytics
+com.xiaomi.statistic
+
+# PatchWall and Xiaomi content add-ons
+com.mitv.tvhome.atv
+com.mitv.tvhome.michannel
+com.xm.webcontent
+com.xiaomi.floatingframe
+
+# Stock-home recommendation feeds
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+
+# --- Verified extras (same unit, second pass 2026-10-25) ---
+# All packages in this section were also disabled with pm disable-user --user 0 on a live
+# MSSP1 / PI.5925, then reboot-checked with an empty logcat -b crash afterwards. Nothing had
+# to be re-enabled. Read each note before applying: two entries change system behaviour.
+
+# Error-report and feedback uploaders (pure telemetry, nothing user-facing)
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Partner auto-installer: pushes sponsored apps through Play on fresh accounts
+android.autoinstalls.config.xiaomi.amelie
+
+# Heavy screensavers. REASSIGN THE SCREENSAVER FIRST (e.g. the launcher's ClockDream via
+# `settings put secure screensaver_components`, or tools/theme.sh) — otherwise the screensaver
+# setting dangles until reassigned. Ambient Mode is also what shows the stock backdrop loop.
+com.google.android.backdrop
+com.mitv.dream
+
+# Xiaomi "TV Manager" rocket-cleaner app
+com.xiaomi.mitv.tvmanager
+
+# Preinstalled Google apps that reinstall freely from Play whenever wanted
+com.google.android.play.games
+com.google.android.videos
+org.chromium.webview_shell
+com.android.printspooler
+
+# Xiaomi media leftovers and accessibility suite. The gallery doubles as the photo screensaver,
+# so keep com.mitv.gallery enabled if you want Photos screensaver instead of reassigning it.
+com.xiaomi.mimusic2
+com.mitv.gallery
+com.google.android.marvin.talkback
+
+# --- Second unit extras (Mi TV 4S, 2026-10-31) ---
+# Mi TV+ content add-on (also on the Mi TV 4A list)
+com.mitv.tvhome.mitvplus
+# AOSP colour screensaver; reassign the screensaver first, as with the two above
+com.android.dreams.basic

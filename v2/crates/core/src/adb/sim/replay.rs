@@ -387,6 +387,7 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
         .or(key)?;
     let mut d = Device::new(&serial);
     let mut lists: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut owner_lists = BTreeMap::new();
     for (cmd, out) in &reads {
         let words: Vec<&str> = cmd.split_whitespace().collect();
         match words.as_slice() {
@@ -409,13 +410,38 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
                     }
                 }
             }
-            ["pm", "list", "packages", flags @ ..] if flags.iter().all(|f| f.starts_with('-')) => {
+            ["pm", "list", "packages", args @ ..] => {
+                let mut args = args.iter().copied();
+                let mut flags = Vec::new();
+                let mut supported = true;
+                let mut owner_scoped = false;
+                while let Some(arg) = args.next() {
+                    if arg == "--user" {
+                        if args.next() != Some("0") {
+                            supported = false;
+                            break;
+                        }
+                        owner_scoped = true;
+                    } else if arg.starts_with('-') {
+                        flags.push(arg);
+                    } else {
+                        supported = false;
+                        break;
+                    }
+                }
+                if !supported {
+                    continue;
+                }
                 let names = out
                     .lines()
                     .filter_map(|l| l.trim().strip_prefix("package:"))
                     .map(str::to_string)
                     .collect();
-                lists.insert(flags.join(" "), names);
+                if owner_scoped {
+                    owner_lists.insert(flags.join(" "), names);
+                } else {
+                    lists.insert(flags.join(" "), names);
+                }
             }
             ["pm", "has-feature", "android.software.leanback"] => {
                 d.leanback = match out.trim() {
@@ -473,6 +499,9 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
             _ => {}
         }
     }
+    // Explicit owner evidence is more precise than all-user reads, regardless of order.
+    lists.extend(owner_lists);
+    let installed_observed = lists.contains_key("");
     let installed = lists.get("").cloned().unwrap_or_default();
     let disabled = lists.get("-d").cloned().unwrap_or_default();
     let third = lists.get("-3").cloned().unwrap_or_default();
@@ -489,7 +518,7 @@ pub fn device_from_session(lines: &[SessionLine], serial_hint: Option<&str>) -> 
             Package {
                 system: !third.contains(name),
                 enabled: !disabled.contains(name),
-                installed: installed.is_empty() || installed.contains(name),
+                installed: !installed_observed || installed.contains(name),
             },
         ));
     }
@@ -693,6 +722,73 @@ mod tests {
         let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
         assert!(!d.package("gone").unwrap().installed);
         assert!(d.package("a").unwrap().installed);
+    }
+
+    #[test]
+    fn owner_scoped_inventory_survives_profile_import_without_other_users() {
+        let cmd = checked_batch_command(&[
+            "pm list packages --user 0",
+            "pm list packages -3 --user 0",
+            "pm list packages -d --user 0",
+            "pm list packages --user 10",
+        ]);
+        let out = format!(
+            "package:owner\npackage:disabled\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:owner\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:disabled\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:other\n{BATCH_STATUS}0\n"
+        );
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        assert!(d.package("owner").unwrap().installed);
+        assert!(!d.package("owner").unwrap().system);
+        assert!(!d.package("disabled").unwrap().enabled);
+        assert!(d.package("other").is_none());
+    }
+
+    #[test]
+    fn explicit_owner_inventory_wins_over_unscoped_reads_in_either_order() {
+        let scoped = checked_batch_command(&[
+            "pm list packages --user 0",
+            "pm list packages -3 --user 0",
+            "pm list packages -d --user 0",
+        ]);
+        let unscoped = checked_batch_command(&[
+            "pm list packages",
+            "pm list packages -3",
+            "pm list packages -d",
+        ]);
+        let owner_out = format!("package:owner\npackage:disabled\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:owner\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:disabled\n{BATCH_STATUS}0\n");
+        let all_out = format!("package:owner\npackage:disabled\npackage:other\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:other\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:owner\n{BATCH_STATUS}0\n");
+        for scoped_first in [true, false] {
+            let mut lines = vec![
+                line(&["-s", "K", "shell", &scoped], &owner_out),
+                line(&["-s", "K", "shell", &unscoped], &all_out),
+            ];
+            if !scoped_first {
+                lines.reverse();
+            }
+            let d = device_from_session(&lines, None).unwrap();
+            let owner = d.package("owner").unwrap();
+            assert!(owner.installed && owner.enabled && !owner.system);
+            assert!(!d.package("disabled").unwrap().enabled);
+            assert!(d.package("other").is_none());
+        }
+    }
+
+    #[test]
+    fn empty_owner_inventory_does_not_mark_known_apks_installed() {
+        let cmd =
+            checked_batch_command(&["pm list packages --user 0", "pm list packages -u --user 0"]);
+        let out = format!("{BATCH_STATUS}0\n{BATCH_SEPARATOR}\npackage:gone\n{BATCH_STATUS}0\n");
+        let d = device_from_session(&[line(&["-s", "K", "shell", &cmd], &out)], None).unwrap();
+        assert!(!d.package("gone").unwrap().installed);
+
+        let unknown = device_from_session(
+            &[line(
+                &["-s", "K", "shell", "pm list packages -u"],
+                "package:gone\n",
+            )],
+            None,
+        )
+        .unwrap();
+        assert!(unknown.package("gone").unwrap().installed);
     }
 
     #[test]

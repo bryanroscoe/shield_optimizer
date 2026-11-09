@@ -129,8 +129,8 @@ export const api = {
     call<Record<string, PackageState>>("package_states", { serial, packages }),
 
   // ---- Apps ----
-  listOtherPackages: (serial: string) =>
-    call<OtherPackage[]>("list_other_packages", { serial }),
+  listOtherPackages: (serial: string, deviceType: DeviceType) =>
+    call<OtherPackage[]>("list_other_packages", { serial, deviceType }),
   listInstalledPackages: (serial: string) =>
     call<OtherPackage[]>("list_installed_packages", { serial }),
   disablePackage: (serial: string, pkg: string) =>
@@ -285,7 +285,8 @@ export const api = {
   licenseInfo: () => call<LicenseInfo | null>("license_info"),
   billingStatus: () => call<BillingStatus>("billing_status"),
   billingRefresh: (force = false) => call<BillingStatus>("billing_refresh", { force }),
-  billingPurchase: () => call<PurchaseOutcome>("billing_purchase"),
+  billingPurchase: (productId?: string) =>
+    call<PurchaseOutcome>("billing_purchase", productId ? { productId } : {}),
 
   // ---- File transfer (7.2) ----
   listRemoteDir: (serial: string, path: string) =>

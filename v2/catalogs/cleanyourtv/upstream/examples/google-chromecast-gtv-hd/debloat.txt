@@ -1,0 +1,111 @@
+# Chromecast with Google TV HD (2022, device boreal, product boreal, Amlogic S805X2), 1.4 GB RAM
+# Google TV 14 (SDK 34), build UTTC.250917.004 (14193937), security patch 2025-10-01
+#
+# Apply:   TV_HOST=<ip> tools/disable.sh examples/google-chromecast-gtv-hd/debloat.txt
+# Undo:    TV_HOST=<ip> tools/restore.sh examples/google-chromecast-gtv-hd/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Same firmware build as the 4K model, so examples/google-chromecast-gtv-4k applies almost as is; this
+# list is that one minus com.google.android.apps.tv.netoscope, which the HD doesn't ship, plus the Play
+# Auto Installs config stub.
+# Stock launcher: com.google.android.apps.tv.launcherx. No Live TV app and no HDMI inputs (it's a dongle):
+# leave live_tv_package empty (a theme with "live_tv_package": "" does it without a rebuild).
+#
+# Known quirks on this firmware:
+# - ADB: the same one-time pairing as the 4K (Developer options > Wireless debugging > Pair device with
+#   pairing code, `adb pair`, then `adb tcpip 5555` on the device `adb devices` lists). Port 5555 closes
+#   again on every reboot and Wireless debugging switches itself off; turn it back on (no new pairing
+#   code needed, stock adb reconnects by mDNS) and run `adb tcpip 5555` again.
+#   `adb mdns services` lists the stick's current address on the _adb._tcp port; the unit takes a new
+#   DHCP address after a re-join or reboot (this one alternated between two), so read the address there
+#   before reconnecting.
+# - WARNING: Wi-Fi joined during the first-run setup belongs to setupwraith (`dumpsys wifi | grep -o
+#   'cname=[^ ]*'` printed com.google.android.tungsten.setupwraith), and Android deletes such a network
+#   when setupwraith is disabled (see examples/sony-bravia-9-ii). The HD has no Ethernet, so that drops
+#   ADB too. Before disabling setupwraith: Settings > Network & Internet > your network > Forget, then
+#   join it again. The owner then reads android.uid.system:1000, and disabling setupwraith kept Wi-Fi.
+#   tools/disable.sh skips setupwraith while it still owns the network.
+#   Google TV 14 also shows the wizard's saved network under Settings > Network & Internet > Wi-Fi >
+#   App preferences; removing it there, then joining the network in Settings, leaves every owner
+#   android.uid.system. Joining the router's other band's SSID (the 2.4 name of the same router) creates
+#   the system-owned entry, so FORCE_SETUPWRAITH=1 then deletes only the wizard's unused copy. Verified
+#   on a second boreal unit, 2026-10-23.
+# - setupwraith has to go before the launcher can own Home, as on the 4K: launcherx is HOME priority 2,
+#   setupwraith/.RecoveryActivity priority 1. launcher/build-and-install.ps1 then switched Home on the
+#   first try.
+# - WARNING: disabling setupwraith breaks casting from phones ("Untrusted device ... couldn't be
+#   verified"). setupwraith hosts the CastInfoProvider the Cast receiver (mediashell) loads its factory
+#   device credentials from; without it logcat shows `cast_ClientAuthCredsFactoryProvisioned: Cannot get
+#   device credentials` once a minute and auth replies go out unsigned. adb can't disable RecoveryActivity
+#   alone ("Shell cannot change component state"). Either keep setupwraith and launcherx (debloat only),
+#   or enable setupwraith until mediashell logs `Created singleton instance of ClientAuthSigner` and then
+#   disable it again: the receiver keeps the credentials until it restarts, so that is needed after every
+#   reboot and whenever the receiver restarts (crash, force-stop, update). Cast Fix (SHOWCASE.md) does it
+#   at boot; it ran on every reboot during the trial and phone casting worked each time. Details in
+#   docs/TROUBLESHOOTING.md ("Casting from a phone fails with Untrusted device", issue #361).
+#   Cast Fix 1.0 (thayford/castfix) was verified on a second boreal unit, 2026-10-23: paired with the
+#   PairReceiver broadcast, `adb_allowed_connection_time` set to 0, and the boot run logged
+#   "Cast credentials loaded" -> "Casting ready."; the cast log showed
+#   "Created singleton instance of ClientAuthSigner", and phone casting, HOME and the mic button
+#   worked after the reboot.
+# - With launcherx disabled the remote's YouTube button does nothing (the Netflix button still works).
+#   Same fix as the 4K: Key Mapper's -foss APK from GitHub (4.6.1 here), `pm install` from
+#   /data/local/tmp, then the `pm grant` / `settings put secure enabled_accessibility_services` lines
+#   from the 4K list, and `dumpsys deviceidle whitelist +io.github.sds100.keymapper` to clear its
+#   battery warning. Don't `am force-stop` Key Mapper over ADB: that unbinds its accessibility service
+#   until the setting is cleared and set again. Record the "Button 3" trigger with the physical remote.
+#   The -foss APK from its GitHub releases, version 4.6.2, is what the second unit (2026-10-23) runs.
+# - The "type on your phone" prompt that never works: default_input_method was
+#   com.google.android.tv.remote.service/.ImeBridgeService before anything here was changed. Gboard is
+#   installed and enabled, so the on-screen keyboard comes back with
+#   `ime set com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME`.
+# - Disabling dreamx leaves screensaver_components pointing at it. Point it at the launcher's clock:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+#   `cmd dreams start-dreaming` needs root here; to see the screensaver, set screen_off_timeout to
+#   60000 for a minute and put it back (600000 by default).
+# - Location is off by default, so the launcher's Wi-Fi pill shows "Wi-Fi" instead of the network name.
+# - Only 1.4 GB RAM (about 480 MB available with Home idle) and a 4.3 GB /data partition that was 82%
+#   full before anything was installed; the launcher's 270 KB APK fits, larger sideloads may not.
+# - com.google.android.tvrecommendations and com.google.android.apps.education.cast2class ship
+#   disabled at the factory, as on the 4K. Don't add them to a restore list.
+# - AdGuard Private DNS (README) validated; Spotify loads and Tubi plays with it on.
+#
+# Lived with from 2026-10-19 to 2026-10-21 (several reboots and a full power cycle), nothing re-enabled.
+# The new launcher comes back as Home with Wi-Fi connected; the Assistant mic button, the remote's TV
+# volume buttons, Home from inside an app, PBS Kids, Tubi and Spotify playback, casting from a phone
+# (YouTube) and a tablet (Disney+) with Cast Fix, and Play Store app updates (com.wbd.stream updated
+# on 2026-10-21) all work.
+#
+# Kept on purpose: Google Assistant (com.google.android.katniss), Cast receiver
+# (com.google.android.apps.mediashell), phone remote (com.google.android.tv.remote.service), remote
+# pairing and TV control setup (com.google.android.tv.axel), Play Store /
+# Play Services, Gboard, Bluetooth, com.google.android.tv.dfuservice (remote firmware updates),
+# com.netflix.tokenmanager.
+
+# Telemetry, feedback and ads
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.google.android.tv.remotecontrol.logging     # remote usage logging
+# The next four are Privacy Sandbox / federated-learning Mainline modules: worked here, re-enable if
+# the Play Store or Assistant misbehave.
+com.google.android.federatedcompute
+com.google.android.ondevicepersonalization.services
+com.google.android.adservices.api               # Privacy Sandbox ad services
+com.google.android.ext.adservices.api
+android.autoinstalls.config.google.gtvpai       # Play Auto Installs config stub, only read during setup
+
+# Preloaded apps
+com.google.android.play.games
+com.google.android.videos                       # Google TV / Play Movies; re-enable for purchased titles
+com.android.printspooler
+com.google.android.marvin.talkback              # re-enable if you need the screen reader
+
+# Google ambient mode screensaver (replaced by the launcher's Clock screensaver)
+com.google.android.apps.tv.dreamx
+com.google.android.backdrop
+
+# Stock home. launcher/build-and-install.sh disables launcherx itself once the new launcher is installed
+# and verified, and restore.sh re-enables it; setupwraith has to go too (see quirks: fix Wi-Fi ownership
+# first, and it breaks casting), so it stays in the list for restore.sh to bring back.
+# com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith  # setup wizard; its RecoveryActivity otherwise takes over Home

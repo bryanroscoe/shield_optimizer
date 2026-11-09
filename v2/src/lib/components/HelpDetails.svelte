@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
 
-  let { label, children }: { label: string; children: Snippet } = $props();
+  let { label, children, open = $bindable(false) }: { label: string; children: Snippet; open?: boolean } = $props();
 
   let details: HTMLDetailsElement;
 
@@ -15,7 +15,7 @@
 
 <svelte:window onkeydown={closeOnEscape} />
 
-<details class="help-details" bind:this={details}>
+<details class="help-details" bind:this={details} bind:open>
   <summary>{label}</summary>
   <div class="help-content">{@render children()}</div>
 </details>

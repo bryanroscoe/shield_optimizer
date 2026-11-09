@@ -234,8 +234,8 @@ where
 {
     SessionEventLayer.with_filter(
         Targets::new()
-            .with_target("shield_optimizer_core::commands", LevelFilter::INFO)
-            .with_target("shield_optimizer_v2_lib::commands", LevelFilter::INFO),
+            .with_target("atv_optimizer_core::commands", LevelFilter::INFO)
+            .with_target("atv_optimizer_lib::commands", LevelFilter::INFO),
     )
 }
 

@@ -63,7 +63,14 @@ function billingStatus() {
     offer:
       demoBilling === "unavailable"
         ? null
-        : { formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
+        : { product_id: "atvopt_pro", formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
+    support_offers:
+      demoBilling === "unavailable"
+        ? []
+        : [
+            { product_id: "atvopt_pro_support_1", formatted_price: "$9.99", title: "ATV Optimizer Pro, supporter", name: "ATV Optimizer Pro, supporter", description: "" },
+            { product_id: "atvopt_pro_support_2", formatted_price: "$19.99", title: "ATV Optimizer Pro, big supporter", name: "ATV Optimizer Pro, big supporter", description: "" },
+          ],
     ack_pending: false,
     product_id: "atvopt_pro",
   };
@@ -101,8 +108,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "wireless_discover":
       return {
         devices: [
-          { name: "adb-0323220012345", host: HOST, port: PORT, service: "_adb._tcp" },
-          { name: "adb-9AB4C21D7E03-x7Kq2b", host: "192.168.1.77", port: 37215, service: "_adb-tls-connect._tcp" },
+          { name: "adb-0323220012345", friendly_name: "Living Room TV", host: HOST, port: PORT, service: "_adb._tcp" },
+          { name: "adb-9AB4C21D7E03-x7Kq2b", friendly_name: "Den TV", host: "192.168.1.77", port: 37215, service: "_adb-tls-connect._tcp" },
         ],
         message: "Found 2 TVs on this network.",
       };
@@ -134,10 +141,10 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     // covers a gallery frame.
     case "telemetry_settings":
     case "dismiss_telemetry_notice":
-      return { enabled: telemetryEnabled, available: true, notice_seen: true };
+      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: telemetryEnabled ? "33333333-3333-4333-8333-333333333333" : null };
     case "set_telemetry_enabled":
       telemetryEnabled = Boolean(args.enabled);
-      return { enabled: telemetryEnabled, available: true, notice_seen: true };
+      return { enabled: telemetryEnabled, available: true, notice_seen: true, support_id: telemetryEnabled ? "33333333-3333-4333-8333-333333333333" : null };
     case "telemetry_action":
     case "telemetry_error":
       return null;

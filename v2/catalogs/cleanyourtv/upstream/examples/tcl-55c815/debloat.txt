@@ -1,0 +1,71 @@
+# TCL 55C815 (EU/Denmark, 2020), `ro.product.model` BeyondTV2, device BeyondTV, board `rtd285o`
+# (Realtek), Android TV 11 (API 30), build PPR1.180610.011 / incremental AR05, dated 2023-04-07,
+# security patch 2021-12-05, 32-bit (`armeabi-v7a`), locale da-DK. ro.adb.secure=1.
+# Fingerprint: TCL/BeyondTV2/BeyondTV:11/PPR1.180610.011/AR05:user/release-keys
+# Same firmware family as examples/tcl-50ep680 and the same product name as
+# examples/tcl-beyondtv2-latin-america (that one is Android 9).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-55c815/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-55c815/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (Android TV, not Google TV). Other HOME claimants:
+# com.tcl.keycustomfunctionservice/.FallbackHome and com.android.tv.settings/.system.FallbackHome.
+# Live TV app: com.tcl.tv, with com.tcl.tvinput for the tuner and HDMI.
+#
+# Already disabled at the factory: the 14 uk.co.freeview.* catch-up apps, au.com.stan.and,
+# tv.wuaki.apptv, com.tcl.smartalexa, com.tcl.notereminder, com.tcl.tv.tclhome_master,
+# com.google.android.music, com.google.android.apps.nbu.smartconnect.tv.
+#
+# Deliberately NOT disabled:
+# com.tcl.guard                  # PERSISTENT system app, also runs a package installer service
+# com.tcl.partnercustomizer      # owns the remote's TKey activities (load-bearing per BeyondTV2 profile)
+# com.tcl.useragreement          # setup screens + shop-reset receiver
+# com.google.android.tungsten.setupwraith  # owns a saved Wi-Fi network on this unit: disabling it
+#                                          # would delete that network and drop the TV off Wi-Fi
+# com.tcl.tv com.tcl.tvinput com.tcl.autopair com.tcl.keycustomfunctionservice com.tcl.settings
+# com.tcl.inputmethod.international com.tcl.initsetup com.tcl.factory.view com.tcl.providers.config
+# com.tcl.systemserver com.tcl.micmanager com.tcl.usercenter com.tcl.xian.StartandroidService
+# Kept by the owner's choice: voice (katniss, tv.assistant, tcl.assistant), Chromecast (mediashell),
+# mirroring (tcl.miracast, MultiScreenInteraction_TV), firmware updates (versionUpdateApp),
+# YouTube Music, and every streaming app (Netflix, Max, YouTube, TV 2 Play, DR TV, Prime Video,
+# Spotify, Viaplay, Apple TV).
+#
+# Testing: applied on a real unit on 2026-10-20 in four batches with a screenshot after each. The
+# stock source menu, a YouTube video (through AdGuard Private DNS), the launcher's Inputs menu
+# (HDMI 1-3, AV, Live TV; HDMI 1 switched via com.tcl.tvinput passthrough), a dock launch, and the
+# real remote's Home, mic and Source buttons all worked. After a reboot all 18 stayed disabled
+# (esticker included), Home stayed on the launcher and Wi-Fi came back. Not lived with for days yet.
+# Launcher quirk: the Wi-Fi pill shows "Wi-Fi", not the network name, while Location is off
+# (location_mode 0 here); that's Android hiding the SSID, not the launcher's permission.
+
+# Batch 1: telemetry and attribution
+com.tcl.bi                              # TCL analytics (BIService, ParamProvider)
+android.autoinstalls.config.tcl.device  # Play auto-install stub (dummy receiver)
+com.google.android.feedback             # "send feedback"
+com.google.android.partnersetup         # partner-app attribution
+
+# Batch 2: TCL content/promo feeds and recommendation rows
+com.tcl.tv.tclhome_passive              # pushes TCL content to the home screen at boot
+com.tcl.waterfall.overseas              # "TCL Channel" content feed. TCL's updater re-enabled it
+                                        # by pushing an update after a reboot; hide it in the
+                                        # launcher's hidden_apps as well.
+com.tcl.overseasappshow                 # "recommended apps" showcase (boot/network receivers)
+com.tcl.messagebox                      # TCL message/promo box
+com.tcl.esticker                        # shop-mode energy-label sticker (re-check: the BeyondTV2
+                                        # profile saw it come back enabled overnight)
+com.google.android.tvrecommendations    # home-screen recommendation rows
+
+# Batch 3: unused Google extras, superseded apps, setup leftovers
+com.google.android.videos               # Play Movies & TV
+com.google.android.play.games
+com.google.android.onetimeinitializer   # one-time setup leftovers
+com.google.android.syncadapters.calendar
+com.tcl.copydatatotv                    # "copy your phone's data to the TV" setup helper
+com.hbo_android_tv                      # old HBO app, superseded by Max (com.wbd.stream, kept)
+com.hbo.hbonow                          # old HBO Now app, same
+
+# Batch 4 (after the launcher is installed): Google ambient screensaver
+com.google.android.backdrop             # the screensaver was already off on this unit. If you turn it
+                                        # back on, pick the launcher's clock: settings put secure
+                                        # screensaver_components com.gathin.tvhome/.ClockDream

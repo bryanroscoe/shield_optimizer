@@ -24,8 +24,8 @@ this file is only an orientation. [`BACKLOG.md`](BACKLOG.md) is the ordered queu
 - **Transport is the vendored pure-Rust `adb_client`** (`v2/vendor/adb_client`, MIT), wrapped by
   `WirelessAdb` in `src-tauri/src/wireless_adb.rs`, which implements the shared `AdbDriver` trait.
   Shell, push/pull, screencap and pairing all run through it.
-- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery only** — Android's `NsdManager`,
-  no third-party native libraries.
+- **The Kotlin plugin (`tauri-plugin-atv-adb/`) is mDNS discovery plus a network-change watch** —
+  Android's `NsdManager` and `ConnectivityManager`, no third-party native libraries.
 - The transport carries no GPL code, because the app is sold as a closed-source product.
   [`HANDOFF.md`](HANDOFF.md) §2 explains what that rules out.
 - **Legacy network debugging (`:5555`, no code) is the proven path.** Android 11+ code pairing

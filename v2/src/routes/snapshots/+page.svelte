@@ -6,6 +6,7 @@
   import { api } from "$lib/api";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
+  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
   import { destructiveWarning } from "../../../shared/support";
   import { onSupportTiersUpdated } from "$lib/support-updates";
 
@@ -16,6 +17,7 @@
 
   let devices = $state<Device[]>([]);
   let actionBusy = $state<string | null>(null);
+  let deletingPath = $state<string | null>(null);
   let actionMsg = $state<string>("");
 
   // Structured preview: the computed plan for applying `snap` to `serial`,
@@ -32,6 +34,7 @@
   let applyErr = $state<string | null>(null);
 
   async function load() {
+    if (actionBusy || applyBusy || deletingPath) return;
     loading = true;
     error = null;
     try {
@@ -53,6 +56,7 @@
   /// Compute the plan for applying `snap` to `serial` and open the preview
   /// panel. Apply happens from the panel after the user reviews the table.
   async function previewTo(snap: SnapshotFile, serial: string) {
+    if (loading || actionBusy || applyBusy || deletingPath) return;
     actionBusy = snap.path;
     actionMsg = "";
     applyResult = null;
@@ -76,7 +80,7 @@
   }
 
   async function confirmApply() {
-    if (!previewState) return;
+    if (!previewState || actionBusy || applyBusy || deletingPath) return;
     const { snap, serial, plan } = previewState;
     const total =
       plan.packages_to_disable.length +
@@ -97,12 +101,19 @@
   }
 
   async function deleteSnap(snap: SnapshotFile) {
-    if (!confirm(`Delete ${snap.filename}? This removes the file from disk.`)) return;
+    if (loading || actionBusy || applyBusy || deletingPath) return;
+    if (!confirm(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`)) return;
+    deletingPath = snap.path;
+    actionMsg = "";
     try {
       await api.deleteSnapshot(snap.path);
       snapshots = snapshots.filter((s) => s.path !== snap.path);
+      if (previewState?.snap.path === snap.path) cancelPreview();
+      actionMsg = `Deleted ${snap.label ?? snap.filename}.`;
     } catch (e) {
       actionMsg = `Delete failed: ${e}`;
+    } finally {
+      deletingPath = null;
     }
   }
 
@@ -155,7 +166,7 @@
         <Icon name="folder_open" size={16} /> Open folder
       </button>
     {/if}
-    <button onclick={load} disabled={loading}>{loading ? "Loading…" : "Refresh"}</button>
+    <button onclick={load} disabled={loading || !!actionBusy || applyBusy || !!deletingPath}>{loading ? "Loading…" : "Refresh"}</button>
   </div>
 </section>
 
@@ -166,7 +177,7 @@
     one to copy its setup. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
   </p>
 </HelpDetails>
-<p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps.</p>
+<p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
 
 {#if actionMsg}
   <pre class="action-msg">{actionMsg}</pre>
@@ -176,15 +187,15 @@
   {@const plan = previewState.plan}
   {@const settingKeys = Object.keys(plan.settings_to_write)}
   {@const nowValues = plan.current_values ?? {}}
-  {@const launcherUnchanged =
-    !plan.launcher_to_set && !plan.launcher_not_installed && previewState.snap.launcher !== null}
+  {@const launcherUnchanged = homeAlreadyMatches(plan, previewState.snap.launcher)}
+  {@const launcherSkip = launcherSkipReason(plan)}
   <div class="preview-panel">
     <div class="preview-head">
       <div>
         <h2>Restore to {previewState.deviceName}</h2>
         <p class="muted small mono">{previewState.snap.filename} → {previewState.serial}</p>
       </div>
-      <button onclick={cancelPreview}>Close</button>
+      <button onclick={cancelPreview} disabled={applyBusy || !!deletingPath}>Close</button>
     </div>
 
     {#if plan.cross_device_warning}
@@ -197,6 +208,7 @@
       {plan.packages_not_installed.length} not on device ·
       <strong>{settingKeys.length}</strong> setting{settingKeys.length === 1 ? "" : "s"}
       to write · <strong>{plan.settings_to_delete.length}</strong> to reset
+      {#if plan.packages_kept.length > 0}· {plan.packages_kept.length} kept on for Home{/if}
       {#if plan.launcher_to_set}· Home app{/if}
     </div>
 
@@ -217,9 +229,12 @@
         {/each}
         {#if launcherUnchanged}
           <tr class="dim"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">Already Home</span></td></tr>
-        {:else if plan.launcher_not_installed}
-          <tr class="dim"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">{plan.launcher_not_installed} isn't installed; skipped</span></td></tr>
+        {:else if launcherSkip}
+          <tr class="dim" data-plan-item="launcher"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">{launcherSkip}</span></td></tr>
         {/if}
+        {#each plan.packages_kept as kept (kept.package)}
+          <tr class="dim" data-plan-item="kept"><td class="mono small">{kept.package}</td><td class="mono small">enabled</td><td><span class="terminal-reason">Kept on: {kept.reason}</span></td></tr>
+        {/each}
         {#each plan.settings_already_set as k (k)}
           <tr class="dim"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "unset"}</td><td><span class="terminal-reason">Already set</span></td></tr>
         {/each}
@@ -233,17 +248,24 @@
     </table>
 
     <div class="apply-row">
-      <button class="primary" onclick={confirmApply} disabled={applyBusy || applyResult !== null}>
+      <button class="primary" onclick={confirmApply} disabled={applyBusy || !!actionBusy || !!deletingPath || applyResult !== null}>
         {applyBusy ? "Restoring…" : applyResult ? "Restored" : "Restore snapshot"}
       </button>
       <span class="muted small">Disable is reversible via Emergency Recovery on the device.</span>
     </div>
     {#if applyErr}<div class="error">{applyErr}</div>{/if}
     {#if applyResult}
+      {@const outcome = splitRestoreFailures(applyResult)}
       <div class="apply-result">
         <p><strong>{applyResult.summary}</strong></p>
-        {#if applyResult.packages_failed.length > 0}
-          <p class="warn-text">{applyResult.packages_failed.length} failed: {applyResult.packages_failed.join(", ")}</p>
+        {#if !applyResult.launcher_set && applyResult.launcher_message}
+          <p>Home app: {applyResult.launcher_message}</p>
+        {/if}
+        {#if outcome.kept.length > 0}
+          <p>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</p>
+        {/if}
+        {#if outcome.failed.length > 0}
+          <p class="warn-text">{outcome.failed.length} failed: {outcome.failed.join(", ")}</p>
         {/if}
         {#if applyResult.settings_failed.length > 0}
           <p class="warn-text">{applyResult.settings_failed.length} setting(s) failed: {applyResult.settings_failed.join(", ")}</p>
@@ -296,7 +318,7 @@
               <div class="snap-actions">
               {#if authorizedDevices().length > 0}
                 <select
-                  disabled={actionBusy === s.path}
+                  disabled={loading || !!actionBusy || applyBusy || !!deletingPath}
                   aria-label={`Restore ${s.label ?? s.device_name} to a device`}
                   onchange={(e) => {
                     const target = e.target as HTMLSelectElement;
@@ -314,9 +336,10 @@
               <button
                 class="snap-tool danger"
                 onclick={() => deleteSnap(s)}
+                disabled={loading || !!actionBusy || applyBusy || !!deletingPath}
                 title="Delete this snapshot file from disk"
                 aria-label={`Delete ${s.filename}`}
-              ><Icon name="delete" size={16} /></button>
+              ><Icon name="delete" size={16} /> {deletingPath === s.path ? "Deleting…" : "Delete"}</button>
               </div>
             </td>
           </tr>
@@ -358,7 +381,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-lg);
     background: var(--bg-surface);
-    overflow: hidden;
+    overflow-x: auto;
   }
   .snap-table {
     width: 100%;
@@ -377,7 +400,7 @@
   .snap-table td {
     padding: 0.7rem 1rem;
     border-bottom: 1px solid var(--border);
-    vertical-align: top;
+    vertical-align: middle;
   }
   .snap-table tr:last-child td {
     border-bottom: none;
@@ -420,7 +443,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding: 0.3rem;
+    gap: 0.3rem;
+    padding: 0.3rem 0.5rem;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: none;
@@ -518,13 +542,21 @@
   }
   .preview-head {
     display: flex;
+    flex-wrap: wrap;
     justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     gap: 1rem;
   }
   .preview-head h2 {
     margin: 0;
     font-size: 1.1rem;
+  }
+  .preview-head > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .preview-head > button {
+    margin-left: auto;
   }
   .warning {
     background: var(--warn-surface);
@@ -556,6 +588,7 @@
   .plan-table td {
     padding: 0.35rem 0.6rem;
     border-bottom: 1px solid var(--border);
+    overflow-wrap: anywhere;
   }
   .plan-table tr.dim {
     opacity: 0.5;

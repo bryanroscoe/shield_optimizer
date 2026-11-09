@@ -1,4 +1,12 @@
+<script module lang="ts">
+  // App names seen this app session (the installed-app list, finished
+  // backups), so a backup row can show a label. Memory only: nothing new is
+  // persisted.
+  const learnedLabels = new Map<string, string>();
+</script>
+
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -49,6 +57,24 @@
   let busyRestore = $derived(restoreOperation?.path ?? "");
   let deleteTarget = $state<BackupEntry | null>(null);
   let busyDelete = $state("");
+
+  let labels = $state<Record<string, string>>(Object.fromEntries(learnedLabels));
+  function learnLabels(rows: { package: string; name?: string | null }[]) {
+    const next = { ...labels };
+    let changed = false;
+    for (const row of rows) {
+      const name = row.name?.trim();
+      if (!name || name === row.package || next[row.package] === name) continue;
+      learnedLabels.set(row.package, name);
+      next[row.package] = name;
+      changed = true;
+    }
+    if (changed) labels = next;
+  }
+  /// "Label (package)" when the name is known, else the package id.
+  function backupName(pkg: string): string {
+    return labels[pkg] ? `${labels[pkg]} (${pkg})` : pkg;
+  }
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -116,6 +142,7 @@
       packages = rows;
       packagesSerial = serial;
       packagesConnectionGeneration = connectionGeneration;
+      learnLabels(rows);
     } catch (e) {
       if (
         requestGeneration !== pickerGeneration ||
@@ -194,6 +221,7 @@
     backupOperation = operation;
     try {
       const entry = await api.backupApk(targetSerial, p.package);
+      learnLabels([p]);
       showToast(
         `Backed up ${label}${p.name ? ` (${p.package})` : ""} from ${targetSerial}: ${entry.apk_count} APK part${entry.apk_count === 1 ? "" : "s"}.`,
         "success",
@@ -243,11 +271,11 @@
     try {
       const result = await api.restoreApkBackup(targetSerial, backup.path);
       showToast(
-        `Restore ${backup.package} on ${targetSerial}: ${result.message}`,
+        `Restore ${backupName(backup.package)} on ${targetSerial}: ${result.message}`,
         result.ok ? "success" : "error",
       );
     } catch (e) {
-      showToast(`Restore failed for ${backup.package} on ${targetSerial}: ${String(e)}`, "error");
+      showToast(`Restore failed for ${backupName(backup.package)} on ${targetSerial}: ${String(e)}`, "error");
     } finally {
       if (restoreOperation?.id === operation.id) restoreOperation = null;
     }
@@ -322,15 +350,17 @@
   <!-- Back up an app -->
   <div class="create-card">
     <span class="card-label">Back up one app's APKs</span>
-    <p class="card-desc">
-      Choose exactly one installed app. Its base APK and every installed split APK are copied to
-      this phone. App data, settings, and sign-in details are not included.
-    </p>
+    <p class="card-desc">App data, settings, and sign-in details are not included.</p>
     <p class="system-note">
-      System apps are hidden by default. You can reveal and copy them, but a system APK restore may
-      fail because of Android signatures, versions, or system dependencies. This is not a full-TV
-      recovery backup.
+      A system APK restore may fail because of Android signatures, versions,
+      or system dependencies. This is not a full-TV recovery backup.
     </p>
+    <HelpSheet title="About APK backups">
+      <p class="card-desc">
+        Choose exactly one installed app. Its base APK and every installed split APK are copied to
+        this phone. System apps are hidden by default; you can reveal and copy them too.
+      </p>
+    </HelpSheet>
     {#if backupOperation}
       <p class="operation-note" role="status">
         Backing up {backupOperation.label} ({backupOperation.package}) from
@@ -424,7 +454,10 @@
         <div class="backup-row">
           <div class="b-icon"><span class="msr">android</span></div>
           <div class="b-body">
-            <span class="b-name">{b.package}</span>
+            <span class="b-name">{labels[b.package] ?? b.package}</span>
+            {#if labels[b.package]}
+              <span class="b-pkg mono">{b.package}</span>
+            {/if}
             <span class="b-sub mono">
               This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)} · {b.apk_count} APK{b.apk_count === 1 ? "" : "s"}
             </span>
@@ -449,7 +482,7 @@
               class="del-btn"
               disabled={busyDelete !== "" || busyRestore !== ""}
               onclick={() => (deleteTarget = b)}
-              aria-label={`Delete the ${b.package} backup`}
+              aria-label={`Delete the ${backupName(b.package)} backup`}
             >
               {#if busyDelete === b.path}
                 <span class="pdot blink"></span>
@@ -476,7 +509,7 @@
   open={deleteTarget !== null}
   danger
   icon="delete"
-  title={`Delete the ${deleteTarget?.package ?? "app"} backup?`}
+  title={`Delete the ${deleteTarget ? backupName(deleteTarget.package) : "app"} backup?`}
   message="Removes the saved APK files from this phone. The app on your TV is not touched, and this can't be undone."
   confirmLabel="Delete"
   onConfirm={confirmDelete}
@@ -485,7 +518,7 @@
 
 <ConfirmDialog
   open={restoreTarget !== null}
-  title={`Restore ${restoreTarget?.backup.package ?? "app"}?`}
+  title={`Restore ${restoreTarget ? backupName(restoreTarget.backup.package) : "app"}?`}
   message="Installs every APK part in this saved bundle on the connected TV. This does not restore app data, settings, or sign-in details, and it is not full-device recovery."
   warning="Android may reject the restore when its signature or version is incompatible, or when a system app depends on the TV firmware."
   confirmLabel="Restore"
@@ -631,6 +664,9 @@
   .system-toggle input {
     width: 18px;
     height: 18px;
+    min-height: 0;
+    margin: 0;
+    padding: 0;
     accent-color: var(--accent);
   }
   .center.small {
@@ -723,8 +759,9 @@
   }
   .backup-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: 13px;
+    gap: 10px 13px;
     padding: 14px;
     border-radius: 15px;
     background: var(--surface);
@@ -743,8 +780,9 @@
     font-size: 22px;
     color: var(--text-soft);
   }
+  /* Actions wrap below the name when the row is too narrow for both. */
   .b-body {
-    flex: 1;
+    flex: 1 1 150px;
     min-width: 0;
     display: flex;
     flex-direction: column;
@@ -753,16 +791,19 @@
   .b-name {
     font-size: 14px;
     font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+  .b-pkg {
+    font-size: 11px;
+    color: var(--text-soft);
+    overflow-wrap: anywhere;
   }
   .b-sub {
     font-size: 10px;
+    line-height: 1.4;
     color: var(--muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
   .restore-btn {
     min-width: 74px;
@@ -789,6 +830,7 @@
     align-items: center;
     gap: 8px;
     flex: none;
+    margin-left: auto;
   }
   .del-btn {
     display: grid;

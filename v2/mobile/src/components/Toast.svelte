@@ -6,8 +6,8 @@
 </script>
 
 {#if message}
-  <div class="toast" class:error={type === "error"} class:success={type === "success"}>
-    <span class="msr">
+  <div class="toast" class:error={type === "error"} class:success={type === "success"} role={type === "error" ? "alert" : "status"}>
+    <span class="msr" aria-hidden="true">
       {type === "success" ? "check_circle" : type === "error" ? "error" : "info"}
     </span>
     <span>{message}</span>
@@ -18,8 +18,8 @@
   .toast {
     position: fixed;
     bottom: calc(env(safe-area-inset-bottom) + 96px);
-    left: 24px;
-    right: 24px;
+    left: max(24px, calc((100% - var(--content-max)) / 2));
+    right: max(24px, calc((100% - var(--content-max)) / 2));
     background: var(--surface-2);
     border: 1px solid var(--line);
     border-radius: 12px;

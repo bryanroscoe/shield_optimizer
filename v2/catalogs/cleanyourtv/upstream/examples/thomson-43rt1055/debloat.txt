@@ -1,0 +1,83 @@
+# Thomson 43RT1055 FA Series, India, built by SPPL (ro.product.model "SPPL 2K ANDROID TV", product
+# SPPL_2K_RT41, device sauve), Realtek RTD2841A (32-bit ARM), Android TV 14 (API 34), build UKRE.260524.055,
+# fingerprint THOMSON/SPPL_2K_RT41/sauve:14/UKRE.260524.055/16101080:user/release-keys.
+# 1 GB RAM (about 210 MB available on the stock Home), 1080p panel drawn at 1280x720, density 213.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/thomson-43rt1055/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/thomson-43rt1055/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (plain Android TV, not Google TV; restore.sh and
+# build-and-install.sh defaults work). The only other HOME claimants are com.realtek.systemservice's and
+# com.android.tv.settings' FallbackHome; setupwraith is installed but does not claim HOME, so no handover trap.
+# Live TV app: com.realtek.tv (TvActivity has a leanback entry). HDMI 1-3 and AV come from
+# com.realtek.tv.passthrough, the tuners from com.realtek.dtv (Cable, Antenna) and com.realtek.tv.atv.
+# launcher/ config: config.json here (live_tv_package com.realtek.tv, its tile hidden).
+# Remote: infrared (input device IR_HKIR), no Bluetooth remote bonded. Sideloading works: pm install accepts
+# a third-party APK that declares HOME.
+#
+# Applied and checked on a real unit on 2026-10-21, in small batches with a screenshot after each: Live TV,
+# HDMI and AV still switch, YouTube plays, and with launcher/ installed the real remote's Home, Input,
+# Settings, app buttons and mic work. A reboot afterwards re-enabled none of the packages below.
+#
+# Kept on purpose, do not disable:
+# - com.realtek.tv, com.realtek.tv.passthrough, com.realtek.dtv, com.realtek.dtmb, com.realtek.tv.atv,
+#   com.realtek.tv.isdb, com.realtek.tv.atsc, com.android.providers.tv: Live TV, HDMI, AV and the tuners.
+# - com.realtek.menu, com.realtek.slices, com.realtek.globalkeyhandler: the source menu and the remote's
+#   Input and Settings keys (on Input, globalkeyhandler opens com.realtek.tv/.SelectInputActivity).
+# - com.realtek.systemservice, com.realtek.power, com.realtek.energymode, com.realtek.display.monitor.
+# - com.realtek.connecteddevices: the Bluetooth "Connected devices" settings page.
+# - com.android.bluetooth, com.google.android.tv.googletvremotepairer (and its customizationsample).
+# - com.google.android.tv.remote.service: despite the name it holds AtvSearchAssistantService, which the
+#   mic button needs here too (as on tcl-c755-google-tv). Disabled, pressing the mic logged "Unable to start
+#   service ... AtvSearchAssistantService" and nothing happened; re-enabling it brought voice search back.
+# - Factory packages, never launched: com.hk.factorymenu (HikeenFactory), com.factory.factoryautomation
+#   (HikeenAutoTest).
+# - com.realtek.mdnsoffload, com.android.tv.mdnsoffloadmanager, com.realtek.media.notification (codec notices).
+#
+# Already disabled from the factory (stays disabled on restore): com.android.tv (an empty RtkLiveTv stub).
+#
+# Quirks on this firmware:
+# - The apex packages below (adservices, ondevicepersonalization, federatedcompute) accepted pm disable-user.
+# - TvInputManager reports every HDMI port as connected-standby (state 1) with or without a cable, so the
+#   launcher shows no HDMI status; AV reports "No device" correctly.
+# - launcher/'s Inputs menu switches HDMI and AV, but its Live TV row only reopens com.realtek.tv on the last
+#   input while no channels are scanned: the TV app ignores the tuner's passthrough URI. The stock source
+#   picker (remote's Input key, then Antenna) opens the DVB channel scan instead.
+# - Network ADB on port 5555 comes back by itself after a reboot while debugging is on: switch debugging off
+#   in Developer options and reboot to close it.
+
+# Telemetry and ad services
+tv.anoki.acr.anokiacroptin                   # automatic content recognition (Anoki ACR)
+com.google.android.feedback
+com.android.tv.feedbackconsent
+com.android.adservices.api
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Content, promos and partner installs
+com.google.android.tvrecommendations
+android.autoinstalls.config.rplus.device     # Play auto-installs of partner apps
+com.vewd.core.service                        # Vewd HbbTV/operator-app engine and minidump uploader; India has no HbbTV
+com.realtek.retailmode                       # store demo
+
+# Background services
+com.google.android.syncadapters.calendar
+
+# Off by choice on this unit (comment out what you use)
+com.google.android.youtube.tvmusic
+com.recisio.kfandroid                        # KaraFun
+com.google.android.videos                    # Google TV (Play Movies)
+com.google.android.play.games
+com.rtk.mediabrowser                         # Media Player for USB drives
+com.cltv.fast                                # Anoki "TV" free ad-supported channels; registers its own TV input
+com.google.android.apps.mediashell           # Chromecast built-in
+com.realsil.ota                              # firmware updater for Bluetooth remotes; this remote is infrared
+com.google.android.tv.dfuservice             # remote firmware updates and Find my remote
+com.google.android.backdrop                  # Ambient screensaver, 58 MB while idle; pick another screensaver first
+# com.google.android.katniss                 # voice search and the mic button - kept
+# com.google.android.tv.remote.service       # KEEP while voice search is used: the mic needs it (see header)
+
+# Stock launcher and its partner rows. Do this LAST, after launcher/ is installed and set as Home.
+com.realtek.leanbacklauncher.partnercustomizer   # only feeds tvlauncher's rows and Inputs button
+com.google.android.tvlauncher

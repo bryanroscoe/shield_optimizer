@@ -1,9 +1,9 @@
 //! Desktop subprocess-backed ADB driver.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, OnceLock};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -12,11 +12,12 @@ use tokio::process::Command;
 use tokio::time::timeout;
 use tracing::{debug, warn};
 
-use shield_optimizer_core::adb::driver::process_output;
-use shield_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
-use shield_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
-use shield_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
+use atv_optimizer_core::adb::driver::process_output;
+use atv_optimizer_core::adb::driver::{BoundedShellOutput, ShellTermination};
+use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, BATCH_SEPARATOR};
+use atv_optimizer_core::adb::{Leases, ServerStop, TrackedChild};
 
+use super::server_repair::{self, Reach, ReachProbe, RepairGate};
 use crate::session;
 
 /// The standard subprocess-backed driver. Wraps `tokio::process::Command`.
@@ -28,6 +29,63 @@ pub struct SubprocessAdb {
     /// production driver shares the process-wide counter, so a driver swapped
     /// in by `install_adb` is covered too.
     children: Arc<Leases>,
+    /// Restart a server macOS has cut off from the local network. Only macOS
+    /// does that; see `server_repair`.
+    repair_cut_off: bool,
+    reach: ReachProbe,
+    repairs: Arc<RepairGate>,
+    /// The built-in engine's key, offered to an adb server this driver's
+    /// commands start. See [`offer_builtin_key_to_adb_server`].
+    vendor_key: Option<PathBuf>,
+}
+
+/// Where the built-in engine keeps its key, set once at launch.
+static BUILTIN_KEY: OnceLock<Option<PathBuf>> = OnceLock::new();
+
+/// Have every adb this app runs name the built-in engine's key at `path` in
+/// `ADB_VENDOR_KEYS`, so a TV that allowed only the built-in engine needs no
+/// new prompt under platform-tools.
+///
+/// adb reads `ADB_VENDOR_KEYS` only in the server, once, when it starts
+/// (`adb_auth_init` in AOSP `client/auth.cpp`): a list split on the OS path
+/// separator whose files are loaded as keys (PEM read by
+/// `PEM_read_RSAPrivateKey`, which takes the PKCS#8 our key is in) and whose
+/// folders contribute their `*.adb_key` files. So it takes effect only when one
+/// of this app's adb commands is what starts the server; a server already
+/// running, started by another tool or an earlier session, keeps the keys it
+/// has. Nothing restarts a server to change that. The key is named only while
+/// its file exists; nothing creates it for this.
+pub fn offer_builtin_key_to_adb_server(path: Option<PathBuf>) {
+    let _ = BUILTIN_KEY.set(path);
+}
+
+const VENDOR_KEYS: &str = "ADB_VENDOR_KEYS";
+#[cfg(windows)]
+const PATH_LIST_SEPARATOR: &str = ";";
+#[cfg(not(windows))]
+const PATH_LIST_SEPARATOR: &str = ":";
+
+/// `existing` with `key` appended, or `None` to leave the inherited value as
+/// it is: when it already names `key`, or when `key` contains the separator,
+/// which adb's plain split could not keep together.
+fn vendor_keys_value(existing: Option<&OsStr>, key: &Path) -> Option<OsString> {
+    if key
+        .as_os_str()
+        .to_string_lossy()
+        .contains(PATH_LIST_SEPARATOR)
+    {
+        return None;
+    }
+    let Some(existing) = existing.filter(|value| !value.is_empty()) else {
+        return Some(key.as_os_str().to_owned());
+    };
+    if std::env::split_paths(existing).any(|entry| entry == key) {
+        return None;
+    }
+    let mut value = existing.to_owned();
+    value.push(PATH_LIST_SEPARATOR);
+    value.push(key);
+    Some(value)
 }
 
 impl SubprocessAdb {
@@ -37,7 +95,29 @@ impl SubprocessAdb {
             binary,
             command_timeout: Duration::from_secs(30),
             children: Arc::clone(super::child_leases()),
+            repair_cut_off: cfg!(target_os = "macos"),
+            reach: ReachProbe::Network,
+            repairs: Arc::clone(super::server_repairs()),
+            vendor_key: BUILTIN_KEY.get().cloned().flatten(),
         }
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_vendor_key(mut self, key: Option<PathBuf>) -> Self {
+        self.vendor_key = key;
+        self
+    }
+
+    /// An adb command for this driver's binary, offering the built-in key to
+    /// a server it starts.
+    fn adb_command(&self) -> Command {
+        let mut command = Command::new(&self.binary);
+        if let Some(key) = self.vendor_key.as_deref().filter(|key| key.is_file()) {
+            if let Some(value) = vendor_keys_value(std::env::var_os(VENDOR_KEYS).as_deref(), key) {
+                command.env(VENDOR_KEYS, value);
+            }
+        }
+        command
     }
 
     /// Locate `adb` using the same priority order as `discover_adb_binary`.
@@ -58,6 +138,14 @@ impl SubprocessAdb {
 
     pub fn with_timeout(mut self, dur: Duration) -> Self {
         self.command_timeout = dur;
+        self
+    }
+
+    #[cfg(all(test, unix))]
+    pub(crate) fn with_cut_off_repair(mut self, reach: Reach) -> Self {
+        self.repair_cut_off = true;
+        self.reach = ReachProbe::Fixed(reach);
+        self.repairs = Arc::default();
         self
     }
 
@@ -118,6 +206,42 @@ impl SubprocessAdb {
         self.run_with_timeout(args, self.command_timeout).await
     }
 
+    /// `failed` came from `args`, a connect or pair to `target` that started
+    /// at `started` and failed with "No route to host". Restart the server
+    /// and retry when this process reaches `target` itself; otherwise return
+    /// `failed` unchanged. See `server_repair`.
+    async fn repair_cut_off_server(
+        &self,
+        args: &[&str],
+        target: &str,
+        started: Instant,
+        failed: AdbResult<AdbOutput>,
+    ) -> AdbResult<AdbOutput> {
+        if custom_server_target(|name| std::env::var_os(name)).is_some() {
+            return failed;
+        }
+        let mut last_restart = self.repairs.lock().await;
+        match server_repair::decide(*last_restart, started) {
+            server_repair::Repair::Leave => return failed,
+            server_repair::Repair::Retry => {}
+            server_repair::Repair::Restart => {
+                if self.reach.probe(target).await != Reach::Reachable {
+                    return failed;
+                }
+                warn!("the adb server cannot reach a device this app reaches; restarting it");
+                let _ = self.run(&["kill-server"]).await;
+                let start = self.run(&["start-server"]).await;
+                *last_restart = Some(Instant::now());
+                if let Err(error) = start {
+                    warn!(%error, "adb start-server failed while replacing a cut-off server");
+                    return failed;
+                }
+            }
+        }
+        drop(last_restart);
+        self.run(args).await
+    }
+
     async fn run_with_timeout(&self, args: &[&str], dur: Duration) -> AdbResult<AdbOutput> {
         let started = Instant::now();
         if !self.binary.exists() {
@@ -131,7 +255,7 @@ impl SubprocessAdb {
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -239,9 +363,58 @@ fn redact_stdout_for_log(command_text: &str, stdout: &str) -> String {
             .filter(|line| line.trim_start().starts_with("package:"))
             .count();
         format!("<redacted: package inventory, {count} entries>")
+    } else if mentions_named_setting(command_text) {
+        truncate_for_log(&redact_named_output(command_text, stdout))
     } else {
         truncate_for_log(stdout)
     }
+}
+
+/// Settings whose value is something the user named: the TV's name and the
+/// Private DNS host (a NextDNS-style profile id is personal too).
+const NAMED_SETTINGS: [&str; 3] = ["device_name", "private_dns_specifier", "bluetooth_name"];
+
+fn mentions_named_setting(text: &str) -> bool {
+    NAMED_SETTINGS.iter().any(|key| text.contains(key))
+}
+
+/// The output of a read of a named setting. A batch keeps its other
+/// sections (the property reads a bug report needs) and loses only the
+/// sections whose command touched one of [`NAMED_SETTINGS`]; anything else
+/// that mentions one is withheld whole.
+fn redact_named_output(command_text: &str, stdout: &str) -> String {
+    const WITHHELD: &str = "<redacted: a name or host the user set>";
+    let commands: Vec<&str> = command_text.split(BATCH_SEPARATOR).collect();
+    let sections: Vec<&str> = stdout.split(BATCH_SEPARATOR).collect();
+    if commands.len() < 2 || commands.len() != sections.len() {
+        return WITHHELD.to_string();
+    }
+    commands
+        .iter()
+        .zip(sections)
+        .map(|(command, section)| {
+            if mentions_named_setting(command) {
+                format!("\n{WITHHELD}\n")
+            } else {
+                section.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(BATCH_SEPARATOR)
+}
+
+/// `settings put global device_name '<new name>'` carries the value in the
+/// command itself, and a failed or timed-out call logs its arguments at
+/// warn, which is what a failure report's excerpt reads. The value goes, to
+/// the end of that command.
+fn redact_named_values(arg: &str) -> String {
+    static PUT: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(
+            r"(settings\s+put\s+\S+\s+(?:device_name|private_dns_specifier|bluetooth_name))\s+[^;]*",
+        )
+        .expect("static pattern")
+    });
+    PUT.replace_all(arg, "$1 <redacted>").into_owned()
 }
 
 /// Typed text rides as `input text '<payload>'`, and that payload is whatever
@@ -262,7 +435,10 @@ fn redact_typed_text(arg: &str) -> String {
 /// first place — redacting at the read end would be too late.
 fn redact_args(args: &[&str]) -> Vec<String> {
     let Some(pair_at) = args.iter().position(|a| *a == "pair") else {
-        return args.iter().map(|a| redact_typed_text(a)).collect();
+        return args
+            .iter()
+            .map(|a| redact_named_values(&redact_typed_text(a)))
+            .collect();
     };
     args.iter()
         .enumerate()
@@ -481,7 +657,15 @@ fn bounded_utf8(bytes: &[u8]) -> String {
 #[async_trait]
 impl AdbDriver for SubprocessAdb {
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
-        self.run(args).await
+        let started = Instant::now();
+        let result = self.run(args).await;
+        match server_repair::repairable_target(args) {
+            Some(target) if self.repair_cut_off && server_repair::reports_no_route(&result) => {
+                self.repair_cut_off_server(args, target, started, result)
+                    .await
+            }
+            _ => result,
+        }
     }
 
     async fn raw_transfer(&self, args: &[&str]) -> AdbResult<AdbOutput> {
@@ -493,7 +677,7 @@ impl AdbDriver for SubprocessAdb {
     }
 
     async fn shell_bounded(&self, serial: &str, command: &str) -> AdbResult<BoundedShellOutput> {
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(["-s", serial, "shell", command]);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -544,7 +728,7 @@ impl AdbDriver for SubprocessAdb {
         let safe_args = redact_args(args);
         debug!(adb = ?self.binary, args = ?safe_args, "adb invoke (binary)");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args);
         super::hide_console_window(&mut cmd);
         super::pin_working_directory(&mut cmd);
@@ -608,7 +792,7 @@ impl AdbDriver for SubprocessAdb {
 
         debug!(adb = ?self.binary, args = ?redact_args(args), "adb spawn (long-lived)");
 
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.args(args).kill_on_drop(true);
         // Verified on device: the device-side `app_process` aborts at startup
         // (exit 134, no Java output) when the adb client's stdin is fully
@@ -634,7 +818,7 @@ impl AdbDriver for SubprocessAdb {
         if !self.binary.exists() {
             return ServerStop::Skipped(format!("adb binary at {} is gone", self.binary.display()));
         }
-        let mut cmd = Command::new(&self.binary);
+        let mut cmd = self.adb_command();
         cmd.arg("kill-server")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -721,8 +905,10 @@ pub fn forget_cached_adb_binary() {
 /// SDK, and other common installs. This function walks a deterministic
 /// priority list:
 ///
-/// 1. `SHIELD_OPTIMIZER_ADB` env var (explicit user override)
-/// 2. App-managed platform-tools install
+/// 1. `ATV_OPTIMIZER_ADB` env var (explicit user override), or its old name
+///    `SHIELD_OPTIMIZER_ADB`
+/// 2. App-managed platform-tools install, then the one under the pre-rename
+///    data folder, which is not copied over (a running adb server holds it)
 /// 3. `ANDROID_HOME` / `ANDROID_SDK_ROOT` env vars + `platform-tools/adb`
 /// 4. PATH search (only finds adb on Linux/Windows or when the GUI was
 ///    launched from a shell that exported the right PATH)
@@ -736,8 +922,9 @@ pub fn forget_cached_adb_binary() {
 ///    or its parent, where v1 downloads its adb binary (the repo root).
 pub fn discover_adb_binary() -> Option<PathBuf> {
     let sources = AdbDiscoverySources {
-        explicit_override: std::env::var_os("SHIELD_OPTIMIZER_ADB").map(PathBuf::from),
+        explicit_override: crate::rename::adb_override(),
         managed_install: crate::adb::install::adb_path_in_install_root(),
+        legacy_managed_install: crate::adb::install::adb_path_in_legacy_install_root(),
         sdk_roots: ["ANDROID_HOME", "ANDROID_SDK_ROOT"]
             .into_iter()
             .filter_map(std::env::var_os)
@@ -753,6 +940,7 @@ pub fn discover_adb_binary() -> Option<PathBuf> {
 struct AdbDiscoverySources {
     explicit_override: Option<PathBuf>,
     managed_install: Option<PathBuf>,
+    legacy_managed_install: Option<PathBuf>,
     sdk_roots: Vec<PathBuf>,
     well_known: Vec<PathBuf>,
     cwd: Option<PathBuf>,
@@ -773,6 +961,7 @@ where
         .explicit_override
         .into_iter()
         .chain(sources.managed_install)
+        .chain(sources.legacy_managed_install)
         .chain(
             sources
                 .sdk_roots
@@ -1004,6 +1193,57 @@ mod tests {
         );
     }
 
+    /// A rename that fails is logged at warn with its arguments, and that
+    /// line can go out in a failure report's excerpt.
+    #[test]
+    fn a_new_tv_name_or_dns_host_never_reaches_the_log() {
+        assert_eq!(
+            redact_args(&[
+                "-s",
+                "tv:5555",
+                "shell",
+                "settings put global device_name 'Kids Room TV'"
+            ]),
+            vec![
+                "-s",
+                "tv:5555",
+                "shell",
+                "settings put global device_name <redacted>"
+            ]
+        );
+        let dns = redact_args(&[
+            "-s",
+            "tv:5555",
+            "shell",
+            "settings put global private_dns_specifier '1a2b3c.dns.nextdns.io'; settings put global private_dns_mode hostname",
+        ]);
+        assert_eq!(
+            dns[3],
+            "settings put global private_dns_specifier <redacted>; settings put global private_dns_mode hostname"
+        );
+    }
+
+    #[test]
+    fn named_setting_reads_are_withheld_from_the_debug_log() {
+        assert_eq!(
+            redact_stdout_for_log("shell settings get global device_name", "Bedroom Shield\n"),
+            "<redacted: a name or host the user set>"
+        );
+        let cmd = atv_optimizer_core::adb::batch_command(&[
+            "settings get global device_name",
+            "getprop ro.product.model",
+        ]);
+        let out = format!("Bedroom Shield\n{BATCH_SEPARATOR}\nSHIELD Android TV\n");
+        let logged = redact_stdout_for_log(&cmd, &out);
+        assert!(!logged.contains("Bedroom"), "{logged}");
+        assert!(logged.contains("SHIELD Android TV"), "{logged}");
+        let dns = redact_stdout_for_log(
+            "shell settings get global private_dns_mode; settings get global private_dns_specifier",
+            "hostname\n1a2b3c.dns.nextdns.io\n",
+        );
+        assert!(!dns.contains("nextdns"), "{dns}");
+    }
+
     #[test]
     fn a_pairing_pin_never_reaches_the_log() {
         assert_eq!(
@@ -1126,6 +1366,10 @@ mod tests {
         }
 
         const SLEEPER: &str = "echo $$ > \"$PID_FILE\"; exec sleep 30";
+        /// Long enough for the sleeper to write its pid first: macOS can take
+        /// over 150 ms to start a script written moments ago, more under a
+        /// parallel test run.
+        const SLEEPER_DEADLINE: Duration = Duration::from_secs(2);
 
         #[tokio::test]
         async fn inherited_output_pipes_respect_timeout_after_direct_child_exit() {
@@ -1166,7 +1410,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
-                .with_timeout(Duration::from_millis(300))
+                .with_timeout(SLEEPER_DEADLINE)
                 .with_child_leases(Arc::clone(&children));
             let result = driver.raw(&["devices"]).await;
             assert!(matches!(result, Err(AdbError::Timeout { .. })));
@@ -1180,12 +1424,26 @@ mod tests {
             let children = Leases::new();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER))
                 .with_child_leases(Arc::clone(&children));
-            let call = driver.raw(&["devices"]);
-            let gave_up = tokio::time::timeout(Duration::from_millis(300), call).await;
-            assert!(gave_up.is_err());
-            let pid = pid_of(dir.path()).await;
+            let call = tokio::spawn(async move { driver.raw(&["devices"]).await });
+            let ready = tokio::time::timeout(Duration::from_secs(5), async {
+                loop {
+                    if let Ok(text) = std::fs::read_to_string(dir.path().join("pid")) {
+                        if let Ok(pid) = text.trim().parse::<u32>() {
+                            break pid;
+                        }
+                    }
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            })
+            .await;
+            let active_before_cancel = children.active();
+            call.abort();
+            let cancelled = call.await;
             let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
             assert!(children.wait_idle(deadline).await);
+            let pid = ready.expect("the fake adb never became ready before cancellation");
+            assert_eq!(active_before_cancel, 1);
+            assert!(cancelled.unwrap_err().is_cancelled());
             assert!(!alive(pid));
         }
 
@@ -1235,7 +1493,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let driver = SubprocessAdb::new(fake_adb(dir.path(), SLEEPER));
             assert_eq!(
-                driver.stop_server(Duration::from_millis(300)).await,
+                driver.stop_server(SLEEPER_DEADLINE).await,
                 ServerStop::Unknown
             );
             assert!(!alive(pid_of(dir.path()).await));
@@ -1314,6 +1572,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: Some(explicit.clone()),
             managed_install: Some(temp.path().join("managed-adb")),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("sdk")],
             well_known: vec![temp.path().join("well-known-adb")],
             cwd: Some(temp.path().join("launch-volume")),
@@ -1336,6 +1595,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: Some(temp.path().join("missing-explicit")),
             managed_install: Some(temp.path().join("missing-managed")),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("missing-sdk")],
             well_known: Vec::new(),
             cwd: None,
@@ -1354,6 +1614,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: None,
             managed_install: Some(managed.clone()),
+            legacy_managed_install: None,
             sdk_roots: vec![temp.path().join("sdk")],
             well_known: vec![temp.path().join("well-known-adb")],
             cwd: Some(temp.path().join("launch-volume")),
@@ -1365,6 +1626,29 @@ mod tests {
             Path::is_file,
         );
 
+        assert_eq!(found.as_deref(), Some(managed.as_path()));
+    }
+
+    #[test]
+    fn discovery_prefers_the_new_managed_install_over_the_pre_rename_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let managed = temp.path().join("ATVOptimizer-adb");
+        let legacy = temp.path().join("ShieldOptimizer-adb");
+        std::fs::write(&legacy, b"fake adb").unwrap();
+        let sources = |managed: &Path| AdbDiscoverySources {
+            explicit_override: None,
+            managed_install: Some(managed.to_path_buf()),
+            legacy_managed_install: Some(legacy.clone()),
+            sdk_roots: Vec::new(),
+            well_known: Vec::new(),
+            cwd: None,
+        };
+
+        let found = discover_adb_binary_from(sources(&managed), || None, Path::is_file);
+        assert_eq!(found.as_deref(), Some(legacy.as_path()));
+
+        std::fs::write(&managed, b"fake adb").unwrap();
+        let found = discover_adb_binary_from(sources(&managed), || None, Path::is_file);
         assert_eq!(found.as_deref(), Some(managed.as_path()));
     }
 
@@ -1380,6 +1664,7 @@ mod tests {
         let sources = AdbDiscoverySources {
             explicit_override: None,
             managed_install: None,
+            legacy_managed_install: None,
             sdk_roots: Vec::new(),
             well_known: vec![well_known.clone()],
             cwd: Some(volume.clone()),
@@ -1456,6 +1741,152 @@ mod tests {
         forget_cached_adb_binary();
     }
 
+    #[cfg(unix)]
+    mod cut_off_server_repair {
+        use super::*;
+
+        const TARGET: &str = "192.0.2.10:5555";
+
+        /// A stand-in adb whose server can reach nothing until it is
+        /// restarted, like one macOS cut off after an update. With
+        /// `restart_fixes` false, a restarted server is still cut off.
+        fn cut_off_adb(dir: &Path, restart_fixes: bool) -> PathBuf {
+            let adb = dir.join("adb");
+            let start = if restart_fixes {
+                "touch \"$DIR/fresh\""
+            } else {
+                ":"
+            };
+            crate::adb::write_script(
+                &adb,
+                &format!(
+                    "DIR='{}'\n\
+                     echo \"$*\" >> \"$DIR/calls\"\n\
+                     case \"$1\" in\n\
+                     kill-server) rm -f \"$DIR/fresh\" ;;\n\
+                     start-server) {start} ;;\n\
+                     connect|pair|devices)\n\
+                       if [ -f \"$DIR/fresh\" ]; then echo \"connected to $2\";\n\
+                       else echo \"failed to connect to '$2': No route to host\"; fi ;;\n\
+                     esac",
+                    dir.display()
+                ),
+            );
+            adb
+        }
+
+        fn calls(dir: &Path) -> Vec<String> {
+            std::fs::read_to_string(dir.join("calls"))
+                .unwrap_or_default()
+                .lines()
+                .map(str::to_string)
+                .collect()
+        }
+
+        #[tokio::test]
+        async fn a_cut_off_server_is_restarted_once_and_the_connect_retried() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            let out = driver.raw(&["connect", TARGET]).await.unwrap();
+            assert_eq!(out.stdout.trim(), format!("connected to {TARGET}"));
+            assert_eq!(
+                calls(dir.path()),
+                [
+                    format!("connect {TARGET}"),
+                    "kill-server".into(),
+                    "start-server".into(),
+                    format!("connect {TARGET}"),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn a_pair_is_retried_with_the_same_code() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            driver
+                .raw(&["pair", "192.0.2.10:37000", "123456"])
+                .await
+                .unwrap();
+            assert_eq!(
+                calls(dir.path()).last().unwrap(),
+                "pair 192.0.2.10:37000 123456"
+            );
+        }
+
+        #[tokio::test]
+        async fn the_server_is_left_alone_unless_this_app_reaches_the_device() {
+            for reach in [Reach::Unreachable, Reach::Unknown] {
+                let dir = tempfile::tempdir().unwrap();
+                let driver =
+                    SubprocessAdb::new(cut_off_adb(dir.path(), true)).with_cut_off_repair(reach);
+                let out = driver.raw(&["connect", TARGET]).await.unwrap();
+                assert!(out.stdout.contains("No route to host"), "{reach:?}");
+                assert_eq!(
+                    calls(dir.path()),
+                    [format!("connect {TARGET}")],
+                    "{reach:?}"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn concurrent_failures_share_one_restart() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            let (a, b) = tokio::join!(
+                driver.raw(&["connect", TARGET]),
+                driver.raw(&["connect", "192.0.2.11:5555"])
+            );
+            assert!(a.unwrap().stdout.starts_with("connected to"));
+            assert!(b.unwrap().stdout.starts_with("connected to"));
+            let restarts = calls(dir.path())
+                .iter()
+                .filter(|call| *call == "kill-server")
+                .count();
+            assert_eq!(restarts, 1);
+        }
+
+        #[tokio::test]
+        async fn a_server_still_failing_after_a_restart_is_not_restarted_again() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), false))
+                .with_cut_off_repair(Reach::Reachable);
+            for _ in 0..2 {
+                let out = driver.raw(&["connect", TARGET]).await.unwrap();
+                assert!(out.stdout.contains("No route to host"));
+            }
+            assert_eq!(
+                calls(dir.path()),
+                [
+                    format!("connect {TARGET}"),
+                    "kill-server".into(),
+                    "start-server".into(),
+                    format!("connect {TARGET}"),
+                    format!("connect {TARGET}"),
+                ]
+            );
+        }
+
+        #[tokio::test]
+        async fn other_commands_never_restart_the_server() {
+            let dir = tempfile::tempdir().unwrap();
+            let driver = SubprocessAdb::new(cut_off_adb(dir.path(), true))
+                .with_cut_off_repair(Reach::Reachable);
+            driver.raw(&["devices"]).await.unwrap();
+            assert_eq!(calls(dir.path()), ["devices"]);
+        }
+
+        #[test]
+        fn only_macos_drivers_repair_by_default() {
+            let driver = SubprocessAdb::new(PathBuf::from("/nonexistent/adb"));
+            assert_eq!(driver.repair_cut_off, cfg!(target_os = "macos"));
+        }
+    }
+
     #[test]
     fn output_success_check() {
         let ok = AdbOutput {
@@ -1486,6 +1917,67 @@ mod tests {
                 assert!(path.contains("nonexistent"));
             }
             other => panic!("expected BinaryMissing, got {other:?}"),
+        }
+    }
+
+    mod vendor_keys {
+        use super::*;
+
+        const SEP: &str = PATH_LIST_SEPARATOR;
+
+        #[test]
+        fn the_builtin_key_joins_any_vendor_keys_already_set() {
+            let key = Path::new("/fixture/data/native-adb/identity.pkcs8.pem");
+            assert_eq!(vendor_keys_value(None, key), Some(OsString::from(key)));
+            assert_eq!(
+                vendor_keys_value(Some(OsStr::new("")), key),
+                Some(OsString::from(key))
+            );
+            let existing = format!("/fixture/vendor.adb_key{SEP}/fixture/keys");
+            assert_eq!(
+                vendor_keys_value(Some(OsStr::new(&existing)), key),
+                Some(OsString::from(format!("{existing}{SEP}{}", key.display())))
+            );
+            // Already named: the inherited value stays as it is.
+            let named = format!("/fixture/vendor.adb_key{SEP}{}", key.display());
+            assert_eq!(vendor_keys_value(Some(OsStr::new(&named)), key), None);
+            // adb would split such a path in two, so it is not named.
+            let split = PathBuf::from(format!("/fixture/odd{SEP}name/identity.pkcs8.pem"));
+            assert_eq!(vendor_keys_value(None, &split), None);
+        }
+
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn adb_runs_with_the_builtin_key_only_while_it_exists() {
+            let dir = tempfile::tempdir().unwrap();
+            let adb = dir.path().join("adb");
+            crate::adb::write_script(&adb, "printf '%s' \"${ADB_VENDOR_KEYS-unset}\"");
+            let inherited = std::env::var_os(VENDOR_KEYS);
+            let unchanged = inherited.as_ref().map_or("unset".to_string(), |value| {
+                value.to_string_lossy().into_owned()
+            });
+            let seen = |key: Option<PathBuf>| {
+                let driver = SubprocessAdb::new(adb.clone()).with_vendor_key(key);
+                async move { driver.raw(&["start-server"]).await.unwrap().stdout }
+            };
+
+            let key = dir.path().join("native-adb").join("identity.pkcs8.pem");
+            assert_eq!(
+                seen(Some(key.clone())).await,
+                unchanged,
+                "no key file, nothing named"
+            );
+            assert!(!key.exists(), "the key is never created for this");
+
+            std::fs::create_dir(key.parent().unwrap()).unwrap();
+            std::fs::write(&key, b"fixture key bytes").unwrap();
+            let expected = vendor_keys_value(inherited.as_deref(), &key)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert_eq!(seen(Some(key.clone())).await, expected);
+            assert_eq!(std::fs::read(&key).unwrap(), b"fixture key bytes");
+            assert_eq!(seen(None).await, unchanged);
         }
     }
 }

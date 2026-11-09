@@ -20,9 +20,11 @@ use tokio::sync::Notify;
 
 use crate::commands::AppState;
 use crate::engine::telemetry::{
-    action_event, device_seen_event, encode_batches, error_event, telemetry_device, AppKind,
-    EventContext, TelemetryAction, TelemetryDevice, TelemetryEvent,
+    action_event, device_seen_event, diagnostic_event, encode_batches, error_event,
+    telemetry_device, AppKind, EventContext, EventKind, TelemetryAction, TelemetryDevice,
+    TelemetryEvent,
 };
+use crate::engine::telemetry_diag::{AdbDiag, Diag, DiagReason};
 use crate::engine::types::Device;
 use crate::engine::{parse_support_rules, SupportRules};
 
@@ -45,6 +47,67 @@ const MAX_SUPPORT_DOC_BYTES: usize = 256 * 1024;
 const ERRORS_PER_MINUTE: u32 = 10;
 const ERRORS_PER_SESSION: u32 = 100;
 const REPEATS_PER_CODE: u32 = 5;
+/// "Found nothing" reports: a per-session ceiling and a cap per reason. A
+/// TV stuck unauthorized is also reported once per transport per session.
+const DIAGNOSTICS_PER_SESSION: u32 = 30;
+const DIAGNOSTIC_REPEATS_PER_REASON: u32 = 10;
+/// Desktop log excerpts attached per install per UTC day.
+pub const EXCERPTS_PER_DAY: u32 = 20;
+/// Bumped when what the reports collect changes, so the first-launch notice
+/// shows once more to everyone who dismissed an older one. 2: connection
+/// diagnostics, desktop log excerpts and the support id.
+pub const NOTICE_VERSION: u32 = 2;
+
+/// The build-time variable that marks a test build. Only the native test
+/// package jobs in `v2-tests.yml` set it, to `<built>-pr-<head>`: the commit
+/// actually built (a pull request's merge commit, the one in the test app's
+/// window title and provenance), then the pull request head it came from. A
+/// release build never has it.
+pub const TEST_BUILD_ENV: &str = "ATVOPT_TEST_BUILD";
+
+/// The test-build label compiled into this build: the built commit shortened
+/// to seven characters, with the PR head alongside when it differs. `None`
+/// for a release build.
+pub fn build_test_marker() -> Option<String> {
+    normalize_test_marker(option_env!("ATVOPT_TEST_BUILD"))
+}
+
+fn normalize_test_marker(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty()
+        || raw.len() > 100
+        || !raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return None;
+    }
+    let short = |part: &str| {
+        if part.len() > 12 && part.chars().all(|c| c.is_ascii_hexdigit()) {
+            part[..7].to_string()
+        } else {
+            part.to_string()
+        }
+    };
+    match raw.split_once("-pr-") {
+        Some((built, head)) if !built.is_empty() && !head.is_empty() => {
+            let (built, head) = (short(built), short(head));
+            Some(if built == head {
+                built
+            } else {
+                format!("{built} (merge commit; PR head {head})")
+            })
+        }
+        _ => Some(short(raw)),
+    }
+}
+
+/// A test build's uploads carry its version as a `-dev` release, which the
+/// worker accepts and no release build ever sends.
+fn dev_version(version: &str) -> String {
+    let core = version.split(['-', '+']).next().unwrap_or(version);
+    format!("{core}-dev")
+}
 
 /// The base URL compiled into this build, without a trailing slash.
 pub fn build_base_url() -> Option<String> {
@@ -68,12 +131,21 @@ fn normalize_base_url(raw: Option<&str>) -> Option<String> {
     matches!(host, "127.0.0.1" | "localhost" | "[::1]").then(|| url.to_string())
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct StoredSettings {
     enabled: bool,
     install_id: String,
     #[serde(default)]
     notice_seen: bool,
+    /// The [`NOTICE_VERSION`] last dismissed. Files written before it
+    /// existed read as 0, so their users see the new notice.
+    #[serde(default)]
+    notice_version: u32,
+    /// UTC day and count for [`EXCERPTS_PER_DAY`], kept across restarts.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    excerpt_day: String,
+    #[serde(default)]
+    excerpts_today: u32,
 }
 
 impl StoredSettings {
@@ -81,7 +153,7 @@ impl StoredSettings {
         Self {
             enabled: true,
             install_id: new_install_id(),
-            notice_seen: false,
+            ..Default::default()
         }
     }
 
@@ -90,7 +162,15 @@ impl StoredSettings {
             enabled: false,
             install_id: new_install_id(),
             notice_seen: true,
+            notice_version: NOTICE_VERSION,
+            ..Default::default()
         }
+    }
+
+    /// Someone who opted out is sent nothing automatically, so a changed
+    /// notice has nothing new to tell them.
+    fn notice_current(&self) -> bool {
+        !self.enabled || (self.notice_seen && self.notice_version >= NOTICE_VERSION)
     }
 }
 
@@ -106,8 +186,39 @@ pub struct TelemetrySettings {
     /// Whether this build can send anything at all. A build without
     /// `ATVOPT_TELEMETRY_URL` says so instead of implying it reports.
     pub available: bool,
-    /// The one-time first-launch notice has been dismissed.
+    /// The current first-launch notice has been dismissed.
     pub notice_seen: bool,
+    /// The random install id reports carry, so a user can quote it and the
+    /// developer can find their reports. `None` while reports are off or the
+    /// build has no endpoint. Never derived from hardware, a serial or an
+    /// address, and replaced whenever reports are turned back on. A test
+    /// build shows the id its log uploads carry.
+    pub support_id: Option<String>,
+    /// The commit of a test build. Its automatic reports are always off;
+    /// Send logs still works and marks each upload as a test build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_build: Option<String>,
+}
+
+/// What `upload_diagnostics` needs to post the user's logs.
+pub struct UploadTarget {
+    pub url: String,
+    pub install_id: String,
+    pub app: AppKind,
+    pub app_version: String,
+    pub os: String,
+    /// The test build's commit, which the upload names on its first line.
+    pub test_build: Option<String>,
+}
+
+/// Builds the redacted log excerpt for an automatic report from the
+/// identifiers this session knows. Installed by the desktop app only.
+pub type ExcerptSource = Box<dyn Fn(&[String]) -> Option<String> + Send + Sync>;
+
+struct Queued {
+    event: TelemetryEvent,
+    /// Attach a log excerpt when this is sent (desktop only, budgeted).
+    wants_excerpt: bool,
 }
 
 pub struct TelemetryConfig {
@@ -115,17 +226,46 @@ pub struct TelemetryConfig {
     pub app: AppKind,
     pub app_version: String,
     pub os: String,
+    /// [`build_test_marker`]: a test build sends no automatic reports.
+    pub test_build: Option<String>,
 }
 
 impl TelemetryConfig {
-    /// Configuration for a shipped app: the compiled-in URL and the host OS.
+    /// Configuration for a shipped app: the compiled-in URL, the host OS and
+    /// whether this is a test build.
     pub fn for_build(app: AppKind, app_version: &str) -> Self {
         Self {
             base_url: build_base_url(),
             app,
             app_version: app_version.to_string(),
             os: host_os(),
+            test_build: build_test_marker(),
         }
+    }
+}
+
+#[derive(Default)]
+struct DiagnosticLimiter {
+    session: u32,
+    per_reason: HashMap<&'static str, u32>,
+    /// `reason|transport|why`, so one stuck TV is reported once a session.
+    reported: HashSet<String>,
+}
+
+impl DiagnosticLimiter {
+    fn allow(&mut self, reason: DiagReason, once_key: Option<&str>) -> bool {
+        let repeats = self.per_reason.entry(reason.code()).or_default();
+        if self.session >= DIAGNOSTICS_PER_SESSION || *repeats >= DIAGNOSTIC_REPEATS_PER_REASON {
+            return false;
+        }
+        if let Some(key) = once_key {
+            if !self.reported.insert(format!("{}|{key}", reason.code())) {
+                return false;
+            }
+        }
+        self.session += 1;
+        *repeats += 1;
+        true
     }
 }
 
@@ -162,16 +302,20 @@ impl ErrorLimiter {
 
 struct Inner {
     settings: StoredSettings,
-    queue: VecDeque<TelemetryEvent>,
+    queue: VecDeque<Queued>,
     /// TVs already reported this session. Keys stay in memory only.
     seen: HashSet<String>,
     /// Last profile per transport serial, so an action can say which kind of
     /// TV it ran on. In memory only; the serial is never sent.
     devices: HashMap<String, TelemetryDevice>,
     limiter: ErrorLimiter,
-    /// Every transport serial and hardware id seen this session, scrubbed
-    /// from messages by exact match. In memory only.
+    diagnostics: DiagnosticLimiter,
+    /// Every transport serial, hardware id and TV name seen this session,
+    /// scrubbed from messages and log excerpts by exact match. In memory only.
     identifiers: HashSet<String>,
+    /// Where adb came from and its version, merged into diagnostics that
+    /// can't see it themselves.
+    adb_facts: Option<AdbDiag>,
     /// Bumped on opt-out so a batch drained before it is never sent.
     generation: u64,
 }
@@ -184,6 +328,9 @@ pub struct Telemetry {
     cancel: Notify,
     started: AtomicBool,
     client: OnceLock<Option<reqwest::Client>>,
+    excerpt_source: OnceLock<ExcerptSource>,
+    /// Serializes writes of `telemetry.json`; see [`Telemetry::persist`].
+    persist_lock: Mutex<()>,
 }
 
 impl Telemetry {
@@ -196,12 +343,15 @@ impl Telemetry {
                 app: AppKind::Desktop,
                 app_version: String::new(),
                 os: String::new(),
+                test_build: None,
             },
             None,
             StoredSettings {
                 enabled: false,
                 install_id: String::new(),
                 notice_seen: true,
+                notice_version: NOTICE_VERSION,
+                ..Default::default()
             },
         ))
     }
@@ -227,8 +377,7 @@ impl Telemetry {
         };
         let hub = Self::build(config, Some(path), settings);
         if changed {
-            let snapshot = hub.lock().settings.clone();
-            let _ = hub.persist(&snapshot);
+            let _ = hub.persist();
         }
         Arc::new(hub)
     }
@@ -243,13 +392,17 @@ impl Telemetry {
                 seen: HashSet::new(),
                 devices: HashMap::new(),
                 limiter: ErrorLimiter::default(),
+                diagnostics: DiagnosticLimiter::default(),
                 identifiers: HashSet::new(),
+                adb_facts: None,
                 generation: 0,
             }),
             wake: Notify::new(),
             cancel: Notify::new(),
             started: AtomicBool::new(false),
             client: OnceLock::new(),
+            excerpt_source: OnceLock::new(),
+            persist_lock: Mutex::new(()),
         }
     }
 
@@ -257,12 +410,21 @@ impl Telemetry {
         self.inner.lock().unwrap_or_else(|p| p.into_inner())
     }
 
-    /// Write to a sibling file and rename, so a crash or full disk never
-    /// leaves a half-written file that would read back as a fresh install.
-    fn persist(&self, settings: &StoredSettings) -> Result<(), String> {
+    /// Write the current settings to a sibling file and rename, so a crash
+    /// or full disk never leaves a half-written file that would read back as
+    /// a fresh install.
+    ///
+    /// The snapshot is taken under `persist_lock`, after any earlier writer
+    /// has finished, so the last write is always the latest state: a budget
+    /// update from the uploader can't land after an opt-out and save the
+    /// old `enabled: true` over it.
+    fn persist(&self) -> Result<(), String> {
         let Some(path) = &self.settings_path else {
             return Ok(());
         };
+        let _writing = self.persist_lock.lock().unwrap_or_else(|p| p.into_inner());
+        let settings = self.lock().settings.clone();
+        let settings = &settings;
         let result = (|| {
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir)?;
@@ -278,7 +440,15 @@ impl Telemetry {
         })
     }
 
+    /// Whether automatic reports can be sent at all: an endpoint, and not a
+    /// test build.
     fn configured(&self) -> bool {
+        self.has_endpoint() && self.config.test_build.is_none()
+    }
+
+    /// Whether anything can leave this build at all, Send logs included. The
+    /// identifiers that upload is scrubbed of are collected whenever it can.
+    fn has_endpoint(&self) -> bool {
         self.config.base_url.is_some()
     }
 
@@ -292,10 +462,64 @@ impl Telemetry {
 
     pub fn settings(&self) -> TelemetrySettings {
         let inner = self.lock();
+        let active = Self::active(&inner, self.configured());
+        let test_build = self.config.test_build.clone();
+        let uploads_carry_id = test_build.is_some()
+            && self.config.base_url.is_some()
+            && uuid::Uuid::parse_str(&inner.settings.install_id).is_ok();
         TelemetrySettings {
-            enabled: inner.settings.enabled,
-            available: self.configured(),
-            notice_seen: inner.settings.notice_seen,
+            enabled: inner.settings.enabled && test_build.is_none(),
+            available: self.config.base_url.is_some(),
+            // A test build sends no reports, so the notice has nothing to say.
+            notice_seen: test_build.is_some() || inner.settings.notice_current(),
+            support_id: (active || uploads_carry_id).then(|| inner.settings.install_id.clone()),
+            test_build,
+        }
+    }
+
+    /// Where a user-initiated log upload goes and under which id: the
+    /// current install id, never a new one. Available whether reports are
+    /// on or off, since pressing Send logs is its own consent; `None` for a
+    /// build without an endpoint.
+    pub fn upload_target(&self) -> Option<UploadTarget> {
+        let base = self.config.base_url.as_deref()?;
+        let inner = self.lock();
+        uuid::Uuid::parse_str(&inner.settings.install_id).ok()?;
+        Some(UploadTarget {
+            url: format!("{base}/v1/diagnostics"),
+            install_id: inner.settings.install_id.clone(),
+            app: self.config.app,
+            app_version: match self.config.test_build {
+                Some(_) => dev_version(&self.config.app_version),
+                None => self.config.app_version.clone(),
+            },
+            os: self.config.os.clone(),
+            test_build: self.config.test_build.clone(),
+        })
+    }
+
+    /// The HTTP client reports use, for the upload command.
+    pub fn http_client(&self) -> Option<reqwest::Client> {
+        self.client().cloned()
+    }
+
+    /// Every serial, hardware id and TV name seen this session.
+    pub fn known_identifiers(&self) -> Vec<String> {
+        self.lock().identifiers.iter().cloned().collect()
+    }
+
+    /// Install the desktop log-excerpt builder. Ignored for the phone app,
+    /// whose declared data doesn't include logs, and after the first call.
+    pub fn set_excerpt_source(&self, source: ExcerptSource) {
+        if self.config.app == AppKind::Desktop {
+            let _ = self.excerpt_source.set(source);
+        }
+    }
+
+    /// Remember where adb came from, for diagnostics that can't see it.
+    pub fn set_adb_facts(&self, facts: AdbDiag) {
+        if self.configured() {
+            self.lock().adb_facts = Some(facts);
         }
     }
 
@@ -306,34 +530,40 @@ impl Telemetry {
     /// Off takes effect in this session even if saving fails; the error is
     /// returned so the UI can say the choice may not survive a restart.
     pub fn set_enabled(&self, enabled: bool) -> Result<TelemetrySettings, String> {
-        let snapshot = {
+        if enabled && self.config.test_build.is_some() {
+            return Err("Test builds never send anonymous reports. Send logs still works.".into());
+        }
+        {
             let mut inner = self.lock();
             if inner.settings.enabled != enabled {
                 inner.settings.enabled = enabled;
                 if enabled {
                     inner.settings.install_id = new_install_id();
+                    // Turned on from the setting, next to the same notice
+                    // text: nothing to show again.
+                    inner.settings.notice_seen = true;
+                    inner.settings.notice_version = NOTICE_VERSION;
                 } else {
                     inner.queue.clear();
                     inner.generation += 1;
                 }
                 inner.seen.clear();
             }
-            inner.settings.clone()
-        };
+        }
         if !enabled {
             self.cancel.notify_waiters();
         }
-        self.persist(&snapshot)?;
+        self.persist()?;
         Ok(self.settings())
     }
 
     pub fn dismiss_notice(&self) -> Result<TelemetrySettings, String> {
-        let snapshot = {
+        {
             let mut inner = self.lock();
             inner.settings.notice_seen = true;
-            inner.settings.clone()
-        };
-        self.persist(&snapshot)?;
+            inner.settings.notice_version = NOTICE_VERSION;
+        }
+        self.persist()?;
         Ok(self.settings())
     }
 
@@ -347,7 +577,16 @@ impl Telemetry {
     }
 
     fn enqueue(&self, inner: &mut Inner, event: TelemetryEvent) {
-        inner.queue.push_back(event);
+        // Failures and "found nothing" reports may carry a log excerpt.
+        let wants_excerpt = match event.kind {
+            EventKind::Error | EventKind::Diagnostic => true,
+            EventKind::ActionResult => event.ok == Some(false),
+            EventKind::DeviceSeen => false,
+        };
+        inner.queue.push_back(Queued {
+            event,
+            wants_excerpt,
+        });
         while inner.queue.len() > MAX_QUEUE {
             inner.queue.pop_front();
         }
@@ -358,7 +597,9 @@ impl Telemetry {
     /// Reports each TV once per session, keyed in memory by its verified
     /// hardware id (or its transport when it has none).
     pub fn device_profiled(&self, device: &Device) {
-        if !self.configured() {
+        // A test build sends no reports, but its Send logs upload is still
+        // scrubbed of every identifier seen.
+        if !self.has_endpoint() {
             return;
         }
         let Some(props) = device.properties.as_ref() else {
@@ -381,10 +622,15 @@ impl Telemetry {
         if key.starts_with("hw:") {
             inner.identifiers.insert(hardware_id.to_string());
         }
+        if let Some(name) = props.friendly_name.as_deref().map(str::trim) {
+            if !name.is_empty() {
+                inner.identifiers.insert(name.to_string());
+            }
+        }
         inner
             .devices
             .insert(device.serial.clone(), snapshot.clone());
-        if !Self::active(&inner, true) || !inner.seen.insert(key) {
+        if !Self::active(&inner, self.configured()) || !inner.seen.insert(key) {
             return;
         }
         let event = device_seen_event(&self.context(&inner), &now(), snapshot);
@@ -394,7 +640,7 @@ impl Telemetry {
     /// Remember a transport serial so it is scrubbed from any later message,
     /// even for a TV that could never be profiled (unauthorized, offline).
     pub fn note_transport(&self, serial: &str) {
-        if self.configured() {
+        if self.has_endpoint() {
             self.lock().identifiers.insert(serial.to_string());
         }
     }
@@ -477,6 +723,68 @@ impl Telemetry {
         self.enqueue(inner, event);
     }
 
+    /// A scan or device read that found nothing usable. `once_key` (a
+    /// transport serial plus what was wrong) limits a report to once per
+    /// session; it stays in memory and is never sent. `serial` only selects
+    /// which profiled TV to describe.
+    pub fn record_diagnostic(
+        &self,
+        reason: DiagReason,
+        serial: Option<&str>,
+        once_key: Option<&str>,
+        mut diag: Diag,
+    ) {
+        let mut inner = self.lock();
+        if !Self::active(&inner, self.configured()) || !inner.diagnostics.allow(reason, once_key) {
+            return;
+        }
+        if diag.adb.is_none() {
+            diag.adb = inner.adb_facts.clone();
+        }
+        let device = serial.and_then(|s| inner.devices.get(s).cloned());
+        let event = diagnostic_event(&self.context(&inner), &now(), reason, device, diag);
+        self.enqueue(&mut inner, event);
+    }
+
+    /// Spend one of today's excerpts, if any are left. Persisted so a
+    /// restart doesn't reset the budget.
+    fn take_excerpt_budget(&self) -> bool {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        {
+            let mut inner = self.lock();
+            if inner.settings.excerpt_day != today {
+                inner.settings.excerpt_day = today;
+                inner.settings.excerpts_today = 0;
+            }
+            if inner.settings.excerpts_today >= EXCERPTS_PER_DAY {
+                return false;
+            }
+            inner.settings.excerpts_today += 1;
+        }
+        let _ = self.persist();
+        true
+    }
+
+    /// Attach one excerpt to the newest event in the batch that wants one.
+    /// The log is read here, at send time, so it includes the lines written
+    /// after the failure was recorded.
+    fn attach_excerpt(&self, batch: &mut [Queued]) {
+        if self.config.app != AppKind::Desktop {
+            return;
+        }
+        let Some(source) = self.excerpt_source.get() else {
+            return;
+        };
+        let Some(target) = batch.iter_mut().rev().find(|q| q.wants_excerpt) else {
+            return;
+        };
+        if !self.take_excerpt_budget() {
+            return;
+        }
+        let known = self.known_identifiers();
+        target.event.log_excerpt = source(&known);
+    }
+
     /// Start the background uploader. Idempotent, and a no-op for a build
     /// without an endpoint.
     pub fn start(self: &Arc<Self>) {
@@ -514,6 +822,9 @@ impl Telemetry {
                 let events: Vec<_> = inner.queue.drain(..n).collect();
                 (events, inner.generation)
             };
+            let mut events = events;
+            self.attach_excerpt(&mut events);
+            let events: Vec<TelemetryEvent> = events.into_iter().map(|q| q.event).collect();
             for body in encode_batches(&events) {
                 // Register for cancellation before the last check, so an
                 // opt-out landing in between still wakes this waiter.
@@ -610,7 +921,7 @@ impl Telemetry {
 
     #[cfg(test)]
     fn queued(&self) -> Vec<TelemetryEvent> {
-        self.lock().queue.iter().cloned().collect()
+        self.lock().queue.iter().map(|q| q.event.clone()).collect()
     }
 
     #[cfg(test)]
@@ -845,7 +1156,154 @@ mod tests {
             app: AppKind::Mobile,
             app_version: "0.1.0".into(),
             os: "android 15".into(),
+            test_build: None,
         }
+    }
+
+    #[test]
+    fn a_release_build_has_no_test_marker_and_only_ci_test_packages_set_one() {
+        // `cargo test` and release builds are compiled without it.
+        assert_eq!(build_test_marker(), None);
+        assert_eq!(normalize_test_marker(None), None);
+        assert_eq!(normalize_test_marker(Some("  ")), None);
+        assert_eq!(normalize_test_marker(Some("abc def")), None);
+        assert_eq!(
+            normalize_test_marker(Some("4f156e4c0ffee1234567890abcdef0123456789a")),
+            Some("4f156e4".into())
+        );
+        assert_eq!(
+            normalize_test_marker(Some("4f156e4")),
+            Some("4f156e4".into())
+        );
+        assert_eq!(
+            normalize_test_marker(Some(
+                "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-pr-2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            Some("1111111 (merge commit; PR head 2222222)".into()),
+            "the commit built, then the PR head"
+        );
+        assert_eq!(
+            normalize_test_marker(Some(
+                "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-pr-1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            Some("1111111".into()),
+            "a branch build is its own head"
+        );
+        let workflows = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../.github/workflows");
+        let release = std::fs::read_to_string(format!("{workflows}/v2-release.yml")).unwrap();
+        assert!(
+            !release.contains(TEST_BUILD_ENV),
+            "release builds must never be marked as test builds"
+        );
+        let tests = std::fs::read_to_string(format!("{workflows}/v2-tests.yml")).unwrap();
+        assert_eq!(
+            tests.matches(&format!("{TEST_BUILD_ENV}:")).count(),
+            2,
+            "both native test package jobs (macOS, and Linux/Windows) mark their builds"
+        );
+    }
+
+    #[test]
+    fn a_test_build_sends_logs_marked_dev_but_never_automatic_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                app_version: "2.5.0".into(),
+                test_build: Some("4f156e4".into()),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        let settings = hub.settings();
+        assert!(!settings.enabled, "reports are off in a test build");
+        assert!(settings.available);
+        assert!(settings.notice_seen, "no reports, so no notice");
+        assert_eq!(settings.test_build.as_deref(), Some("4f156e4"));
+        assert_eq!(
+            settings.support_id.as_deref(),
+            Some(hub.install_id().as_str()),
+            "the id its log uploads carry"
+        );
+        assert!(!hub.is_active());
+        assert!(hub.set_enabled(true).is_err());
+        assert!(!hub.settings().enabled);
+        hub.device_profiled(&shield("192.0.2.1:5555", "SERIAL1"));
+        assert!(hub.lock().queue.is_empty(), "nothing is queued for upload");
+        let target = hub.upload_target().unwrap();
+        assert_eq!(target.app_version, "2.5.0-dev");
+        assert_eq!(target.test_build.as_deref(), Some("4f156e4"));
+        assert_eq!(dev_version("2.6.0-beta.2"), "2.6.0-dev");
+    }
+
+    #[test]
+    fn a_test_build_still_scrubs_every_identifier_it_saw_from_send_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                test_build: Some("4f156e4".into()),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        // Letters-only serials and a name not in `name=` form are exactly
+        // what the generic redaction rules miss.
+        let mut tv = shield("QWERTYUIOPAS", "QWERTYUIOPAS");
+        tv.properties.as_mut().unwrap().friendly_name = Some("Grandma Den TV".into());
+        hub.device_profiled(&tv);
+        hub.note_transport("ZXCVBNMLKJHG");
+        assert!(hub.lock().queue.is_empty(), "nothing reported");
+        let known = hub.known_identifiers();
+        for id in ["QWERTYUIOPAS", "Grandma Den TV", "ZXCVBNMLKJHG"] {
+            assert!(known.iter().any(|k| k == id), "{id} missing from {known:?}");
+        }
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
+        let text = crate::engine::log_redact::redact_text(
+            "profiled QWERTYUIOPAS (Grandma Den TV); unauthorized ZXCVBNMLKJHG",
+            &crate::engine::log_redact::Scrub {
+                known: &known,
+                words: &[],
+            },
+            4096,
+        );
+        for id in ["QWERTYUIOPAS", "Grandma Den TV", "ZXCVBNMLKJHG"] {
+            assert!(!text.contains(id), "{text}");
+        }
+        // A build without an endpoint can't upload, so it keeps nothing.
+        let none = Telemetry::new(
+            TelemetryConfig {
+                test_build: Some("4f156e4".into()),
+                ..config(None)
+            },
+            tempfile::tempdir().unwrap().path(),
+        );
+        none.note_transport("ZXCVBNMLKJHG");
+        assert!(none.known_identifiers().is_empty());
+    }
+
+    #[test]
+    fn a_release_build_reports_and_uploads_exactly_as_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                app_version: "2.5.0".into(),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        let settings = hub.settings();
+        assert!(settings.enabled && settings.available);
+        assert_eq!(settings.test_build, None);
+        assert!(serde_json::to_value(&settings)
+            .unwrap()
+            .get("test_build")
+            .is_none());
+        assert!(hub.is_active());
+        let target = hub.upload_target().unwrap();
+        assert_eq!(target.app_version, "2.5.0");
+        assert_eq!(target.test_build, None);
     }
 
     fn shield(serial: &str, hardware_id: &str) -> Device {
@@ -943,7 +1401,9 @@ mod tests {
         let events = hub.queued();
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|e| e.kind == EventKind::DeviceSeen));
-        let text = serde_json::to_string(&events).unwrap();
+        // The random install id is hex and can contain "adb-" by chance.
+        let devices: Vec<_> = events.iter().map(|e| &e.device).collect();
+        let text = serde_json::to_string(&devices).unwrap();
         for secret in ["1324619053514", "10.0.0", "Bedroom", "adb-"] {
             assert!(!text.contains(secret), "{secret} leaked: {text}");
         }
@@ -1210,6 +1670,204 @@ mod tests {
             .expect("the opt-out ends the fetch")
             .unwrap();
         assert!(result.is_none());
+    }
+
+    fn desktop(base: Option<&str>) -> TelemetryConfig {
+        TelemetryConfig {
+            app: AppKind::Desktop,
+            ..config(base)
+        }
+    }
+
+    #[test]
+    fn the_support_id_is_the_install_id_only_while_reporting() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        let id = hub.install_id();
+        assert_eq!(hub.settings().support_id.as_deref(), Some(id.as_str()));
+
+        hub.set_enabled(false).unwrap();
+        assert_eq!(hub.settings().support_id, None);
+        // Send logs still works while off, under the current id, and
+        // doesn't mint a new one.
+        let target = hub.upload_target().unwrap();
+        assert_eq!(target.install_id, id);
+        assert_eq!(target.url, "https://t.example/v1/diagnostics");
+        assert_eq!(hub.install_id(), id);
+
+        // Back on is a new, unlinkable id, and that's the one shown.
+        hub.set_enabled(true).unwrap();
+        let fresh = hub.settings().support_id.unwrap();
+        assert_ne!(fresh, id);
+        assert_eq!(uuid::Uuid::parse_str(&fresh).unwrap().get_version_num(), 4);
+
+        let none = Telemetry::new(config(None), dir.path());
+        assert_eq!(none.settings().support_id, None);
+        assert!(none.upload_target().is_none());
+        assert_eq!(Telemetry::disabled().settings().support_id, None);
+    }
+
+    #[test]
+    fn the_changed_notice_shows_once_more_to_people_still_reporting() {
+        let dir = tempfile::tempdir().unwrap();
+        // Written by a version before the notice changed.
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"enabled":true,"install_id":"7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11","notice_seen":true}"#,
+        )
+        .unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        assert!(!hub.settings().notice_seen);
+        assert!(hub.dismiss_notice().unwrap().notice_seen);
+        let again = Telemetry::new(config(Some("https://t.example")), dir.path());
+        assert!(again.settings().notice_seen, "dismissal survives a restart");
+
+        // Someone who opted out is sent nothing new, so isn't asked again.
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"enabled":false,"install_id":"7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11","notice_seen":true}"#,
+        )
+        .unwrap();
+        let off = Telemetry::new(config(Some("https://t.example")), dir.path());
+        assert!(off.settings().notice_seen);
+        // Turning reports on from the setting is reading that same text.
+        assert!(off.set_enabled(true).unwrap().notice_seen);
+    }
+
+    #[test]
+    fn diagnostics_are_limited_and_once_per_stuck_transport() {
+        use crate::engine::telemetry_diag::{AdbSource, DiagReason};
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.set_adb_facts(AdbDiag {
+            source: AdbSource::Builtin,
+            version: None,
+            tools: None,
+            server: None,
+            server_error: None,
+        });
+        for _ in 0..3 {
+            hub.record_diagnostic(
+                DiagReason::DeviceDetailsEmpty,
+                Some("10.0.0.2:5555"),
+                Some("10.0.0.2:5555|unauthorized"),
+                Diag::default(),
+            );
+        }
+        let events = hub.queued();
+        assert_eq!(events.len(), 1);
+        let e = &events[0];
+        assert_eq!(e.kind, EventKind::Diagnostic);
+        assert_eq!(e.error_code.as_deref(), Some("device_details_empty"));
+        assert_eq!(e.action, Some(TelemetryAction::Connect));
+        assert_eq!(e.ok, None);
+        assert_eq!(
+            e.diag.as_ref().unwrap().adb.as_ref().unwrap().source,
+            AdbSource::Builtin
+        );
+        let text = serde_json::to_string(&events).unwrap();
+        assert!(!text.contains("10.0.0.2"), "{text}");
+
+        for _ in 0..50 {
+            hub.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
+        }
+        assert_eq!(
+            hub.queued().len(),
+            1 + DIAGNOSTIC_REPEATS_PER_REASON as usize
+        );
+
+        hub.set_enabled(false).unwrap();
+        hub.record_diagnostic(DiagReason::DiscoverEmpty, None, None, Diag::default());
+        assert!(hub.queued().is_empty());
+    }
+
+    fn drain(hub: &Telemetry) -> Vec<Queued> {
+        hub.lock().queue.drain(..).collect()
+    }
+
+    #[test]
+    fn desktop_attaches_one_budgeted_excerpt_per_batch() {
+        use crate::engine::telemetry_diag::DiagReason;
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        hub.note_transport("QWERTYUIOPAS");
+        hub.set_excerpt_source(Box::new(|known: &[String]| {
+            assert!(
+                known.iter().any(|k| k == "QWERTYUIOPAS"),
+                "known ids reach the redactor"
+            );
+            Some("excerpt".into())
+        }));
+        hub.record_action(TelemetryAction::Disable, None, true, None, None);
+        hub.record_action(
+            TelemetryAction::Connect,
+            None,
+            false,
+            Some("timeout"),
+            Some("x"),
+        );
+        hub.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
+        hub.record_action(TelemetryAction::Disable, None, true, None, None);
+        let mut batch = drain(&hub);
+        hub.attach_excerpt(&mut batch);
+        let excerpts: Vec<Option<&str>> = batch
+            .iter()
+            .map(|q| q.event.log_excerpt.as_deref())
+            .collect();
+        assert_eq!(excerpts, vec![None, None, Some("excerpt"), None]);
+
+        for _ in 0..(EXCERPTS_PER_DAY + 5) {
+            hub.record_action(TelemetryAction::Connect, None, false, Some("timeout"), None);
+            let mut batch = drain(&hub);
+            hub.attach_excerpt(&mut batch);
+        }
+        // The day's budget is spent, and stays spent after a restart.
+        let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        again.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        again.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
+        let mut batch = drain(&again);
+        again.attach_excerpt(&mut batch);
+        assert_eq!(batch[0].event.log_excerpt, None);
+    }
+
+    #[test]
+    fn spending_the_excerpt_budget_never_undoes_an_opt_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        hub.set_enabled(false).unwrap();
+        // The uploader saving its budget after the opt-out writes the
+        // current state, not one it read before.
+        assert!(hub.take_excerpt_budget());
+        let reloaded = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        assert!(!reloaded.settings().enabled);
+    }
+
+    #[test]
+    fn the_phone_app_never_sends_an_excerpt() {
+        use crate::engine::telemetry_diag::DiagReason;
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        hub.record_diagnostic(DiagReason::DiscoverEmpty, None, None, Diag::default());
+        let mut batch = drain(&hub);
+        hub.attach_excerpt(&mut batch);
+        assert_eq!(batch[0].event.log_excerpt, None);
+        assert!(hub.excerpt_source.get().is_none());
+    }
+
+    #[test]
+    fn tv_names_are_scrubbed_from_later_messages() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.device_profiled(&shield("10.0.0.2:5555", "1"));
+        hub.record_error(
+            TelemetryAction::Other,
+            None,
+            "x",
+            "Bedroom TV stopped answering",
+        );
+        let text = serde_json::to_string(&hub.queued()).unwrap();
+        assert!(!text.contains("Bedroom"), "{text}");
     }
 
     #[tokio::test]

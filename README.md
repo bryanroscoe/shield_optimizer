@@ -5,6 +5,9 @@ APKs, adjust HDMI-CEC and frame-rate matching, and check device health, all from
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
 Android TV devices.
 
+> **Known ADB issue in 2.4.1:** A SHIELD TV Pro on macOS has been reported missing from Scan LAN
+> or going offline until connected with standalone ADB. [Workaround and status](#known-limitations).
+
 <img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
 <details>
@@ -14,8 +17,10 @@ Android TV devices.
 
 </details>
 
-It's a native app for macOS, Windows and Linux. It downloads its own `adb` on first launch, finds
-TVs on your network, and updates itself. You don't need a terminal or any scripting.
+It's a native app for macOS, Windows and Linux. It connects to your TVs directly with its own
+built-in ADB, finds them on your network, and updates itself. You don't need a terminal, Google's
+`adb` or any scripting. Google's platform-tools are still one click away in **Settings → ADB** if a
+TV doesn't get along with the built-in engine, or for a TV connected by USB.
 
 > **📱 Coming soon: [ATV Optimizer for Android](#atv-optimizer-for-android).** A phone and tablet
 > version that runs the same cleanup over Wi-Fi, with no computer involved. It's in testing now.
@@ -26,11 +31,11 @@ TVs on your network, and updates itself. You don't need a terminal or any script
 
 ```sh
 brew tap bryanroscoe/shield-optimizer
-brew install --cask shield-optimizer
+brew install --cask atv-optimizer
 ```
 
 Homebrew clears the macOS quarantine flag for you, so the app opens with a normal double-click.
-Upgrade with `brew upgrade --cask shield-optimizer`, or let the app update itself.
+Upgrade with `brew upgrade --cask atv-optimizer`, or let the app update itself.
 
 ### Any platform: download an installer
 
@@ -41,7 +46,7 @@ Choose the newest stable `v2-*` desktop release; `v0.*` releases contain the leg
 |----|------|
 | Windows | `.msi` or `_x64-setup.exe` |
 | macOS | `_universal.dmg` (Apple Silicon + Intel) |
-| Linux | `.AppImage`, `.deb`, or `.rpm` |
+| Linux | `.AppImage`, `.deb`, `.rpm`, or `_x86_64.flatpak` |
 
 ### First launch
 
@@ -53,6 +58,11 @@ only have to dismiss it once:
   **Open Anyway**, or run `xattr -dr com.apple.quarantine "/Applications/ATV Optimizer.app"`.
 - **Windows** (SmartScreen): **More info → Run anyway**.
 - **Linux**: `chmod +x ATV.Optimizer*.AppImage` before running the AppImage.
+  The Flatpak installs with `flatpak install --user ATV.Optimizer_*_x86_64.flatpak`. It doesn't
+  update itself: install the next release's `.flatpak` the same way.
+
+On macOS 15+, also click **Allow** when macOS asks whether ATV Optimizer can find devices on your
+local network. Without it, the app can't reach any TV.
 
 ## Before you start
 
@@ -62,12 +72,14 @@ Turn on ADB on the TV. You only do this once:
 2. **Settings → Developer Options →** turn on **Network debugging**, or **Wireless debugging** if
    that's what your TV offers. Many Google TV devices only have Wireless debugging.
 
-The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
+The TV has to allow this computer once. A TV that hasn't yet is listed as **Not allowed yet**:
+click **Request approval**, then on the TV tick **Always allow from this computer** and choose
+**Allow**.
 
 ## Using it
 
 1. Launch the app. It scans your network and lists the Android TV devices it finds.
-2. Accept the debugging prompt on the TV if one appears.
+2. For a TV marked **Not allowed yet**, click **Request approval** and choose **Allow** on the TV.
 3. Click your device. Each tab is a feature:
 
 | Tab | What it does |
@@ -87,10 +99,25 @@ The first time the app connects, the TV asks **"Allow debugging?"**. Accept it.
 
 ### Can't find your TV?
 
-Use **Scan Network**, **Connect IP** or **Pair PIN**.
+Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
-**Scan Network** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
-devices like the Shield use. It also checks the devices ADB has discovered over mDNS. That second
+**A TV that has never allowed this computer** is listed as **Not allowed yet**. Scanning never
+shows anything on the TV. Click **Request approval** on its row: the TV asks "Allow debugging?"
+(some say "Allow USB debugging?"). Tick **Always allow from this computer** and choose Allow. The
+app waits up to 10 minutes; **Cancel** stops waiting. TVs that already allow Google's `adb` on this
+computer connect without asking. With Google platform-tools chosen in Settings, the TV asks by
+itself the first time the app connects instead.
+
+**On a Mac, if nothing is found even by IP,** macOS may be blocking the app: open System Settings →
+Privacy & Security → **Local Network** and turn ATV Optimizer on. If it already looks on, turn it
+off and on again. If it's listed more than once, turn every entry on. Then scan again.
+
+With **Google platform-tools** chosen in Settings, click **Restart ADB** first instead: after an
+update, macOS cuts off the ADB server the previous version left running. The app restarts it by
+itself when it notices, and a manual restart does the same.
+
+**Scan LAN** looks two ways. It sweeps your subnet on ADB's standard port (5555), which older
+devices like the Shield use. It also listens for TVs that announce themselves over mDNS. That second
 check matters on Android 11+, where Wireless debugging listens on a random port that changes every
 time you toggle it, so a port sweep can't find it. If a TV is only advertising its pairing service,
 the scan tells you and fills in the pairing address for you.
@@ -98,7 +125,7 @@ the scan tells you and fills in the pairing address for you.
 **Pair PIN** is for Android 11+ Wireless debugging. On the TV, open **Pair device with pairing
 code** and enter the IP:port and code it shows. Pairing makes the TV trust your computer but doesn't
 connect to it. Go back to the main Wireless debugging screen and enter the IP:port shown *there* in
-**Connect IP**. It's a different port from the pairing one. If ADB connects the paired TV on its
+**Add by IP**. It's a different port from the pairing one. If ADB connects the paired TV on its
 own, it shows up when the device list refreshes.
 
 ## Safety
@@ -151,6 +178,23 @@ nothing.
 
 ## Known limitations
 
+**ADB discovery and reconnection.**
+
+[Issue #235](https://github.com/bryanroscoe/shield_optimizer/issues/235) reports a SHIELD TV Pro on macOS running
+2.4.1 being missed by **Scan LAN**, or later appearing **OFFLINE**, until connected with standalone
+ADB and refreshed in the app. The full cause is still under investigation.
+
+If this happens, try **Add by IP** with the TV's current address, approve any debugging prompt on
+the TV, then **Refresh**. The reporter has not confirmed whether Add by IP avoids this failure;
+the recovery they verified used standalone ADB. **Restart ADB** disconnects other tools using the
+same server, and did not recover the reporter's connection in 2.4.1.
+
+Connection-recovery improvements are merged for the next desktop release and await physical
+confirmation of this report. They are not included in 2.4.1.
+
+**Built-in ADB is network-only.** A TV connected by USB needs **Google platform-tools**, chosen in
+**Settings → ADB → ADB engine**. Switching takes effect immediately, and you can switch back.
+
 **Fire TV launcher changes depend on the build.** Some Fire OS builds refuse changes to Amazon's
 protected stock launcher, including attempts to re-enable it. The app recognizing Projectivy or
 another supported launcher doesn't mean the firmware will let you change Home or disable stock.
@@ -161,10 +205,15 @@ tracks a Toshiba Fire TV report that's still waiting on version and build detail
 
 **Unsigned builds.** See [First launch](#first-launch) above.
 
-**Renamed from Shield Optimizer.** It's the same app with the same settings and update channel.
-The Homebrew tap and cask are still called `shield-optimizer`, so `brew upgrade` keeps working. If
-you installed from the `.dmg`, you'll still have the old `Shield Optimizer.app` until you
-reinstall. After that you can drag the old one to the Trash.
+**Renamed from Shield Optimizer.** It's the same app with the same update channel. From 2.5.0 it
+also uses the new name for its data folder and app identifier: the first launch copies your
+settings, snapshots and logs over and leaves the old copies in place. On Windows, the 2.5.0
+`-setup.exe` installer (and an in-app update of a setup install) removes a leftover "Shield
+Optimizer" install; the `.msi` doesn't, so remove that one from Add/Remove Programs yourself. On
+macOS, a `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you quit it. If you
+have both `Shield Optimizer.app` and `ATV Optimizer.app` (for example from installing a DMG beside
+an older copy), drag `Shield Optimizer.app` to the Trash. The Homebrew cask is now
+`atv-optimizer`; `shield-optimizer` keeps working and `brew upgrade` moves you over.
 
 ## ATV Optimizer for Android
 
@@ -176,6 +225,18 @@ in testing now and hasn't been released.
 <img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
 
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
+
+The Android app will be free to try, with Pro as a one-time Google Play purchase: US $4.99, or $9.99
+or $19.99 if you'd like to chip in more. Every price unlocks the same Pro.
+
+## Support the project
+
+The desktop app is free. If it saved you an afternoon of fiddling, you can
+[buy me a coffee on Ko-fi](https://ko-fi.com/bryanroscoe).
+
+**Donated on Ko-fi? You get the Android app's Pro for free.** Leave a note with your donation (or
+message me on Ko-fi afterwards) and I'll send you a Google Play code that unlocks Pro once the app
+is out.
 
 ## Legacy: PowerShell script (v1)
 

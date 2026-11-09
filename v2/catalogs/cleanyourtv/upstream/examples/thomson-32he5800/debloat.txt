@@ -1,0 +1,75 @@
+# Thomson 32HE5800 (TCL-built: ro.product.model UnionTV, persist.tcl.client_type THOM-EU-RT2841-S1),
+# Realtek RTD284x (RT2841), Android TV 9 (API 28), build PPR2.180905.006.A1 (2020-11-15),
+# 1.4 GB RAM with ro.config.low_ram=true, 1280x720 panel. Spain (Orange TV preloaded).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/thomson-32he5800/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/thomson-32he5800/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher: com.google.android.tvlauncher (restore.sh / build-and-install.sh defaults work).
+# Other HOME claimants: com.orange.es.androidtv (Orange TV, priority 0) and two FallbackHome
+# activities (com.tcl.keycustomfunctionservice, com.android.tv.settings). setupwraith is installed
+# but does not claim HOME on this Android TV 9 firmware.
+# Live TV app: com.tcl.tv, inputs via com.tcl.tvinput / com.tcl.tvpassthrough. Keyboard: TCL T_IME.
+# launcher/ config: live_tv_package com.tcl.tv (its TVActivity has a leanback entry, no live_tv_action
+# needed); hide com.tcl.tv from the tiles. HDMI 1/2, AV and Live TV all show up in the Inputs menu.
+#
+# Applied and verified on a real unit on 2026-10-19: Wi-Fi stayed up, launcher/ installed with the
+# default build-and-install.sh, Home and the Inputs menu worked after the full list.
+#
+# Second unit, France (OQEE by Free preloaded), applied 2026-10-23: same client_type and build
+# PPR2.180905.006.A1 (builder date 2021-01-25), TCL software V8-R41KT01-LF1V374.009210, 32" (soc_32).
+# Retail label not read (covered by a wall mount). Disabled in batches with a screenshot after each,
+# launcher/ installed with the default build-and-install.ps1, rebooted, then checked with the real IR
+# remote: Home, Source, Netflix, Prime Video and Settings buttons all work, as do HDMI 1/2, AV, Live TV.
+# - com.tcl.waterfall.overseas (below) is installed on this unit: a TCL content app bundling Google
+#   Mobile Ads and Firebase. Disabled without side effects.
+# - The "GalaView" tile is not its own app but com.tcl.partnercustomizer/.tkey.TKeyGalaActivity, so it
+#   stays enabled (key handling); hide it from the launcher with hidden_apps com.tcl.partnercustomizer.
+# - com.google.android.katniss is re-enabled by the firmware at every boot here; pumpkin stays off.
+# - com.google.android.music is not installed on this unit.
+#
+# DO NOT DISABLE here (load-bearing or unclear, run as android.uid.system):
+# com.tcl.tv com.tcl.tvinput com.tcl.tvpassthrough com.tcl.sourcemananger   # Live TV, HDMI, tuner, Source menu
+# com.tcl.autopair com.tcl.tcl_bt_rcu_service com.tcl.keycustomfunctionservice  # remote, BT pairing
+# com.tcl.framework.custom com.tcl.keyhelp com.tcl.partnercustomizer  # key handling (TKey activity)
+# com.tcl.inputmethod.international com.tcl.settings com.tcl.initsetup com.tcl.factory.view
+# com.tcl.common.terminalmanagerplus com.tcl.xian.StartandroidService com.tcl.appstatecontroller
+# com.tcl.copydatatotv com.android.ListenNetStateService       # unclear roles; boot/package/network hooks
+# com.realtek.netflix.setting                                  # Netflix ESN/config
+
+# Telemetry and analytics
+com.tcl.bi                              # TCL analytics (BI)
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+android.autoinstalls.config.tcl.device  # Play auto-installs of partner apps
+com.google.android.partnersetup         # partner-app attribution
+
+# Content, ads and promos
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.recommendations
+com.tcl.appmarket2                      # TCL app store (Play Store stays)
+com.tcl.usercenter                      # TCL account / phone binding web pages
+com.tcl.esticker                        # retail energy-label sticker
+com.tcl.useragreement                   # TCL agreement screen, done after setup
+com.tcl.waterfall.overseas              # TCL content app, Mobile Ads + Firebase (second unit)
+
+# Background services
+com.tcl.tvweishi                        # "TV Guard" cleaner with its own installer
+
+# Preloaded apps
+com.google.android.play.games
+com.google.android.music                # Play Music, service discontinued
+com.google.android.videos               # Play Movies & TV
+
+# Off by choice on this unit
+com.tcl.ui_mediaCenter                  # USB media center
+com.tcl.videoplayer
+com.tcl.audioplayer
+com.tcl.imageplayer
+com.google.android.katniss              # Google Assistant / voice search
+com.google.android.speech.pumpkin       # hotword
+# com.google.android.apps.mediashell    # Chromecast - kept
+# com.tcl.versionUpdateApp              # TCL firmware updates - kept
+# com.tcl.rc.ota                        # remote-control firmware updates - kept
+# com.google.android.backdrop           # Ambient screensaver - kept

@@ -1,0 +1,35 @@
+# MTC UK 2K Android TV (codename tabata), Android TV 11, firmware RTO8.250807.002, MediaTek m5621
+# Shares its firmware family with JVC UK sets (android.autoinstalls.config.JVC is present).
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/mtc-uk-2k-android-tv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/mtc-uk-2k-android-tv/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Quirks: dumpsys is crippled on this firmware ("Service dumps disabled due to hung
+# system process") - verify with pm list packages -d and screenshots, not dumpsys.
+# The stock launcher is com.google.android.tvlauncher (Android TV leanback, not Google TV
+# launcherx), so restore.sh needs no launcher argument.
+
+# Google launcher ad/recommendation services (launcher itself is disabled by build-and-install.sh)
+com.google.android.tvrecommendations
+com.google.android.leanbacklauncher.partnercustomizer
+
+# Google telemetry and ambient ads
+com.google.android.feedback
+com.google.android.backdrop
+
+# Voice, by choice: katniss is Assistant and voice search, so the remote's mic button stops working
+com.google.android.katniss
+
+# Preloaded junk
+fusion.android.tv.demo
+com.mstar.android.tv.disclaimercustomization
+
+# Calendar on a TV
+com.android.providers.calendar
+com.google.android.syncadapters.calendar
+
+# Freeview Play app layer (RTE bridge). Note: on the tested unit the whole
+# uk.co.freeview.* suite was already disabled out of the box; disabling again
+# throws SecurityException - the end state is the same, the list is safe to apply.
+com.twentyfouri.tvbridge.rte

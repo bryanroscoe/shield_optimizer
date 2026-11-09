@@ -1,19 +1,24 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { router, type Screen } from "../lib/router.svelte";
-  import { SAFETY_TIERS, isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
+  import { isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
   import { effectiveMethod, reviewLabel } from "../lib/recommendation";
   import {
+    applyConfirmation,
     isPlanRecommended,
     isReviewRow,
     matchesPlanQuery,
     naturalAction,
     planItemApp,
+    rowPurpose,
     rowSafety,
+    type ConfirmItem,
   } from "../lib/optimizeRows";
   import type {
+    ActionResult,
     OptimizeMode,
     OptimizePlan,
     OptimizePlanItem,
@@ -75,7 +80,7 @@
     mode: OptimizeMode;
     token: number;
   };
-  type FrozenItem = { item: OptimizePlanItem; verdict: Safety | null };
+  type FrozenItem = ConfirmItem;
   type ApplyIntent = PlanIdentity & {
     selectionVersion: number;
     items: FrozenItem[];
@@ -380,40 +385,6 @@
     selectedItems.every(isSelectable),
   );
 
-  function warningFor(items: FrozenItem[]): string {
-    const parts: string[] = [];
-    const disables = items.filter(({ item }) => naturalAction(item) === "disable").length;
-    const uninstalls = items.filter(({ item }) => naturalAction(item) === "uninstall").length;
-    if (disables > 0) {
-      parts.push(`${disables} app${disables === 1 ? "" : "s"} will be disabled.`);
-    }
-    if (uninstalls > 0) {
-      parts.push(
-        `${uninstalls} app${uninstalls === 1 ? "" : "s"} will be uninstalled for this TV's user. Reinstall works only while an APK remains on the TV; otherwise use the Play Store.`,
-      );
-    }
-    const destructive = items.filter(({ item }) => item.action.kind !== "enable");
-    if (destructive.length > 0) {
-      parts.push(
-        destructive
-          .map(({ item, verdict }) => `${SAFETY_TIERS[verdict?.kind ?? "unknown"].label}: ${item.entry.name} — ${reasonOf(verdict)}`)
-          .join(" "),
-      );
-    }
-    return parts.join(" ");
-  }
-
-  function confirmationFor(items: FrozenItem[], intentMode: OptimizeMode): string {
-    const changes = items
-      .map(({ item }) => `${item.entry.name} — ${actionLabel(item)}`)
-      .join("; ");
-    const postPass =
-      intentMode === "optimize"
-        ? "Afterward, animation scales are set to 0.5×."
-        : "Afterward, animation scales are reset to 1×.";
-    return `${changes}. ${postPass}`;
-  }
-
   function selectionChanged(pkg?: string) {
     if (pkg) selectionTouched.add(pkg);
     ++selectionVersion;
@@ -483,13 +454,18 @@
       verdict: item.action.kind === "enable" ? null : safetyMap[item.entry.package] ?? null,
     }));
     if (items.some(({ item, verdict }) => item.action.kind !== "enable" && !verdict)) return;
-    applyIntent = {
-      ...identity,
-      selectionVersion,
-      items,
-      message: confirmationFor(items, identity.mode),
-      warning: warningFor(items),
-    };
+    applyIntent = { ...identity, selectionVersion, items, ...applyConfirmation(items, identity.mode) };
+  }
+
+  /// A change can land even when its reply is lost or arrives after a
+  /// reconnect, so the shared health and bloat caches are dropped as soon as
+  /// the call settles, before any currency check can return early.
+  async function settleChange<T>(change: Promise<T>): Promise<T> {
+    try {
+      return await change;
+    } finally {
+      session.invalidateAll();
+    }
   }
 
   /// The last run's failures, kept on screen with a code and Copy details.
@@ -525,6 +501,9 @@
     /// The first failure's own words: what Copy details carries.
     let firstFailure: unknown = null;
     let completed = 0;
+    /// Changes sent whose reply never came back from this connection: they
+    /// may have landed, so they are neither done nor untouched.
+    let unconfirmed = 0;
     let entitlementLost = false;
     let canceled = false;
     let safetyStopped = false;
@@ -538,7 +517,6 @@
       for (const [index, frozen] of items.entries()) {
         const item = frozen.item;
         if (cancelRequested || !runCurrent()) {
-          entitlementLost = !session.isPro;
           canceled = true;
           break;
         }
@@ -580,40 +558,43 @@
             }
           }
           const action = naturalAction(item);
-          const result =
+          const result = await settleChange<ActionResult | null>(
             action === "disable"
-              ? await api.disablePackage(serial, item.entry.package)
+              ? api.disablePackage(serial, item.entry.package)
               : action === "uninstall"
-                ? await api.uninstallPackage(serial, item.entry.package)
+                ? api.uninstallPackage(serial, item.entry.package)
                 : action === "enable"
-                  ? await api.enablePackage(serial, item.entry.package)
-                  : null;
-          if (!runCurrent()) {
-            canceled = true;
-            break;
-          }
+                  ? api.enablePackage(serial, item.entry.package)
+                  : Promise.resolve(null),
+          );
+          // The TV answered for this change, so it counts even if the run
+          // stops right after.
           if (!result?.ok) {
             failures.push(item.entry.name);
             firstFailure ??= result?.message || `${item.entry.name} failed`;
           } else completed += 1;
-          if (cancelRequested) {
+          if (cancelRequested || !runCurrent()) {
             canceled = true;
             break;
           }
         } catch (e) {
+          // Shared gates refuse before any side effect, so nothing changed.
+          if (String(e).includes("LOCKED:")) {
+            entitlementLost = true;
+            break;
+          }
+          // An error that ended the connection can't say whether it landed.
+          if (sessionCurrent(serial, generation)) {
+            failures.push(item.entry.name);
+            firstFailure ??= e;
+          } else unconfirmed += 1;
           if (!runCurrent()) {
             canceled = true;
             break;
           }
-          if (String(e).includes("LOCKED:")) {
-            showPaywall = true;
-            entitlementLost = true;
-            break;
-          }
-          failures.push(item.entry.name);
-          firstFailure ??= e;
         }
       }
+      if (!session.isPro) entitlementLost = true;
       if (!runCurrent() && !entitlementLost) canceled = true;
       if (request === applyRequest) applyDone = items.length;
 
@@ -621,9 +602,8 @@
       if (!entitlementLost && !canceled && !safetyStopped && runCurrent()) {
         applyCurrent = "animation settings";
         try {
-          const performance = await api.applyPerformanceSettings(
-            serial,
-            runMode === "optimize" ? "optimized" : "default",
+          const performance = await settleChange(
+            api.applyPerformanceSettings(serial, runMode === "optimize" ? "optimized" : "default"),
           );
           if (!runCurrent() || cancelRequested) {
             canceled = true;
@@ -640,18 +620,25 @@
         }
       }
 
-      if (request !== applyRequest || !sessionCurrent(serial, generation)) return;
-      session.invalidateAll();
+      // A reconnect mid-run still gets the summary: the user needs to know
+      // the run stopped and what it reached. Only a newer run or leaving the
+      // screen silences it.
+      if (request !== applyRequest) return;
+      const live = sessionCurrent(serial, generation);
       const verb = runMode === "optimize" ? "Optimization" : "Restore";
       if (safetyStopped) {
         // The specific safety message was already shown above.
+      } else if (entitlementLost) {
+        showPaywall = true;
+        showToast(`Stopped — Pro is required. ${completed} app${completed === 1 ? "" : "s"} updated.`, "info");
       } else if (canceled) {
+        const untouched = items.length - completed - failures.length - unconfirmed;
         showToast(
-          `Stopped after ${completed} of ${items.length}. ${items.length - completed - failures.length} left untouched.`,
+          `Stopped after ${completed} of ${items.length}.${failures.length ? ` ${failures.length} failed.` : ""}${
+            unconfirmed ? ` ${unconfirmed} result${unconfirmed === 1 ? "" : "s"} unknown.` : ""
+          } ${untouched} left untouched.`,
           "info",
         );
-      } else if (entitlementLost) {
-        showToast(`Stopped — Pro is required. ${completed} app${completed === 1 ? "" : "s"} updated.`, "info");
       } else if (failures.length === 0) {
         showToast(`${verb} complete — ${completed} app${completed === 1 ? "" : "s"} updated.`, "success");
       } else {
@@ -671,7 +658,8 @@
           ? { ok: true }
           : { ok: false, code: "partial_failure", message: `${failures.length} of ${items.length} changes failed` });
       }
-      if (!safetyStopped) await loadPlan(runMode);
+      // After a reconnect the session effect has already reloaded the plan.
+      if (!safetyStopped && live) await loadPlan(runMode);
     } finally {
       if (request === applyRequest) {
         applying = false;
@@ -799,7 +787,7 @@
     {#if mode === "optimize" && activeTab === "optional"}
       <p class="tab-hint">Keep anything you use. Nothing changes until you confirm.</p>
     {:else}
-      <details class="help-disclosure"><summary>About this plan</summary><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></details>
+      <HelpSheet title="About this plan"><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></HelpSheet>
     {/if}
     {#if sharedUnknownReason}
       <p class="tab-hint">
@@ -858,6 +846,12 @@
         {#each visibleItems as item (item.entry.package)}
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
+          {@const showReason = item.action.kind !== "enable" && !!tier && !(tier.kind === "unknown" && sharedUnknownReason)}
+          {@const shownReason = showReason ? reasonOf(safetyMap[item.entry.package]) : ""}
+          {@const purpose = rowPurpose(
+            mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description,
+            shownReason,
+          )}
           <div class="optimize-item" class:blocked-row={hardBlocked}>
             <button
               class="item-details"
@@ -888,14 +882,14 @@
                     : ""}
                 </span>
               </div>
-              {#if item.action.kind !== "enable" && tier && !(tier.kind === "unknown" && sharedUnknownReason)}
-                <span class="row-reason {tier.cls}">{reasonOf(safetyMap[item.entry.package])}</span>
+              {#if showReason && tier}
+                <span class="row-reason {tier.cls}">{shownReason}</span>
               {:else if item.action.kind !== "enable" && safetyFailed}
                 <span class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</span>
               {/if}
-              <span class="row-purpose">
-                {mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description}
-              </span>
+              {#if purpose}
+                <span class="row-purpose">{purpose}</span>
+              {/if}
             </button>
             {#if mode === "optimize" && activeTab === "optional"}
               <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">
@@ -1148,8 +1142,10 @@
   /* Summary */
   .optimize-summary-card {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
+    gap: 4px 12px;
     padding: 12px 15px;
     border-radius: 14px;
     background: color-mix(in srgb, var(--accent) 9%, transparent);
@@ -1157,6 +1153,8 @@
     margin-bottom: 8px;
   }
   .summary-text {
+    flex: 1 1 8em;
+    min-width: 0;
     font-size: 13px;
     color: var(--text-soft);
   }
@@ -1165,6 +1163,8 @@
     font-weight: 700;
   }
   .select-all-btn {
+    flex: none;
+    min-height: 44px;
     background: transparent;
     border: none;
     font-family: var(--sans);
@@ -1172,7 +1172,8 @@
     font-weight: 600;
     color: var(--accent);
     cursor: pointer;
-    padding: 0;
+    padding: 0 2px;
+    white-space: nowrap;
   }
   .select-all-btn:disabled {
     opacity: 0.5;

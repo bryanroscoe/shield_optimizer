@@ -33,6 +33,13 @@ or accounts can be restored. No engine, protected list or launcher guards change
 Simulation verifies the resulting rows and defaults; it does not prove physical
 removal behavior. Owner confirmation is an assessment input, not our hardware test.
 
+**Update, 2026-11-08.** The owner's review-tier audit
+([OPTIMIZE-CATALOG-REVIEW-2026-11-08.md](OPTIMIZE-CATALOG-REVIEW-2026-11-08.md))
+set `review: true` on all fourteen entries, because they are apps people install by
+choice. They now read "Review: disable if unused" and still start at Keep; the
+Optimize and Restore defaults stay false. The `review: false` described above is
+historical.
+
 ## Existing streaming-app brand corrections, reports 255–256
 
 The exact Google Play package URLs were checked on 2026-10-29:
@@ -83,7 +90,7 @@ clearly identified TV viewing apps Safe, combined with the exact publisher packa
 links recorded in the fixture. This is a manual functional/dependency review, not
 physical removal validation or a classification inferred from simulated UI.
 
-Reproduction: `cargo test --offline -p shield-optimizer-core commands::loader::tests`
+Reproduction: `cargo test --offline -p atv-optimizer-core commands::loader::tests`
 and `npm run test:reported-package-names`. The latter checks actual catalog fields,
 rendered Safe/Unknown/Caution labels and no automatic recommendation or default selection. Refreshed
 media is explicitly simulated. Cross-platform CI and hardware acceptance are

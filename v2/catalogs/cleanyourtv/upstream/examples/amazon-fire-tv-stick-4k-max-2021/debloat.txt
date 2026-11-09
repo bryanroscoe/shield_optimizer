@@ -1,0 +1,59 @@
+# Amazon Fire TV Stick 4K Max, 1st gen 2021 (AFTKA, codename kara), Fire OS 7.7.1.3 (PS7713/5443, build PS7713.5443N),
+# Android 9 (SDK 28), 2 GB RAM, Colombia. Based on amazon-fire-tv-stick-lite-2020/.
+#
+# FIRE OS: DEBLOAT ONLY. com.amazon.tv.launcher is a protected package and keeps Home; launcher/ does not apply.
+#
+# Apply:   TV_HOST=<stick ip> tools/disable.sh examples/amazon-fire-tv-stick-4k-max-2021/debloat.txt
+# Undo:    TV_HOST=<stick ip> tools/restore.sh examples/amazon-fire-tv-stick-4k-max-2021/debloat.txt com.amazon.tv.launcher
+# Everything is DISABLED for user 0, never uninstalled. Comment out any line you want to keep.
+# ADB on Fire OS 7: Settings > My Fire TV > About, click the device name 7 times, then Developer Options > ADB Debugging.
+#
+# Rebooted twice after applying: everything below stayed disabled; Home, Prime Video, Netflix and voice search work.
+# With Alexa voice search kept, these come back enabled at every boot, so they are not listed: com.amazon.aca,
+# com.amazon.aiondec, com.amazon.audiohome, com.amazon.whad, com.amazon.whasettings, com.amazon.wha.mediabrowserservice,
+# com.amazon.tv.alexaalerts, com.amazon.tv.alexanotifications, com.amazon.alexa.externalmediaplayer.fireos,
+# com.amazon.alexamediaplayer.runtime.ftv, com.amazon.whisperjoin.middleware.np, com.amazon.tv.ffsprovisioneeclient,
+# com.amazon.tv.mattercohost, com.amazon.ods.kindleconnect, com.amazon.naatyam, com.amazon.storm.lightning.tutorial.
+#
+# Kept on purpose: com.amazon.tv.launcher, com.amazon.tv.settings.*, com.amazon.venezia (Appstore), com.amazon.tv.ime,
+# remote/Bluetooth services, OTA updates, Alexa voice search (com.amazon.vizzini, aria, ivona TTS, tcomm), Prime Video
+# (com.amazon.firebat), Silk (com.amazon.cloud9, com.amazon.tv.website_launcher), casting (cast.sink, dialservice,
+# awvflingreceiver, whisperplay, whisperlink), profiles (com.amazon.prism.android.service), com.amazon.tv.oobe.
+#
+# The hero rotator on Home is the launcher's own content feed; this list does not remove it.
+
+# Amazon telemetry, metrics, logs, usage reporting
+com.amazon.client.metrics.api
+com.amazon.tv.fw.metrics
+com.amazon.wirelessmetrics.service
+com.amazon.perfcollection
+com.amazon.perfc
+com.amazon.dp.logger
+com.amazon.ceviche                         # data collection pipelines
+com.amazon.tv.developer.dataservice        # content personalization data for third-party apps
+com.amazon.livedeviceservice
+com.amazon.privacypassservice              # privacy pass token service
+com.amazon.wifilocker                      # uploads Wi-Fi passwords to Amazon
+com.amazon.tv.acr                          # Automatic Content Recognition
+
+# Ads, sponsored rows, recommendations, promos, shopping
+com.amazon.kso.blackbird                   # launcher ad sync / bidding
+com.amazon.sneakpeek                       # sponsored "Sneak Peek" previews
+com.amazon.hybridadidservice               # advertising ID service
+com.amazon.providers.contentsupport
+com.amazon.tv.easyupgrade                  # "upgrade your Fire TV" promos
+com.amazon.shoptv.client                   # Amazon Shopping on TV
+com.amazon.shoptv.firetv.client
+com.amazon.hedwig                          # Fire TV Channels
+com.amazon.tv.livetv                       # Live tab and guide (no tuner on a stick)
+com.amazon.franktvinput                    # live TV input feeding the Live tab
+com.amazon.gamehub                         # games hub / Luna cards
+com.amazon.systemnotices
+com.amazon.tv.releasenotes                 # "what's new" release notes
+com.amazon.uxnotification                  # UX notification popups
+
+# Preloaded Amazon apps (personal choice)
+com.amazon.tahoe                           # Amazon Kids (FreeTime)
+com.amazon.bueller.music                   # Amazon Music
+com.amazon.bueller.photos                  # Amazon Photos
+com.amazon.tmm.tutorial                    # remote tutorial

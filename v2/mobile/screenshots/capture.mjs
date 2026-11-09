@@ -15,10 +15,11 @@ import { chromium } from "playwright";
 import { createServer } from "vite";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const FRAMES = join(HERE, "frames");
+const PLAY_STORE = process.argv.includes("--play-store");
+const FRAMES = PLAY_STORE ? join(HERE, "../store-listing/screenshots") : join(HERE, "frames");
 const SHEET = join(HERE, "contact-sheet.png");
-const VIEWPORT = { width: 412, height: 915 };
-const SCALE = 2;
+const VIEWPORT = { width: 412, height: PLAY_STORE ? 732 : 915 };
+const SCALE = PLAY_STORE ? 3 : 2;
 
 // Each step starts from a freshly connected Dashboard. `open` gets there and
 // `ready` waits for the screen's data to land so no frame shows a spinner.
@@ -41,11 +42,19 @@ const SCREENS = [
   { name: "backups", open: ["backups"] },
   { name: "riskguide", open: ["riskguide"] },
   { name: "add-tv", open: ["addtv"] },
+  { name: "catalog", open: ["catalog"], then: openCatalogProfile },
 ];
 
 async function openFirstAppSheet(page) {
   await page.locator('.app-row[data-package="com.google.android.videos"]').click();
   await page.locator(".sheet").first().waitFor();
+}
+
+async function openCatalogProfile(page) {
+  await page.getByRole("searchbox", { name: "Search device profiles" }).fill("acer-ar3-r3");
+  await page.getByRole("searchbox", { name: "Search package IDs" }).fill("com.realtek.leanbacklauncher.partnercustomizer");
+  await page.locator('[data-profile="acer-ar3-r3"]').click();
+  await page.locator('[data-package-source="com.realtek.leanbacklauncher.partnercustomizer"]').waitFor();
 }
 
 async function openPaywall(page) {
@@ -124,8 +133,10 @@ async function contactSheet(browser) {
   await page.close();
 }
 
-const only = process.argv.slice(2);
-const selected = only.length ? SCREENS.filter((s) => only.includes(s.name)) : SCREENS;
+const only = process.argv.slice(2).filter((arg) => arg !== "--play-store");
+const storeScreens = ["dashboard", "apps", "optimize", "launcher", "tweaks", "more"];
+const selected = only.length ? SCREENS.filter((s) => only.includes(s.name))
+  : PLAY_STORE ? SCREENS.filter((s) => storeScreens.includes(s.name)) : SCREENS;
 if (only.length && selected.length !== only.length) {
   const known = SCREENS.map((s) => s.name).join(", ");
   throw new Error(`unknown screen in ${only.join(", ")}; known: ${known}`);
@@ -146,8 +157,10 @@ try {
   await mkdir(FRAMES, { recursive: true });
   console.log(`Capturing ${selected.length} screens at ${VIEWPORT.width}x${VIEWPORT.height}@${SCALE}x → ${FRAMES}`);
   for (const screen of selected) await capture(browser, origin, screen, SCREENS.indexOf(screen));
-  await contactSheet(browser);
-  console.log(`Contact sheet → ${SHEET}`);
+  if (!PLAY_STORE) {
+    await contactSheet(browser);
+    console.log(`Contact sheet → ${SHEET}`);
+  }
 } finally {
   await browser.close();
   await server.close();

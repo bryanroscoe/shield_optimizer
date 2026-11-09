@@ -35,7 +35,7 @@ impl RemoteLifecycle {
 
 #[cfg(target_os = "android")]
 pub fn handle_window_event(app: &tauri::AppHandle, event: &tauri::WindowEvent) {
-    use shield_optimizer_core::commands::AppState;
+    use atv_optimizer_core::commands::AppState;
     use tauri::Manager;
 
     match event {

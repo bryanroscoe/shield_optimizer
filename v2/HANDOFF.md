@@ -1,32 +1,174 @@
 # v2 — current state
 
+Native desktop ADB takeover: see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
+for PR #268, exact candidate provenance, completed checks and remaining native acceptance.
+
 v2 is a shipping desktop app. Latest **published** version: **2.4.1** (2026-10-23). The `v2-2.4.0` tag's build
 failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 `.github/workflows/v2-release.yml`; macOS is also distributed via the Homebrew tap
-(`bryanroscoe/homebrew-shield-optimizer`).
+(`bryanroscoe/homebrew-shield-optimizer`, cask `atv-optimizer`).
 
 ## Unreleased on `main`
 
-Desktop help improvements and ADB connection recovery are pending release. Add by IP,
-Scan LAN and restart now verify transport readiness; the confirmed restart can retry
-one unchanged failed address. The subprocess driver remains the default. Shared native
-ADB PR236 and its parity branches remain experimental, with hardware and Windows
-identity acceptance outstanding. These source fixes do not establish the full root
-cause of reporter #235's environment. 2.3.1 was never tagged and 2.4.0 never built;
-their notes shipped in 2.4.1. Put
-the next change under `## Unreleased` in `v2/CHANGELOG.md`; `tests/notes-seen.mjs` expects that
-heading to stay. Before tagging, run the
-physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and
-`npm run e2e`.
+Nothing yet. `v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data
+folder `ATVOptimizer`, binary `atv-optimizer`, crates `atv-optimizer` / `atv_optimizer_lib` /
+`atv-optimizer-core`, Homebrew cask `atv-optimizer`) and the desktop connection work below; its
+notes are in `v2/CHANGELOG.md`.
+
+**2.5.0 shipped without the physical device script, at Bryan's direction.** The `v2 Upgrade Tests`
+workflow passed on `1bd204a`, the commit under the version bump (all 16 jobs: NSIS, MSI and macOS
+bundle upgrades from 2.2.0 and 2.4.1, Homebrew-managed, retries), and `v2-tests.yml` passed there on
+all three OSes. Nothing has been run on real hardware: the R steps ("Upgrades across the 2.5.0
+rename") and D10–D12 (macOS Local Network) in `../docs/DEVICE-TEST-SCRIPT.md` are still open, so
+real in-app updates, Dock, Login Items, the Local Network prompt, `brew upgrade` through the rename
+(R7) and Linux (R9) are unverified. Treat reports in those areas as likely real.
+
+Desktop connection recovery: Add by IP, Scan LAN and restart verify transport readiness, and the
+confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
+the previous version is cut off from the network once the new version opens; the app restarts it
+when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
+was the desktop default through 2.5.0. PR #268 makes the built-in Rust ADB (the mobile
+transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
+ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its handoff is
+`NATIVE-ADB-HANDOFF.md`; the release that ships it waits for Bryan's hardware batch,
+`../docs/DEVICE-TEST-SCRIPT.md` N1–N18. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
+`server_repair.rs` stays for the platform-tools path and its fallback even once native is the
+default. Reporter #235 has not
+confirmed a fix. Put the next change under `## Unreleased` in `v2/CHANGELOG.md`;
+`tests/notes-seen.mjs` expects that heading to stay. Before tagging, run the physical script in
+[`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.
+
+Native Scan LAN now separates discovery from TV approval: owned, bounded connection
+jobs continue after the scan returns, and ready TVs appear through serialized status
+refreshes. Status polling does not re-query unchanged device properties and stops on
+completion, backend unavailability, navigation, or its deadline. Pending handshakes
+alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
+and the native driver/scan unit tests.
+
+The current native owner-test app also retains the optional grouped IPv4/IPv6
+address picker in collapsed Scan details. Scan tries alternative mDNS routes
+serially and suppresses redundant routes after a ready connection or observed
+AUTH; actual TV cards still merge only on verified hardware identity. The exact
+624fd2f candidate passed seven CI jobs and the two-Shield duplicate-route,
+explicit IPv6 selection and endpoint Retry/Forget checks. See the native handoff
+above for its merge-ref provenance and remaining hardware acceptance.
+
+macOS native builds declare their Local Network purpose and ADB Bonjour services in
+`src-tauri/Info.plist`. Keep separately installed development apps on a distinct local
+bundle identifier and sign the complete development bundle; `--no-sign` leaves only
+the linker's executable signature. Local Network permissions can become ambiguous
+when multiple unsigned versions share an identifier. A zero-result scan accompanied
+by `No route to host` while the same address is reachable outside the app requires
+checking app-specific Local Network permission, not resetting TV authorization keys.
+The shipping identifier stays unchanged. Apple-issued signing remains a release task.
+
+LAN sweep hits now start connecting as each responder arrives, before the remaining
+subnet probes or mDNS observation window finish. Scan diagnostics record subnet
+detection, first responder, sweep admission and mDNS elapsed times to distinguish
+cold-network delays from authorization waits.
+Built-in connections never offer the public key by themselves (2026-11-08, Bryan:
+scanning must not pop the prompt on every TV). A TV that refuses every signature is
+listed `unauthorized` as Not allowed yet, named by its Cast name, with Request
+approval; only that button sends `AUTH_RSAPUBLICKEY` and it waits up to 10 minutes
+(`APPROVAL_WAIT`), or until Cancel, Forget, an engine switch or quit. See
+`DIRECT-ADB.md` › Approval. Failed or unidentified offline network addresses stay in
+Scan details with exact-endpoint retry, Forget and diagnostics; they are not
+additional identified devices. Test discovery with no previously approved TVs, not
+just successful reconnections. The Android app still offers its key on connect
+(follow-up). Request approval opens `src/lib/components/ApprovalDialog.svelte`, a pop-up with
+a pulsing TV that closes itself once the TV connects; under platform-tools the same compact
+row and pop-up replace the old instruction box (Request approval redials through the adb
+server and watches that one transport for 10 minutes). The PR's native test packages set
+`ATVOPT_TEST_BUILD` and `ATVOPT_TELEMETRY_URL`: Send logs works there, each upload is
+marked `-dev` and "Test build <merge commit> (merge commit; PR head <head>)" (the merge
+commit is what was built, as in the window title), and automatic reports stay off.
+
+Native connection attempts use one handshake deadline (20 seconds quiet, the approval
+wait for Request approval; the Android app keeps 30 seconds) and interrupt
+their owned socket when canceled or superseded. Forget/retry and mobile cancellation
+must not leave an old authorization read running until its per-response timeout.
+The deadline is detached after successful authentication so it cannot later close
+a live TV connection. Loopback transport regressions cover cancellation before AUTH,
+cancellation while awaiting approval, timeout, and the first shell probe after success. Explicit TLS certificate-trust rejections
+now point to Pair PIN and the separate connect port, rather than legacy AUTH prompts.
+
+Native sync transfers now parse DATA/DONE/FAIL as a byte stream across ADB packets.
+A real read-only system-file download exposed a permission rejection being written
+into the local file before a misleading trailer error. Failure text is now an error,
+never file data. Upload success requires an explicit sync OKAY, and STAT responses
+are acknowledged and may be fragmented. Loopback tests cover these boundaries;
+read-only physical download acceptance passed on the labeled Download Recovery Fix
+app at 3e2f6ce. Upload/install acceptance remains outstanding. A current-binary denied pull exposed
+another failure: it evicted the main session and left an empty local file. Native
+downloads now use the existing bounded, hardware-verified dedicated connection
+and publish a temporary file only after success; denial leaves the original TV
+connection and any existing local destination intact. Uploads also consume early or
+mid-transfer FAIL replies, including fragmented replies interleaved with a transport
+ACK. They stop when rejection is observed and never replay or accept success before
+DONE; the same total transfer deadline bounds incomplete error replies.
+
+The current integration also retains main's Settings and privacy controls. Native
+mode is identified as built-in in diagnostics, without probing a host server or
+live TV sessions for scan reports. Scan statistics count the existing streaming
+probes, and pending handshakes do not become failed-connection reports. Settings
+keeps host-server installation/restart controls inactive in native mode.
+Subprocess status distinguishes a missing binary from a failed availability probe;
+timeout/startup/I/O failures retain their diagnostic and Restart recovery instead
+of being labeled "ADB not found".
 
 ## Things the next reader needs that the code does not say
 
-- **The app is ATV Optimizer.** `identifier`, the `ShieldOptimizer` data dir and the updater
-  channel keep the old name on purpose, and the WiX UpgradeCode is pinned in `tauri.conf.json`
-  to the value the old name derived, so existing installs upgrade in place. The Homebrew tap and
-  cask token are still `shield-optimizer`; the cask's `url` names the renamed DMG.
+- **Optimize catalog expansion**: eighteen source leads reviewed for identity and purpose now live in `crates/core/data/app-lists/common.json`. They appear as optional Disable-if-unused suggestions on both apps, with Caution verdicts, default Keep and no automatic Restore. See `../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md` and `../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md` for the two-agent reviews and `../docs/OPTIMIZE-CATALOG-REVIEW-PROCESS.md` for the continuing batch process. The imported source catalog remains unreviewed; it is not loaded into the action planner.
+
+- **Source catalog** (`shared/components/ProfileCatalog.svelte`, desktop `/catalog`, mobile More → Device & package catalog) exposes the MIT source snapshot under `catalogs/cleanyourtv/`. It is research information with original source/profile context and the full MIT notice. Package-detail links prefill an identity but require explicit source-profile selection. The view never reads or matches the connected device and has no action or safety-classification imports. Core app lists, safety and support tiers remain the action authorities. `test:profile-catalog` and mobile `profile-catalog.test.mjs` cover source isolation and navigation.
+
+- **RojasNet requests** (#258–#262): Shell bookmarks can be edited and include the requested user-0 package presets; App List has enabled/disabled filtering; both snapshot lists expose confirmed local deletion; app-report notes prefill GitHub Details from the redacted preview. App inventory and post-disable verification target user 0, matching package actions (#233). These changes are unreleased. Focused regressions are `test:shell-bookmarks`, `test:app-state-filter`, `test:snapshot-delete`, and `test:app-report`.
+
+- **Desktop Settings** (`src/routes/settings/`, the header gear) holds every app-wide preference.
+  Its switches are the same state as their other copies, not duplicates: the report setting
+  lives in `src/lib/reports.svelte.ts` (also the Report a bug dialog), theme and auto-update in
+  `src/lib/ui-prefs.svelte.ts` (the header theme switch), Stop ADB when quitting in
+  `src/lib/stop-adb-on-quit.svelte.ts` (Devices). Its Updates and About rows drive the layout's
+  own update flow and dialogs through `src/lib/app-shell.ts`. Support ID and Send logs need the
+  backend's `support_id` and `upload_diagnostics`. Settings explanations open from question-mark
+  controls (`HelpTip.svelte`); keep routine explanatory copy collapsed. The diagnostics Worker
+  and migration 0003 were deployed and verified with a synthetic upload and readback on 2026-11-03.
+
+- **The rename to ATV Optimizer (2.5.0).** `src-tauri/src/rename.rs` runs first in `run()`,
+  before logging and before any webview. It copies the old `ShieldOptimizer` data folder
+  (everything except `platform-tools/`) and the old WebView profile (`~/Library/WebKit/<id>` on
+  macOS, `<local data>/<id>` on Windows and Linux, caches and lock files skipped) into
+  `<name>.migrating-<pid>`, checks that the source did not change meanwhile (else it retries
+  once), writes `.atvoptimizer-migrated` into the copy and renames it into place. A folder
+  without that marker is unfinished: an unmarked data folder is merged into (old entries it
+  lacks, plus the old `telemetry.json`, so the install id and opt-out survive); an unmarked
+  profile is renamed to `<id>.unmigrated-<time>` and copied again. If the data copy fails, the
+  session runs on the old folder, so nothing creates the new one and the next launch retries.
+  The profile is copied once: `.webview-profile-migrated` in the data folder stops it being
+  refilled after a user or an uninstaller deletes it. Unreadable non-essential files are
+  skipped and listed; snapshots, `telemetry.json`, `disabled-home-handlers.json` and the
+  localStorage store must copy. The old data is never moved or deleted, and failures are
+  logged without failing the launch. Old `shield-optimizer.*.log` files are renamed in the copy
+  so rotation covers them. The old downloaded adb is still found where it is
+  (`adb_path_in_legacy_install_root`). localStorage keys keep their `shieldopt.*` names: the
+  origin did not change, so the copied profile is read as is. Pinned on purpose, never to change:
+  the WiX `upgradeCode`, `bundle.publisher` (`shieldoptimizer`, the value the old identifier
+  derived, which NSIS and WiX use for `Software\shieldoptimizer\<product>` and the install-folder
+  lookup), the updater `pubkey` and endpoint, the repo name and the `v2-*` tags.
+  Windows: `src-tauri/windows/hooks.nsh` closes a running `shield-optimizer-v2.exe` before the
+  install (asking first unless silent or passive), then removes a leftover "Shield Optimizer"
+  install from 2.2.0 or earlier (files by name, shortcuts that still point at it, the Uninstall
+  and `Software\shieldoptimizer\Shield Optimizer` keys). It creates an "ATV Optimizer" shortcut
+  where it removed an old one and none exists, points taskbar pins at `atv-optimizer.exe`, and
+  gives this install's shortcuts the new AppUserModelID. It never touches app data or runs the
+  old uninstaller. The MSI has no hooks: MSI users were always major-upgraded in place.
+  macOS: a bundle still named `Shield Optimizer.app` is renamed to `ATV Optimizer.app` at
+  `RunEvent::Exit` (never on an update restart), unless it is translocated, the name is taken,
+  or a `shield-optimizer*`/`atv-optimizer*` cask is installed and the bundle is in
+  `/Applications` or `~/Applications`, where renaming it would break `brew upgrade`. The log is
+  flushed at exit so that line survives.
 - **Launchers are data**: `crates/core/data/app-lists/launchers.json`, parsed once in
   `loader.rs`. The Launcher list shows HOME handlers only. Don't add a `LEANBACK_LAUNCHER`
   query: every TV app's launch activity carries that category, so it lists every TV app as a
@@ -98,7 +240,13 @@ physical script in [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.
   the build sets `ATVOPT_TELEMETRY_URL`; payload and redaction are pure
   (`engine/telemetry.rs`), the queue and upload are `crates/core/src/telemetry.rs`, and the
   frontends report outcomes from their single invoke wrapper via `shared/telemetry.ts`. Error
-  codes shown to users and sent in reports come from one table, `shared/errors.ts`. See
+  codes shown to users and sent in reports come from one table, `shared/errors.ts`. Schema 2
+  (2026-11-02) adds `diagnostic` events for scans and TVs that found nothing (`diag` built by the
+  pure `engine/telemetry_diag.rs`), desktop-only redacted log excerpts (`engine/log_redact.rs`,
+  20 a day), the support ID (`support_id` in `telemetry_settings`, the install id while reports
+  are on) and desktop Send logs (`upload_diagnostics` → `POST /v1/diagnostics`, works with reports
+  off). The phone app sends no logs: its Play Data safety form doesn't declare them. Find a user's
+  data with `telemetry-worker/scripts/support-lookup.sh <support-id>`. See
   `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
   (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
   `support-tiers-sync` workflow pushes it to the Worker on merge, and a weekly workflow rewrites

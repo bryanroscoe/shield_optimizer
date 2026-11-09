@@ -3,9 +3,17 @@
 
 import { invoke as tauriInvoke, Channel } from "@tauri-apps/api/core";
 import { parseSafety } from "../../shared/safety";
-import { observeCall, type Send, type TelemetryAction, type TelemetrySettings } from "../../shared/telemetry";
+import {
+  observeCall,
+  type DiagnosticsUploadResult,
+  type Send,
+  type TelemetryAction,
+  type TelemetrySettings,
+} from "../../shared/telemetry";
 import type {
   ActionResult,
+  AdbEngine,
+  AdbEngineStatus,
   AdbStatus,
   AppEntry,
   ApplyResult,
@@ -14,6 +22,7 @@ import type {
   ConnectResult,
   ForgetResult,
   RepromptResult,
+  ApprovalResult,
   PairedConnectProbe,
   PairResult,
   PairedConnectResult,
@@ -21,6 +30,7 @@ import type {
   CurrentLauncher,
   Device,
   DeviceReport,
+  DeviceStatus,
   DeviceLogOptions,
   DeviceLogResult,
   DeviceType,
@@ -33,6 +43,7 @@ import type {
   HealthReport,
   InstallApkResult,
   InstallResult,
+  LocalNetworkAccess,
   LauncherStatus,
   MediaCapabilities,
   OptimizeMode,
@@ -59,6 +70,7 @@ import type {
   SnapshotApplyPlan,
   SnapshotFile,
   TweaksState,
+  UpdateChannel,
   UpdateInfo,
   WriteResult,
 } from "./types";
@@ -86,6 +98,7 @@ export const api = {
   setTelemetryEnabled: (enabled: boolean) =>
     invoke<TelemetrySettings>("set_telemetry_enabled", { enabled }),
   dismissTelemetryNotice: () => invoke<TelemetrySettings>("dismiss_telemetry_notice"),
+  uploadDiagnostics: () => invoke<DiagnosticsUploadResult>("upload_diagnostics"),
   telemetryAction: (
     action: TelemetryAction,
     serial: string | null,
@@ -104,8 +117,16 @@ export const api = {
     invoke<DeviceLogResult>("read_device_logs", { serial, options }),
   adbStatus: () => invoke<AdbStatus>("adb_status"),
   checkForUpdate: () => invoke<UpdateInfo>("check_for_update"),
+  /// "flatpak" when Flatpak delivers updates and the in-app updater must not run.
+  updateChannel: () => invoke<UpdateChannel>("update_channel"),
   installAdb: () => invoke<InstallResult>("install_adb"),
   restartAdb: () => invoke<RestartResult>("restart_adb"),
+  adbEngine: () => invoke<AdbEngineStatus>("adb_engine"),
+  setAdbEngine: (engine: AdbEngine) => invoke<AdbEngineStatus>("set_adb_engine", { engine }),
+  /// `target`: an IP[:port] the app itself should try to reach as well.
+  localNetworkAccess: (target: string | null = null) =>
+    invoke<LocalNetworkAccess>("local_network_access", { target }),
+  openLocalNetworkSettings: () => invoke<void>("open_local_network_settings"),
   stopAdbOnQuit: () => invoke<StopAdbOnQuit>("get_stop_adb_on_quit"),
   setStopAdbOnQuit: (enabled: boolean, generation: number) =>
     invoke<StopAdbOnQuit>("set_stop_adb_on_quit", { enabled, generation }),
@@ -126,6 +147,13 @@ export const api = {
     invoke<ForgetResult>("forget_device", { serial }),
   repromptDevice: (serial: string) =>
     invoke<RepromptResult>("reprompt_device", { serial }),
+  requestDeviceApproval: (serial: string) =>
+    invoke<ApprovalResult>("request_device_approval", { serial }),
+  cancelDeviceApproval: (serial: string) =>
+    invoke<void>("cancel_device_approval", { serial }),
+  /// One transport's state from `adb devices` alone: cheap enough to poll.
+  transportState: (serial: string) =>
+    invoke<DeviceStatus | null>("transport_state", { serial }),
   probePairedConnect: (pairAddress: string, instance: string | null) =>
     invoke<PairedConnectProbe>("probe_paired_connect", { pairAddress, instance }),
   connectPaired: (address: string, instance: string) =>
@@ -206,8 +234,8 @@ export const api = {
     invoke<ActionResult>("set_app_op", { serial, package: pkg, op, allow }),
   getAppOp: (serial: string, pkg: string, op: string) =>
     invoke<string>("get_app_op", { serial, package: pkg, op }),
-  listOtherPackages: (serial: string) =>
-    invoke<OtherPackage[]>("list_other_packages", { serial }),
+  listOtherPackages: (serial: string, deviceType: DeviceType) =>
+    invoke<OtherPackage[]>("list_other_packages", { serial, deviceType }),
   /// Every installed package, catalogued ones included. Used to confirm that a
   /// process name from a memory report really is an installed package before
   /// the catalog's verdict is applied to it.
@@ -231,12 +259,14 @@ export const api = {
   processSafetyInfo: async (process: string): Promise<Safety> =>
     parseSafety(await invoke<unknown>("process_safety_info", { process })),
   trimCaches: (serial: string) => invoke<ActionResult>("trim_caches", { serial }),
-  sendText: (serial: string, text: string, forceShell = false) =>
-    invoke<SendTextResult>("send_text", { serial, text, forceShell }),
-  sendKey: (serial: string, key: string, forceShell = false) =>
-    invoke<SendTextResult>("send_key", { serial, key, forceShell }),
-  openSettings: (serial: string) =>
-    invoke<SendTextResult>("open_settings", { serial }),
+  remoteOpen: (serial: string) => invoke<{ generation: string }>("remote_open", { serial }),
+  remoteClose: (serial: string, generation: string) => invoke<void>("remote_close", { serial, generation }),
+  sendText: (serial: string, text: string, forceShell = false, generation?: string) =>
+    invoke<SendTextResult>("send_text", { serial, text, forceShell, generation }),
+  sendKey: (serial: string, key: string, forceShell = false, generation?: string) =>
+    invoke<SendTextResult>("send_key", { serial, key, forceShell, generation }),
+  openSettings: (serial: string, generation?: string) =>
+    invoke<SendTextResult>("open_settings", { serial, generation }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>
     invoke<InstallApkResult>("install_apk", { serial, apkPath, reinstall }),

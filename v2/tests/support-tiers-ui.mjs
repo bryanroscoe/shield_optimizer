@@ -53,8 +53,8 @@ async function tiersOnTheDeviceList({ browser, base }) {
 
   const shield = page.locator('[data-serial="192.168.1.42:5555"]');
   await shield.waitFor();
-  assert.equal(await shield.locator(".support-badge").innerText(), "Fully supported");
-  assert.match(await shield.innerText(), /NVIDIA SHIELD is the device this app is built and tested on\./);
+  assert.equal(await shield.locator(".support-badge").count(), 0, "supported Shields keep compact device cards");
+  assert.doesNotMatch(await shield.innerText(), /NVIDIA SHIELD is the device this app is built and tested on\./);
 
   // No rule matched: it says so, and claims nothing either way.
   const box = page.locator('[data-serial="192.168.1.77:5555"]');
@@ -85,14 +85,14 @@ async function telemetrySetting({ browser, base }) {
   const text = await notice.innerText();
   assert.match(text, /anonymous reports/);
   assert.match(text, /No serial numbers, IP addresses, TV names or app lists\./);
-  assert.match(text, /Report a bug/);
-  assert.doesNotMatch(text, /in Settings/, "desktop points at where the switch really is");
+  assert.match(text, /in Settings \(the gear icon above\)/, "desktop points at where the switch really is");
   // Non-blocking: the device list is usable underneath it.
   await page.locator('[data-serial="192.168.1.42:5555"]').waitFor();
   await notice.getByRole("button", { name: "Got it" }).click();
   await notice.waitFor({ state: "detached" });
 
-  // The switch lives in the Report a bug dialog, on by default.
+  // The switch is in Settings and, as before, in the Report a bug dialog; on
+  // by default. tests/settings-screen.mjs drives the Settings copy.
   await page.getByRole("button", { name: "Report a bug" }).click();
   const toggle = page.getByRole("dialog").getByRole("checkbox", { name: "Share anonymous device and error reports" });
   assert.equal(await toggle.isChecked(), true, "on by default");
@@ -172,7 +172,7 @@ async function main() {
     await telemetrySetting({ browser, base });
     await errorsAndReports({ browser, base });
     console.log(
-      "Support tiers UI passed: badges and one-line copy per tier, the not-supported banner on list and header (row still opens), the one-time report notice and the on-by-default switch (disabled when the build has no endpoint), and a failed connect shown with its code, Details and Copy details while the same code is reported.",
+      "Support tiers UI passed: compact supported Shield cards, warnings for other tiers, the not-supported banner on list and header (row still opens), the one-time report notice and the on-by-default switch (disabled when the build has no endpoint), and a failed connect shown with its code, Details and Copy details while the same code is reported.",
     );
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

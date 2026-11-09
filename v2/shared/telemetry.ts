@@ -54,6 +54,7 @@ export const ACTION_COMMANDS: Readonly<Record<string, TelemetryAction>> = {
 const QUIET_COMMANDS = new Set([
   "adb_status",
   "check_for_update",
+  "update_channel",
   "local_address_for",
   "probe_paired_connect",
   "resource_sample",
@@ -66,6 +67,12 @@ const QUIET_COMMANDS = new Set([
   "send_key",
   "send_text",
   "log_ui_event",
+  // Polled every 2 seconds while platform-tools waits for Allow; a failed
+  // read is simply tried again.
+  "transport_state",
+  // Send logs fails on its own (offline, the daily limit) and says so; a
+  // report about it would only repeat that.
+  "upload_diagnostics",
 ]);
 
 /// Codes that are expected states, not failures worth reporting.
@@ -205,11 +212,45 @@ export interface TelemetrySettings {
   enabled: boolean;
   available: boolean;
   notice_seen: boolean;
+  /// The random install id reports carry, so a user can quote it and the
+  /// developer can find their reports. `null` while reports are off or the
+  /// build has no endpoint. A test build shows the id its log uploads carry.
+  support_id: string | null;
+  /// The commit of a test build, whose automatic reports are always off.
+  /// Absent in a release build.
+  test_build?: string | null;
 }
 
+/// What `upload_diagnostics` returns: the user pressed "Send logs".
+export interface DiagnosticsUploadResult {
+  support_id: string;
+  bytes: number;
+}
+
+/// The short form shown to users: the first eight hex digits, grouped.
+/// The admin lookup accepts this prefix as well as the full id.
+export function formatSupportId(id: string | null | undefined): string {
+  const hex = (id ?? "").replace(/[^0-9a-fA-F]/g, "").slice(0, 8).toUpperCase();
+  return hex.length === 8 ? `${hex.slice(0, 4)}-${hex.slice(4)}` : "";
+}
+
+/// What the desktop app's reports contain. Shown once on first launch, and
+/// once more whenever it changes (Rust's `NOTICE_VERSION`).
 export const NOTICE_TEXT =
   "ATV Optimizer sends anonymous reports: your TV's make, model and Android version, " +
   "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
+  "When something fails, or a scan or connection finds nothing, a report also carries connection " +
+  "counts and timings and a short excerpt of the app's connection log, redacted the same way. " +
+  "Reports carry a random support ID, not tied to your computer or TV, that you can quote when asking for help. " +
   "No serial numbers, IP addresses, TV names or app lists. You can turn this off at any time.";
+
+/// The phone app's reports: no log excerpts and no Send logs, as declared
+/// in its Play Data safety form.
+export const MOBILE_NOTICE_TEXT =
+  "ATV Optimizer sends anonymous reports: your TV's make, model and Android version, " +
+  "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
+  "When discovery or a TV finds nothing, a report also carries connection counts and timings. " +
+  "Reports carry a random ID, not tied to your phone or TV. " +
+  "No serial numbers, IP addresses, TV names, logs or app lists. You can turn this off at any time.";
 
 export const TOGGLE_LABEL = "Share anonymous device and error reports";

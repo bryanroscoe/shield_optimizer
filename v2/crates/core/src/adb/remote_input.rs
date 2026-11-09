@@ -37,6 +37,15 @@ const SCRCPY_VERSION: &str = "3.1";
 /// Where the server jar is pushed on the device.
 const DEVICE_JAR_PATH: &str = "/data/local/tmp/shieldopt-scrcpy-server.jar";
 
+/// Kills every server launched from our jar, and nothing else. The jar path is
+/// only in the server's environment (`CLASSPATH`), never in its argv, so
+/// `pkill -f <jar>` misses it — and that pattern also matches the `sh -c`
+/// running pkill, which kills itself first (verified on a SHIELD, Android 11).
+/// Matching the exact CLASSPATH leaves a user's own scrcpy session alone.
+const KILL_OWN_SERVERS: &str = "for p in /proc/[0-9]*; do \
+     grep -qs 'CLASSPATH=/data/local/tmp/shieldopt-scrcpy-server.jar' \"$p/environ\" \
+     && kill \"${p#/proc/}\"; done; true";
+
 /// Bundled jar location, relative to both the Tauri resource root (for
 /// `BaseDirectory::Resource`) and the crate root (dev fallback). Resolved at
 /// runtime by `commands::state::resolve_scrcpy_server_jar`.
@@ -207,6 +216,11 @@ impl RemoteInputSession {
         if !pushed.success() {
             return Err(format!("scrcpy: push server jar: {}", pushed.combined()));
         }
+        // A phone that vanished without closing its session leaves the server
+        // running: the TV never sees the dead socket. Callers only start when
+        // this process holds no session for the device, so any server from our
+        // jar is an orphan.
+        let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 
         let scid = next_scid();
         let server_service = format!("shell:{}", resident_server_command(&scid));
@@ -319,10 +333,7 @@ impl RemoteInputSession {
         if let Some(server_stream) = self.server_stream.take() {
             drop_blocking_stream(server_stream).await;
         }
-        let _ = self
-            .adb
-            .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
-            .await;
+        let _ = self.adb.shell(&self.serial, KILL_OWN_SERVERS).await;
     }
 }
 
@@ -344,7 +355,7 @@ async fn cleanup_android_start(
         drop_blocking_stream(stream).await;
     }
     drop_blocking_stream(server_stream).await;
-    let _ = adb.shell(serial, "pkill -f shieldopt-scrcpy-server").await;
+    let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 }
 
 /// Reserve a free local TCP port by binding to `:0` and reading back the
@@ -403,13 +414,156 @@ async fn connect_with_retry(port: u16) -> Result<TcpStream, String> {
     ))
 }
 
+#[cfg(not(target_os = "android"))]
+#[derive(Default)]
+struct ControlWaiters {
+    cancelled: bool,
+    read: Option<std::task::Waker>,
+    write: Option<std::task::Waker>,
+}
+
+#[cfg(not(target_os = "android"))]
+struct ForwardedControlCancellation {
+    socket: std::net::TcpStream,
+    waiters: std::sync::Mutex<ControlWaiters>,
+}
+
+#[cfg(not(target_os = "android"))]
+impl ForwardedControlCancellation {
+    fn register(&self, cx: &std::task::Context<'_>, write: bool) -> bool {
+        let mut waiters = self
+            .waiters
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if waiters.cancelled {
+            return false;
+        }
+        let slot = if write {
+            &mut waiters.write
+        } else {
+            &mut waiters.read
+        };
+        if !slot
+            .as_ref()
+            .is_some_and(|waker| waker.will_wake(cx.waker()))
+        {
+            *slot = Some(cx.waker().clone());
+        }
+        true
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+impl crate::adb::AdbServiceCancellation for ForwardedControlCancellation {
+    fn cancel(&self) {
+        let (read, write) = {
+            let mut waiters = self
+                .waiters
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            waiters.cancelled = true;
+            (waiters.read.take(), waiters.write.take())
+        };
+        let _ = self.socket.shutdown(std::net::Shutdown::Both);
+        // Socket shutdown alone need not wake a pending Tokio operation on Windows.
+        if let Some(waker) = read {
+            waker.wake();
+        }
+        if let Some(waker) = write {
+            waker.wake();
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+struct ForwardedControlStream {
+    stream: TcpStream,
+    cancellation: Arc<ForwardedControlCancellation>,
+}
+
+#[cfg(not(target_os = "android"))]
+fn control_cancelled() -> std::io::Error {
+    std::io::Error::new(
+        std::io::ErrorKind::ConnectionAborted,
+        "Remote control cancelled",
+    )
+}
+
+#[cfg(not(target_os = "android"))]
+impl tokio::io::AsyncRead for ForwardedControlStream {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.cancellation.register(cx, false) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
+        tokio::io::AsyncRead::poll_read(std::pin::Pin::new(&mut self.stream), cx, buf)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+impl tokio::io::AsyncWrite for ForwardedControlStream {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        if !self.cancellation.register(cx, true) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
+        tokio::io::AsyncWrite::poll_write(std::pin::Pin::new(&mut self.stream), cx, buf)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.cancellation.register(cx, true) {
+            return std::task::Poll::Ready(Err(control_cancelled()));
+        }
+        tokio::io::AsyncWrite::poll_flush(std::pin::Pin::new(&mut self.stream), cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        tokio::io::AsyncWrite::poll_shutdown(std::pin::Pin::new(&mut self.stream), cx)
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn cancellable_control(
+    stream: TcpStream,
+) -> Result<(ForwardedControlStream, Arc<ForwardedControlCancellation>), String> {
+    let socket = stream
+        .into_std()
+        .map_err(|e| format!("scrcpy: retain control socket: {e}"))?;
+    let cancellation = Arc::new(ForwardedControlCancellation {
+        socket: socket
+            .try_clone()
+            .map_err(|e| format!("scrcpy: clone owned control socket: {e}"))?,
+        waiters: std::sync::Mutex::default(),
+    });
+    let stream =
+        TcpStream::from_std(socket).map_err(|e| format!("scrcpy: register control socket: {e}"))?;
+    Ok((
+        ForwardedControlStream {
+            stream,
+            cancellation: Arc::clone(&cancellation),
+        },
+        cancellation,
+    ))
+}
+
 /// A live scrcpy control session bound to one device serial. Holds the open
 /// control socket and the resident server child for the lifetime of the Remote
 /// tab; the server exits the instant the socket closes, so the session must
 /// keep both alive and tear down explicitly.
 #[cfg(not(target_os = "android"))]
 pub struct RemoteInputSession {
-    stream: TcpStream,
+    stream: ForwardedControlStream,
+    cancellation: Arc<ForwardedControlCancellation>,
     /// Kept alive for the session; dropping it kills and reaps the server.
     _child: TrackedChild,
     scid: String,
@@ -428,6 +582,12 @@ impl RemoteInputSession {
         jar_path: &Path,
         serial: &str,
     ) -> Result<Self, String> {
+        if !adb.uses_host_server() {
+            return Err(
+                "The forwarded Remote channel needs the platform-tools adb server; the built-in engine opens its own."
+                    .into(),
+            );
+        }
         let local_jar = jar_path
             .to_str()
             .ok_or_else(|| "scrcpy: server jar path is not valid UTF-8".to_string())?;
@@ -436,6 +596,8 @@ impl RemoteInputSession {
         adb.raw_transfer(&as_str_args(&push))
             .await
             .map_err(|e| format!("scrcpy: push server jar: {e}"))?;
+        // Clear servers orphaned by an earlier session that never closed.
+        let _ = adb.shell(serial, KILL_OWN_SERVERS).await;
 
         let scid = next_scid();
         let port = pick_free_local_port()?;
@@ -457,20 +619,21 @@ impl RemoteInputSession {
             }
         };
 
-        let session = Self {
-            // Connect failure tears down explicitly (forward-remove + child
-            // kill) rather than leaking the resources start() just created.
-            stream: match connect_with_retry(port).await {
-                Ok(stream) => stream,
-                Err(e) => {
+        let (stream, cancellation) =
+            match connect_with_retry(port).await.and_then(cancellable_control) {
+                Ok(control) => control,
+                Err(error) => {
                     let mut child = child;
                     let _ = child.start_kill();
                     let _ = adb
                         .raw(&as_str_args(&forward_remove_args(serial, port)))
                         .await;
-                    return Err(e);
+                    return Err(error);
                 }
-            },
+            };
+        let session = Self {
+            stream,
+            cancellation,
             _child: child,
             scid,
             port,
@@ -521,18 +684,12 @@ impl RemoteInputSession {
 
     /// Graceful teardown. Order matters (verified on device): close the control
     /// socket FIRST — the server exits on its own the instant the socket drops —
-    /// then a belt-and-suspenders `pkill` for any lingering server process, then
+    /// then a belt-and-suspenders kill of any lingering server process, then
     /// reap the local child and remove the adb forward. `Drop` is the
     /// best-effort backstop; prefer this.
     pub async fn close(mut self) {
         let _ = self.stream.shutdown().await;
-        // Match our jar's name, not "com.genymobile.scrcpy" — the broad pattern
-        // would also kill a desktop scrcpy session the user has open against
-        // this same device.
-        let _ = self
-            .adb
-            .shell(&self.serial, "pkill -f shieldopt-scrcpy-server")
-            .await;
+        let _ = self.adb.shell(&self.serial, KILL_OWN_SERVERS).await;
         let _ = self._child.start_kill();
         let _ = self
             .adb
@@ -544,6 +701,7 @@ impl RemoteInputSession {
 #[cfg(not(target_os = "android"))]
 impl Drop for RemoteInputSession {
     fn drop(&mut self) {
+        crate::adb::AdbServiceCancellation::cancel(self.cancellation.as_ref());
         // Dropping `_child` kills and reaps the server, so the control socket
         // closes here. Best-effort removal of the adb forward entry if a
         // tokio runtime is live (e.g. app exit dropping the session registry).
@@ -569,10 +727,159 @@ fn as_str_args(args: &[String]) -> Vec<&str> {
     args.iter().map(String::as_str).collect()
 }
 
+#[cfg(target_os = "android")]
+struct LegacyRemoteCancellation;
+#[cfg(target_os = "android")]
+impl crate::adb::AdbServiceCancellation for LegacyRemoteCancellation {
+    fn cancel(&self) {}
+}
+#[async_trait::async_trait]
+impl crate::adb::remote_lifecycle::RemoteSessionIo for RemoteInputSession {
+    fn cancellation(&self) -> Arc<dyn crate::adb::AdbServiceCancellation> {
+        #[cfg(not(target_os = "android"))]
+        {
+            self.cancellation.clone()
+        }
+        #[cfg(target_os = "android")]
+        {
+            Arc::new(LegacyRemoteCancellation)
+        }
+    }
+    async fn send_key(&mut self, keycode: u32, down: bool) -> Result<(), String> {
+        RemoteInputSession::send_key(self, keycode, down).await
+    }
+    async fn send_key_press(&mut self, keycode: u32) -> Result<(), String> {
+        RemoteInputSession::send_key_press(self, keycode).await
+    }
+    async fn send_text(&mut self, text: &str) -> Result<(), String> {
+        RemoteInputSession::send_text(self, text).await
+    }
+    async fn close(self: Box<Self>) -> Result<(), String> {
+        (*self).close().await;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(not(target_os = "android"))]
+    async fn forwarded_fixture() -> (
+        ForwardedControlStream,
+        Arc<ForwardedControlCancellation>,
+        TcpStream,
+    ) {
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+            .await
+            .unwrap();
+        let address = listener.local_addr().unwrap();
+        let (client, peer) = tokio::join!(TcpStream::connect(address), listener.accept());
+        let (stream, cancellation) = cancellable_control(client.unwrap()).unwrap();
+        (stream, cancellation, peer.unwrap().0)
+    }
+    #[cfg(not(target_os = "android"))]
+    #[tokio::test]
+    async fn forwarded_socket_cancel_interrupts_blocked_write_without_touching_other_session() {
+        use crate::adb::AdbServiceCancellation;
+        use std::time::Duration;
+        let (mut stream, cancellation, _unread_peer) = forwarded_fixture().await;
+        let (mut other, _other_cancel, mut other_peer) = forwarded_fixture().await;
+        let blocked = Arc::new(tokio::sync::Notify::new());
+        let writer = tokio::spawn({
+            let blocked = blocked.clone();
+            async move {
+                use tokio::io::AsyncWrite;
+                let chunk = [7u8; 65536];
+                loop {
+                    let result = std::future::poll_fn(|cx| {
+                        let result = std::pin::Pin::new(&mut stream).poll_write(cx, &chunk);
+                        if result.is_pending() {
+                            blocked.notify_one();
+                        }
+                        result
+                    })
+                    .await;
+                    match result {
+                        Ok(0) => return Err(std::io::Error::from(std::io::ErrorKind::WriteZero)),
+                        Ok(_) => {}
+                        Err(error) => return Err::<(), _>(error),
+                    }
+                }
+            }
+        });
+        tokio::time::timeout(Duration::from_secs(2), blocked.notified())
+            .await
+            .unwrap();
+        assert!(!writer.is_finished());
+        cancellation.cancel();
+        cancellation.cancel();
+        assert!(tokio::time::timeout(Duration::from_secs(2), writer)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_err());
+        other.write_all(b"still-owned").await.unwrap();
+        let mut bytes = [0u8; 11];
+        other_peer.read_exact(&mut bytes).await.unwrap();
+        assert_eq!(&bytes, b"still-owned");
+    }
+    #[cfg(not(target_os = "android"))]
+    #[tokio::test]
+    async fn forwarded_socket_cancel_interrupts_pending_read_and_reaches_peer_eof() {
+        use crate::adb::AdbServiceCancellation;
+        use std::time::Duration;
+        let (mut stream, cancellation, mut peer) = forwarded_fixture().await;
+        let reader = tokio::spawn(async move {
+            let mut byte = [0u8; 1];
+            stream.read(&mut byte).await
+        });
+        tokio::task::yield_now().await;
+        assert!(!reader.is_finished());
+        cancellation.cancel();
+        let result = tokio::time::timeout(Duration::from_secs(2), reader)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(result, Ok(0) | Err(_)));
+        let mut byte = [0u8; 1];
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), peer.read(&mut byte))
+                .await
+                .unwrap()
+                .unwrap(),
+            0
+        );
+    }
+
+    #[cfg(not(target_os = "android"))]
+    #[tokio::test]
+    async fn desktop_direct_remote_declines_before_any_jar_push_or_process() {
+        struct Direct;
+        #[async_trait::async_trait]
+        impl AdbDriver for Direct {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+                panic!("must not invoke host commands or transfers")
+            }
+            async fn shell(
+                &self,
+                _: &str,
+                _: &str,
+            ) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+                panic!("must not launch a resident process")
+            }
+        }
+        let result =
+            RemoteInputSession::start(Arc::new(Direct), Path::new("not-opened"), "192.0.2.1:5555")
+                .await;
+        assert!(
+            matches!(result, Err(message) if message.contains("needs the platform-tools adb server"))
+        );
+    }
 
     #[test]
     fn inject_keycode_down_select_is_exact_14_bytes() {
@@ -625,6 +932,14 @@ mod tests {
         // 1 type byte + 4 length bytes + 300 payload bytes.
         assert_eq!(got.len(), 5 + 300);
         assert_eq!(&got[1..5], &300u32.to_be_bytes());
+    }
+
+    #[test]
+    fn kill_own_servers_matches_our_classpath_in_the_environment() {
+        assert!(KILL_OWN_SERVERS.contains("/environ"));
+        assert!(KILL_OWN_SERVERS.contains(&format!("'CLASSPATH={DEVICE_JAR_PATH}'")));
+        assert!(!KILL_OWN_SERVERS.contains("pkill"));
+        assert!(!KILL_OWN_SERVERS.contains("com.genymobile"));
     }
 
     #[test]

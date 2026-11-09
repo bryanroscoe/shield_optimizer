@@ -18,18 +18,11 @@ Regenerate this document with `mobile/scripts/gen-notices.sh` after any dependen
 
 ### Android/JVM runtime dependencies
 
-The application declares AndroidX WebKit 1.14.0, AppCompat 1.7.1, Activity KTX 1.10.1,
-Lifecycle Process 2.10.0 and Material Components 1.12.0. The ADB plugin declares AndroidX
-Core KTX 1.13.1 and kotlinx-coroutines-android 1.10.2. Tauri Android declares older Core KTX,
-AppCompat and Material versions plus Jackson Databind 2.15.3.
-The opener plugin 2.5.4 declares **AndroidX Browser 1.8.0**, Core KTX 1.9.0 and Jackson Databind
-2.15.3. These components use Apache License 2.0 (AndroidX, Material, Jackson) or Apache License
-2.0 (kotlinx.coroutines); retain upstream notices and applicable license texts with the resolved
-release inventory. The Apache License 2.0 text appears below.
-
-These are actual dependency declarations, not a claim of final Gradle resolution. Transitive
-JVM dependencies, conflict-selected versions and their per-artifact NOTICE files must be captured
-from the final release runtime classpath before distribution. See `ANDROID-DEPENDENCIES.md`.
+The resolved Android release runtime module inventory, license metadata and upstream archive
+notices are included below. It covers AndroidX, Material, Kotlin, Jackson, Play Billing and its
+Google runtime dependencies, including licenses for code embedded inside upstream archives.
+Google Play Billing and Google Play services use the Android Software Development Kit License;
+they must not be relabeled Apache-2.0. SDK-bundled third-party notices are preserved as supplied.
 
 
 
@@ -169,6 +162,20 @@ described in `v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`; the crate remains
 appears in the Cargo inventory below with its upstream license text.
 
 Source: <https://github.com/cocool97/adb_client>
+
+### Kadb — Apache License 2.0 (logic translated into the vendored adb_client)
+
+Parts of the wireless-ADB connection layer in `v2/vendor/adb_client` — CNXN feature and payload
+negotiation, header validation, the TLS client-certificate shape and TLS error mapping, TCP
+socket options, logical-stream handling, the file-sync protocol, shell protocol selection and
+decoding, and the APK install and uninstall flows — are Rust translations of logic from Kadb at
+commit `3d1c13e` (release 2.1.5). No Kadb code or binary ships in the app; the translated files
+and their Kadb sources are listed in `v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
+
+Copyright (c) 2024 Flyfish-Xu and Kadb contributors. Portions Copyright (c) 2021 mobile.dev inc.
+(dadb, from which Kadb derives). Licensed under the Apache License, Version 2.0 — full text
+reproduced in the Apache-2.0 section below.
+Source: <https://github.com/flyfishxu/Kadb>
 
 ### Bundled npm-origin code and assets
 

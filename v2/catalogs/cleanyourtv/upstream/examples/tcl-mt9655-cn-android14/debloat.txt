@@ -1,0 +1,128 @@
+# TCL / FFalcon China 2026, device tcl9655_cn / product MT9655_4K_CN, MediaTek MT9655 ("merak"),
+# Android 14 (SDK 34), build tcl9655_cn_an64-user 14 UTT2.250416.001 AU01, security patch
+# 2025-09-05, 3.7 GB RAM, arm64-v8a. ro.adb.secure=1.
+# Retail name reported as "TCL Smart TV Pro" / IFFALCON (雷鸟); ro.product.model is generic, so
+# identify this unit by ro.product.name=MT9655_4K_CN and the build id above, not by the brand.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/tcl-mt9655-cn-android14/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/tcl-mt9655-cn-android14/debloat.txt com.tcl.cyberui
+#
+# ============================================================================
+# ADB: read this before anything else. This build is much harder than the 2026 MT9653 sets.
+# ============================================================================
+# There is no "Developer options" screen and no "Wireless debugging" row anywhere in the UI.
+# TCL replaced the whole Settings app: com.android.settings is NOT installed, the stock settings
+# package is com.tcl.setting and it only declares MainActivity, SceneActivity,
+# StartOtherAppActivity and SlicePermissionActivity. Searching every activity for "adb", "debug"
+# or "develop" through an activity launcher returns nothing, and
+# android.settings.APPLICATION_DEVELOPMENT_SETTINGS has no handler.
+#
+# The only switch is 通用设置 -> 更多 -> ADB. It opens adbd in **TLS mode on a random high port**
+# (observed 40769, 35879, 41629, 46493 on the same unit, a new one on every toggle):
+#   - the port answers an ADB CNXN with STLS and never speaks plaintext;
+#   - `adb connect ip:port` fails, daemon trace shows
+#     "Post-handshake SSL_peek failed [SSLV3_ALERT_CERTIFICATE_UNKNOWN]";
+#   - mDNS advertises _adb-tls-connect._tcp (instance adb-<serial>-xxxx) but never
+#     _adb-tls-pairing._tcp, so `adb pair` has nothing to talk to;
+#   - 5555 is closed and no other listener speaks ADB (full 1-65535 scan: adbd, two TCL services,
+#     DLNA on 16626, AirPlay on 38171).
+# Switching Wi-Fi shows the stock Android prompt "要允许通过此网络进行无线调试吗" (per-BSSID), which
+# proves the wireless-debugging framework is present but the pairing UI was removed.
+#
+# The working path is USB:
+#   1. dual male USB-A cable, PC side in a USB 3.0 port, TV side in a **USB 2.0** port;
+#   2. ADB toggle ON, then `adb devices`: Windows enumerates USB\VID_18D1&PID_4EE7 with the serial
+#      that matches the mDNS instance, and the TV shows "Allow USB debugging";
+#   3. accept it (and "always allow"), then `adb tcpip 5555` and `adb connect <ip>:5555`.
+# The USB path only works while the ADB toggle stays on, and 5555 is lost on every reboot
+# (re-run `adb tcpip 5555` with the cable attached).
+#
+# ============================================================================
+# Sideloading and the launcher: both are locked, and the lock is not in the installer app.
+# ============================================================================
+# Every APK is refused over adb, including apps that do not declare HOME:
+#   adb install / pm install / cmd package install
+#     -> INSTALL_FAILED_VERIFICATION_FAILURE: Install not allowed for file:///data/app/vmdl*.tmp
+# Spoofing the installer package (-i com.tcl.guard, com.tcl.appmarket2, com.android.packageinstaller)
+# changes nothing. The rejection is logged by system_server (PackageManager), not only by the
+# com.android.packageinstaller verifier.
+#
+# The only channel that installs normal APKs is a USB stick through 电视卫士 (com.tcl.guard).
+# Driving the system installer UI over adb gets further but still fails: file:// URIs are refused
+# outright on Android 14, and a MediaStore content:// URI
+#   am start -a android.intent.action.VIEW -t application/vnd.android.package-archive \
+#     -d content://media/external/file/<id> --grant-read-uri-permission \
+#     -n com.android.packageinstaller/.InstallStart
+# does show "应用未被认证，是否继续安装" and then fails with
+#   verifier: signature not match for tcl com.gathin.tvhome, will not be installed !
+#
+# Root cause, readable with:
+#   content query --uri content://com.tcl.providers.config/all | grep InstallConfig
+#   {"enable":"true","strategies":[
+#     {"name":"safeStrategy","enable":"true","priority":"0"},
+#     {"name":"blackListStrategy","enable":"true","packages":[],"priority":"1"},
+#     {"name":"thridStrategy","enable":"false","packages":["com.dangbeimarket","com.shafa.market","com.ant.store.appstore"],"priority":"2"},
+#     {"name":"launcherStrategy","enable":"true","packages":[],"priority":"3"},
+#     {"name":"overDueStrategy","enable":"true","packages":[],"priority":"4"},
+#     {"name":"pmStrategy","enable":"true","priority":"5"}]}
+# launcherStrategy is enabled with an empty allowlist, so a HOME package is only accepted if it is
+# signed with com.tcl.cyberui's key. The row cannot be edited from the shell: `content update`
+# returns 0 and silently ignores the write (verified by writing the Version row and reading it
+# back), the `content` CLI splits --bind on every ':' so a JSON value cannot be passed at all, and
+# /data/user_de/0/com.tcl.providers.config/databases/ is not readable as shell.
+#
+# Stock launcher: com.tcl.cyberui, the only activity that resolves MAIN+HOME. Never disable it.
+# Net effect for this generation: debloat only. A replacement launcher is impossible without a
+# TCL-signed build, root, or a firmware downgrade.
+#
+# Tested on a real unit: 28 packages disabled - the 27 below plus com.tcl.t_solo, which became
+# opt-in after that test - one full `reboot` afterwards, Home, source panel,
+# Settings, app store, 电视卫士, Media Center and Multi-screen all still worked, crash buffer empty,
+# free RAM went from 1.97 GB to 1.15 GB (of 3.7 GB). Wait at least 10 seconds after applying before
+# rebooting.
+#
+# Not present on this unit, so they are absent from the list: com.tcl.bi,
+# com.tcl.recognize.service, com.tcl.weixin, com.tcl.videocall.
+# Kept on purpose: com.tcl.cyberui, com.tcl.tv, com.tcl.settings, com.tcl.systemserver, com.tcl.ttvs,
+# com.tcl.providers.config, com.tcl.guard (USB install), com.tcl.appmarket2 (store),
+# com.tcl.ui_mediaCenter (USB playback), com.sohu.inputmethod.sogou.tv (only keyboard),
+# com.tcl.autopair (remote pairing), com.tcl.miracast, com.tcl.MultiScreenInteraction_TV,
+# com.tcl.systemui.plugin.* (source panel and quick settings), com.tcl.usercenter,
+# com.tcl.walleve (voice, left on by owner choice), com.tcl.t_solo (Bluetooth music, opt-in below).
+
+# Ad and telemetry reporting
+com.tcl.bootadservice                    # full-screen ad before Home
+com.tcl.profilemanager                   # audience / profile reporting
+com.tcl.xian.StartandroidService         # background reporting service
+com.tcl.logkit                           # log collection and upload
+com.tcl.atomic.servicecenter             # home-screen recommendation cards
+com.tcl.c2dm.client                      # TCL push, long-lived connection
+com.tcl.wholenetsearch                   # whole-net search with VOD promotions
+com.tcl.playskill                        # "tips" promo app
+com.tcl.repairguide                      # repair-guide app
+com.tcl.useragreement                    # user-agreement popup
+com.tcl.appreciate.art                   # art-wallpaper / screensaver promo content
+com.tcl.ffeducation                      # kids / education content
+com.tcl.ffkaraoke                        # karaoke
+
+# OPTIONAL: OTA. Re-enable when you want firmware updates. Keeping it off also stops an update from
+# bringing the packages above back.
+com.tcl.versionUpdateApp                 # system OTA and app auto-update
+com.tcl.UpdatePeripheral                 # peripheral firmware OTA, ~200 MB resident
+com.snm.upgrade                          # updateos, a second updater
+
+# OPTIONAL: home widgets and content apps
+com.tcl.common.weather                   # weather widget and its background service
+com.tcl.tshop                            # TCL shop / shopping entry
+com.tcl.gamebar                          # game bar
+# OPTIONAL: Bluetooth speaker mode. Leave this enabled if you pair a phone and play music
+# through the TV; disabling it removes the "Bluetooth music" app.
+# com.tcl.t_solo                         # Bluetooth music app ("listen alone"); not a game centre
+com.tcl.micmanager                       # microphone manager (karaoke)
+com.audiocn.karaoke.micmanager           # karaoke microphone manager
+com.tcl.tvsmartalbum                     # smart photo album
+com.tcl.hotelmenu                        # hotel mode
+com.tcl.hearaid                          # hearing aid
+com.tcl.vod                              # TCL VOD entry
+com.tcl.qiyiguo                          # iQIYI content entry
+com.tcl.tliveplay                        # live TV content entry

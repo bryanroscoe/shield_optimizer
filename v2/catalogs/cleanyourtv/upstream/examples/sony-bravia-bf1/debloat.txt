@@ -1,0 +1,65 @@
+# Sony BRAVIA BF1 (BRAVIA 2 II class, device BRAVIA_BF1_4K_A, MediaTek, 2.4 GB RAM, armeabi-v7a)
+# Android 12 (Google TV, API 31), firmware STT2.230811.001, security patch 2026-02-05
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/sony-bravia-bf1/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/sony-bravia-bf1/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep. A factory reset
+# re-enables every package, so nothing needs undoing before one.
+#
+# Stock launcher: com.google.android.apps.tv.launcherx (pass it to restore.sh, as above).
+# Keep: Play Store and Play Services, Sony's update centre, the TV inputs and tuners
+# (com.mediatek.dtv.tvinput.*, com.sony.dtv.tvinput.dvbtuner), com.sony.dtv.sonysystemservice,
+# com.sony.dtv.smartui (the Input menu), Sony and Android settings, Dolby audio, AirPlay, Chromecast, Gboard.
+#
+# Quirks on this firmware:
+# - A plain `reboot` can lose a disable: pm disable-user is saved a few seconds later. Wait ~30 s,
+#   then restart with `svc power reboot`. Check Home, Netflix, YouTube, Input and AirPlay after each group.
+# - com.sony.dtv.applicationdisabler re-enables some packages at every boot (the IoT ones below,
+#   airplayapp, m2.devicecontrolservice). Leave them; disabling the disabler is not worth it.
+# - Remote: Home sends KEYCODE_HOME. Input sends KEYCODE_TV_INPUT, which smartui opens system-wide,
+#   so INPUT_KEY_SERVICE isn't needed. OK never repeats while held, so long presses don't work.
+# - `dumpsys meminfo` without `-t 90` times out on this set. The IP changed after most restarts:
+#   reserve one in the router.
+#
+# Applied group by group on 2026-10-19 (voice search kept). Stock vs after, ~15 min after boot:
+# Home p90 frame time 31 -> 15 ms, janky frames 2.41% -> 0.07%, Home memory ~96 MB (with its helper)
+# -> ~46 MB, MemAvailable 1.09 -> 1.14 GB.
+
+# tracking / ads / promos
+tv.samba.ssm                    # Samba TV: recognises what's on screen for ad targeting (10 MB, always running)
+com.sony.dtv.promos             # Sony promotions
+com.sony.dtv.sonyselect         # Sony Select: promoted-app picks
+com.google.android.feedback     # Google feedback reporter
+
+# shop demo mode
+com.sony.dtv.demosupport
+com.sony.dtv.demosystemsupport
+com.sony.dtv.multiscreendemo
+# Not disableable (applicationdisabler turns them back on at boot):
+# com.sony.dtv.m2.seeds.iot
+# com.sony.dtv.m2.seeds.iot.remotestart
+
+# preloaded apps (reinstall or re-enable any time)
+com.google.android.videos       # Google TV / Play Movies
+com.google.android.youtube.tvmusic  # YouTube Music
+com.google.android.play.games   # Play Games
+com.sonypicturescore            # Sony Pictures Core
+
+# Home: do these by hand, in steps, AFTER our launcher is installed (not with this file in one go).
+# com.google.android.tungsten.setupwraith also claims Home, next to launcherx.
+#   1. launcher/build-and-install.sh with STOCK_LAUNCHER=none (Google TV stays Home)
+#   2. pm disable-user --user 0 com.google.android.tungsten.setupwraith, then watch the TV for 5 minutes
+#   3. pm disable-user --user 0 com.google.android.apps.tv.launcherx
+#      cmd package set-home-activity --user 0 com.gathin.tvhome/.MainActivity
+# It boots straight into the launcher afterwards. Re-enable setupwraith before a factory reset.
+# com.google.android.tungsten.setupwraith  # setup wizard; its RecoveryActivity also claims Home
+
+# ambient screensaver: shows "Unable to load content" once launcherx is off. First point the
+# screensaver at the launcher's clock, then disable it:
+#   settings put secure screensaver_components com.gathin.tvhome/.ClockDream
+# com.google.android.apps.tv.dreamx   # ambient mode + smart-home panel (59 MB, always running)
+
+# voice search (optional, NOT applied on the tested TV): removes the remote's mic button and the
+# on-screen search box. Frees ~115 MB (katniss runs two processes).
+# com.google.android.katniss      # Google Assistant / voice search, always running
+# com.sony.dtv.voicesearch        # Sony's voice search bridge

@@ -1,0 +1,43 @@
+# Compac ATV R2 (manufacturer SCBC, device R2, Realtek), Android TV 9 (API 28),
+# firmware PTT1.201001.001, 2 GB RAM. Same SCBC platform as examples/sanyo-atv-r2.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/compac-atv-r2/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/compac-atv-r2/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Stock launcher is com.google.android.tvlauncher. It is not in this list: disable it only once a
+# replacement Home is installed (launcher/build-and-install.sh does that in the right order).
+#
+# Notes from this TV:
+# - Kept in use: Google Assistant (katniss), FastCast Miracast (com.creative.fastscreen.tv),
+#   firmware updates (com.apps.ota, com.apps.authota), Spotify, YouTube Music, Play Movies, Play Games.
+# - Not touched, unclear: com.apps.esticker (ShowService overlay, likely store-demo stickers) and
+#   io.mimi.tvapp (Mimi hearing-profile sound app, bundles Mixpanel).
+# - Leave alone, as on the SANYO: com.realtek.tv.* (inputs, tuner), com.apps.smartkey / virtualkey /
+#   bluetoothremote / com.functions.autopair (remote), com.apps.puresound, com.apps.usbmediaplayer.
+# - The saved Wi-Fi network belongs to android.uid.system, not setupwraith.
+
+# SCBC / Google telemetry and feedback
+com.apps.function.gdpr                 # SCBC data-consent agent
+com.vewd.core.service                  # Vewd app-store/HbbTV core service
+com.google.android.feedback
+com.google.android.tv.bugreportsender
+
+# Content rows, promos and auto-installs
+com.apps.channels                      # "S-Channel" content rows on Home
+com.apps.eshow                         # E-SHOW in-store demo / promo
+com.google.android.tvrecommendations   # sponsored and recommendation rows on the stock Home
+com.google.android.leanbacklauncher.recommendations
+# com.realtek.leanbacklauncher.partnercustomizer  # KEEP: supplies the Inputs button on the stock Home
+android.autoinstalls.config.scbc.device  # Play auto-installs of partner apps
+
+# Background services and duplicates
+com.apps.clear                         # "TV Booster" cleaner
+com.google.android.apps.nbu.smartconnect.tv
+com.apps.wifihotspot                   # TV as a Wi-Fi hotspot
+com.android.printspooler
+com.apps.networkspeed                  # speed-test app
+
+# Preloaded apps and casting (personal choice: comment out any you use)
+com.apps.timeclock                     # WorldClock
+com.google.android.apps.mediashell     # Chromecast built-in; re-enable to cast from phones

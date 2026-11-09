@@ -1,16 +1,24 @@
 //! Desktop ADB plumbing.
 //!
-//! Shared traits and parsers live in `shield_optimizer_core::adb`; this module
+//! Shared traits and parsers live in `atv_optimizer_core::adb`; this module
 //! owns only the subprocess driver plus desktop-only platform-tools install and
 //! network scan helpers.
 
+#[cfg(feature = "direct-adb")]
+pub mod direct;
+#[cfg(feature = "direct-adb")]
+mod discovery;
 pub mod driver;
+#[cfg(feature = "direct-adb")]
+pub mod identity;
 pub mod install;
 pub mod scan;
+pub mod selection;
+pub mod server_repair;
 
 use std::sync::{Arc, LazyLock};
 
-use shield_optimizer_core::adb::Leases;
+use atv_optimizer_core::adb::Leases;
 use tokio::process::Command;
 
 /// Every adb process the app spawns, through any driver instance, counted
@@ -18,6 +26,13 @@ use tokio::process::Command;
 pub fn child_leases() -> &'static Arc<Leases> {
     static CHILDREN: LazyLock<Arc<Leases>> = LazyLock::new(Leases::new);
     &CHILDREN
+}
+
+/// One repair gate for every driver instance, so a driver swapped in by
+/// `install_adb` still knows about a restart the old one just did.
+pub fn server_repairs() -> &'static Arc<server_repair::RepairGate> {
+    static REPAIRS: LazyLock<Arc<server_repair::RepairGate>> = LazyLock::new(Arc::default);
+    &REPAIRS
 }
 
 /// Write an executable test script from a separate process. A file this
@@ -78,10 +93,7 @@ pub(crate) fn pin_working_directory(cmd: &mut Command) {
     cmd.current_dir(stable);
 }
 
-pub use driver::{cached_adb_binary, discover_adb_binary, forget_cached_adb_binary, SubprocessAdb};
-pub use install::{adb_path_in_install_root, install_platform_tools, InstallError};
-pub use scan::{local_subnet_prefix, scan_subnet, ScanHit, ADB_NETWORK_PORT};
-pub use shield_optimizer_core::adb::{
+pub use atv_optimizer_core::adb::{
     parse_active_audio_device, parse_device_list, parse_disabled_packages_output,
     parse_display_mode, parse_dumpsys_meminfo, parse_hardware_properties_temp,
     parse_installed_packages_output, parse_ls_output, parse_mdns_services, parse_meminfo_summary,
@@ -89,4 +101,10 @@ pub use shield_optimizer_core::adb::{
     parse_total_pss_by_process, parse_usage_stats, AdbDriver, AdbError, AdbOutput, AdbResult,
     AppUsage, DisplayMode, FileEntry, MdnsService, RamInfo, RemoteInputSession, StorageInfo,
     MDNS_SERVICE_CONNECT, MDNS_SERVICE_LEGACY, MDNS_SERVICE_PAIRING,
+};
+pub use driver::{cached_adb_binary, discover_adb_binary, forget_cached_adb_binary, SubprocessAdb};
+pub use install::{adb_path_in_install_root, install_platform_tools, InstallError};
+pub use scan::{
+    local_subnet_prefix, scan_subnet_hits, scan_subnet_with_stats, subnet_overridden, ScanHit,
+    SweepStats, ADB_NETWORK_PORT,
 };

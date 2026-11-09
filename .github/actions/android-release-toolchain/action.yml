@@ -1,0 +1,78 @@
+name: Android release toolchain
+description: >-
+  JDK, Android SDK 36 / NDK, the four Rust Android targets, the mobile npm dependencies and a
+  checksum-pinned bundletool, for v2/mobile release builds. Used by mobile-play-release.yml.
+outputs:
+  bundletool:
+    description: Path to the verified bundletool jar
+    value: ${{ steps.bundletool.outputs.path }}
+runs:
+  using: composite
+  steps:
+    # Four release Rust targets plus Gradle outgrow the runner's default free space.
+    - name: Free runner disk
+      shell: bash
+      run: |
+        sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost \
+          /opt/hostedtoolcache/CodeQL /usr/local/share/powershell /usr/share/swift
+        df -h /
+
+    - name: Setup JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+        cache: gradle
+        cache-dependency-path: |
+          v2/mobile/src-tauri/gen/android/**/*.gradle*
+          v2/mobile/src-tauri/gen/android/gradle/wrapper/gradle-wrapper.properties
+
+    - name: Android SDK 36, build-tools and NDK
+      shell: bash
+      env:
+        NDK_VERSION: 28.2.13676358
+      run: |
+        sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        (yes || true) | "$sdkmanager" --licenses > /dev/null
+        "$sdkmanager" --install "platforms;android-36" "build-tools;36.0.0" "ndk;$NDK_VERSION" > /dev/null
+        echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+        echo "$ANDROID_HOME/build-tools/36.0.0" >> "$GITHUB_PATH"
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+        key: android-cargo-registry-${{ hashFiles('v2/Cargo.lock') }}
+
+    - name: Setup Node
+      uses: actions/setup-node@v5
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: v2/mobile/package-lock.json
+
+    - name: Install mobile dependencies
+      shell: bash
+      working-directory: v2/mobile
+      run: npm ci
+
+    - name: Download bundletool
+      id: bundletool
+      shell: bash
+      env:
+        VERSION: 1.18.3
+        SHA256: a099cfa1543f55593bc2ed16a70a7c67fe54b1747bb7301f37fdfd6d91028e29
+      run: |
+        path="$RUNNER_TEMP/bundletool-$VERSION.jar"
+        curl --fail --silent --show-error --location --retry 3 -o "$path" \
+          "https://github.com/google/bundletool/releases/download/$VERSION/bundletool-all-$VERSION.jar"
+        echo "$SHA256  $path" | sha256sum --check --quiet
+        echo "path=$path" >> "$GITHUB_OUTPUT"

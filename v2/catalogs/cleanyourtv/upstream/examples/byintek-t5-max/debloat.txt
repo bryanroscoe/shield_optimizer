@@ -1,0 +1,59 @@
+# BYINTEK T5 Max projector, built-in Google TV stick: ro.product.model="4K Google TV Stick",
+# manufacturer SkyworthDigital, device YYT, Amlogic (ro.board.platform HP46B), about 1.9 GB RAM.
+# Google TV 14 (API 34), build UKG3.260128.001.C3.3.5_20260723. Tested in Brazil.
+# Same stick and firmware as examples/wanbo-x5-pro; this list differs where this device differs.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh examples/byintek-t5-max/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh examples/byintek-t5-max/debloat.txt com.google.android.apps.tv.launcherx
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Deliberately NOT in this list (measured on this device, 2026-10-20):
+# - com.google.android.tungsten.setupwraith: `dumpsys wifi` shows cname=com.google.android.tungsten.setupwraith,
+#   so disabling it would delete the saved Wi-Fi network and drop the projector off the network
+#   (the Wanbo failure). The list leaves it enabled; rejoin Wi-Fi from Settings first if that ever changes.
+# - com.google.android.apps.tv.launcherx and setupwraith were disabled separately, later, only
+#   after the owner forgot and rejoined the Wi-Fi network in Settings (cname then read
+#   android.uid.system:1000): `pm disable-user --user 0` for both, then
+#   `cmd package set-home-activity --user 0 com.gathin.tvhome/.MainActivity`. Undo that pair with
+#   `pm enable --user 0 com.google.android.apps.tv.launcherx`, `pm enable --user 0
+#   com.google.android.tungsten.setupwraith`, then set-home-activity back to launcherx. Before the
+#   rejoin, disabling launcherx alone dropped Home to setupwraith's RecoveryActivity (rolled back).
+# - Projector hardware (autofocus, keystone, HDMI switching) is run by the projector mainboard and
+#   is not exposed to this Android module; nothing here can or should try to replace it.
+#
+# Kept on purpose: com.sdt.projector.observer, com.sdt.customization, com.sdt.globalkey,
+# com.mft.rcupair, com.mft.frontpanelledsservice, com.droidlogic.*, com.dolby.android.audio.service,
+# com.google.android.gms, com.google.android.apps.mediashell (Chromecast), com.sdt.ota, keyboard,
+# Play Store, Play Services. Kept by choice below (commented): Assistant/voice (the remote has a
+# mic key and uses it), YouTube Music, TalkBack.
+
+# Telemetry and remote management
+com.google.android.feedback                 # Google feedback reporter
+com.android.tv.feedbackconsent              # feedback consent screen
+com.oemservice                              # xCPE remote-management agent (boot receiver only)
+com.sdt.deviceinfo                          # Skyworth device-info reporter (boot receiver only)
+
+# Ads and personalization
+com.android.adservices.api                  # Privacy Sandbox ad services
+com.android.ondevicepersonalization.services
+com.android.federatedcompute.services
+
+# Factory test apps
+com.oem.qa                                  # BoxFactoryTest
+com.sdt.producttest                         # Skyworth product test, key check, USB command handler
+
+# Unused on a projector stick
+com.amlogic.voicesubtitle                   # Amlogic voice subtitle overlay
+com.android.printspooler
+com.android.healthconnect.controller
+com.android.health.connect.backuprestore
+com.android.cameraextensions
+com.android.dynsystem
+com.android.hotspot2.osulogin
+com.google.android.syncadapters.calendar
+com.google.android.play.games
+
+# Off by choice (uncomment if you don't use them)
+# com.google.android.katniss                # Google Assistant / voice search (remote mic key)
+# com.google.android.youtube.tvmusic        # YouTube Music
+# com.google.android.marvin.talkback        # TalkBack screen reader

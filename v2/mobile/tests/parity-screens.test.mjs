@@ -144,6 +144,36 @@ test("tapping an Optimize row opens the app sheet, not a toggle", async (t) => {
   );
 });
 
+test("an Optimize row prints the catalog sentence once when the safety reason already carries it", async (t) => {
+  const safe = item("Prime Video", { defaultOptimize: true, package: "com.example.safe" });
+  const caution = item("Remote Keyboard", { defaultOptimize: true, package: "com.example.caution" });
+  const own = item("Photos", { defaultOptimize: true, package: "com.example.own" });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [safe, caution, own] } },
+    safety: {
+      // Core's reviewed reasons: the catalog sentence for Safe, a prefix plus it for Caution.
+      "com.example.safe": { kind: "safe", reason: safe.entry.optimize_description },
+      "com.example.caution": {
+        kind: "caution",
+        reason: `Reviewed and rated medium risk — removable, but you may notice it go. ${caution.entry.optimize_description}`,
+      },
+      "com.example.own": { kind: "caution", reason: "Review whether you use this app." },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("Photos", { exact: true }).waitFor();
+  const rowText = (pkg) => page.locator(".optimize-item", { has: page.getByText(pkg) }).innerText();
+  const count = (text, sentence) => text.split(sentence).length - 1;
+  await page.waitForFunction(() => document.querySelectorAll(".row-reason").length === 3);
+  assert.equal(count(await rowText("Prime Video"), safe.entry.optimize_description), 1);
+  assert.equal(count(await rowText("Remote Keyboard"), caution.entry.optimize_description), 1);
+  assert.match(await rowText("Remote Keyboard"), /medium risk/);
+  // A reason that doesn't repeat the description keeps both lines.
+  const photos = await rowText("Photos");
+  assert.equal(count(photos, own.entry.optimize_description), 1);
+  assert.match(photos, /Review whether you use this app\./);
+});
+
 test("Safe to remove and review chips stay on one line at 384px", async (t) => {
   const safe = item("A Long Application Name That Wraps", { defaultOptimize: true, memoryMb: 512 });
   const review = item("Reviewed Player", { review: true, method: "uninstall" });
@@ -448,7 +478,8 @@ test("modal long-sheet keyboard wrap reveals last action and Close without movin
   await trigger.click();
   const sheet = dialog(page);
   const close = sheet.getByRole('button', { name: 'Close', exact: true });
-  const last = sheet.getByRole('button', { name: /Re-measure/ });
+  // The Diagnostics sheet ends with Report this app, as Apps' does.
+  const last = sheet.getByRole('button', { name: /Report this app/ });
   await sheet.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)));
   await close.focus();
   await page.keyboard.press('Shift+Tab');

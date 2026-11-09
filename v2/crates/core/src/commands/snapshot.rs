@@ -1,6 +1,6 @@
 //! Snapshot save / load / apply-plan commands.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 use tauri::State;
@@ -13,10 +13,19 @@ use crate::engine::snapshot::{
     compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan,
     SCHEMA_VERSION,
 };
-use crate::engine::{is_never_disable, is_valid_package_name};
+use crate::engine::{
+    home_keep_reason, is_never_disable, is_valid_package_name, may_be_home_handler,
+};
 use crate::license::Feature;
 
-use super::{is_valid_setting_key, quote_shell_arg, AppState};
+use super::launcher::{
+    parse_home_handler_packages, read_current_home, read_enabled_home_handlers,
+    set_default_launcher_core, Progress, HOME_HANDLER_QUERY,
+};
+use super::loader::launchers;
+use super::{
+    is_valid_setting_key, quote_shell_arg, AppState, LIST_DISABLED_PACKAGES, LIST_PACKAGES,
+};
 
 /// Read the device's current values for the tracked setting keys, keyed the
 /// same way snapshots store them (`"<ns>.<key>"`). Used so apply-plans can
@@ -47,27 +56,113 @@ async fn current_settings_map(
     Ok(map)
 }
 
-/// Read the installed and disabled package lists in one round-trip. Both
-/// apply paths need the same pair, so they share one batched shell call
-/// instead of two concurrent ones (which cost 2× RTT on mobile, where every
-/// call is serialized behind a single TCP connection).
-async fn installed_and_disabled(
+/// What a restore plan reads from the device: the installed and disabled
+/// package lists and the HOME handlers. Preview and apply need the same
+/// reads, so they share one batched shell call (each separate call costs a
+/// full RTT on mobile, where every call is serialized behind a single TCP
+/// connection).
+struct RestoreReads {
+    installed: Vec<String>,
+    disabled: Vec<String>,
+    /// `None` when the HOME query failed or listed nothing (Android 8 has no
+    /// `query-activities`); the plan then keeps every possible Home app on.
+    home_handlers: Option<Vec<String>>,
+}
+
+async fn restore_reads(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
-) -> Result<(Vec<String>, Vec<String>), String> {
-    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
+) -> Result<RestoreReads, String> {
+    let cmd = checked_batch_command(&[LIST_PACKAGES, LIST_DISABLED_PACKAGES, HOME_HANDLER_QUERY]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = parse_checked_batch(&out.stdout, 2, &[0, 1])?;
+    let sections = parse_checked_batch(&out.stdout, 3, &[0, 1])?;
     let installed = parse_installed_packages_output(&sections[0]);
     // An empty installed list is not a usable input for an apply plan.
     if installed.is_empty() {
         return Err("pm list packages: no packages reported".to_string());
     }
     let disabled = parse_disabled_packages_output(&sections[1]);
-    Ok((installed, disabled))
+    let home_handlers = Some(parse_home_handler_packages(&sections[2])).filter(|h| !h.is_empty());
+    Ok(RestoreReads {
+        installed,
+        disabled,
+        home_handlers,
+    })
+}
+
+/// The disabled packages a snapshot records. A failed read must fail the
+/// save: a "nothing disabled" snapshot is one the Launcher's "Save snapshot
+/// first" would trust as a way back.
+async fn read_disabled_packages(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Result<Vec<String>, String> {
+    let out = adb
+        .shell(serial, &checked_batch_command(&[LIST_DISABLED_PACKAGES]))
+        .await
+        .map_err(|e| format!("pm list packages -d: {e}"))?;
+    let sections = parse_checked_batch(&out.stdout, 1, &[0])
+        .map_err(|e| format!("pm list packages -d: {e}"))?;
+    Ok(parse_disabled_packages_output(&sections[0]))
+}
+
+/// Read and parse a snapshot, confined to the snapshot directory: the
+/// frontend hands us paths and we should not blindly read arbitrary
+/// locations.
+async fn read_confined_snapshot(
+    snapshot_dir: &Path,
+    snapshot_path: &str,
+) -> Result<Snapshot, String> {
+    let canonical_path = tokio::fs::canonicalize(PathBuf::from(snapshot_path))
+        .await
+        .map_err(|e| format!("snapshot path: {e}"))?;
+    let canonical_dir = tokio::fs::canonicalize(snapshot_dir)
+        .await
+        .map_err(|e| format!("snapshot dir: {e}"))?;
+    if !canonical_path.starts_with(&canonical_dir) {
+        return Err(format!(
+            "snapshot path is outside the configured snapshot directory ({})",
+            canonical_dir.display()
+        ));
+    }
+    let contents = tokio::fs::read_to_string(&canonical_path)
+        .await
+        .map_err(|e| format!("read snapshot: {e}"))?;
+    Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))
+}
+
+/// Read the device and plan `snap` against it. Preview and apply share it,
+/// so the preview shows what apply runs. Also returns the HOME handlers it
+/// read, which tell apply which packages are Home apps.
+async fn plan_for(
+    state: &AppState,
+    serial: &str,
+    snap: &Snapshot,
+) -> Result<(SnapshotApplyPlan, Option<Vec<String>>), String> {
+    let adb = state.adb_snapshot().await;
+    let reads = restore_reads(adb.as_ref(), serial).await?;
+    let device = crate::commands::devices::device_profile_impl(state, serial).await?;
+    let current_settings = current_settings_map(adb.as_ref(), serial).await?;
+    let current_launcher = read_current_home(adb.as_ref(), serial)
+        .await
+        .ok()
+        .and_then(|r| r.package);
+    let plan = compute_apply_plan(
+        snap,
+        &ApplyPlanInputs {
+            target_device_type: device.device_type,
+            currently_installed: &reads.installed,
+            currently_disabled: &reads.disabled,
+            current_settings: &current_settings,
+            current_launcher: current_launcher.as_deref(),
+            home_handlers: reads.home_handlers.as_deref(),
+            launchers: launchers(),
+        },
+    );
+    Ok((plan, reads.home_handlers))
 }
 
 #[derive(Serialize)]
@@ -93,15 +188,26 @@ pub async fn delete_snapshot(
     snapshot_path: String,
 ) -> Result<(), String> {
     state.require_pro(Feature::Snapshot)?;
-    let path = PathBuf::from(&snapshot_path);
-    let canonical_path = tokio::fs::canonicalize(&path)
+    delete_snapshot_file(&state.snapshot_dir, Path::new(&snapshot_path)).await
+}
+
+async fn delete_snapshot_file(snapshot_dir: &Path, snapshot_path: &Path) -> Result<(), String> {
+    let canonical_path = tokio::fs::canonicalize(snapshot_path)
         .await
         .map_err(|e| format!("snapshot path: {e}"))?;
-    let canonical_dir = tokio::fs::canonicalize(&state.snapshot_dir)
+    let canonical_dir = tokio::fs::canonicalize(snapshot_dir)
         .await
         .map_err(|e| format!("snapshot dir: {e}"))?;
     if !canonical_path.starts_with(&canonical_dir) {
         return Err("snapshot path is outside the snapshot directory".into());
+    }
+    let metadata = tokio::fs::symlink_metadata(snapshot_path)
+        .await
+        .map_err(|e| format!("snapshot file: {e}"))?;
+    // Deleting a link's resolved target would remove a different file than the
+    // entry the user picked. Snapshots are regular JSON files, never links.
+    if !metadata.is_file() || canonical_path.extension().and_then(|e| e.to_str()) != Some("json") {
+        return Err("snapshot must be a regular JSON file".into());
     }
     tokio::fs::remove_file(&canonical_path)
         .await
@@ -185,11 +291,7 @@ pub async fn save_snapshot(
     let adb = state.adb_snapshot().await;
 
     // Pull all the inputs the engine needs.
-    let disabled_out = adb
-        .shell(&serial, "pm list packages -d")
-        .await
-        .map_err(|e| format!("pm list packages -d: {e}"))?;
-    let disabled_packages = parse_disabled_packages_output(&disabled_out.stdout);
+    let disabled_packages = read_disabled_packages(adb.as_ref(), &serial).await?;
 
     // Current launcher: the HOME role holder, not a setup helper the
     // resolver ranks higher (#122).
@@ -287,48 +389,8 @@ pub async fn preview_apply(
     snapshot_path: String,
 ) -> Result<SnapshotApplyPlan, String> {
     state.require_pro(Feature::Snapshot)?;
-    // Confine reads to the configured snapshot directory — the frontend
-    // hands us paths and we should not blindly read arbitrary locations.
-    let path = PathBuf::from(&snapshot_path);
-    let canonical_path = tokio::fs::canonicalize(&path)
-        .await
-        .map_err(|e| format!("snapshot path: {e}"))?;
-    let canonical_dir = tokio::fs::canonicalize(&state.snapshot_dir)
-        .await
-        .map_err(|e| format!("snapshot dir: {e}"))?;
-    if !canonical_path.starts_with(&canonical_dir) {
-        return Err(format!(
-            "snapshot path is outside the configured snapshot directory ({})",
-            canonical_dir.display()
-        ));
-    }
-
-    let contents = tokio::fs::read_to_string(&canonical_path)
-        .await
-        .map_err(|e| format!("read snapshot: {e}"))?;
-    let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
-
-    let adb = state.adb_snapshot().await;
-    let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
-
-    let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
-    let current_settings = current_settings_map(adb.as_ref(), &serial).await?;
-    let current_launcher = crate::commands::launcher::read_current_home(adb.as_ref(), &serial)
-        .await
-        .ok()
-        .and_then(|r| r.package);
-
-    let plan = compute_apply_plan(
-        &snap,
-        &ApplyPlanInputs {
-            target_device_type: device.device_type,
-            currently_installed: &installed_pkgs,
-            currently_disabled: &disabled_pkgs,
-            current_settings: &current_settings,
-            current_launcher: current_launcher.as_deref(),
-        },
-    );
-    Ok(plan)
+    let snap = read_confined_snapshot(&state.snapshot_dir, &snapshot_path).await?;
+    Ok(plan_for(state.inner(), &serial, &snap).await?.0)
 }
 
 #[derive(Serialize)]
@@ -343,33 +405,99 @@ pub struct ApplyResult {
     pub summary: String,
 }
 
-/// Execute the disable portion of an apply-plan. Extracted for testability.
-/// Returns `(packages_disabled, packages_failed)`.
+/// What `disable_from_plan` needs to keep the TV's Home screen.
+struct HomeGuard<'a> {
+    /// The HOME handlers the plan read, which mark the packages that need a
+    /// fresh check before they go.
+    handlers: Option<&'a [String]>,
+    current_home: Option<&'a str>,
+    /// Packages the plan already kept on.
+    kept: Vec<String>,
+}
+
+#[derive(Default)]
+struct DisableOutcome {
+    disabled: Vec<String>,
+    /// Display entries: `pkg` or `pkg (reason)`.
+    failed: Vec<String>,
+    /// Home apps left on at run time.
+    kept: Vec<String>,
+    /// For each disabled stock launcher with a paired setup helper, the Home
+    /// apps read just before it went off.
+    inventories: Vec<(String, Vec<String>)>,
+}
+
+/// Execute the disable portion of an apply-plan, in the plan's order.
+///
+/// Every package that may be a Home app is checked against a fresh read of
+/// the Home apps right before it goes: the plan's read is moments old, and a
+/// restore must never leave the TV without a Home screen. An unreadable list
+/// keeps it on, like the only Home app.
 async fn disable_from_plan(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
     packages_to_disable: &[String],
-) -> (Vec<String>, Vec<String>) {
-    let mut packages_disabled = Vec::new();
-    let mut packages_failed = Vec::new();
+    home: HomeGuard<'_>,
+) -> DisableOutcome {
+    let catalog = launchers();
+    let mut kept_names = home.kept;
+    let mut out = DisableOutcome::default();
     for pkg in packages_to_disable {
         if !is_valid_package_name(pkg) {
-            packages_failed.push(format!("{pkg:?} (invalid package name in snapshot)"));
+            out.failed
+                .push(format!("{pkg:?} (invalid package name in snapshot)"));
             continue;
         }
         if is_never_disable(pkg) {
-            packages_failed.push(format!("{pkg} (refused: brick risk)"));
+            out.failed.push(format!("{pkg} (refused: brick risk)"));
             continue;
+        }
+        let mut inventory = None;
+        if may_be_home_handler(pkg, home.handlers, home.current_home, catalog) {
+            let handlers = read_enabled_home_handlers(adb, serial).await;
+            if let Some(reason) = home_keep_reason(
+                pkg,
+                handlers.as_deref(),
+                home.current_home,
+                &kept_names,
+                catalog,
+            ) {
+                out.failed.push(format!("{pkg} (kept: {})", reason.label()));
+                kept_names.push(pkg.clone());
+                out.kept.push(pkg.clone());
+                continue;
+            }
+            inventory = handlers;
         }
         let cmd = format!("pm disable-user --user 0 {pkg}");
         match adb.shell(serial, &cmd).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                packages_disabled.push(pkg.clone());
+            Ok(result) if result.success() && !result.shell_reported_failure() => {
+                out.disabled.push(pkg.clone());
+                if let Some(inventory) = inventory {
+                    if !catalog.disable_with_for(pkg).is_empty() {
+                        out.inventories.push((pkg.clone(), inventory));
+                    }
+                }
             }
-            _ => packages_failed.push(pkg.clone()),
+            _ => out.failed.push(pkg.clone()),
         }
     }
-    (packages_disabled, packages_failed)
+    out
+}
+
+/// Set Home for a restore. No stock takeover here: a snapshot that had stock
+/// disabled carries that in its disabled-packages list. The plan only names
+/// an installed, enabled launcher, so the setter's own setup-helper restore
+/// is skipped: a restore never re-enables anything.
+async fn switch_launcher(state: &AppState, serial: &str, launcher: &str) -> (bool, Option<String>) {
+    match set_default_launcher_core(state, serial, launcher, false, &Progress::Silent).await {
+        Ok(r) if r.ok => (
+            true,
+            Some(format!("{launcher} via {}", r.strategy.unwrap_or_default())),
+        ),
+        Ok(r) => (false, r.last_error),
+        Err(e) => (false, Some(e)),
+    }
 }
 
 /// `apply_snapshot` — actually run the previewed plan against the device.
@@ -382,132 +510,79 @@ pub async fn apply_snapshot(
     snapshot_path: String,
 ) -> Result<ApplyResult, String> {
     state.require_pro(Feature::Snapshot)?;
-    // Same containment check as preview_apply.
-    let path = PathBuf::from(&snapshot_path);
-    let canonical_path = tokio::fs::canonicalize(&path)
-        .await
-        .map_err(|e| format!("snapshot path: {e}"))?;
-    let canonical_dir = tokio::fs::canonicalize(&state.snapshot_dir)
-        .await
-        .map_err(|e| format!("snapshot dir: {e}"))?;
-    if !canonical_path.starts_with(&canonical_dir) {
-        return Err(format!(
-            "snapshot path is outside the configured snapshot directory ({})",
-            canonical_dir.display()
-        ));
-    }
-    let contents = tokio::fs::read_to_string(&canonical_path)
-        .await
-        .map_err(|e| format!("read snapshot: {e}"))?;
-    let snap = Snapshot::from_json(&contents).map_err(|e| format!("parse snapshot: {e}"))?;
+    let snap = read_confined_snapshot(&state.snapshot_dir, &snapshot_path).await?;
+    apply_snapshot_impl(state.inner(), &serial, &snap).await
+}
 
+async fn apply_snapshot_impl(
+    state: &AppState,
+    serial: &str,
+    snap: &Snapshot,
+) -> Result<ApplyResult, String> {
+    let (plan, home_handlers) = plan_for(state, serial, snap).await?;
     let adb = state.adb_snapshot().await;
-    let (installed_pkgs, disabled_pkgs) = installed_and_disabled(adb.as_ref(), &serial).await?;
+    let catalog = launchers();
 
-    let device = crate::commands::devices::device_profile_impl(state.inner(), &serial).await?;
-    let current_settings = current_settings_map(adb.as_ref(), &serial).await?;
-    let current_launcher = crate::commands::launcher::read_current_home(adb.as_ref(), &serial)
-        .await
-        .ok()
-        .and_then(|r| r.package);
-    let plan = compute_apply_plan(
-        &snap,
-        &ApplyPlanInputs {
-            target_device_type: device.device_type,
-            currently_installed: &installed_pkgs,
-            currently_disabled: &disabled_pkgs,
-            current_settings: &current_settings,
-            current_launcher: current_launcher.as_deref(),
-        },
-    );
-
-    // 1. Disable packages from the plan (additive only — never re-enable).
-    // A stock launcher with a paired setup helper (Google TV's Setup Wraith)
-    // needs the Home apps read before it goes off, so the helper can follow
-    // once Home is settled (#159). Snapshots from older app versions list
-    // stock without its helper.
-    let paired_stocks: Vec<String> = plan
-        .packages_to_disable
-        .iter()
-        .filter(|p| {
-            !crate::commands::loader::launchers()
-                .disable_with_for(p)
-                .is_empty()
-        })
-        .cloned()
-        .collect();
-    let home_inventory = if paired_stocks.is_empty() {
-        None
-    } else {
-        match adb
-            .shell(&serial, crate::commands::launcher::HOME_HANDLER_QUERY)
-            .await
-        {
-            Ok(out) if out.success() && !out.shell_reported_failure() => Some(
-                crate::commands::launcher::parse_home_handler_packages(&out.stdout),
-            )
-            .filter(|h| !h.is_empty()),
-            _ => None,
-        }
-    };
-    let (mut packages_disabled, mut packages_failed) =
-        disable_from_plan(adb.as_ref(), &serial, &plan.packages_to_disable).await;
-
-    // 2. Set launcher only when the plan says Home differs from the snapshot's;
-    // `None` skips the whole switch ladder.
+    // 1. Home first, while nothing is disabled yet. `None` skips the whole
+    // switch ladder.
     let mut launcher_set = false;
     let mut launcher_message = None;
-    // A follow-up from a successful launcher switch (the setup helper couldn't
-    // be re-enabled); the summary carries it so every caller shows it.
-    let mut launcher_note: Option<String> = None;
-    if let Some(launcher_pkg) = &plan.launcher_to_set {
-        // Reuse the multi-strategy set-default helper from the launcher module.
-        // No stock takeover here: a snapshot that had stock disabled carries
-        // that in its disabled-packages list, so the polite strategies plus
-        // the package application get the same end state without surprises.
-        let result = crate::commands::launcher::set_default_launcher_impl(
-            state.inner(),
-            &serial,
-            launcher_pkg,
-            false,
-            &crate::commands::launcher::Progress::Silent,
-        )
-        .await;
-        if let Ok(r) = result {
-            launcher_set = r.ok;
-            launcher_message = if r.ok {
-                // A successful switch only carries `last_error` as a follow-up
-                // (the setup helper couldn't be re-enabled); keep it visible.
-                launcher_note = r.last_error.clone();
-                Some(match r.last_error {
-                    Some(note) => format!(
-                        "{launcher_pkg} via {}. {note}",
-                        r.strategy.unwrap_or_default()
-                    ),
-                    None => format!("{launcher_pkg} via {}", r.strategy.unwrap_or_default()),
-                })
-            } else {
-                r.last_error
-            };
+    if let Some(launcher) = &plan.launcher_to_set {
+        (launcher_set, launcher_message) = switch_launcher(state, serial, launcher).await;
+    } else if let Some(launcher) = &plan.launcher_disabled {
+        launcher_message = Some(format!(
+            "{launcher} is disabled; enable it first, then restore"
+        ));
+    } else if let Some(launcher) = &plan.launcher_not_installed {
+        launcher_message = Some(format!("{launcher} isn't installed; skipped"));
+    }
+
+    // 2. Disable packages from the plan (additive only — never re-enable).
+    let mut packages_failed: Vec<String> = plan
+        .packages_kept
+        .iter()
+        .map(|k| format!("{} (kept: {})", k.package, k.reason))
+        .collect();
+    let mut kept: Vec<String> = plan
+        .packages_kept
+        .iter()
+        .map(|k| k.package.clone())
+        .collect();
+    let outcome = disable_from_plan(
+        adb.as_ref(),
+        serial,
+        &plan.packages_to_disable,
+        HomeGuard {
+            handlers: home_handlers.as_deref(),
+            current_home: plan.current_launcher.as_deref(),
+            kept: kept.clone(),
+        },
+    )
+    .await;
+    let mut packages_disabled = outcome.disabled;
+    packages_failed.extend(outcome.failed);
+    kept.extend(outcome.kept);
+
+    // An enabled stock launcher overrides the polite setters (Shield, Google
+    // TV), so with it now off they can finish the switch.
+    if let Some(launcher) = &plan.launcher_to_set {
+        if !launcher_set && packages_disabled.iter().any(|p| catalog.is_stock(p)) {
+            (launcher_set, launcher_message) = switch_launcher(state, serial, launcher).await;
         }
     }
 
-    // 3. Settle each disabled stock launcher's setup helper now that Home is
-    // where the snapshot wants it.
+    // 3. Settle each disabled stock launcher's setup helper (Google TV's
+    // Setup Wraith) now that Home is where the snapshot wants it (#159).
+    // Snapshots from older app versions list stock without its helper.
     let mut helper_notes: Vec<String> = Vec::new();
-    let landed_stocks: Vec<String> = paired_stocks
-        .iter()
-        .filter(|s| packages_disabled.contains(s))
-        .cloned()
-        .collect();
-    for stock in &landed_stocks {
+    for (stock, inventory) in &outcome.inventories {
         let mut diagnostics = Vec::new();
         use crate::commands::launcher::PairedHelperOutcome as Outcome;
         match crate::commands::launcher::settle_paired_helpers_after_stock_disable(
             adb.as_ref(),
-            &serial,
+            serial,
             stock,
-            home_inventory.as_deref(),
+            Some(inventory),
             &mut diagnostics,
         )
         .await
@@ -518,7 +593,7 @@ pub async fn apply_snapshot(
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
             Outcome::LeftOn => {
-                let helper_also_off = crate::commands::loader::launchers()
+                let helper_also_off = catalog
                     .disable_with_for(stock)
                     .iter()
                     .any(|h| packages_disabled.contains(h));
@@ -526,7 +601,7 @@ pub async fn apply_snapshot(
                     // The snapshot turned the helper off too, and no other
                     // launcher took Home: the TV may have no Home screen.
                     // Bring stock back rather than report the opposite state.
-                    let restore = adb.shell(&serial, &format!("pm enable {stock}")).await;
+                    let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
                     let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
                     packages_disabled.retain(|p| p != stock);
                     packages_failed.push(if restored {
@@ -547,20 +622,28 @@ pub async fn apply_snapshot(
     }
 
     let (settings_written, settings_deleted, settings_failed) =
-        apply_settings_from_plan(adb.as_ref(), &serial, &plan).await;
+        apply_settings_from_plan(adb.as_ref(), serial, &plan).await;
 
+    let launcher_summary = if launcher_set {
+        "set".to_string()
+    } else if let Some(launcher) = &plan.launcher_disabled {
+        format!("skipped ({launcher} is disabled; enable it first, then restore)")
+    } else {
+        "unchanged".to_string()
+    };
     let mut summary = format!(
-        "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
+        "Disabled {} packages ({} failed). Launcher: {launcher_summary}. {} settings written, {} reset ({} failed).",
         packages_disabled.len(),
         packages_failed.len(),
-        if launcher_set { "set" } else { "unchanged" },
         settings_written.len(),
         settings_deleted.len(),
         settings_failed.len()
     );
-    if let Some(note) = &launcher_note {
-        summary.push(' ');
-        summary.push_str(note);
+    if !kept.is_empty() {
+        summary.push_str(&format!(
+            " Kept on so the TV keeps a Home screen: {}.",
+            kept.join(", ")
+        ));
     }
     for note in &helper_notes {
         summary.push(' ');
@@ -635,17 +718,99 @@ async fn apply_settings_from_plan(
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_settings_from_plan, current_settings_map, disable_from_plan, installed_and_disabled,
+        apply_settings_from_plan, apply_snapshot_impl, current_settings_map, delete_snapshot_file,
+        disable_from_plan, read_disabled_packages, restore_reads, HomeGuard,
     };
     use crate::adb::BATCH_SEPARATOR;
-    use crate::commands::test_support::MockAdb;
+    use crate::commands::test_support::{state_with, MockAdb};
+    use crate::engine::snapshot::{Snapshot, SCHEMA_VERSION};
+    use crate::engine::DeviceType;
+
+    fn no_home() -> HomeGuard<'static> {
+        HomeGuard {
+            handlers: None,
+            current_home: None,
+            kept: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_snapshot_removes_only_the_selected_local_file() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let selected = dir.join("selected.json");
+        let other = dir.join("other.json");
+        tokio::fs::write(&selected, b"selected snapshot")
+            .await
+            .unwrap();
+        tokio::fs::write(&other, b"keep this snapshot")
+            .await
+            .unwrap();
+
+        delete_snapshot_file(&dir, &selected).await.unwrap();
+        assert!(!selected.exists());
+        assert_eq!(
+            tokio::fs::read(&other).await.unwrap(),
+            b"keep this snapshot"
+        );
+        assert!(delete_snapshot_file(&dir, &selected).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn delete_snapshot_rejects_outside_paths_directories_and_other_files() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let outside = root.path().join("outside.json");
+        let text = dir.join("notes.txt");
+        let directory = dir.join("directory.json");
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        tokio::fs::write(&text, b"notes").await.unwrap();
+        tokio::fs::create_dir(&directory).await.unwrap();
+
+        for path in [
+            &outside,
+            &text,
+            &directory,
+            &dir.join("../outside.json"),
+            &dir,
+        ] {
+            assert!(delete_snapshot_file(&dir, path).await.is_err(), "{path:?}");
+            assert!(path.exists(), "rejected path was removed: {path:?}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn delete_snapshot_rejects_symlinks_without_removing_their_targets() {
+        use std::os::unix::fs::symlink;
+
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        tokio::fs::create_dir(&dir).await.unwrap();
+        let inside = dir.join("inside.json");
+        let outside = root.path().join("outside.json");
+        tokio::fs::write(&inside, b"inside").await.unwrap();
+        tokio::fs::write(&outside, b"outside").await.unwrap();
+        for (name, target) in [
+            ("inside-link.json", &inside),
+            ("outside-link.json", &outside),
+        ] {
+            let link = dir.join(name);
+            symlink(target, &link).unwrap();
+            assert!(delete_snapshot_file(&dir, &link).await.is_err());
+            assert!(link.exists());
+            assert!(target.exists());
+        }
+    }
 
     #[tokio::test]
     async fn snapshot_plan_requires_a_successful_disabled_read() {
         let status = crate::adb::batch::BATCH_STATUS;
         let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n");
         let driver = MockAdb::default().on_shell(BATCH_SEPARATOR, &output);
-        assert!(installed_and_disabled(&driver, "serial").await.is_err());
+        assert!(restore_reads(&driver, "serial").await.is_err());
     }
 
     /// Device output for a batched shell: sections joined by the sentinel the
@@ -659,48 +824,98 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn installed_and_disabled_reads_both_lists_in_one_round_trip() {
+    async fn restore_reads_take_every_list_in_one_round_trip_for_user_zero() {
         let mock = MockAdb::default().on_shell(
             BATCH_SEPARATOR,
             &batched(&[
                 "package:com.example.on\npackage:com.example.off",
                 "package:com.example.off",
+                "  packageName=com.example.on",
             ]),
         );
         let log = mock.shell_log();
 
-        let (installed, disabled) = installed_and_disabled(&mock, "serial").await.unwrap();
-        assert_eq!(installed, ["com.example.on", "com.example.off"]);
-        assert_eq!(disabled, ["com.example.off"]);
+        let reads = restore_reads(&mock, "serial").await.unwrap();
+        assert_eq!(reads.installed, ["com.example.on", "com.example.off"]);
+        assert_eq!(reads.disabled, ["com.example.off"]);
+        assert_eq!(reads.home_handlers.unwrap(), ["com.example.on"]);
 
         let calls = log.lock().unwrap();
         assert_eq!(
             calls.len(),
             1,
-            "installed + disabled must cost one round-trip: {calls:?}"
+            "installed + disabled + Home apps must cost one round-trip: {calls:?}"
         );
-        assert!(calls[0].contains("pm list packages -d"));
+        assert!(calls[0].contains("(pm list packages --user 0)"));
+        assert!(calls[0].contains("(pm list packages -d --user 0)"));
     }
 
     #[tokio::test]
-    async fn installed_and_disabled_errors_when_the_installed_section_is_empty() {
+    async fn an_unanswered_home_query_reads_as_unknown_not_as_no_home_apps() {
+        // Android 8 has no query-activities.
+        let mock = MockAdb::default().on_shell(
+            BATCH_SEPARATOR,
+            &batched(&["package:com.example.on", "", "Unknown command: package"]),
+        );
+        assert!(restore_reads(&mock, "serial")
+            .await
+            .unwrap()
+            .home_handlers
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn restore_reads_error_when_the_installed_section_is_empty() {
         // The batch exits with the last sub-command's status, so a failed
         // `pm list packages` reads as success with an empty section — that
         // must surface instead of reducing the apply plan to a no-op.
-        let state = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", ""]));
-        let err = installed_and_disabled(&state, "serial")
-            .await
-            .expect_err("empty package listing must be an error");
+        let state = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""]));
+        let Err(err) = restore_reads(&state, "serial").await else {
+            panic!("empty package listing must be an error");
+        };
         assert!(err.contains("pm list packages"), "unhelpful error: {err}");
     }
 
     #[tokio::test]
-    async fn installed_and_disabled_surfaces_a_transport_failure() {
+    async fn restore_reads_surface_a_transport_failure() {
         let mock = MockAdb::default().on_shell_err(BATCH_SEPARATOR, "device offline");
-        let err = installed_and_disabled(&mock, "serial")
-            .await
-            .expect_err("a transport error must not be swallowed");
+        let Err(err) = restore_reads(&mock, "serial").await else {
+            panic!("a transport error must not be swallowed");
+        };
         assert!(err.contains("pm list packages"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn a_failed_disabled_read_fails_the_save_instead_of_recording_none() {
+        let status = crate::adb::batch::BATCH_STATUS;
+        // Desktop: nonzero exit is a transport error. Mobile: Ok with the
+        // exit status in the batch.
+        let failed = MockAdb::default().on_shell_err("pm list packages -d", "exit 255");
+        assert!(read_disabled_packages(&failed, "serial").await.is_err());
+        let failed = MockAdb::default().on_shell(
+            "pm list packages -d",
+            &format!("Error: java.lang.SecurityException\n{status}255\n"),
+        );
+        assert!(read_disabled_packages(&failed, "serial").await.is_err());
+        let truncated = MockAdb::default().on_shell("pm list packages -d", "");
+        assert!(read_disabled_packages(&truncated, "serial").await.is_err());
+
+        let mock = MockAdb::default().on_shell(
+            "pm list packages -d",
+            &batched(&["package:com.example.off"]),
+        );
+        let log = mock.shell_log();
+        assert_eq!(
+            read_disabled_packages(&mock, "serial").await.unwrap(),
+            ["com.example.off"]
+        );
+        assert!(log.lock().unwrap()[0].contains("(pm list packages -d --user 0)"));
+        // An empty list read successfully is a real answer.
+        let none = MockAdb::default().on_shell("pm list packages -d", &batched(&[""]));
+        assert!(read_disabled_packages(&none, "serial")
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -766,6 +981,8 @@ mod tests {
             launcher_to_set: None,
             current_launcher: None,
             launcher_not_installed: None,
+            launcher_disabled: None,
+            packages_kept: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
             current_values: Default::default(),
@@ -794,6 +1011,236 @@ mod tests {
         );
     }
 
+    const STOCK: &str = "com.google.android.tvlauncher";
+    const PROJECTIVY: &str = "com.spocky.projengmenu";
+    const SETTINGS: &str = "com.android.tv.settings";
+    const BLOAT: &str = "com.example.bloat";
+
+    fn home_list(pkgs: &[&str]) -> String {
+        pkgs.iter()
+            .map(|p| format!("  packageName={p}\n"))
+            .collect()
+    }
+
+    fn package_list(pkgs: &[&str]) -> String {
+        pkgs.iter().map(|p| format!("package:{p}\n")).collect()
+    }
+
+    /// A TV `apply_snapshot_impl` can plan against: one profiled device, every
+    /// tracked setting unset, these package lists and HOME handlers.
+    /// `fresh_home` answers the read taken right before each Home app goes.
+    fn restore_tv(
+        installed: &[&str],
+        disabled: &[&str],
+        home: &[&str],
+        fresh_home: &str,
+    ) -> MockAdb {
+        MockAdb::default()
+            .on_raw("devices", "serial\tdevice\n")
+            // Before "settings get": the profile batch also reads a setting.
+            .on_shell("getprop ro.product.brand", "profile")
+            .on_shell(
+                "(pm list packages --user 0)",
+                &batched(&[
+                    &package_list(installed),
+                    &package_list(disabled),
+                    &home_list(home),
+                ]),
+            )
+            .on_shell(
+                "settings get",
+                &batched(&vec!["null"; super::tracked_setting_keys().len()]),
+            )
+            .on_shell("query-activities", fresh_home)
+    }
+
+    fn snapshot(launcher: Option<&str>, disabled: &[&str]) -> Snapshot {
+        Snapshot {
+            schema_version: SCHEMA_VERSION,
+            saved_at: "2026-11-05T00:00:00Z".into(),
+            label: None,
+            device_name: "TV".into(),
+            device_serial: "serial".into(),
+            device_type: DeviceType::Unknown,
+            android_version: "11".into(),
+            disabled_packages: disabled.iter().map(|p| p.to_string()).collect(),
+            current_launcher: launcher.map(str::to_string),
+            settings: Default::default(),
+            absent_settings: Vec::new(),
+        }
+    }
+
+    fn disabled_any(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>, pkg: &str) -> bool {
+        log.lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == &format!("pm disable-user --user 0 {pkg}"))
+    }
+
+    #[tokio::test]
+    async fn a_restore_never_disables_the_only_home_app() {
+        // Recorded with Projectivy as Home and stock disabled; Projectivy
+        // isn't on this TV, so stock is its only launcher.
+        let mock = restore_tv(
+            &[STOCK, SETTINGS, BLOAT],
+            &[],
+            &[STOCK, SETTINGS],
+            &home_list(&[STOCK, SETTINGS]),
+        )
+        .on_shell("resolve-activity", &format!("{STOCK}/.MainActivity"));
+        let log = mock.shell_log();
+        let res = apply_snapshot_impl(
+            &state_with(mock),
+            "serial",
+            &snapshot(Some(PROJECTIVY), &[STOCK, BLOAT]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(res.packages_disabled, [BLOAT]);
+        assert_eq!(
+            res.packages_failed,
+            [format!("{STOCK} (kept: only Home app)")]
+        );
+        assert!(!res.launcher_set);
+        assert_eq!(
+            res.launcher_message.as_deref(),
+            Some("com.spocky.projengmenu isn't installed; skipped")
+        );
+        assert!(
+            res.summary
+                .contains("Kept on so the TV keeps a Home screen: com.google.android.tvlauncher."),
+            "{}",
+            res.summary
+        );
+        assert!(!disabled_any(&log, STOCK));
+    }
+
+    #[tokio::test]
+    async fn each_home_app_is_rechecked_right_before_it_goes() {
+        // The plan saw Projectivy enabled. When stock's turn comes the Home
+        // list says otherwise, or can't be read (Android 8 has no
+        // query-activities).
+        for (fresh, reason) in [
+            (home_list(&[STOCK, SETTINGS]), "only Home app"),
+            (
+                "Unknown command: package".to_string(),
+                "Home apps unreadable",
+            ),
+        ] {
+            let mock = restore_tv(
+                &[STOCK, PROJECTIVY, SETTINGS],
+                &[],
+                &[STOCK, PROJECTIVY, SETTINGS],
+                &fresh,
+            )
+            .on_shell("resolve-activity", &format!("{STOCK}/.MainActivity"));
+            let log = mock.shell_log();
+            let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(None, &[STOCK]))
+                .await
+                .unwrap();
+            assert!(res.packages_disabled.is_empty());
+            assert_eq!(res.packages_failed, [format!("{STOCK} (kept: {reason})")]);
+            assert!(!disabled_any(&log, STOCK));
+        }
+    }
+
+    #[tokio::test]
+    async fn a_disabled_snapshot_launcher_is_skipped_and_nothing_is_re_enabled() {
+        const GTV: &str = "com.google.android.apps.tv.launcherx";
+        const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+        let mock = restore_tv(
+            &[GTV, WRAITH, PROJECTIVY, SETTINGS, BLOAT],
+            &[GTV, WRAITH],
+            &[PROJECTIVY, SETTINGS],
+            &home_list(&[PROJECTIVY, SETTINGS]),
+        )
+        .on_shell("resolve-activity", &format!("{PROJECTIVY}/.Main"));
+        let log = mock.shell_log();
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(Some(GTV), &[BLOAT]))
+            .await
+            .unwrap();
+        assert!(!res.launcher_set);
+        assert_eq!(
+            res.launcher_message,
+            Some(format!("{GTV} is disabled; enable it first, then restore"))
+        );
+        assert!(
+            res.summary.contains(&format!(
+                "Launcher: skipped ({GTV} is disabled; enable it first, then restore)"
+            )),
+            "{}",
+            res.summary
+        );
+        assert_eq!(res.packages_disabled, [BLOAT]);
+        let calls = log.lock().unwrap();
+        assert!(
+            !calls.iter().any(|c| c.starts_with("pm enable")
+                || c.contains("add-role-holder")
+                || c.contains("set-home-activity")),
+            "a restore must never re-enable a launcher or its setup helper: {calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_restore_sets_home_before_it_disables_anything() {
+        const MONET: &str = "com.klevico.monet";
+        let mock = restore_tv(
+            &[PROJECTIVY, MONET, SETTINGS, BLOAT],
+            &[],
+            &[PROJECTIVY, MONET, SETTINGS],
+            &home_list(&[PROJECTIVY, MONET, SETTINGS]),
+        )
+        .on_shell_seq(
+            "resolve-activity",
+            &[&format!("{MONET}/.Main"), &format!("{PROJECTIVY}/.Main")],
+        );
+        let log = mock.shell_log();
+        let res = apply_snapshot_impl(
+            &state_with(mock),
+            "serial",
+            &snapshot(Some(PROJECTIVY), &[MONET, BLOAT]),
+        )
+        .await
+        .unwrap();
+        assert!(res.launcher_set, "{:?}", res.launcher_message);
+        assert_eq!(res.packages_disabled, [BLOAT, MONET]);
+        let calls = log.lock().unwrap();
+        let switch = calls.iter().position(|c| c.contains("add-role-holder"));
+        let first_disable = calls.iter().position(|c| c.starts_with("pm disable-user"));
+        assert!(switch.unwrap() < first_disable.unwrap(), "{calls:?}");
+    }
+
+    #[tokio::test]
+    async fn stock_that_overrides_the_setters_goes_off_and_then_the_switch_finishes() {
+        // Shield: an enabled stock launcher wins over the polite setters, so
+        // the switch only lands once the snapshot's stock disable has run.
+        let stock_home = format!("{STOCK}/.MainActivity");
+        let mock = restore_tv(
+            &[STOCK, PROJECTIVY, SETTINGS],
+            &[],
+            &[STOCK, PROJECTIVY, SETTINGS],
+            &home_list(&[STOCK, PROJECTIVY, SETTINGS]),
+        )
+        .on_shell_seq(
+            "resolve-activity",
+            &[
+                &stock_home,
+                &stock_home,
+                &stock_home,
+                &format!("{PROJECTIVY}/.Main"),
+            ],
+        );
+        let res = apply_snapshot_impl(
+            &state_with(mock),
+            "serial",
+            &snapshot(Some(PROJECTIVY), &[STOCK]),
+        )
+        .await
+        .unwrap();
+        assert_eq!(res.packages_disabled, [STOCK]);
+        assert!(res.launcher_set, "{:?}", res.launcher_message);
+    }
+
     #[tokio::test]
     async fn disable_from_plan_records_invalid_name_without_aborting() {
         // A snapshot file might contain a malformed or injected package name.
@@ -804,13 +1251,13 @@ mod tests {
             "evil; reboot".to_string(),
             "com.another.valid".to_string(),
         ];
-        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
-        assert_eq!(disabled, ["com.valid.package", "com.another.valid"]);
-        assert_eq!(failed.len(), 1, "exactly the invalid entry should fail");
+        let out = disable_from_plan(&mock, "serial", &pkgs, no_home()).await;
+        assert_eq!(out.disabled, ["com.valid.package", "com.another.valid"]);
+        assert_eq!(out.failed.len(), 1, "exactly the invalid entry should fail");
         assert!(
-            failed[0].contains("invalid package name"),
+            out.failed[0].contains("invalid package name"),
             "failure reason missing from message: {}",
-            failed[0]
+            out.failed[0]
         );
     }
 
@@ -826,8 +1273,8 @@ mod tests {
             "com.fails.pkg".to_string(),
             "com.ok.two".to_string(),
         ];
-        let (disabled, failed) = disable_from_plan(&mock, "serial", &pkgs).await;
-        assert_eq!(disabled, ["com.ok.one", "com.ok.two"]);
-        assert_eq!(failed, ["com.fails.pkg"]);
+        let out = disable_from_plan(&mock, "serial", &pkgs, no_home()).await;
+        assert_eq!(out.disabled, ["com.ok.one", "com.ok.two"]);
+        assert_eq!(out.failed, ["com.fails.pkg"]);
     }
 }

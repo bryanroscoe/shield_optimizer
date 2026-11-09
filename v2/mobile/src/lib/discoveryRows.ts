@@ -42,6 +42,7 @@ type AdvertisedInstance = { name: string; service: string };
 type HostGroup = {
   host: string;
   names: Set<string>;
+  friendlyNames: Set<string>;
   instances: AdvertisedInstance[];
   connectPorts: Set<number>;
   pairingPorts: Set<number>;
@@ -53,7 +54,7 @@ function validPort(port: number): boolean {
 }
 
 function displayName(names: Set<string>): string {
-  return names.size === 1 ? [...names][0] : "Android TV";
+  return names.size === 1 ? [...names][0] : "Name unavailable";
 }
 
 /// adbd advertises its mDNS service as `adb-<serial>` or `adb-<serial>-<suffix>`,
@@ -109,11 +110,11 @@ export function buildDiscoveryRows(
   savedDevices: SavedDevice[],
   live: LiveEndpoint,
 ): DiscoveryRow[] {
-  // mDNS entries can outlive the TV that published them (the Android side
-  // ignores onServiceLost), so the connected TV's own reported id outranks
-  // any advert: it names the live row, and an advert for that same TV at any
-  // other host is stale. Only that advert is dropped, never the other
-  // devices answering from the same address.
+  // mDNS entries can outlive the TV that published them (a one-shot scan only
+  // drops a service whose goodbye arrives while it runs), so the connected
+  // TV's own reported id outranks any advert: it names the live row, and an
+  // advert for that same TV at any other host is stale. Only that advert is
+  // dropped, never the other devices answering from the same address.
   const liveId = live.connected ? normalizeHardwareId(live.hardwareId) : undefined;
   const hosts = new Map<string, HostGroup>();
   for (const discovery of discoveries) {
@@ -132,6 +133,7 @@ export function buildDiscoveryRows(
     const group = hosts.get(host) ?? {
       host,
       names: new Set<string>(),
+      friendlyNames: new Set<string>(),
       instances: [],
       connectPorts: new Set<number>(),
       pairingPorts: new Set<number>(),
@@ -139,7 +141,9 @@ export function buildDiscoveryRows(
     };
     const name = discovery.name?.trim();
     if (name) group.instances.push({ name, service: discovery.service });
-    if (name && !name.startsWith("adb-")) group.names.add(name);
+    if (name && !name.toLowerCase().startsWith("adb-")) group.names.add(name);
+    const friendlyName = discovery.friendly_name?.trim();
+    if (friendlyName) group.friendlyNames.add(friendlyName);
     if (discovery.service.includes("pairing")) {
       group.pairingPorts.add(discovery.port);
     } else {
@@ -186,7 +190,7 @@ export function buildDiscoveryRows(
       // A serial match is verified identity, so the name this TV was saved
       // under is the honest label -- more useful than a generic fallback when
       // several TVs advertise nothing but their adb id.
-      name: savedMatch?.name ?? displayName(group.names),
+      name: savedMatch?.name ?? displayName(group.friendlyNames.size > 0 ? group.friendlyNames : group.names),
       connectPorts,
       pairingPorts: [...group.pairingPorts].sort((a, b) => a - b),
       legacyConnectPorts: [...group.legacyConnectPorts].sort((a, b) => a - b),

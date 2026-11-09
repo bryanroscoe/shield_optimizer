@@ -18,7 +18,7 @@ use crate::adb::{
 };
 use crate::engine::{
     classify_safety, classify_with_sources, is_last_enabled_home_handler, is_valid_package_name,
-    CatalogVerdict, Safety,
+    CatalogVerdict, DeviceType, Safety,
 };
 use crate::license::Feature;
 
@@ -90,7 +90,7 @@ pub enum PackageState {
     Missing,
 }
 
-/// `package_states` — query the device for the current state of each package
+/// `package_states` — query user 0 for the current state of each package
 /// in `packages`. One batched shell call (`pm list packages` +
 /// `pm list packages -d`), then categorize.
 #[tauri::command]
@@ -109,7 +109,8 @@ pub async fn package_states_impl(
     packages: Vec<String>,
 ) -> Result<HashMap<String, PackageState>, String> {
     let adb = state.adb_snapshot().await;
-    let cmd = checked_batch_command(&["pm list packages", "pm list packages -d"]);
+    // Match the user targeted by typed disable and uninstall actions.
+    let cmd = checked_batch_command(&[super::LIST_PACKAGES, super::LIST_DISABLED_PACKAGES]);
     let out = adb
         .shell(serial, &cmd)
         .await
@@ -159,23 +160,42 @@ pub struct OtherPackage {
     pub description: Option<String>,
 }
 
-/// `list_other_packages` — every installed package that is NOT in the curated
-/// catalog, so the App List can act on the long tail (sideloaded apps like
-/// SmartTube most of all — they get the same Backup / Copy / Disable tools).
-/// Third-party first, then system, names ascending.
+/// `list_other_packages` — every installed package that is NOT in this
+/// device's curated catalog, so the App List can act on the long tail
+/// (sideloaded apps like SmartTube most of all — they get the same Backup /
+/// Copy / Disable tools). Third-party first, then system, names ascending.
+///
+/// "This device's catalog" is exactly what `app_list_for_device` returns for
+/// `device_type`, so every installed package lands in one section or the
+/// other. A Shield-only entry on a Google TV is an other package here, not
+/// lost between the two. Callers should pass the type they gave
+/// `app_list_for_device`; without it the device is profiled again.
 #[tauri::command]
 pub async fn list_other_packages(
     state: State<'_, AppState>,
     serial: String,
+    device_type: Option<DeviceType>,
 ) -> Result<Vec<OtherPackage>, String> {
-    list_other_packages_impl(state.inner(), &serial).await
+    list_other_packages_impl(state.inner(), &serial, device_type).await
 }
 
 pub async fn list_other_packages_impl(
     state: &AppState,
     serial: &str,
+    device_type: Option<DeviceType>,
 ) -> Result<Vec<OtherPackage>, String> {
-    list_packages_impl(state, serial, false).await
+    let device_type = match device_type {
+        Some(device_type) => device_type,
+        None => {
+            let adb = state.adb_snapshot().await;
+            // Unknown lists only the common catalog, so a failed profile read
+            // can show a curated app in both sections but never in neither.
+            super::devices::device_type_for(&*adb, serial)
+                .await
+                .unwrap_or(DeviceType::Unknown)
+        }
+    };
+    list_packages_impl(state, serial, Some(device_type)).await
 }
 
 /// `list_installed_packages` — every installed package, including entries in
@@ -194,13 +214,15 @@ pub async fn list_installed_packages_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<Vec<OtherPackage>, String> {
-    list_packages_impl(state, serial, true).await
+    list_packages_impl(state, serial, None).await
 }
 
+/// `excluding_catalog_of`: leave out the curated catalog for that device type;
+/// `None` lists every installed package.
 async fn list_packages_impl(
     state: &AppState,
     serial: &str,
-    include_curated: bool,
+    excluding_catalog_of: Option<DeviceType>,
 ) -> Result<Vec<OtherPackage>, String> {
     use std::time::Duration;
     use tokio::time::timeout;
@@ -210,9 +232,9 @@ async fn list_packages_impl(
     // Third-party classification is optional; installed and disabled state
     // must both be known before exposing app actions.
     let cmd = checked_batch_command(&[
-        "pm list packages",
-        "pm list packages -3",
-        "pm list packages -d",
+        super::LIST_PACKAGES,
+        super::LIST_THIRD_PARTY_PACKAGES,
+        super::LIST_DISABLED_PACKAGES,
     ]);
     let batched = timeout(Duration::from_secs(15), adb.shell(serial, &cmd))
         .await
@@ -235,6 +257,8 @@ async fn list_packages_impl(
     let disabled: HashSet<String> = parse_disabled_packages_output(&sections[2])
         .into_iter()
         .collect();
+    // Names come from every list: a Shield-only app on a Google TV is listed
+    // here, and its catalog name is still the right one to show.
     let catalog_names: HashMap<&str, &str> = state
         .app_lists
         .common
@@ -243,10 +267,20 @@ async fn list_packages_impl(
         .chain(state.app_lists.googletv.iter())
         .map(|e| (e.package.as_str(), e.name.as_str()))
         .collect();
+    let excluded: HashSet<String> = excluding_catalog_of
+        .map(|device_type| {
+            state
+                .app_lists
+                .for_device(device_type)
+                .into_iter()
+                .map(|e| e.package)
+                .collect()
+        })
+        .unwrap_or_default();
 
     let mut out: Vec<OtherPackage> = all_pkgs
         .into_iter()
-        .filter(|p| include_curated || !catalog_names.contains_key(p.as_str()))
+        .filter(|p| !excluded.contains(p))
         .map(|package| OtherPackage {
             system: !third.contains(&package),
             enabled: !disabled.contains(&package),
@@ -447,29 +481,18 @@ pub(crate) async fn disable_package_impl(
     // The launcher screen refuses to disable the last enabled HOME handler,
     // and this is the path the app list and the optimize wizard use, so the
     // same guard applies here. A third-party launcher is only Caution to the
-    // safety rules, so nothing else stops it. Best-effort: if the handler query fails
-    // the disable proceeds rather than blocking on a transient read.
-    if let Some(refusal) = refuse_last_home_handler(state, serial, package, "disable").await {
-        return Ok(refusal);
-    }
+    // safety rules, so nothing else stops it.
+    let handlers = match guard_last_home_handler(state, serial, package, "disable").await {
+        Ok(handlers) => handlers,
+        Err(refusal) => return Ok(refusal),
+    };
     state.require_pro(Feature::CuratedDebloat)?;
     // A stock launcher with a paired setup helper (Google TV's Setup Wraith):
-    // read the Home apps before disabling it, so the helper can follow (#157).
+    // the Home apps read before disabling it let the helper follow (#157).
     let pairs_helper = !super::loader::launchers()
         .disable_with_for(package)
         .is_empty();
-    let inventory = if pairs_helper {
-        let adb = state.adb_snapshot().await;
-        match adb.shell(serial, super::launcher::HOME_HANDLER_QUERY).await {
-            Ok(out) if out.success() && !out.shell_reported_failure() => {
-                Some(super::launcher::parse_home_handler_packages(&out.stdout))
-                    .filter(|h| !h.is_empty())
-            }
-            _ => None,
-        }
-    } else {
-        None
-    };
+    let inventory = if pairs_helper { handlers } else { None };
     let outcome = run(
         state,
         serial,
@@ -487,7 +510,7 @@ pub(crate) async fn disable_package_impl(
         _ => {
             let adb = state.adb_snapshot().await;
             matches!(
-                adb.shell(serial, &format!("pm list packages -d {package}")).await,
+                adb.shell(serial, &super::list_disabled_package(package)).await,
                 Ok(out) if out.success()
                     && out.stdout.lines().any(|l| l.trim() == format!("package:{package}"))
             )
@@ -544,31 +567,52 @@ pub(crate) async fn disable_package_impl(
     Ok(result)
 }
 
-/// `Some(refusal)` when disabling `package` would leave the device without an
-/// enabled launcher. `None` when it is safe, or when the device could not be
-/// asked — this guards against a foot-gun, it is not the brick-prevention
-/// list, which `classify_safety` already applied above.
-async fn refuse_last_home_handler(
+/// `Err(refusal)` when disabling or uninstalling `package` would leave the
+/// device without an enabled launcher, `Ok` with the Home apps read (if they
+/// could be) otherwise. This guards against a foot-gun; the brick-prevention
+/// list is `classify_safety`, applied before it.
+///
+/// An unreadable Home list (Android 8 has no `query-activities`) refuses only
+/// a package that may itself be Home: a catalog launcher or setup helper, or
+/// the app Home resolves to now. Unrelated apps carry no Home risk, so they
+/// are never blocked on it.
+async fn guard_last_home_handler(
     state: &AppState,
     serial: &str,
     package: &str,
     verb: &str,
-) -> Option<ActionResult> {
+) -> Result<Option<Vec<String>>, ActionResult> {
+    let catalog = super::loader::launchers();
     let adb = state.adb_snapshot().await;
-    let handlers = adb
-        .shell(serial, super::launcher::HOME_HANDLER_QUERY)
-        .await
-        .ok()
-        .map(|out| super::launcher::parse_home_handler_packages(&out.stdout))?;
-    is_last_enabled_home_handler(package, &handlers, super::loader::launchers()).then(|| {
-        ActionResult {
+    if let Some(handlers) = super::launcher::read_enabled_home_handlers(&*adb, serial).await {
+        if is_last_enabled_home_handler(package, &handlers, catalog) {
+            return Err(ActionResult {
+                ok: false,
+                message: format!(
+                    "Refusing to {verb} {package}: it's the only enabled launcher left on this \
+                     device. Enable another launcher first."
+                ),
+            });
+        }
+        return Ok(Some(handlers));
+    }
+    let is_home = catalog.contains(package)
+        || catalog.is_transient_home_holder(package)
+        || super::launcher::read_current_home(&*adb, serial)
+            .await
+            .ok()
+            .and_then(|r| r.package)
+            .is_some_and(|home| home == package);
+    if is_home {
+        return Err(ActionResult {
             ok: false,
             message: format!(
-                "Refusing to {verb} {package}: it's the only enabled launcher left on this \
-             device. Enable another launcher first."
+                "Refusing to {verb} {package}: this TV's Home apps couldn't be read, so it can't \
+                 be proven another launcher stays enabled. Nothing was changed."
             ),
-        }
-    })
+        });
+    }
+    Ok(None)
 }
 
 /// `enable_package` — `pm enable <pkg>`. Reverses a previous disable.
@@ -860,7 +904,7 @@ pub(crate) async fn uninstall_package_impl(
     }
     // Uninstalling the only enabled launcher strands the TV without a Home
     // screen exactly as disabling it does.
-    if let Some(refusal) = refuse_last_home_handler(state, serial, package, "uninstall").await {
+    if let Err(refusal) = guard_last_home_handler(state, serial, package, "uninstall").await {
         return Ok(refusal);
     }
     state.require_pro(Feature::CuratedDebloat)?;
@@ -1169,6 +1213,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn an_unreadable_home_list_refuses_home_apps_but_not_unrelated_ones() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        // Android 8 has no query-activities (#87). A catalog launcher, or the
+        // app Home resolves to now, can't be proven safe to disable; anything
+        // else carries no Home risk.
+        let android_8 = || {
+            MockAdb::default()
+                .on_shell("resolve-activity", "com.example.homeapp/.Main")
+                .on_shell("query-activities", "Unknown command: package")
+        };
+        for package in ["com.spocky.projengmenu", "com.example.homeapp"] {
+            let mock = android_8();
+            let log = mock.shell_log();
+            let state = state_with(mock);
+            for result in [
+                disable_package_impl(&state, "serial", package)
+                    .await
+                    .unwrap(),
+                uninstall_package_impl(&state, "serial", package)
+                    .await
+                    .unwrap(),
+            ] {
+                assert!(!result.ok, "{package}: {}", result.message);
+                assert!(
+                    result.message.contains("couldn't be read"),
+                    "{}",
+                    result.message
+                );
+            }
+            let issued = log.lock().unwrap().clone();
+            assert!(
+                !issued
+                    .iter()
+                    .any(|c| c.contains("pm disable-user") || c.contains("pm uninstall")),
+                "{package} reached the device: {issued:?}"
+            );
+        }
+        let state = state_with(android_8());
+        let result = disable_package_impl(&state, "serial", "com.example.app")
+            .await
+            .unwrap();
+        assert!(result.ok, "{}", result.message);
+    }
+
+    #[tokio::test]
+    async fn other_packages_exclude_only_this_devices_catalog() {
+        use crate::commands::test_support::MockAdb;
+        use crate::engine::{ActionMethod, AppEntry, AppListBundle, RiskTier};
+        use std::sync::Arc;
+
+        fn entry(package: &str) -> AppEntry {
+            AppEntry {
+                package: package.to_string(),
+                name: format!("{package} name"),
+                method: ActionMethod::Disable,
+                risk: RiskTier::Safe,
+                optimize_description: String::new(),
+                restore_description: String::new(),
+                default_optimize: false,
+                default_restore: false,
+                play_store: false,
+                defunct: false,
+                review: false,
+                reviewed_at: None,
+                sources: Vec::new(),
+                device_scope: Vec::new(),
+            }
+        }
+        // Every TV that isn't a Shield is detected as Google TV, so a Mi Box
+        // with the Shield-only Android TV launcher must list it under Other:
+        // Recognised (`app_list_for_device`) doesn't.
+        const COMMON: &str = "com.example.common";
+        const SHIELD_ONLY: &str = "com.google.android.tvlauncher";
+        const GTV_ONLY: &str = "com.google.android.apps.tv.launcherx";
+        const SIDELOAD: &str = "com.example.sideload";
+        let bundle = AppListBundle {
+            common: vec![entry(COMMON)],
+            shield: vec![entry(SHIELD_ONLY)],
+            googletv: vec![entry(GTV_ONLY)],
+        };
+        let installed = [COMMON, SHIELD_ONLY, GTV_ONLY, SIDELOAD];
+        let listing = installed
+            .iter()
+            .map(|p| format!("package:{p}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let output = batched(&[&listing, "", ""]);
+        let state_for =
+            |mock: MockAdb| AppState::new(Arc::new(mock), bundle.clone(), std::env::temp_dir());
+
+        for (device_type, expected) in [
+            (DeviceType::GoogleTv, vec![SIDELOAD, SHIELD_ONLY]),
+            (DeviceType::Shield, vec![SIDELOAD, GTV_ONLY]),
+            (DeviceType::Unknown, vec![SIDELOAD, GTV_ONLY, SHIELD_ONLY]),
+        ] {
+            let state = state_for(MockAdb::default().on_shell(BATCH_SEPARATOR, &output));
+            let others = list_other_packages_impl(&state, "serial", Some(device_type))
+                .await
+                .unwrap();
+            let others: Vec<&str> = others.iter().map(|o| o.package.as_str()).collect();
+            assert_eq!(others, expected, "{device_type:?}");
+            // Each installed package is in exactly one of the two sections.
+            let recognised = bundle.for_device(device_type);
+            for package in installed {
+                let in_recognised = recognised.iter().any(|e| e.package == package);
+                assert!(
+                    in_recognised != others.contains(&package),
+                    "{package} on {device_type:?}"
+                );
+            }
+        }
+
+        // The catalog name still labels a row listed under Other.
+        let state = state_for(MockAdb::default().on_shell(BATCH_SEPARATOR, &output));
+        let others = list_other_packages_impl(&state, "serial", Some(DeviceType::GoogleTv))
+            .await
+            .unwrap();
+        let launcher = others.iter().find(|o| o.package == SHIELD_ONLY).unwrap();
+        assert_eq!(
+            launcher.name.as_deref(),
+            Some("com.google.android.tvlauncher name")
+        );
+
+        // Without a type from the caller, the device is profiled: an Nvidia
+        // brand is a Shield. A profile that can't be read is Unknown, which
+        // can list a curated app twice but never drops one.
+        let shield_profile = format!("null\n{BATCH_SEPARATOR}\nNVIDIA");
+        for (profile, expected) in [
+            (shield_profile.as_str(), vec![SIDELOAD, GTV_ONLY]),
+            ("", vec![SIDELOAD, GTV_ONLY, SHIELD_ONLY]),
+        ] {
+            let state = state_for(
+                MockAdb::default()
+                    .on_shell("getprop ro.product.brand", profile)
+                    .on_shell(BATCH_SEPARATOR, &output),
+            );
+            let others = list_other_packages_impl(&state, "serial", None)
+                .await
+                .unwrap();
+            let others: Vec<&str> = others.iter().map(|o| o.package.as_str()).collect();
+            assert_eq!(others, expected);
+        }
+    }
+
+    #[tokio::test]
     async fn disabled_read_failure_never_becomes_enabled_state() {
         use crate::commands::test_support::{state_with, MockAdb};
         let status = crate::adb::batch::BATCH_STATUS;
@@ -1181,7 +1370,11 @@ mod tests {
         );
         let three = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n");
         let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &three));
-        assert!(list_other_packages_impl(&state, "serial").await.is_err());
+        assert!(
+            list_other_packages_impl(&state, "serial", Some(DeviceType::Shield))
+                .await
+                .is_err()
+        );
         assert!(list_installed_packages_impl(&state, "serial")
             .await
             .is_err());
@@ -1196,6 +1389,62 @@ mod tests {
             .map(|s| format!("{s}\n{}0\n", crate::adb::batch::BATCH_STATUS))
             .collect::<Vec<_>>()
             .join(&format!("\n{BATCH_SEPARATOR}\n"))
+    }
+
+    #[tokio::test]
+    async fn user_zero_inventory_excludes_packages_only_installed_for_another_user() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let enabled = "package:com.example.owner";
+        let disabled = "package:com.example.disabled";
+        let owner = format!("{enabled}\n{disabled}");
+        let all_users = format!("{owner}\npackage:com.google.android.videos");
+        let scoped_states =
+            checked_batch_command(&["pm list packages --user 0", "pm list packages -d --user 0"]);
+        let scoped_inventory = checked_batch_command(&[
+            "pm list packages --user 0",
+            "pm list packages -3 --user 0",
+            "pm list packages -d --user 0",
+        ]);
+        let mock = MockAdb::default()
+            .on_shell(&scoped_states, &batched(&[&owner, disabled]))
+            .on_shell(&scoped_inventory, &batched(&[&owner, enabled, disabled]))
+            .on_shell(BATCH_SEPARATOR, &batched(&[&all_users, ""]));
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        let states = package_states_impl(
+            &state,
+            "serial",
+            vec![
+                "com.google.android.videos".into(),
+                "com.example.owner".into(),
+                "com.example.disabled".into(),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(states["com.google.android.videos"], PackageState::Missing);
+        assert_eq!(states["com.example.owner"], PackageState::Enabled);
+        assert_eq!(states["com.example.disabled"], PackageState::Disabled);
+
+        let installed = list_installed_packages_impl(&state, "serial")
+            .await
+            .unwrap();
+        assert_eq!(installed.len(), 2);
+        assert_eq!(installed[0].package, "com.example.owner");
+        assert!(installed[0].enabled && !installed[0].system);
+        assert_eq!(installed[1].package, "com.example.disabled");
+        assert!(!installed[1].enabled && installed[1].system);
+        let others = list_other_packages_impl(&state, "serial", Some(DeviceType::Shield))
+            .await
+            .unwrap();
+        assert_eq!(others.len(), 2);
+        assert_eq!(others[0].package, "com.example.owner");
+        assert_eq!(
+            *log.lock().unwrap(),
+            vec![scoped_states, scoped_inventory.clone(), scoped_inventory],
+            "every inventory path uses only the owner-scoped batch"
+        );
     }
 
     #[test]
@@ -1231,7 +1480,9 @@ mod tests {
         let third = "package:com.amazon.music.tv";
         let state =
             state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&[all, third, ""])));
-        let others = list_other_packages_impl(&state, "serial").await.unwrap();
+        let others = list_other_packages_impl(&state, "serial", Some(DeviceType::Shield))
+            .await
+            .unwrap();
         let music = others
             .iter()
             .find(|o| o.package == "com.amazon.music.tv")
@@ -1281,7 +1532,9 @@ mod tests {
         );
         let state = state_with(mock).with_known_names(names);
 
-        let others = list_other_packages_impl(&state, "serial").await.unwrap();
+        let others = list_other_packages_impl(&state, "serial", Some(DeviceType::Shield))
+            .await
+            .unwrap();
         let artemis = others
             .iter()
             .find(|o| o.package == "com.limelight.noir")
@@ -1385,7 +1638,7 @@ mod tests {
         assert!(protected.system);
         assert!(!protected.enabled);
 
-        let others = list_other_packages_impl(&make_state(), "serial")
+        let others = list_other_packages_impl(&make_state(), "serial", Some(DeviceType::Shield))
             .await
             .expect("other-only packages");
         assert_eq!(others.len(), 2);
@@ -1404,7 +1657,7 @@ mod tests {
         // surface, not render an empty "Everything else" list.
         let state =
             state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""])));
-        let err = match list_other_packages_impl(&state, "serial").await {
+        let err = match list_other_packages_impl(&state, "serial", Some(DeviceType::Shield)).await {
             Ok(rows) => panic!(
                 "empty package listing must be an error, got {} rows",
                 rows.len()

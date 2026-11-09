@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=ATV Optimizer
+Comment=Debloat and tune Android TV devices over ADB
+Exec=atv-optimizer
+Icon=io.github.bryanroscoe.ATVOptimizer
+Terminal=false
+Categories=Utility;
+Keywords=Android;TV;ADB;Shield;Google TV;Debloat;Launcher;
+StartupWMClass=atv-optimizer
