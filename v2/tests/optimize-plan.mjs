@@ -120,11 +120,12 @@ async function exercise({ browser, base }) {
       await row.getByRole("button", { name: `Hide why ${entry.name} has this verdict`, exact: true }).click();
     }
   }
+  // Review rows are armed one at a time by a person; nothing arms them in bulk.
+  assert.equal(await panel.getByRole("button", { name: /Select all/ }).count(), 0, "Optimize has no bulk arm control");
   await panel.getByRole("button", { name: "Keep all", exact: true }).click();
-  await panel.getByRole("button", { name: "Select all safe", exact: true }).click();
   for (const entry of reviewed) {
     const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
-    assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Select all safe: ${entry.package}`);
+    assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Keep all: ${entry.package}`);
   }
   const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
   assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
