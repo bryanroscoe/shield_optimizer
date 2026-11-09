@@ -1347,7 +1347,14 @@ async fn upload_transaction_keeps_one_verified_socket_across_every_phase() {
     std::fs::write(local.path(), b"abc").unwrap();
     let result = connected
         .driver
-        .upload_file(&connected.serial, local.path(), "/sdcard/movie", 3, false)
+        .upload_file(
+            &connected.serial,
+            "fixture-tv",
+            local.path(),
+            "/sdcard/movie",
+            3,
+            false,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -1399,7 +1406,7 @@ async fn dropping_upload_during_commit_cancels_dedicated_socket_not_selected_tv(
     let path = local.path().to_owned();
     let worker = tokio::spawn(async move {
         worker_driver
-            .upload_file(&serial, &path, "/sdcard/movie", 3, true)
+            .upload_file(&serial, "fixture-tv", &path, "/sdcard/movie", 3, true)
             .await
     });
     tokio::task::spawn_blocking(move || commit_rx.recv_timeout(Duration::from_secs(5)).unwrap())
@@ -1413,6 +1420,142 @@ async fn dropping_upload_during_commit_cancels_dedicated_socket_not_selected_tv(
             .await
             .unwrap(),
         "fixture-tv"
+    );
+    connected.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn queued_upload_refuses_new_generation_at_the_same_endpoint_before_identity_probe() {
+    let connected = connected_driver(|selected_a, listener| {
+        // A new connection B at the same address is ready to replace A while the
+        // upload's identity worker waits for conn. Neither may get an upload probe.
+        let mut selected_b = accept(&listener);
+        assert_eq!(receive(&mut selected_b).0, b"CNXN");
+        send(&mut selected_b, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        drop(selected_a);
+        // The only service allowed on B is this explicitly requested later liveness
+        // check. A mistaken hardware probe would fail this exact OPEN assertion.
+        serve_shell(&mut selected_b, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+        listener.set_nonblocking(true).unwrap();
+        assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock), "no dedicated upload connection may have opened");
+    }).await;
+    let address: SocketAddr = connected.serial.parse().unwrap();
+    let key = connected._key.path().to_owned();
+    let replacement = tokio::task::spawn_blocking(move || {
+        ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+            address,
+            key,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+    })
+    .await
+    .unwrap();
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    let mut upload = Box::pin(connected.driver.upload_file(
+        &connected.serial,
+        "fixture-tv",
+        local.path(),
+        "/sdcard/movie",
+        3,
+        false,
+    ));
+    {
+        use std::future::Future;
+        struct Noop;
+        impl std::task::Wake for Noop {
+            fn wake(self: Arc<Self>) {}
+        }
+        let waker = std::task::Waker::from(Arc::new(Noop));
+        let mut context = std::task::Context::from_waker(&waker);
+        let mut guard = lock_recovering(&connected.driver.conn);
+        // Polling reaches spawn_blocking only AFTER atomically capturing generation 1.
+        // Holding conn makes the worker wait, so replacement ordering is deterministic.
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        assert_eq!(guard.as_ref().unwrap().request_id, 1);
+        *guard = Some(Connection {
+            device: replacement,
+            serial: connected.serial.clone(),
+            request_id: 2,
+        });
+        lock_recovering(&connected.driver.identity)
+            .as_mut()
+            .unwrap()
+            .request_id = 2;
+    }
+    let error = upload.await.unwrap_err().to_string();
+    assert!(
+        error.contains("connection changed while the upload was waiting"),
+        "{error}"
+    );
+    assert_eq!(
+        connected
+            .driver
+            .shell(&connected.serial, "echo ok")
+            .await
+            .unwrap()
+            .stdout,
+        "ok\n"
+    );
+    connected.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn upload_rejects_stale_frontend_hardware_identity_before_dedicated_connection() {
+    let connected = connected_driver(|mut selected, listener| {
+        serve_download_identity(&mut selected); // Actually fixture-tv, not caller's original-tv.
+        serve_shell(&mut selected, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+        listener.set_nonblocking(true).unwrap();
+        assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+    }).await;
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    // Empty/placeholder identities fail before even querying the selected socket.
+    for expected in ["", " unknown "] {
+        let error = connected
+            .driver
+            .upload_file(
+                &connected.serial,
+                expected,
+                local.path(),
+                "/sdcard/movie",
+                3,
+                false,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("needs a verified TV hardware identity"),
+            "{error}"
+        );
+    }
+    let error = connected
+        .driver
+        .upload_file(
+            &connected.serial,
+            "original-tv",
+            local.path(),
+            "/sdcard/movie",
+            3,
+            true,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("hardware identity changed since the upload was selected"),
+        "{error}"
+    );
+    assert_eq!(
+        connected
+            .driver
+            .shell(&connected.serial, "echo ok")
+            .await
+            .unwrap()
+            .stdout,
+        "ok\n"
     );
     connected.peer.join().unwrap();
 }

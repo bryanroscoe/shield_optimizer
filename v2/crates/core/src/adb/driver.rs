@@ -309,6 +309,7 @@ pub trait AdbDriver: Send + Sync {
     async fn upload_file(
         &self,
         _serial: &str,
+        _expected_hardware_id: &str,
         _local: &std::path::Path,
         _target: &str,
         _expected_size: u64,

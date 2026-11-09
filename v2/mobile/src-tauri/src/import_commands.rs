@@ -552,6 +552,7 @@ pub async fn upload_imported(
     state: State<'_, AppState>,
     store: State<'_, ImportStore>,
     serial: String,
+    expected_hardware_id: String,
     batch: String,
     index: usize,
     remote_dir: String,
@@ -561,6 +562,7 @@ pub async fn upload_imported(
         state.inner(),
         store.inner(),
         &serial,
+        &expected_hardware_id,
         &batch,
         index,
         &remote_dir,
@@ -573,17 +575,28 @@ pub async fn upload_imported_impl(
     state: &AppState,
     store: &ImportStore,
     serial: &str,
+    expected_hardware_id: &str,
     batch: &str,
     index: usize,
     remote_dir: &str,
     overwrite: bool,
 ) -> Result<UploadOutcome, String> {
+    let expected_hardware_id =
+        atv_optimizer_core::commands::devices::verified_hardware_id(expected_hardware_id)
+            .ok_or("The upload needs a verified TV hardware identity. Nothing was uploaded.")?;
     let batch = store.get(batch)?;
     let file = batch.files.get(index).ok_or(BATCH_GONE)?;
     let target = remote_target(remote_dir, &file.name)?;
     let adb = state.adb_snapshot().await;
     match adb
-        .upload_file(serial, &file.path, &target, file.size_bytes, overwrite)
+        .upload_file(
+            serial,
+            expected_hardware_id,
+            &file.path,
+            &target,
+            file.size_bytes,
+            overwrite,
+        )
         .await
         .map_err(|error| error.to_string())?
     {
@@ -793,6 +806,7 @@ mod tests {
         async fn upload_file(
             &self,
             serial: &str,
+            _expected_hardware_id: &str,
             local: &Path,
             target: &str,
             size: u64,
@@ -1152,9 +1166,18 @@ mod tests {
         tv.stat = "5\n".into();
         let tv = Arc::new(tv);
         let state = state(tv.clone(), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard/Movies", false)
-            .await
-            .unwrap();
+        let outcome = upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/sdcard/Movies",
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             outcome,
             UploadOutcome::Uploaded {
@@ -1183,14 +1206,16 @@ mod tests {
         tv.stat = "1".into();
         let tv = Arc::new(tv);
         let state = state(tv.clone(), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap();
         assert!(matches!(outcome, UploadOutcome::Exists { .. }));
         assert!(!tv.calls().iter().any(|c| c.contains(" push ")));
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap();
         assert!(matches!(
             outcome,
             UploadOutcome::Uploaded { verified: true, .. }
@@ -1200,9 +1225,10 @@ mod tests {
         folder.existing = "d /sdcard/a.txt\n".into();
         let folder = Arc::new(folder);
         let state = super::tests::state(folder.clone(), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap_err();
         assert!(error.contains("A folder named a.txt"), "{error}");
         assert!(!folder.calls().iter().any(|c| c.contains(" push ")));
     }
@@ -1215,9 +1241,10 @@ mod tests {
         let mut short = Tv::new();
         short.stat = "2".into();
         let state = state(Arc::new(short), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap_err();
         assert!(error.contains("as 2 bytes instead of 3"), "{error}");
         assert!(
             error.contains("Nothing in the folder was replaced"),
@@ -1227,9 +1254,10 @@ mod tests {
         let mut unknown = Tv::new();
         unknown.stat = "stat: not found".into();
         let state = super::tests::state(Arc::new(unknown), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap();
         assert!(matches!(
             outcome,
             UploadOutcome::Uploaded {
@@ -1246,9 +1274,10 @@ mod tests {
             })
         };
         let state = super::tests::state(Arc::new(uncertain), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap_err();
         assert!(error.contains("didn't finish uploading"), "{error}");
         assert!(
             error.contains("Nothing in the folder was replaced."),
@@ -1260,9 +1289,10 @@ mod tests {
         stuck.mv_fails = true;
         let stuck = Arc::new(stuck);
         let state = super::tests::state(stuck.clone(), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap_err();
         assert!(
             error.contains("did not confirm putting the file in place"),
             "{error}"
@@ -1274,16 +1304,32 @@ mod tests {
 
         let state = super::tests::state(Arc::new(Tv::new()), root.path());
         assert_eq!(
-            upload_imported_impl(&state, &store, "TV", "import-unknown", 0, "/sdcard", false)
-                .await
-                .unwrap_err(),
+            upload_imported_impl(
+                &state,
+                &store,
+                "TV",
+                "fixture-tv",
+                "import-unknown",
+                0,
+                "/sdcard",
+                false
+            )
+            .await
+            .unwrap_err(),
             BATCH_GONE
         );
-        assert!(
-            upload_imported_impl(&state, &store, "TV", &id, 0, "/data/local/tmp", false)
-                .await
-                .is_err()
-        );
+        assert!(upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/data/local/tmp",
+            false
+        )
+        .await
+        .is_err());
     }
 
     fn stored_zip(names: &[&str]) -> Vec<u8> {

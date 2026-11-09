@@ -102,7 +102,9 @@ pub fn upload(
     if !overwrite {
         let safe = io.shell(SAFE_SHELL)?;
         if !acknowledged(&safe, "atvopt-safe-shell") {
-            return Err(AdbError::Transport("This TV's shell cannot safely create a new upload without replacing another file. Nothing was uploaded.".into()));
+            return Err(AdbError::Transport(
+                "Safe upload support couldn't be verified on this TV. Nothing was uploaded.".into(),
+            ));
         }
     }
     let stage = format!("{parent}/.atvopt-upload-{}", uuid::Uuid::new_v4());

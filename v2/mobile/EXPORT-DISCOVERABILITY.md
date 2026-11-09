@@ -140,7 +140,10 @@ The other direction, for the documents the user picks and only for the selected 
   which names already exist (`[ -d ]` / `[ -e ]` per target); a file conflict opens Replace / Don't
   upload, and a same-named folder is never replaced (that file is skipped and said). Then
   `upload_imported` sends one file at a time ("Uploading 2 of 3: name…"): it re-checks the target,
-  uses one dedicated hardware-verified connection for all phases, and reserves a fresh random
+  carries the verified hardware ID captured before the picker/confirmation through the upload
+  request; missing identity or a changed TV is refused before any write. It checks the admitted
+  connection generation under the socket lock before querying identity, then uses one dedicated
+  hardware-verified connection for all phases and reserves a fresh random
   `.atvopt-upload-<uuid>` directory using exclusive `mkdir`. Only its `payload` is pushed and
   cleanup never removes the final target. The staged size is checked with `stat -c %s`; an
   unreadable size is "size not confirmed by the TV". New destinations use exclusive-create

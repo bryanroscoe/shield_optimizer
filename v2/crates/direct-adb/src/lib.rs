@@ -212,6 +212,8 @@ impl Drop for AuthorizationObservation {
 /// can read it without queueing behind a blocking network call.
 #[derive(Clone)]
 struct Identity {
+    // Generation of the Connection mirrored here; an endpoint alone is not identity.
+    request_id: u64,
     serial: String,
     host: String,
     port: u16,
@@ -778,6 +780,7 @@ impl WirelessAdb {
                 request_id,
             });
             *lock_recovering(&identity) = Some(Identity {
+                request_id,
                 serial: serial.clone(),
                 host: host_owned,
                 port,
@@ -1118,13 +1121,21 @@ impl AdbDriver for WirelessAdb {
     async fn upload_file(
         &self,
         serial: &str,
+        expected_hardware_id: &str,
         local: &Path,
         target: &str,
         expected_size: u64,
         overwrite: bool,
     ) -> AdbResult<atv_optimizer_core::adb::upload::UploadResult> {
-        self.upload_file_impl(serial, local, target, expected_size, overwrite)
-            .await
+        self.upload_file_impl(
+            serial,
+            expected_hardware_id,
+            local,
+            target,
+            expected_size,
+            overwrite,
+        )
+        .await
     }
 
     async fn shell_bounded(
@@ -2044,6 +2055,7 @@ mod lifecycle_tests {
             operations.clone(),
         ));
         *lock_recovering(&driver.identity) = Some(Identity {
+            request_id: 1,
             serial: "fixture".into(),
             host: "fixture".into(),
             port: 0,
@@ -2087,6 +2099,7 @@ mod lifecycle_tests {
             operations.clone(),
         ));
         *lock_recovering(&driver.identity) = Some(Identity {
+            request_id: 1,
             serial: "fixture".into(),
             host: "fixture".into(),
             port: 0,
@@ -2141,6 +2154,7 @@ mod lifecycle_tests {
             .await
             .is_err());
         *lock_recovering(&driver.identity) = Some(Identity {
+            request_id: 1,
             serial: "127.0.0.1:0".into(),
             host: "127.0.0.1".into(),
             port: 0,

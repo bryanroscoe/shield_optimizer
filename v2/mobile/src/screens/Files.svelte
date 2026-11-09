@@ -1,6 +1,7 @@
 <script lang="ts">
   import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, onMount } from "svelte";
+  import { normalizeHardwareId } from "../lib/identity";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { FileEntry, FindResult, ImportedFile, PulledFile, UploadConflict } from "../lib/types";
@@ -75,6 +76,7 @@
   let showCatalog = $state(false);
 
   // Upload to TV: files picked on this phone, staged in the app under an opaque batch id.
+  type UploadTarget = FileConnection & { expectedHardwareId: string };
   type Uploaded = { name: string; remote_path: string; verified: boolean };
   let uploading = $state(false);
   let uploadStatus = $state("");
@@ -82,7 +84,7 @@
   let uploadProblems = $state<string[]>([]);
   // Picked files that would replace files already on the TV, waiting on the dialog.
   let pendingReplace = $state<
-    (FileConnection & { batch: string; dir: string; files: ImportedFile[]; conflicts: UploadConflict[] }) | null
+    (UploadTarget & { batch: string; dir: string; files: ImportedFile[]; conflicts: UploadConflict[] }) | null
   >(null);
   /// The staged batch this screen still holds, so leaving the screen frees it.
   let heldImport: string | null = null;
@@ -165,7 +167,12 @@
   async function startUpload() {
     const dir = loadedPath;
     if (uploading || busyName || deleting || !session.isConnected || !canUploadToTv(dir)) return;
-    const target = { serial: session.serial, generation: session.generation };
+    const expectedHardwareId = normalizeHardwareId(session.connectedDevice?.properties?.serial_number);
+    if (!expectedHardwareId) {
+      showToast("The upload needs a verified TV hardware identity. Reconnect to the TV and try again.", "error");
+      return;
+    }
+    const target = { serial: session.serial, generation: session.generation, expectedHardwareId };
     uploading = true;
     uploadProblems = [];
     uploadStatus = "Waiting for the file picker…";
@@ -232,7 +239,7 @@
   /// Send each picked file in turn. A file whose name is a folder on the TV is skipped; a file
   /// that would replace one is sent with overwrite only because the user agreed to it.
   async function sendAll(
-    target: FileConnection,
+    target: UploadTarget,
     batch: string,
     dir: string,
     files: ImportedFile[],
@@ -247,7 +254,7 @@
       if (!current(target)) return;
       uploadStatus = `Uploading ${n + 1} of ${queue.length}: ${file.name}…`;
       try {
-        const r = await api.uploadImported(target.serial, batch, index, dir, replace.has(file.name));
+        const r = await api.uploadImported(target.serial, target.expectedHardwareId, batch, index, dir, replace.has(file.name));
         if (!current(target)) return;
         if (r.status === "uploaded") {
           sent += 1;
