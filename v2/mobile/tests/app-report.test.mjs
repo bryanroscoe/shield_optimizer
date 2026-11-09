@@ -34,8 +34,10 @@ test("public store/developer links survive the real mobile report sheet, clipboa
       Object.defineProperty(navigator, "clipboard", { configurable: true,
         value: { writeText: async (text) => void window.__COPIED__.push(text) } });
     });
-    await page.goto(origin);
-    await page.evaluate(async () => {
+    await page.goto(origin, { waitUntil: "networkidle" });
+    // On a cold Vite server the first import of the sheet can make Vite
+    // re-optimize dependencies and reload the page mid-mount; mount again.
+    const mountSheet = () => page.evaluate(async () => {
       const { mountReport } = await import("/tests/helpers/report-sheet.ts");
       const target = document.createElement("div");
       document.body.append(target);
@@ -47,6 +49,13 @@ test("public store/developer links survive the real mobile report sheet, clipboa
       label.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#ffda7b;color:#111;padding:6px;text-align:center;font:14px system-ui;pointer-events:none";
       document.body.append(label);
     });
+    try {
+      await mountSheet();
+    } catch (error) {
+      if (!/Execution context was destroyed/.test(String(error))) throw error;
+      await page.waitForLoadState("networkidle");
+      await mountSheet();
+    }
     const dialog = page.getByRole("dialog", { name: "Report this app" });
     const store = "https://play.google.com/store/apps/details?id=com.weathergroup.localnow";
     const developer = "https://developer.example.com/support";
