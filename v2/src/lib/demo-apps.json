@@ -2118,6 +2118,28 @@
     ]
   },
   {
+    "package": "com.accuweather.android",
+    "name": "AccuWeather",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops forecasts, radar, weather alerts and widgets provided by AccuWeather. Keep it if anyone relies on its weather warnings. Disabling does not cancel a premium subscription.",
+    "restore_description": "Re-enables AccuWeather if still installed. Does not restore deleted data, saved locations, widget setup or notification settings. Account access and alert availability remain unverified.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-09",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.accuweather.android",
+      "https://www.accuweather.com/en/weather-news/accuweather-app-faq/765568",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sanyo-atv-r2/debloat.txt#L48",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-xbr-55x850c/debloat.txt#L79",
+      "Source-based optional functional review: docs/OPTIMIZE-CATALOG-REVIEW-2026-11-09.md. No model/firmware/platform certification, guaranteed weather alerts, performance or physical removal/recovery claim."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",
