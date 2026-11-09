@@ -759,7 +759,6 @@
           <th class="right">RAM</th>
           <th class="right">Last used</th>
           <th>Action</th>
-          <th>Result</th>
         </tr>
       </thead>
       <tbody>
@@ -786,7 +785,7 @@
               const st = safetyByPackage[item.entry.package];
               return st?.status === "unavailable" ? st.reason : undefined;
             })()}
-            columns={7}
+            columns={6}
             detailOpen={expandedSafety === item.entry.package}
             onToggleDetail={() =>
               (expandedSafety =
@@ -802,6 +801,27 @@
           >
             {#snippet actions()}
             <td>
+              {#if progress}
+                <!-- The run's outcome sits with the choice it acted on: a
+                     separate Result column scrolled off narrow windows. -->
+                <div class="row-result">
+                  {#if progress === "done"}
+                    <span class="tag installed"><Icon name="check" size={14} /> DONE</span>
+                  {:else if progress === "pending"}
+                    <span class="muted small">…</span>
+                  {:else if progress === "skipped"}
+                    <span class="muted small">skipped</span>
+                  {:else if progress === "failed"}
+                    <span
+                      class="tag"
+                      style="background:var(--danger-surface); color:var(--danger-text)"
+                      data-tip={shortTip(optimizeFailureMessages[item.entry.package])}
+                      data-tip-align="end"
+                      title={optimizeFailureMessages[item.entry.package] ?? ""}
+                    >FAILED</span>
+                  {/if}
+                </div>
+              {/if}
               {#if skip}
                 <span class="terminal-reason">{skip}</span>
               {:else}
@@ -852,23 +872,6 @@
                        app, so the row armed with it says which case it is. -->
                   <div class="small uninstall-note">{uninstallOutcome(item.entry.package, item.entry).short}</div>
                 {/if}
-              {/if}
-            </td>
-            <td>
-              {#if progress === "done"}
-                <span class="tag installed"><Icon name="check" size={14} /> DONE</span>
-              {:else if progress === "pending"}
-                <span class="muted small">…</span>
-              {:else if progress === "skipped"}
-                <span class="muted small">skipped</span>
-              {:else if progress === "failed"}
-                <span
-                  class="tag"
-                  style="background:var(--danger-surface); color:var(--danger-text)"
-                  data-tip={shortTip(optimizeFailureMessages[item.entry.package])}
-                  data-tip-align="end"
-                  title={optimizeFailureMessages[item.entry.package] ?? ""}
-                >FAILED</span>
               {/if}
             </td>
             {/snippet}
@@ -996,7 +999,10 @@
     outline-offset: 2px;
   }
   .optimize-table {
-    min-width: 64rem;
+    min-width: 56rem;
+  }
+  .row-result {
+    margin-bottom: 0.35rem;
   }
   th, td {
     text-align: left;

@@ -412,6 +412,9 @@ jobs:
       - name: Notes seen
         working-directory: v2
         run: npm run test:notes-seen
+      - name: Back/forward keyboard shortcuts
+        working-directory: v2
+        run: npm run test:history-keys
 
       # The "rolling out" banner must agree with the backend's update check on
       # what "newer" means — including that beta.10 beats beta.9.
