@@ -174,7 +174,7 @@ try {
           settings_written: [],
           settings_deleted: [],
           settings_failed: [],
-          summary: "Disabled 1 packages (2 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
+          summary: "Disabled 1 packages (1 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
         };
       }
       return original(command, args);
