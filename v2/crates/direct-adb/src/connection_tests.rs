@@ -642,10 +642,25 @@ async fn native_upload_uses_a_dedicated_connection_and_leaves_the_selected_tv_fr
 #[tokio::test]
 async fn status_reports_a_tv_busy_with_a_command_as_connected_without_waiting_for_it() {
     let (release_peer, peer_released) = std::sync::mpsc::channel::<()>();
-    let connected = connected_driver(move |socket, _listener| {
+    let connected = connected_driver(move |mut socket, _listener| {
         // Nothing may reach the TV while the command holds the connection.
-        let _socket = socket;
-        let _ = peer_released.recv_timeout(Duration::from_secs(10));
+        socket
+            .set_read_timeout(Some(Duration::from_millis(50)))
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while peer_released.try_recv() == Err(std::sync::mpsc::TryRecvError::Empty) {
+            assert!(std::time::Instant::now() < deadline, "never released");
+            match socket.read(&mut [0; 64]) {
+                Ok(read) => panic!("status sent {read} bytes past a busy connection"),
+                Err(error) => assert!(
+                    matches!(
+                        error.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                    ),
+                    "{error}"
+                ),
+            }
+        }
     })
     .await;
     let conn = connected.driver.conn.clone();

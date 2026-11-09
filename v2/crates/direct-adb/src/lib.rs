@@ -384,6 +384,7 @@ impl WirelessAdb {
         T: Send + 'static,
         F: FnOnce(&mut ADBTcpDevice) -> Result<T, RustADBError> + Send + 'static,
     {
+        // Without a wait the lock is always taken, so `None` never comes back.
         self.on_device_waiting(serial, None, f)
             .await?
             .ok_or_else(|| "Direct ADB socket is busy.".to_string())
@@ -904,6 +905,8 @@ impl WirelessAdb {
         let remote = remote.to_owned();
         let key = self.key_path.clone();
         let preferred = self.dedicated_keys();
+        let sending = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let started = sending.clone();
         let upload = crate::bounded_shell::run_worker(operation, control, move |control| {
             let mut device = ADBTcpDevice::new_with_required_keys_and_control(
                 address, &key, &preferred, &control,
@@ -924,17 +927,24 @@ impl WirelessAdb {
                         "Upload identity check failed before any byte was sent: {error}"
                     ))
                 })?;
+            started.store(true, std::sync::atomic::Ordering::Release);
             device
                 .push_with_control(&mut file, &remote, control)
                 .map_err(upload_error)
         });
-        tokio::time::timeout_at(deadline, upload)
-            .await
-            .map_err(|_| AdbError::Uncertain {
-                operation: "file upload",
-                detail: "the total deadline was reached; the file on the TV may be incomplete"
-                    .into(),
-            })?
+        match tokio::time::timeout_at(deadline, upload).await {
+            Ok(result) => result,
+            Err(_) if sending.load(std::sync::atomic::Ordering::Acquire) => {
+                Err(AdbError::Uncertain {
+                    operation: "file upload",
+                    detail: "the total deadline was reached; the file on the TV may be incomplete"
+                        .into(),
+                })
+            }
+            Err(_) => Err(AdbError::Transport(
+                "Upload deadline reached before any byte was sent.".into(),
+            )),
+        }
     }
 
     fn devices_output(&self) -> AdbOutput {
@@ -1320,9 +1330,10 @@ fn request_error_message(error: &RustADBError) -> String {
 /// may be incomplete.
 fn upload_error(error: RustADBError) -> AdbError {
     match error {
-        RustADBError::SyncFailed(_) | RustADBError::LocalIo(_) => {
-            AdbError::Transport(error.to_string())
-        }
+        RustADBError::SyncFailed(_) => AdbError::Transport(error.to_string()),
+        RustADBError::LocalIo(_) => AdbError::Transport(format!(
+            "{error}; the file on the TV may be missing or incomplete"
+        )),
         other => AdbError::Uncertain {
             operation: "file upload",
             detail: format!("{other}; the file on the TV may be incomplete"),
