@@ -244,11 +244,19 @@ jobs:
       # linuxdeploy excludes libwayland for exactly this reason; Tauri's
       # bundler doesn't yet, so strip it here, repack, and replace the asset
       # tauri-action already uploaded.
+      #
+      # tauri-action signed the AppImage before the repack, so the repacked
+      # file is signed again with the same updater key and its .sig replaced
+      # too. latest.json still carries the old signature at this point (and
+      # the other legs may rewrite it), so merge-updater copies the new one in
+      # and checks every signature before publishing the manifest.
       - name: Strip bundled libwayland from AppImage (issue #60)
         if: matrix.os == 'ubuntu-22.04'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.notes.outputs.tag }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -278,10 +286,17 @@ jobs:
           ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run \
             "$workdir/squashfs-root" "$appimage"
 
-          # Replace the unpatched asset tauri-action uploaded. GitHub turns
-          # spaces in filenames into dots, so the names match up.
-          gh release upload "$TAG" "$appimage" --clobber
-          echo "patched + re-uploaded: $appimage"
+          # Overwrites "$appimage.sig". The key comes from the environment and
+          # is never printed; the output is the public signature.
+          rm -f "$appimage.sig"
+          (cd v2 && npx --no-install tauri signer sign "$GITHUB_WORKSPACE/$appimage")
+          node v2/scripts/updater-signatures.mjs file "$appimage" "$appimage.sig"
+
+          # Replace the unpatched asset and its signature that tauri-action
+          # uploaded. GitHub turns spaces in filenames into dots, so the names
+          # match up.
+          gh release upload "$TAG" "$appimage" "$appimage.sig" --clobber
+          echo "patched, re-signed + re-uploaded: $appimage"
 
   # Bump the Homebrew tap (bryanroscoe/homebrew-shield-optimizer) to point at
   # the new universal macOS DMG. Runs after all three bundlers succeed so the
@@ -415,6 +430,30 @@ jobs:
           cp /tmp/latest.json v2/updater/latest.json
           echo "Updater manifest for $TAG:"
           cat v2/updater/latest.json
+
+      # Every installed copy rejects an update whose signature doesn't verify
+      # against plugins.updater.pubkey, so check each artifact the manifest
+      # names before publishing it. An entry that fails is taken from that
+      # artifact's own .sig when that one verifies: the build job re-signs the
+      # AppImage after repacking it, but the matrix legs merge latest.json
+      # among themselves and can leave the old signature in. Anything still
+      # failing stops the release here, before the manifest goes live.
+      - name: Verify updater signatures
+        env:
+          TAG: ${{ needs.notes.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets=$(mktemp -d)
+          gh release download "$TAG" --dir "$assets" --pattern '*.AppImage*' --pattern '*.deb*' \
+            --pattern '*.rpm*' --pattern '*.msi*' --pattern '*.exe*' --pattern '*.app.tar.gz*'
+          cp v2/updater/latest.json "$assets/latest.json"
+          node v2/scripts/updater-signatures.mjs manifest "$assets/latest.json" "$assets" --repair
+          if ! cmp -s "$assets/latest.json" v2/updater/latest.json; then
+            cp "$assets/latest.json" v2/updater/latest.json
+            gh release upload "$TAG" v2/updater/latest.json --clobber
+            echo "Replaced latest.json on release $TAG with the corrected signatures."
+          fi
 
       - name: Commit updater manifest
         env:

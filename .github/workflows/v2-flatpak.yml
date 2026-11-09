@@ -58,6 +58,23 @@ jobs:
             exit 1
           }
 
+      - name: Manifest installs every bundled resource
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          conf = json.load(open("v2/src-tauri/tauri.conf.json"))
+          manifest = open("v2/flatpak/io.github.bryanroscoe.ATVOptimizer.yml").read()
+          product = conf["productName"]
+          dest = "$" + "{FLATPAK_DEST}"
+          missing = [
+              r for r in conf["bundle"]["resources"]
+              if f'install -Dm644 src-tauri/{r} "{dest}/lib/{product}/{r}"' not in manifest
+          ]
+          for r in missing:
+              print(f"::error::v2/flatpak manifest doesn't install bundle resource {r} to lib/{product}/{r}")
+          sys.exit(1 if missing else 0)
+          PY
+
       - name: Generate offline sources
         run: v2/flatpak/generate-sources.sh
 
