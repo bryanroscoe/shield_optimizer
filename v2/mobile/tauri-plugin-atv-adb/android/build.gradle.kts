@@ -37,6 +37,8 @@ repositories {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    // ActivityResult for the Save a copy picker callback; the app already ships 1.10.1.
+    implementation("androidx.activity:activity:1.10.1")
     // Discovery runs NsdManager on a coroutine dispatcher.
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation(project(":tauri-android"))

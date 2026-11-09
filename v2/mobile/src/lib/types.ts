@@ -458,6 +458,13 @@ export interface FileEntry {
 }
 
 /// A device file pulled into the app's scoped `downloads/` dir.
+/// `export_file`: `share_opened` means only that Android's share sheet opened.
+export type ExportMode = "save" | "share";
+export type ExportOutcome =
+  | { status: "saved"; name?: string | null }
+  | { status: "canceled" }
+  | { status: "share_opened" };
+
 export interface PulledFile {
   name: string;
   path: string;

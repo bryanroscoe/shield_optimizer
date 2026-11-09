@@ -52,6 +52,7 @@ resolved Gradle dependency report.
 | App | androidx.lifecycle:lifecycle-process:2.10.0 |
 | ADB plugin | androidx.core:core-ktx:1.13.1 |
 | ADB plugin | org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
+| ADB plugin | androidx.activity:activity:1.10.1 (added 2026-11-08 for the Save a copy picker callback; Apache-2.0, already resolved at 1.10.1 through the app's activity-ktx, so the resolved runtime set is unchanged) |
 | Billing plugin | com.android.billingclient:billing:9.1.0 (Android Software Development Kit License, not Apache-2.0) |
 | Billing plugin | androidx.core:core-ktx:1.13.1; org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
 | Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0; Material:1.7.0 |

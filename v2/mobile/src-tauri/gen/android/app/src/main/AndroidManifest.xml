@@ -40,6 +40,7 @@
             </intent-filter>
         </activity>
 
+        <!-- Share's temporary read grants. file_paths.xml maps only cache/exports/. -->
         <provider
           android:name="androidx.core.content.FileProvider"
           android:authorities="${applicationId}.fileprovider"
