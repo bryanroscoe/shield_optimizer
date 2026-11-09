@@ -139,39 +139,59 @@ async function exercise({ browser, base }) {
   assert.equal(await phone.getByText("Pixel 10 Pro").count() > 0, true,
     "it stays visible — labelling is not hiding");
 
-  // An unauthorized NETWORK device: no USB wording.
+  // Unauthorized devices: one compact row each, the details in the approval
+  // dialog's help. A NETWORK device: no USB wording.
   const net = rowFor(page, "192.168.42.143:5555");
-  const netHelp = await net.locator(".unauthorized-help").innerText();
-  assert.match(netHelp, /"Allow debugging\?"/, netHelp);
-  assert.doesNotMatch(netHelp.split("Revoke")[0], /Allow USB debugging/,
-    "a network device must not be told to look for a USB dialog");
+  assert.equal(await net.locator(".unauthorized-help").count(), 0, "the old instruction box is gone");
+  assert.equal(await net.getByText("NOT ALLOWED YET", { exact: true }).count(), 1);
+  assert.equal(await net.getByRole("button", { name: "Retry approval" }).count(), 0);
   // We do not know what it is, so we must not label it.
   assert.equal(await net.getByText("NOT AN ANDROID TV").count(), 0,
     "an unreadable device is unknown, not known-not-a-TV");
-
+  const dialogHelp = async (row, name) => {
+    await row.getByRole("button", { name: `Request approval from ${name}`, exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.locator("summary", { hasText: "Not seeing the prompt?" }).click();
+    const text = await dialog.innerText();
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "detached" });
+    return text;
+  };
+  const netHelp = await dialogHelp(net, "192.168.42.143:5555");
+  assert.match(netHelp, /“Allow debugging\?”/, netHelp);
+  assert.doesNotMatch(netHelp.split("Revoke")[0], /Allow USB debugging/,
+    "a network device must not be told to look for a USB dialog");
   // No-dialog fallback: the app's own controls, never a terminal adb (the
   // bundled adb is not on PATH, and a different one restarts the shared
   // server and drops every device). Wake first; Revoke says what it costs.
-  assert.match(netHelp, /Wake the TV; the prompt can be hidden behind the screensaver\./, netHelp);
-  assert.match(netHelp, /Click Retry approval to reconnect this address and resend the request\. Check the device for the prompt\./, netHelp);
-  assert.equal(await net.getByRole("button", { name: "Retry approval" }).count(), 1,
-    "a network row asks again itself instead of making you Forget and re-add it");
+  assert.match(netHelp, /Wake the TV\. The prompt can be hidden behind the screensaver\./, netHelp);
   assert.match(netHelp, /Revoke USB debugging authorizations\. That un-trusts every computer, not just this one\./, netHelp);
   assert.doesNotMatch(netHelp, /terminal|adb disconnect/, "no terminal instructions");
   assert.doesNotMatch(netHelp, /Paired devices|tap this computer/,
     "a :5555 transport is legacy network debugging and never appears under Wireless debugging");
   const wireless = rowFor(page, "adb-9XK2-abc._adb-tls-connect._tcp");
-  const wirelessHelp = await wireless.locator(".unauthorized-help").innerText();
+  const wirelessHelp = await dialogHelp(wireless, "adb-9XK2-abc._adb-tls-connect._tcp");
   assert.match(wirelessHelp, /or Wireless debugging → tap this computer → Forget/, wirelessHelp);
 
-  // An unauthorized USB device: the USB wording is correct and must survive.
+  // An unauthorized USB device: the USB wording is correct and must survive,
+  // and it asks again when replugged, not by redialling.
   const usb = rowFor(page, "0323220012345");
-  const usbHelp = await usb.locator(".unauthorized-help").innerText();
-  assert.match(usbHelp, /"Allow USB debugging\?"/, usbHelp);
+  await page.evaluate(() => {
+    const bridge = window.__TAURI_INTERNALS__;
+    const original = bridge.invoke.bind(bridge);
+    window.__reprompts = 0;
+    bridge.invoke = async (command, args = {}) => {
+      if (command === "reprompt_device") window.__reprompts++;
+      return original(command, args);
+    };
+  });
+  const usbHelp = await dialogHelp(usb, "0323220012345");
+  assert.match(usbHelp, /“Allow USB debugging\?”/, usbHelp);
+  assert.match(usbHelp, /Unplug the USB cable/, usbHelp);
   assert.doesNotMatch(usbHelp, /Click Forget/, "a USB row has no Forget");
-  assert.equal(await usb.getByRole("button", { name: "Retry approval" }).count(), 0,
-    "a USB row re-prompts by replugging, not by redialling");
   assert.doesNotMatch(usbHelp, /terminal|adb disconnect/);
+  assert.equal(await page.evaluate(() => window.__reprompts), 0,
+    "a USB row re-prompts by replugging, not by redialling");
 
   // #120: a box that never said what it is still opens, and says so.
   const odd = rowFor(page, "Living Room Box");

@@ -205,9 +205,39 @@ function demoFlag(name: string): boolean {
   }
 }
 
+/// A TV that hasn't allowed this computer: `approvalTv` adds it, and
+/// `approvalAutoAllow` makes it choose Allow 4 seconds after it is asked, so
+/// the approval dialog can be seen waiting and then closing by itself.
+const APPROVAL_TV = "192.168.1.88:5555";
+const approvalDemo: { state: "not_allowed" | "asked" | "allowed"; allowAt: number | null } = {
+  state: "not_allowed",
+  allowAt: null,
+};
+function approvalState(): "not_allowed" | "asked" | "allowed" {
+  if (approvalDemo.state === "asked" && approvalDemo.allowAt !== null && Date.now() >= approvalDemo.allowAt) {
+    approvalDemo.state = "allowed";
+  }
+  return approvalDemo.state;
+}
+function askApprovalTv() {
+  approvalDemo.state = "asked";
+  approvalDemo.allowAt = demoFlag("approvalAutoAllow") ? Date.now() + 4000 : null;
+}
+function approvalTvRow(): Device {
+  if (approvalState() === "allowed") {
+    return { ...device, id: 9, serial: APPROVAL_TV, name: "Bedroom TV", model: "SHIELD Android TV (2019 Tube)" };
+  }
+  return {
+    id: 9, serial: APPROVAL_TV, name: "Bedroom TV", model: "", device_type: "unknown",
+    tv_evidence: "unknown", status: "unauthorized", connection: "network", properties: null,
+    support: { tier: "unknown", note: null },
+  };
+}
+
 function demoDevices(): Device[] {
   if (demoFlag("noDevices")) return [];
   const list = [device, unconfirmedDevice, usbDevice];
+  if (demoFlag("approvalTv")) list.push(approvalTvRow());
   if (demoFlag("notTv")) list.push(phoneDevice);
   if (demoFlag("fireTv")) list.push(fireTvDevice);
   return list;
@@ -225,6 +255,10 @@ const DEMO_SUPPORT_ID = "7f3a9c21-4b8e-4d2a-9e61-0c5d8b2f1a37";
 function telemetrySettings() {
   telemetry ??= { enabled: true, notice_seen: !demoFlag("telemetryNotice") };
   const available = !demoFlag("telemetryUnavailable");
+  if (demoFlag("testBuild")) {
+    // A test build: reports always off, the upload id still shown.
+    return { enabled: false, notice_seen: true, available, support_id: DEMO_SUPPORT_ID, test_build: "4f156e4" };
+  }
   return {
     ...telemetry,
     available,
@@ -641,7 +675,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           available: true,
           path: null,
           last_probe: "Built-in ADB (demo); no host adb server",
-          connections: { pending: [], awaiting_authorization: [], not_allowed: [], ready: [], failed: [] },
+          connections: {
+            pending: [],
+            awaiting_authorization: demoFlag("approvalTv") && approvalState() === "asked" ? [APPROVAL_TV] : [],
+            not_allowed: demoFlag("approvalTv") && approvalState() === "not_allowed" ? [APPROVAL_TV] : [],
+            ready: [],
+            failed: [],
+          },
         };
       }
       return { backend: "subprocess", available: true, path: "/opt/homebrew/bin/adb", last_probe: "2026-06-02T14:40:00Z" };
@@ -1087,6 +1127,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "local_address_for":
       return "192.168.1.10";
     case "reprompt_device":
+      if (demoFlag("approvalTv") && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        askApprovalTv();
+        return { ok: true, status: "unauthorized", message: "Approval requested again." };
+      }
       return {
         ok: true,
         status: "unauthorized",
@@ -1095,8 +1139,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       };
     // Built-in engine: the demo TVs already allow this computer.
     case "request_device_approval":
+      if (demoFlag("approvalTv") && String(args.serial) === APPROVAL_TV && approvalState() !== "allowed") {
+        askApprovalTv();
+        return { ok: true, status: "waiting", message: "Choose Allow on the TV." };
+      }
       return { ok: true, status: "device", message: "Connected. This TV already allows this computer." };
     case "cancel_device_approval":
+      if (approvalState() === "asked") approvalDemo.state = "not_allowed";
       return null;
     case "forget_device":
       return {

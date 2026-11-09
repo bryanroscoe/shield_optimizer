@@ -1265,8 +1265,8 @@ fn summary_message(
     );
     if !unauthorized.is_empty() {
         message.push_str(&format!(
-            " {} need{} authorization — accept the debugging prompt on the TV, or use Ask \
-             again on its row if the prompt is gone.",
+            " {} need{} authorization — accept the debugging prompt on the TV, or use Request \
+             approval on its row if the prompt is gone.",
             unauthorized.len(),
             if unauthorized.len() == 1 { "s" } else { "" }
         ));
@@ -1873,8 +1873,8 @@ mod tests {
         assert_eq!(
             msg,
             "Scanned 192.168.42.x — found 4 devices, connected 0. 2 need authorization — \
-             accept the debugging prompt on the TV, or use Ask again on its row if the prompt \
-             is gone."
+             accept the debugging prompt on the TV, or use Request approval on its row if the \
+             prompt is gone."
         );
     }
 
@@ -2121,7 +2121,7 @@ mod command_stage_tests {
         assert_eq!(first.unauthorized, vec!["192.0.2.1:5555"]);
         assert!(first.connected.is_empty());
         assert!(first.failed.is_empty());
-        assert!(first.message.contains("Ask again"));
+        assert!(first.message.contains("Request approval"));
         assert_eq!(fake.count("connect 192.0.2.1:5555"), 1);
         let next = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
             .await

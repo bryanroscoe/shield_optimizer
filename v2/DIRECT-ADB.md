@@ -57,7 +57,11 @@ built-in engine sends it from one place only.
   or Forget drops it. A later scan only retries quietly, which succeeds once the TV
   allows the key.
 - **Request approval** (`request_device_approval`, `AdbDriver::request_approval`) is the
-  only connection that may offer the public key. It keeps that connection open for up to
+  only connection that may offer the public key. On Devices it opens a pop-up
+  (`ApprovalDialog.svelte`) with the TV's name, a pulsing TV and the instruction; the pop-up
+  closes by itself once the TV connects, and closing it never cancels (only Cancel request
+  does). Under platform-tools the same row and pop-up ask the adb server to reconnect the TV
+  and then watch the device list until it is authorized, for the same 10 minutes. It keeps that connection open for up to
   10 minutes (`APPROVAL_WAIT` in `src-tauri/src/adb/direct.rs`) for the person to choose
   Allow, and ends sooner on **Cancel** (`cancel_device_approval`), Forget, an engine
   switch or quit. The command returns once the key was written to the TV, and only then

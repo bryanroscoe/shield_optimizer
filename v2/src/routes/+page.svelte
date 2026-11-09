@@ -1,6 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
-  import HelpTip from "$lib/components/HelpTip.svelte";
+  import ApprovalDialog, { type ApprovalPhase } from "$lib/components/ApprovalDialog.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
@@ -60,11 +60,15 @@
   const isScanAttempt = (d: DeviceRow) => !d.properties && (d.discoveryState === "connecting" || d.discoveryState === "failed" || d.discoveryState === "offline");
   const scanAttempts = $derived(sortedDevices.filter(isScanAttempt));
   const visibleDevices = $derived(sortedDevices.filter(d => !isScanAttempt(d)));
-  /// Built-in engine: a TV that answered but hasn't allowed this computer.
-  /// Nothing shows on it until Request approval asks.
-  const isNativeUnapproved = (d: DeviceRow) => adbBackend === "direct" && d.status === "unauthorized" && !d.properties;
-  const isAwaitingApproval = (d: DeviceRow) => isNativeUnapproved(d) && d.discoveryState === "approval";
-  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && !isNativeUnapproved(d) && (d.status === "unauthorized" || d.discoveryState === "failed" || d.discoveryState === "offline");
+  /// A device that hasn't allowed this computer, under either engine. The
+  /// built-in engine shows nothing on it until Request approval asks; under
+  /// platform-tools the adb server already offered its key, so it is probably
+  /// asking now.
+  const isUnapproved = (d: DeviceRow) => adbBackend !== null && d.status === "unauthorized" && !d.properties;
+  const isAwaitingApproval = (d: DeviceRow) =>
+    isUnapproved(d) &&
+    (adbBackend === "direct" ? d.discoveryState === "approval" : approvals[d.serial]?.phase === "waiting");
+  const canRetryConnection = (d: DeviceRow) => d.connection === "network" && !isUnapproved(d) && (d.discoveryState === "failed" || d.discoveryState === "offline");
   /// Endpoints the main list already shows, so Scan details doesn't offer them again.
   const listedEndpoints = $derived(visibleDevices.filter(d => d.status === "device" || d.status === "unauthorized").map(d => d.serial));
   let loading = $state(true);
@@ -216,6 +220,7 @@
         devices = list;
         lastNativeProgress = progressKey;
       }
+      reconcileApprovals();
       if (!background && (progress.pending.length > 0 || (progress.awaiting_authorization?.length ?? 0) > 0) && !nativeMonitoring) monitorNativeConnections();
     } catch (e) {
       if (!disposed && !background) error = String(e);
@@ -505,13 +510,18 @@
     // Forget goes through the same backend call as the row's button: it drops
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
-    if (isNativeUnapproved(d)) {
-      items.push(isAwaitingApproval(d)
-        ? { label: "Cancel approval request", disabled: cancelBusy === d.serial, run: () => cancelApproval(d) }
-        : { label: "Request approval", disabled: approvalBusy === d.serial, run: () => requestApproval(d) });
+    if (isUnapproved(d)) {
+      if (isAwaitingApproval(d)) {
+        items.push(
+          { label: "Show approval request", run: () => showApproval(d) },
+          { label: "Cancel approval request", run: () => cancelApprovalRequest(d.serial) },
+        );
+      } else {
+        items.push({ label: "Request approval", run: () => startApproval(d) });
+      }
     } else if (canRetryConnection(d)) {
       items.push({
-        label: d.status === "unauthorized" ? "Retry approval" : "Retry connection",
+        label: "Retry connection",
         disabled: repromptBusy === d.serial,
         run: () => repromptDevice(d),
       });
@@ -548,22 +558,6 @@
     } finally {
       diagnosticsBusy = null;
     }
-  }
-
-  /// Held under an Android 11+ Wireless debugging key, so it appears in that
-  /// screen's Paired devices list. Decided from the adb transport key alone:
-  /// a `:5555` address is legacy network debugging and never does.
-  function isWirelessDebuggingTransport(d: Device): boolean {
-    return d.serial.includes("._adb-tls-connect.");
-  }
-
-  /// What the authorization prompt is called on this device.
-  ///
-  /// Over USB it is reliably "Allow USB debugging?". Over the network the
-  /// title varies by Android version and OEM — plenty of TVs still show the
-  /// USB wording for a Wi-Fi connection — so don't swear to one.
-  function authPromptLabel(d: Device): string {
-    return d.connection === "usb" ? '"Allow USB debugging?"' : '"Allow debugging?"';
   }
 
   async function showPairFailure(address: string, raw: string) {
@@ -850,61 +844,187 @@
 
   let forgetBusy = $state<string | null>(null);
   let repromptBusy = $state<string | null>(null);
-  let approvalBusy = $state<string | null>(null);
-  let cancelBusy = $state<string | null>(null);
+  /// How long the app waits for Allow, under either engine. The built-in
+  /// engine enforces it itself (`APPROVAL_WAIT`); under platform-tools the
+  /// app polls the device list this long.
+  const APPROVAL_WAIT_MS = 10 * 60_000;
+  const APPROVED_CLOSE_MS = 1600;
 
-  /// Built-in engine: the only action that shows the TV's prompt. The row
-  /// shows the wait; the backend keeps it open for up to 10 minutes.
-  async function requestApproval(d: DeviceRow) {
-    if (approvalBusy === d.serial) return;
-    approvalBusy = d.serial;
-    connectMessage = "";
-    connectDetail = "";
-    const pressed = document.activeElement;
-    let failure: string | null = null;
-    try {
-      const r = await api.requestDeviceApproval(d.serial);
-      // A cancel here is the person's own doing; the TV ended nothing.
-      if (r.status !== "waiting" && r.status !== "canceled") connectMessage = r.message;
-    } catch (e) {
-      failure = `Couldn't ask ${d.name} for approval: ${e}`;
-    } finally {
-      approvalBusy = null;
-    }
-    await refresh();
-    if (failure) connectMessage = failure;
-    else monitorNativeConnections();
-    await focusApprovalAction(d.serial, pressed);
+  type ApprovalState = {
+    serial: string;
+    name: string;
+    address: string | null;
+    usb: boolean;
+    wireless: boolean;
+    engine: "direct" | "subprocess";
+    phase: ApprovalPhase;
+    error: string | null;
+    startedAt: number;
+  };
+  /// Approval requests this window knows about, by transport key. The
+  /// built-in engine's wait lives in the backend; this is what the dialog
+  /// and the row show for it.
+  let approvals = $state<Record<string, ApprovalState>>({});
+  let dialogSerial = $state<string | null>(null);
+  const dialogState = $derived(dialogSerial ? approvals[dialogSerial] ?? null : null);
+  let approvalPoll: ReturnType<typeof setInterval> | null = null;
+
+  function approvalFor(d: DeviceRow, phase: ApprovalPhase): ApprovalState {
+    return {
+      serial: d.serial,
+      name: d.name,
+      address: d.name !== d.serial ? d.serial : null,
+      usb: d.connection === "usb",
+      wireless: d.serial.includes("._adb-tls-connect."),
+      engine: adbBackend === "direct" ? "direct" : "subprocess",
+      phase,
+      error: null,
+      startedAt: Date.now(),
+    };
   }
 
-  /// Request approval and Cancel replace each other in the row; keep focus on
-  /// whichever is there now, unless the person already moved it elsewhere.
-  async function focusApprovalAction(serial: string, pressed: Element | null) {
+  function setPhase(serial: string, phase: ApprovalPhase, error: string | null = null) {
+    const current = approvals[serial];
+    if (current) approvals[serial] = { ...current, phase, error };
+  }
+
+  /// Request approval: opens the dialog and asks. Built-in: the backend
+  /// offers the key once and waits. Platform-tools: the adb server asks by
+  /// itself; a network transport is redialled so the TV asks again, and the
+  /// app watches the device list. A USB device asks again when replugged.
+  async function startApproval(d: DeviceRow) {
+    const serial = d.serial;
+    approvals[serial] = approvalFor(d, "asking");
+    dialogSerial = serial;
+    if (adbBackend === "direct") {
+      let status: string;
+      try {
+        status = (await api.requestDeviceApproval(serial)).status;
+      } catch (e) {
+        setPhase(serial, "error", String(e));
+        return;
+      }
+      if (status === "canceled") {
+        delete approvals[serial];
+        if (dialogSerial === serial) closeApprovalDialog();
+        return;
+      }
+      await refresh();
+      if (!approvals[serial]) return;
+      if (status === "device") approved(serial);
+      else if (status === "not_allowed") setPhase(serial, "not_approved");
+      else {
+        setPhase(serial, "waiting");
+        monitorNativeConnections();
+      }
+      return;
+    }
+    if (!approvals[serial].usb) {
+      try {
+        const r = await api.repromptDevice(serial);
+        if (!r.ok) {
+          setPhase(serial, "error", r.message);
+          return;
+        }
+      } catch (e) {
+        setPhase(serial, "error", String(e));
+        return;
+      }
+    }
+    if (!approvals[serial]) return;
+    approvals[serial] = { ...approvals[serial], phase: "waiting", startedAt: Date.now() };
+    pollApprovals();
+    await pollApprovalsOnce();
+  }
+
+  function showApproval(d: DeviceRow) {
+    // The built-in engine's wait outlives this window's state (a reload).
+    if (!approvals[d.serial]) approvals[d.serial] = approvalFor(d, "waiting");
+    dialogSerial = d.serial;
+  }
+
+  function approved(serial: string) {
+    setPhase(serial, "approved");
+    setTimeout(() => {
+      if (approvals[serial]?.phase !== "approved") return;
+      delete approvals[serial];
+      if (dialogSerial === serial) closeApprovalDialog();
+      void announceConnected(serial);
+    }, APPROVED_CLOSE_MS);
+  }
+
+  /// Settle each waiting request against what the backend now reports.
+  function reconcileApprovals() {
+    const awaiting = new Set(nativeConnections.awaiting_authorization ?? []);
+    for (const state of Object.values(approvals)) {
+      if (state.phase !== "waiting") continue;
+      if (devices.some(d => d.serial === state.serial && d.status === "device")) {
+        approved(state.serial);
+      } else if (state.engine === "direct" ? !awaiting.has(state.serial) : Date.now() - state.startedAt > APPROVAL_WAIT_MS) {
+        setPhase(state.serial, "not_approved");
+      }
+    }
+  }
+
+  async function pollApprovalsOnce() {
+    try {
+      const list = await api.listDevices();
+      if (disposed) return;
+      devices = list;
+    } catch {
+      return;
+    }
+    reconcileApprovals();
+  }
+
+  /// Platform-tools: re-read the device list until no request is waiting.
+  function pollApprovals() {
+    if (approvalPoll || disposed) return;
+    approvalPoll = setInterval(() => {
+      if (disposed || !Object.values(approvals).some(a => a.engine === "subprocess" && a.phase === "waiting")) {
+        if (approvalPoll) clearInterval(approvalPoll);
+        approvalPoll = null;
+        return;
+      }
+      void pollApprovalsOnce();
+    }, 2000);
+  }
+
+  /// Cancel request: the only way to stop a wait. Closing the dialog keeps it.
+  async function cancelApprovalRequest(serial: string) {
+    const engine = approvals[serial]?.engine ?? (adbBackend === "direct" ? "direct" : "subprocess");
+    delete approvals[serial];
+    if (dialogSerial === serial) dialogSerial = null;
+    if (engine === "direct") {
+      try {
+        await api.cancelDeviceApproval(serial);
+      } catch (e) {
+        connectMessage = `Couldn't cancel the request: ${e}`;
+      }
+    }
+    await refresh();
+    await focusRow(serial);
+  }
+
+  function closeApprovalDialog() {
+    const serial = dialogSerial;
+    dialogSerial = null;
+    // A finished request has nothing left to show.
+    const state = serial ? approvals[serial] : undefined;
+    if (serial && state && state.phase !== "waiting" && state.phase !== "asking") delete approvals[serial];
+    if (serial) void focusRow(serial);
+  }
+
+  /// Return focus to the row the dialog belongs to: its approval button, or
+  /// the row itself once it opens like any other TV.
+  async function focusRow(serial: string) {
     await tick();
-    const current = document.activeElement;
-    if (current && current !== document.body && current !== pressed) return;
-    const replacement = document.querySelector<HTMLElement>(`[data-serial="${CSS.escape(serial)}"] [data-approval-action]`);
-    replacement?.focus();
+    const row = document.querySelector<HTMLElement>(`[data-serial="${CSS.escape(serial)}"]`);
+    const target = row?.querySelector<HTMLElement>("[data-approval-action]") ?? row;
+    target?.focus();
   }
 
-  async function cancelApproval(d: DeviceRow) {
-    if (cancelBusy === d.serial) return;
-    const pressed = document.activeElement;
-    cancelBusy = d.serial;
-    connectMessage = "";
-    connectDetail = "";
-    try {
-      await api.cancelDeviceApproval(d.serial);
-    } catch (e) {
-      connectMessage = `Couldn't cancel the request for ${d.name}: ${e}`;
-    } finally {
-      cancelBusy = null;
-    }
-    await refresh();
-    await focusApprovalAction(d.serial, pressed);
-  }
-
-  // A fresh connection resends authorization; only the device can display its prompt.
+  // Retry connection for a failed or offline network address.
   async function repromptDevice(d: Device) {
     repromptBusy = d.serial;
     connectMessage = "";
@@ -1410,7 +1530,7 @@
           <div
             class="device-row not-clickable"
             class:discovered={!!d.discoveryState}
-            class:native-unapproved={isNativeUnapproved(d)}
+            class:unapproved={isUnapproved(d)}
             class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
@@ -1422,10 +1542,8 @@
             <div class="device-main">
               <div class="device-name">
                 <span>{d.name}</span>
-                {#if isNativeUnapproved(d)}
+                {#if isUnapproved(d)}
                   <span class="status-tag unauthorized">{isAwaitingApproval(d) ? "WAITING FOR ALLOW" : "NOT ALLOWED YET"}</span>
-                {:else if d.status === "unauthorized"}
-                  <span class="status-tag unauthorized">UNAUTHORIZED</span>
                 {:else if d.discoveryState === "connecting"}
                   <span class="status-tag">CONNECTING…</span>
                 {:else if d.discoveryState === "failed"}
@@ -1442,7 +1560,7 @@
                   >UNCONFIRMED TV</span>
                 {/if}
               </div>
-              {#if !isNativeUnapproved(d)}
+              {#if !isUnapproved(d)}
               <div class="device-meta muted mono">
                 {deviceTypeLabel(d.device_type)}
                 {#if d.model}· {d.model}{/if}
@@ -1451,26 +1569,17 @@
               {:else if d.name !== d.serial}
               <div class="device-meta muted mono">{d.serial}</div>
               {/if}
-              {#if isNativeUnapproved(d)}
-                <span class="sr-only" role="status">{isAwaitingApproval(d) ? `${d.name}: choose Allow on the TV.` : ""}</span>
-              {/if}
-              {#if isAwaitingApproval(d)}
-                <div class="native-approval-status">
-                  <HelpTip label="Choose Allow on the TV.">
-                    <p>Look for “Allow debugging?” on the TV. Some TVs say “Allow USB debugging?” even over the network.</p>
-                    <p>Tick “Always allow from this computer”, then choose Allow. Without it, the TV asks again next time.</p>
-                    <p>The app waits up to 10 minutes. Chose Cancel on the TV? Cancel here too: the TV doesn't tell the app.</p>
-                    <p>No prompt? Wake the TV, then Cancel and Request approval again.</p>
-                  </HelpTip>
-                </div>
-              {:else if isNativeUnapproved(d)}
-                <div class="native-approval-status">
-                  <HelpTip label="This TV hasn't allowed this computer yet.">
-                    <p>Request approval shows “Allow debugging?” on the TV. Some TVs say “Allow USB debugging?” even over the network.</p>
-                    <p>Tick “Always allow from this computer”, then choose Allow. This row then opens like any other TV.</p>
-                    <p>Scanning never shows anything on the TV. As a last resort, Developer options → Revoke USB debugging authorizations un-trusts every computer.</p>
-                  </HelpTip>
-                </div>
+              {#if isUnapproved(d)}
+                <span class="sr-only" role="status">{isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : ""}</span>
+                <p class="approval-line">
+                  {#if isAwaitingApproval(d)}
+                    Waiting for you to choose Allow on it.
+                  {:else if adbBackend === "direct"}
+                    Hasn't allowed this computer yet.
+                  {:else}
+                    Hasn't allowed this computer yet; it's probably asking now.
+                  {/if}
+                </p>
               {/if}
               {#if d.discoveryState === "connecting"}
                 <p class="muted small">Found on the network. Connecting…</p>
@@ -1482,37 +1591,6 @@
                   Connected. It reported it isn't an Android TV, so it doesn't open by default; use
                   Open anyway to try the tools.
                 </p>
-              {/if}
-              {#if d.status === "unauthorized" && !isNativeUnapproved(d)}
-                <div class="unauthorized-help">
-                  <strong>This device needs to be authorized:</strong>
-                  <ol>
-                    <li>
-                      Look at the TV — there should be an <em>{authPromptLabel(d)}</em> dialog.
-                      {#if d.connection === "network"}
-                        <span class="muted">(some TVs still say "USB" even over Wi-Fi)</span>
-                      {/if}
-                    </li>
-                    <li>Check <em>"Always allow from this computer"</em>.</li>
-                    <li>Click <em>Allow</em>.</li>
-                    <li>{adbBackend === "direct" ? "This row updates automatically after approval." : "Click Refresh above."}</li>
-                  </ol>
-                  <p class="muted small">If you don't see the dialog:</p>
-                  <ol class="small unauthorized-fallback">
-                    <li>Wake the TV; the prompt can be hidden behind the screensaver.</li>
-                    {#if d.connection === "network"}
-                      <li>Click <strong>Retry approval</strong> to reconnect this address and resend the request. Check the device for the prompt.</li>
-                    {:else}
-                      <li>Unplug the cable and plug it back in; the prompt reappears.</li>
-                    {/if}
-                    <li>
-                      Still nothing? On the TV, open Developer options and choose Revoke USB debugging
-                      authorizations{#if isWirelessDebuggingTransport(d)} (or Wireless debugging → tap this
-                        computer → Forget){/if}. That un-trusts every computer, not just this one. Then
-                      reconnect.
-                    </li>
-                  </ol>
-                </div>
               {/if}
               {#if confirmOpenSerial === d.serial}
                 <div class="open-anyway-confirm" role="group" aria-label="Open anyway">
@@ -1548,22 +1626,20 @@
               {#if isAwaitingApproval(d)}
                 <button
                   class="row-action"
-                  onclick={() => cancelApproval(d)}
-                  disabled={cancelBusy === d.serial}
-                  aria-label={`Cancel the approval request for ${d.name}`}
+                  onclick={() => showApproval(d)}
+                  aria-label={`Show the approval request for ${d.name}`}
                   data-approval-action
                 >
-                  {cancelBusy === d.serial ? "Canceling…" : "Cancel"}
+                  Show request
                 </button>
-              {:else if isNativeUnapproved(d)}
+              {:else if isUnapproved(d)}
                 <button
                   class="row-action primary"
-                  onclick={() => requestApproval(d)}
-                  disabled={approvalBusy === d.serial}
+                  onclick={() => startApproval(d)}
                   aria-label={`Request approval from ${d.name}`}
                   data-approval-action
                 >
-                  {approvalBusy === d.serial ? "Requesting…" : "Request approval"}
+                  Request approval
                 </button>
               {/if}
               {#if canRetryConnection(d)}
@@ -1573,7 +1649,7 @@
                   disabled={repromptBusy === d.serial}
                   data-tip="Reconnects only this address and retries authorization. Check the device for a debugging prompt."
                 >
-                  {repromptBusy === d.serial ? "Connecting…" : d.status === "unauthorized" ? "Retry approval" : "Try again"}
+                  {repromptBusy === d.serial ? "Connecting…" : "Try again"}
                 </button>
               {/if}
               <button
@@ -1605,6 +1681,24 @@
       </li>
     {/each}
   </ul>
+{/if}
+
+{#if dialogState}
+  <ApprovalDialog
+    name={dialogState.name}
+    address={dialogState.address}
+    usb={dialogState.usb}
+    wirelessDebugging={dialogState.wireless}
+    phase={dialogState.phase}
+    error={dialogState.error}
+    onClose={closeApprovalDialog}
+    onCancel={() => cancelApprovalRequest(dialogState.serial)}
+    onRetry={() => {
+      const row = sortedDevices.find(d => d.serial === dialogState.serial);
+      if (row) void startApproval(row);
+      else closeApprovalDialog();
+    }}
+  />
 {/if}
 
 {#if !adbMissing && !directUnavailable}
@@ -1706,20 +1800,22 @@
     padding: 0;
     margin: 0;
   }
-  .device-row.native-unapproved {
+  .device-row.unapproved {
     flex-wrap: wrap;
   }
-  .native-unapproved .device-main {
+  .unapproved .device-main {
     flex: 1 1 18rem;
     min-width: 0;
     overflow-wrap: anywhere;
   }
-  .native-unapproved .device-name,
-  .native-unapproved .row-actions {
+  .unapproved .device-name,
+  .unapproved .row-actions {
     flex-wrap: wrap;
   }
-  .native-approval-status {
-    margin-top: 0.3rem;
+  .approval-line {
+    margin: 0.3rem 0 0;
+    font-size: 0.85rem;
+    color: var(--fg-secondary);
   }
   .sr-only {
     position: absolute;
@@ -1728,11 +1824,6 @@
     overflow: hidden;
     clip-path: inset(50%);
     white-space: nowrap;
-  }
-  .native-approval-status :global(.help-title) {
-    font-size: 0.85rem;
-    font-weight: 500;
-    color: var(--fg-secondary);
   }
   .scan-attempts {
     list-style: none;
@@ -1926,8 +2017,14 @@
   .device-row.clickable {
     cursor: pointer;
   }
+  .device-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
   .device-name {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.5rem;
     font-weight: 500;
@@ -2125,27 +2222,6 @@
   .open-anyway-actions {
     display: flex;
     gap: 0.5rem;
-  }
-  .unauthorized-help {
-    margin-top: 0.6rem;
-    padding: 0.6rem 0.8rem;
-    background: var(--bg-inset);
-    border: 1px solid var(--danger-surface);
-    border-radius: var(--radius-sm);
-    font-size: 0.85rem;
-  }
-  .unauthorized-help strong {
-    color: var(--danger-text);
-  }
-  .unauthorized-help ol {
-    margin: 0.4rem 0;
-    padding-left: 1.2rem;
-  }
-  .unauthorized-help p {
-    margin: 0.3rem 0 0;
-  }
-  .device-row.unauthorized {
-    align-items: flex-start;
   }
   .install-pane {
     background: var(--bg-surface);

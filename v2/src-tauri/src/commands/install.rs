@@ -259,7 +259,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
 
     if !unauthorized.is_empty() {
         message.push_str(&format!(
-            "\nAwaiting authorization: {} — approve this computer on the TV, then Refresh or Ask again.",
+            "\nAwaiting authorization: {} — approve this computer on the TV, or use Request approval on its row.",
             unauthorized.join(", ")
         ));
     }

@@ -77,7 +77,12 @@ approval; only that button sends `AUTH_RSAPUBLICKEY` and it waits up to 10 minut
 Scan details with exact-endpoint retry, Forget and diagnostics; they are not
 additional identified devices. Test discovery with no previously approved TVs, not
 just successful reconnections. The Android app still offers its key on connect
-(follow-up).
+(follow-up). Request approval opens `src/lib/components/ApprovalDialog.svelte`, a pop-up with
+a pulsing TV that closes itself once the TV connects; under platform-tools the same compact
+row and pop-up replace the old instruction box (Request approval redials through the adb
+server and polls the device list for 10 minutes). The PR's native test packages set
+`ATVOPT_TEST_BUILD` and `ATVOPT_TELEMETRY_URL`: Send logs works there, each upload is
+marked `-dev` and "Test build <commit>", and automatic reports stay off.
 
 Native connection attempts use one handshake deadline (20 seconds quiet, the approval
 wait for Request approval; the Android app keeps 30 seconds) and interrupt

@@ -114,43 +114,43 @@ try {
   });
   await untrusted.getByText('NOT ALLOWED YET', { exact: true }).waitFor();
   assert.equal(await untrusted.evaluate(el => !!el.closest('.device-list')), true, 'an unapproved TV keeps a normal row');
-  await untrusted.getByText("This TV hasn't allowed this computer yet.", { exact: true }).waitFor();
+  await untrusted.getByText("Hasn't allowed this computer yet.", { exact: true }).waitFor();
   assert.equal(await page.getByText(/requested automatically/).count(), 0, 'nothing is requested automatically');
   assert.equal(await untrusted.getByRole('button', { name: 'Retry approval', exact: true }).count(), 0);
-  const help = untrusted.getByRole('button', { name: "About This TV hasn't allowed this computer yet.", exact: true });
-  await help.click();
-  const helpText = await page.getByRole('region', { name: "This TV hasn't allowed this computer yet." }).innerText();
-  assert.match(helpText, /Allow debugging\?/);
-  assert.match(helpText, /Always allow from this computer/);
-  await capture('not-allowed-help');
-  await page.keyboard.press('Escape');
   const request = untrusted.getByRole('button', { name: /^Request approval from / });
   assert.equal(await request.getAttribute('aria-label'), 'Request approval from [fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555',
     'each row names its own TV');
   await request.focus();
   await page.keyboard.press('Enter');
-  await untrusted.getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
-  await untrusted.getByText('Choose Allow on the TV.', { exact: true }).waitFor();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByText('tick Always allow from this computer', { exact: false }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.requested), ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']);
-  const cancel = untrusted.getByRole('button', { name: /^Cancel the approval request for / });
-  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Cancel the approval request for'));
-  assert.equal(await untrusted.locator('[role="status"] button').count(), 0, 'no control inside a live region');
-  assert.match(await untrusted.locator('[role="status"]').innerText(), /choose Allow on the TV/);
+  await dialog.locator('summary', { hasText: 'Not seeing the prompt?' }).click();
+  assert.match(await dialog.innerText(), /Allow debugging\?/);
   await capture('approval-waiting');
+  // Close keeps the request; the row says so and reopens it.
+  await page.keyboard.press('Escape');
+  await dialog.waitFor({ state: 'detached' });
+  await untrusted.getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => window.canceled ?? null), null, 'closing the dialog cancels nothing');
+  await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Show the approval request for'));
+  assert.equal(await untrusted.locator('[role="status"] button').count(), 0, 'no control inside a live region');
+  assert.match(await untrusted.locator('[role="status"]').innerText(), /waiting for Allow/);
   await page.keyboard.press('Enter');
+  await dialog.getByRole('button', { name: 'Cancel request' }).click();
+  await dialog.waitFor({ state: 'detached' });
   await untrusted.getByRole('button', { name: /^Request approval from / }).waitFor();
   await page.waitForFunction(() => document.activeElement?.getAttribute('aria-label')?.startsWith('Request approval from'),
     null, { timeout: 5000 });
   assert.equal(await page.evaluate(() => window.canceled), '[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555');
-  assert.equal(await cancel.count(), 0);
   assert.deepEqual(await page.locator('p.connect-message').allInnerTexts(), ['Scanning local network…'],
     'a cancel the person chose adds no message (only the running scan\'s line is there)');
   // Cancel won the race against the TV being asked: still no message, never blame the TV.
   await page.evaluate(() => { window.cancelBeforeAsked = true; });
   await untrusted.getByRole('button', { name: /^Request approval from / }).click();
   await page.waitForFunction(() => window.requested.length === 2);
-  await page.waitForTimeout(300);
-  assert.equal(await page.getByText(/ended the request|without allowing/).count(), 0, 'a cancel never blames the TV');
+  await page.getByRole('dialog').waitFor({ state: 'detached' });
+  assert.equal(await page.getByText(/ended the request|without allowing|didn't allow/).count(), 0, 'a cancel never blames the TV');
   await page.evaluate(() => { window.cancelBeforeAsked = false; });
   await page.evaluate(() => {
     window.castNamed = true;
@@ -161,10 +161,10 @@ try {
   await secondApproval.getByRole('button', { name: 'Request approval from 192.0.2.25:5555', exact: true }).waitFor();
   await castNamed.getByText('SIMULATED Living Room TV', { exact: true }).waitFor();
   await castNamed.getByText('192.0.2.26:5555', { exact: true }).waitFor();
-  assert.equal(await page.locator('.device-list .native-unapproved').count(), 3,
+  assert.equal(await page.locator('.device-list .unapproved').count(), 3,
     'unidentified endpoints remain distinct until hardware identity is verified');
   assert.equal(await page.locator('.approval-guidance').count(), 0);
-  assert.equal(await page.locator('.native-unapproved .unauthorized-help').count(), 0,
+  assert.equal(await page.locator('.unapproved .unauthorized-help').count(), 0,
     'each address must not repeat a full authorization guide');
   for (const row of [untrusted, secondApproval]) {
     const address = await row.getAttribute('data-serial');
