@@ -1059,6 +1059,8 @@ mod tests {
             classify_with_catalog("com.att.tv", None),
             Safety::Unknown { .. }
         ));
+        // Live Channels keeps its descriptive name, and only that.
+        assert!(load_known_names().contains_key("com.google.android.tv"));
     }
 
     #[test]

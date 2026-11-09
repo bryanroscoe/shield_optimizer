@@ -1490,7 +1490,9 @@ mod tests {
             .find(|o| o.package == "com.amazon.music.tv")
             .expect("amazon music listed");
         assert!(!music.system, "a Play-installed Amazon app is third-party");
-        let uncatalogued = list_other_packages_impl(&state, "serial").await.unwrap();
+        let uncatalogued = list_other_packages_impl(&state, "serial", Some(DeviceType::Shield))
+            .await
+            .unwrap();
         assert!(uncatalogued
             .iter()
             .all(|o| o.package != "com.amazon.music.tv"));
