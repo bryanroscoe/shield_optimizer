@@ -14,7 +14,7 @@ const shotPath = "/data/user/0/com.atvoptimizer.mobile/screenshots/192-168-1-20-
 const filePath = "/data/user/0/com.atvoptimizer.mobile/downloads/report.txt";
 
 async function open(t, screen = "dashboard", options = {}) {
-  const page = await browser.newPage({ viewport: { width: options.width ?? 384, height: 812 } });
+  const page = await browser.newPage({ viewport: { width: options.width ?? 384, height: 812 }, ...(options.record ? { recordVideo: { dir: options.record, size: { width: 384, height: 812 } } } : {}) });
   page.setDefaultTimeout(10000); t.after(() => page.close());
   await page.addInitScript(({ shotPath, filePath }) => {
     localStorage.clear(); window.calls = []; window.exportReply = { status: "saved", name: "tv-screenshot-2026-11-08_12-30-05.png" }; window.exportHold = null;
@@ -125,4 +125,29 @@ for (const [width, scale] of [[384, 1], [320, 2]]) test(`a copied file's row off
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth), true);
   const box = await row.boundingBox(); const page_width = await page.evaluate(() => document.documentElement.clientWidth);
   assert.ok(box.x + box.width <= page_width + 1, "row fits the viewport");
+});
+
+// EXPORT_ACTIONS_EVIDENCE=<dir> records the simulated flow for PR evidence (fixture, not a device).
+if (process.env.EXPORT_ACTIONS_EVIDENCE) test("record simulated Save a copy / Share evidence", async t => {
+  const dir = process.env.EXPORT_ACTIONS_EVIDENCE; const page = await open(t, "dashboard", { record: dir });
+  const pause = () => page.waitForTimeout(900);
+  const sheet = await preview(page); await pause();
+  await sheet.getByRole("button", { name: "Save a copy", exact: true }).click();
+  await sheet.getByRole("status").getByText(/Saved a copy as/).waitFor(); await pause();
+  await page.evaluate(() => { exportReply = { status: "canceled" }; });
+  await sheet.getByRole("button", { name: "Save a copy", exact: true }).click();
+  await sheet.getByRole("status").getByText("Not saved.").waitFor(); await pause();
+  await page.evaluate(() => { exportReply = { status: "share_opened" }; });
+  await sheet.getByRole("button", { name: "Share", exact: true }).click();
+  await sheet.getByRole("status").getByText("Share sheet opened.").waitFor(); await pause();
+  await sheet.getByRole("button", { name: "About saving and sharing" }).click(); await pause(); await pause();
+  await page.getByRole("dialog", { name: "About saving and sharing" }).getByRole("button", { name: "Done" }).click();
+  await sheet.getByRole("button", { name: "Close screenshot preview" }).click();
+  await page.evaluate(() => router.navigate("files"));
+  await page.locator(".file-row").filter({ hasText: "report.txt" }).click();
+  const row = page.locator(".dl-row").filter({ hasText: "report.txt" }); await row.scrollIntoViewIfNeeded(); await pause();
+  await page.evaluate(() => { exportReply = { status: "saved", name: "report.txt" }; });
+  await row.getByRole("button", { name: "Save a copy of report.txt" }).click();
+  await row.getByRole("status").getByText(/Saved a copy as/).waitFor(); await row.scrollIntoViewIfNeeded(); await pause(); await pause();
+  const video = page.video(); await page.close(); await video.saveAs(`${dir}/export-actions-simulated.webm`);
 });
