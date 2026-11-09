@@ -113,11 +113,30 @@ async function exercise({ browser, base }) {
     0,
     `a kept row no longer offers ${appRec}`,
   );
+  // Change undoes Keep, and is there without hovering the row: touch has no
+  // hover, and a hidden control read as "Keep can't be undone" (#324).
+  // Playwright's isVisible ignores opacity, so read the painted opacity.
+  await page.mouse.move(0, 0);
+  const change = appRow.getByRole("button", { name: "Change", exact: true });
+  assert.ok(await change.isVisible(), "a kept row shows Change");
+  const opacity = await change.evaluate((el) => {
+    let o = 1;
+    for (let n = el; n; n = n.parentElement) o *= Number(getComputedStyle(n).opacity);
+    return o;
+  });
+  assert.ok(opacity >= 0.9, `Change is visible before hover (opacity ${opacity})`);
   await page.getByRole("tab", { name: "Health" }).click();
   assert.equal((await healthCell.innerText()).trim(), "Kept", "Health reads Kept for a kept app");
   await healthRow.click();
-  await appRow.getByRole("button", { name: "Change", exact: true }).click();
+  const describedBy = await change.getAttribute("aria-describedby");
+  assert.equal(
+    (await page.locator(`[id="${describedBy}"]`).textContent()).trim(),
+    `Undo keeping ${(await appRow.locator(".app-name").first().textContent()).trim()}`,
+    "Change says what it undoes without a hover tooltip",
+  );
+  await change.click();
   await appRow.locator(`[data-rec="${appRec}"]`).waitFor();
+  assert.equal(await appRow.locator('[data-rec="Kept"]').count(), 0, "Change returns the row to its recommendation");
 
   // Now the whole App List, unfiltered.
   await page.locator(".app-search").fill("");

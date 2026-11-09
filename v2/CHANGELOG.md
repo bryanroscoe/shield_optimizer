@@ -22,6 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: on a kept app in the App List, **Change** (which undoes Keep) is always shown. It used to appear only while the pointer was over the row or the button had keyboard focus, so on touch screens, or at a glance, Keep looked permanent (#324).
 - Desktop: **Fixed: confirmations didn't stop anything in the installed app (2.5.0 and earlier).** On macOS, Windows and Linux the "Are you sure?" questions never appeared and every action went ahead as if you had said OK: deleting files or snapshots, reboot, snapshot restore, Re-enable all, Optimize's Run plan, display scaling, uninstall and the rest. They now open a native dialog, and Cancel cancels. Naming a snapshot uses the app's own dialog, so Save snapshot, Optimize's "Save this setup as a snapshot" and the Launcher's "Save snapshot first" work on macOS, where they did nothing.
 - Desktop: the Temperature card shows what the TV reports about its reading, as the Android app does: Android's thermal status under the figure, and behind its help button the sensor, the source and that sensor's own throttling and shutdown points. It is coloured only when the TV reports throttling or the reading passes its sensor's threshold, instead of fixed 60 °C and 76 °C bands. A temperature with no status says so.
 - Desktop: **Force stop** in an app's detail panel (App List and Optimize), as in the Android app sheet. It re-measures afterwards, so RAM reads "Not running".
