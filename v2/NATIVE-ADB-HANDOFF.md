@@ -9,7 +9,7 @@ Built-in is the default engine, and Settings › ADB engine switches to Google p
 - **Test packages** can Send logs, marked as test builds. Their usage reports are always off.
 
 Hardware evidence:
-- Bryan ran the packaged macOS app on his LAN on 2026-11-08: scans, Request approval, approval and the engine switch.
+- Bryan ran the packaged macOS app on his LAN on 2026-11-08: scans, the Request approval wait and the engine switch.
 - The Android TV 14 emulator covers the rest.
 - Still unchecked on hardware: steps N1–N18 in `docs/DEVICE-TEST-SCRIPT.md` beyond those.
 
