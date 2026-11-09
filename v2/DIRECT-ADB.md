@@ -61,11 +61,17 @@ built-in engine sends it from one place only.
   (`ApprovalDialog.svelte`) with the TV's name, a pulsing TV and the instruction; the pop-up
   closes by itself once the TV connects, and closing it never cancels (only Cancel request
   does). Under platform-tools the same row and pop-up ask the adb server to reconnect the TV
-  and then watch the device list until it is authorized, for the same 10 minutes. It keeps that connection open for up to
+  and then watch that one transport (`transport_state`: `adb devices` alone, no property
+  reads) until it is authorized, for the same 10 minutes, re-reading the device list only
+  once it changes. It keeps that connection open for up to
   10 minutes (`APPROVAL_WAIT` in `src-tauri/src/adb/direct.rs`) for the person to choose
   Allow, and ends sooner on **Cancel** (`cancel_device_approval`), Forget, an engine
   switch or quit. The command returns once the key was written to the TV, and only then
-  does the row say to choose Allow (`awaiting_authorization`). If the TV hasn't been
+  does the row say to choose Allow (`awaiting_authorization`). The request stays in
+  `requesting` until its outcome is recorded (the TV listed, a refusal in `not_allowed`, or a
+  failure), so the window never reads the moment between Allow and the TV being listed as a
+  refusal; a transport the list folds into another row by hardware id is found through
+  `device_profile`, never by its address. If the TV hasn't been
   asked within 20 seconds (`APPROVAL_START_WAIT`: an adbd that accepts the socket but
   never answers, or a handshake that times out first), the request stops and reports a
   connection failure with its reason; it never turns into "not allowed". A wait that ends

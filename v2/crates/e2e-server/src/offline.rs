@@ -19,6 +19,8 @@ pub fn allowed(command: &str) -> bool {
             // The simulator has no native engine, so both answer Unsupported.
             | "request_device_approval"
             | "cancel_device_approval"
+            // Reads `adb devices` from the simulator and nothing else.
+            | "transport_state"
             | "probe_paired_connect"
             | "connect_paired"
             | "local_address_for"

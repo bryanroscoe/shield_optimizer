@@ -458,6 +458,9 @@ export interface ScanConnectionProgress {
   awaiting_authorization?: string[];
   /// TVs that answered but haven't allowed this computer. Nothing was shown on them.
   not_allowed?: string[];
+  /// Request approval is still open for these, asked or not. Each leaves only
+  /// once its outcome is recorded (listed, refused or failed).
+  requesting?: string[];
   ready?: string[];
 }
 

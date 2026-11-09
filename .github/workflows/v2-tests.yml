@@ -57,8 +57,10 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       # Owner-test builds can Send logs; each upload is marked as this test
       # build and its automatic reports stay off. Release builds never set it.
+      # The commit actually built (the PR merge commit, as in the window title
+      # and provenance), then the PR head it came from.
       ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
-      ATVOPT_TEST_BUILD: ${{ github.event.pull_request.head.sha || github.sha }}
+      ATVOPT_TEST_BUILD: ${{ github.sha }}-pr-${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -162,8 +164,10 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: '0'
       # Owner-test builds can Send logs; each upload is marked as this test
       # build and its automatic reports stay off. Release builds never set it.
+      # The commit actually built (the PR merge commit, as in the window title
+      # and provenance), then the PR head it came from.
       ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
-      ATVOPT_TEST_BUILD: ${{ github.event.pull_request.head.sha || github.sha }}
+      ATVOPT_TEST_BUILD: ${{ github.sha }}-pr-${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5

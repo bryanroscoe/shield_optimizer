@@ -30,6 +30,7 @@ import type {
   CurrentLauncher,
   Device,
   DeviceReport,
+  DeviceStatus,
   DeviceLogOptions,
   DeviceLogResult,
   DeviceType,
@@ -150,6 +151,9 @@ export const api = {
     invoke<ApprovalResult>("request_device_approval", { serial }),
   cancelDeviceApproval: (serial: string) =>
     invoke<void>("cancel_device_approval", { serial }),
+  /// One transport's state from `adb devices` alone: cheap enough to poll.
+  transportState: (serial: string) =>
+    invoke<DeviceStatus | null>("transport_state", { serial }),
   probePairedConnect: (pairAddress: string, instance: string | null) =>
     invoke<PairedConnectProbe>("probe_paired_connect", { pairAddress, instance }),
   connectPaired: (address: string, instance: string) =>

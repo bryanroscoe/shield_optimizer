@@ -67,6 +67,9 @@ const QUIET_COMMANDS = new Set([
   "send_key",
   "send_text",
   "log_ui_event",
+  // Polled every 2 seconds while platform-tools waits for Allow; a failed
+  // read is simply tried again.
+  "transport_state",
   // Send logs fails on its own (offline, the daily limit) and says so; a
   // report about it would only repeat that.
   "upload_diagnostics",

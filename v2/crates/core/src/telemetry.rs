@@ -58,13 +58,16 @@ pub const EXCERPTS_PER_DAY: u32 = 20;
 /// diagnostics, desktop log excerpts and the support id.
 pub const NOTICE_VERSION: u32 = 2;
 
-/// The build-time variable that marks a test build with the commit it was
-/// built from. Only the native test package jobs in `v2-tests.yml` set it;
-/// a release build never has it.
+/// The build-time variable that marks a test build. Only the native test
+/// package jobs in `v2-tests.yml` set it, to `<built>-pr-<head>`: the commit
+/// actually built (a pull request's merge commit, the one in the test app's
+/// window title and provenance), then the pull request head it came from. A
+/// release build never has it.
 pub const TEST_BUILD_ENV: &str = "ATVOPT_TEST_BUILD";
 
-/// The test-build marker compiled into this build, shortened to the usual
-/// seven characters for a full commit hash. `None` for a release build.
+/// The test-build label compiled into this build: the built commit shortened
+/// to seven characters, with the PR head alongside when it differs. `None`
+/// for a release build.
 pub fn build_test_marker() -> Option<String> {
     normalize_test_marker(option_env!("ATVOPT_TEST_BUILD"))
 }
@@ -72,17 +75,31 @@ pub fn build_test_marker() -> Option<String> {
 fn normalize_test_marker(raw: Option<&str>) -> Option<String> {
     let raw = raw?.trim();
     if raw.is_empty()
-        || raw.len() > 64
+        || raw.len() > 100
         || !raw
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
     {
         return None;
     }
-    if raw.len() > 12 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Some(raw[..7].to_string());
+    let short = |part: &str| {
+        if part.len() > 12 && part.chars().all(|c| c.is_ascii_hexdigit()) {
+            part[..7].to_string()
+        } else {
+            part.to_string()
+        }
+    };
+    match raw.split_once("-pr-") {
+        Some((built, head)) if !built.is_empty() && !head.is_empty() => {
+            let (built, head) = (short(built), short(head));
+            Some(if built == head {
+                built
+            } else {
+                format!("{built} (merge commit; PR head {head})")
+            })
+        }
+        _ => Some(short(raw)),
     }
-    Some(raw.to_string())
 }
 
 /// A test build's uploads carry its version as a `-dev` release, which the
@@ -426,7 +443,13 @@ impl Telemetry {
     /// Whether automatic reports can be sent at all: an endpoint, and not a
     /// test build.
     fn configured(&self) -> bool {
-        self.config.base_url.is_some() && self.config.test_build.is_none()
+        self.has_endpoint() && self.config.test_build.is_none()
+    }
+
+    /// Whether anything can leave this build at all, Send logs included. The
+    /// identifiers that upload is scrubbed of are collected whenever it can.
+    fn has_endpoint(&self) -> bool {
+        self.config.base_url.is_some()
     }
 
     fn active(inner: &Inner, configured: bool) -> bool {
@@ -574,7 +597,9 @@ impl Telemetry {
     /// Reports each TV once per session, keyed in memory by its verified
     /// hardware id (or its transport when it has none).
     pub fn device_profiled(&self, device: &Device) {
-        if !self.configured() {
+        // A test build sends no reports, but its Send logs upload is still
+        // scrubbed of every identifier seen.
+        if !self.has_endpoint() {
             return;
         }
         let Some(props) = device.properties.as_ref() else {
@@ -605,7 +630,7 @@ impl Telemetry {
         inner
             .devices
             .insert(device.serial.clone(), snapshot.clone());
-        if !Self::active(&inner, self.config.test_build.is_none()) || !inner.seen.insert(key) {
+        if !Self::active(&inner, self.configured()) || !inner.seen.insert(key) {
             return;
         }
         let event = device_seen_event(&self.context(&inner), &now(), snapshot);
@@ -615,7 +640,7 @@ impl Telemetry {
     /// Remember a transport serial so it is scrubbed from any later message,
     /// even for a TV that could never be profiled (unauthorized, offline).
     pub fn note_transport(&self, serial: &str) {
-        if self.configured() {
+        if self.has_endpoint() {
             self.lock().identifiers.insert(serial.to_string());
         }
     }
@@ -1150,6 +1175,20 @@ mod tests {
             normalize_test_marker(Some("4f156e4")),
             Some("4f156e4".into())
         );
+        assert_eq!(
+            normalize_test_marker(Some(
+                "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-pr-2222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+            )),
+            Some("1111111 (merge commit; PR head 2222222)".into()),
+            "the commit built, then the PR head"
+        );
+        assert_eq!(
+            normalize_test_marker(Some(
+                "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-pr-1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            )),
+            Some("1111111".into()),
+            "a branch build is its own head"
+        );
         let workflows = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../.github/workflows");
         let release = std::fs::read_to_string(format!("{workflows}/v2-release.yml")).unwrap();
         assert!(
@@ -1195,6 +1234,52 @@ mod tests {
         assert_eq!(target.app_version, "2.5.0-dev");
         assert_eq!(target.test_build.as_deref(), Some("4f156e4"));
         assert_eq!(dev_version("2.6.0-beta.2"), "2.6.0-dev");
+    }
+
+    #[test]
+    fn a_test_build_still_scrubs_every_identifier_it_saw_from_send_logs() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                test_build: Some("4f156e4".into()),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        // Letters-only serials and a name not in `name=` form are exactly
+        // what the generic redaction rules miss.
+        let mut tv = shield("QWERTYUIOPAS", "QWERTYUIOPAS");
+        tv.properties.as_mut().unwrap().friendly_name = Some("Grandma Den TV".into());
+        hub.device_profiled(&tv);
+        hub.note_transport("ZXCVBNMLKJHG");
+        assert!(hub.lock().queue.is_empty(), "nothing reported");
+        let known = hub.known_identifiers();
+        for id in ["QWERTYUIOPAS", "Grandma Den TV", "ZXCVBNMLKJHG"] {
+            assert!(known.iter().any(|k| k == id), "{id} missing from {known:?}");
+        }
+        let known: Vec<&str> = known.iter().map(String::as_str).collect();
+        let text = crate::engine::log_redact::redact_text(
+            "profiled QWERTYUIOPAS (Grandma Den TV); unauthorized ZXCVBNMLKJHG",
+            &crate::engine::log_redact::Scrub {
+                known: &known,
+                words: &[],
+            },
+            4096,
+        );
+        for id in ["QWERTYUIOPAS", "Grandma Den TV", "ZXCVBNMLKJHG"] {
+            assert!(!text.contains(id), "{text}");
+        }
+        // A build without an endpoint can't upload, so it keeps nothing.
+        let none = Telemetry::new(
+            TelemetryConfig {
+                test_build: Some("4f156e4".into()),
+                ..config(None)
+            },
+            tempfile::tempdir().unwrap().path(),
+        );
+        none.note_transport("ZXCVBNMLKJHG");
+        assert!(none.known_identifiers().is_empty());
     }
 
     #[test]

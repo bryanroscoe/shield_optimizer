@@ -844,6 +844,32 @@ pub async fn request_device_approval_impl(
     })
 }
 
+/// `transport_state` — one transport's state from `adb devices` alone, with
+/// no property reads or name lookups, so it is cheap enough to poll while a
+/// TV decides. `None` when adb doesn't list that key.
+#[tauri::command]
+pub async fn transport_state(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Option<DeviceStatus>, String> {
+    transport_state_impl(state.inner(), &serial).await
+}
+
+pub async fn transport_state_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Option<DeviceStatus>, String> {
+    let adb = state.adb_snapshot().await;
+    let raw = adb
+        .raw(&["devices"])
+        .await
+        .map_err(|e| format!("adb devices: {e}"))?;
+    Ok(parse_device_list(&raw.stdout)
+        .into_iter()
+        .find(|entry| entry.serial == serial)
+        .map(|entry| entry.status))
+}
+
 /// `cancel_device_approval` — stop waiting for one TV's answer.
 #[tauri::command]
 pub async fn cancel_device_approval(
@@ -1763,6 +1789,36 @@ mod tests {
                 "request 192.0.2.1:5555",
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn transport_state_reads_only_the_transport_list() {
+        let mock = MockAdb::default().on_raw(
+            "devices",
+            "List of devices attached\n192.0.2.1:5555\tunauthorized\n192.0.2.2:5555\tdevice\n",
+        );
+        let shells = mock.shell_log();
+        let state = state_with(mock);
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.1:5555")
+                .await
+                .unwrap(),
+            Some(DeviceStatus::Unauthorized)
+        );
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.2:5555")
+                .await
+                .unwrap(),
+            Some(DeviceStatus::Device)
+        );
+        // Exact keys only: another port on the same address is another transport.
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.1:5556")
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(shells.lock().unwrap().is_empty(), "no property reads");
     }
 
     #[tokio::test]

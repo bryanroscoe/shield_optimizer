@@ -265,10 +265,15 @@
           <p>{NOTICE_TEXT}</p>
           <p>Turning this off stops sending at once and discards anything not yet sent.</p>
         </HelpTip>
-        {#if telemetry?.test_build}
+        {#if telemetry?.test_build && telemetry.available}
         <p class="row-note" role="status" data-test-build>
           Test build <span class="mono">{telemetry.test_build}</span>: anonymous usage reports are
           always off. Send logs still works and marks each upload as this test build.
+        </p>
+        {:else if telemetry?.test_build}
+        <p class="row-note" role="status" data-test-build>
+          Test build <span class="mono">{telemetry.test_build}</span>: this build doesn't send
+          reports or logs.
         </p>
         {:else if !telemetry?.available}
         <p class="row-note" role="status">

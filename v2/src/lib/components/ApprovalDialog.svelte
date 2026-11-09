@@ -17,7 +17,7 @@
     wirelessDebugging = false,
     phase,
     error = null,
-    waitMinutes = 10,
+    deadline = null,
     onClose,
     onCancel,
     onRetry,
@@ -30,7 +30,8 @@
     wirelessDebugging?: boolean;
     phase: ApprovalPhase;
     error?: string | null;
-    waitMinutes?: number;
+    /// When the wait ends (ms since the epoch); null when unknown.
+    deadline?: number | null;
     onClose: () => void;
     onCancel: () => void;
     onRetry: () => void;
@@ -50,9 +51,44 @@
   );
   const promptName = $derived(usb ? "“Allow USB debugging?”" : "“Allow debugging?”");
 
+  let now = $state(Date.now());
+  $effect(() => {
+    void deadline;
+    now = Date.now();
+  });
+  const minutesLeft = $derived(deadline === null ? null : Math.max(1, Math.ceil((deadline - now) / 60_000)));
+
   function focusable(): HTMLElement[] {
     return [...dialog.querySelectorAll<HTMLElement>("button, summary, [href], [tabindex]:not([tabindex='-1'])")]
       .filter(el => !el.hasAttribute("disabled") && el.offsetParent !== null);
+  }
+
+  /// The control to land on in each phase. Its buttons change with the
+  /// phase, and the one that had focus may be gone.
+  function primary(): HTMLElement {
+    return dialog.querySelector<HTMLElement>("[data-primary]") ?? dialog;
+  }
+
+  let shownPhase: ApprovalPhase | null = null;
+  $effect(() => {
+    const current = phase;
+    const changed = shownPhase !== null && shownPhase !== current;
+    shownPhase = current;
+    if (!changed) return;
+    void tick().then(() => {
+      if (dialog && !dialog.contains(document.activeElement)) primary().focus();
+    });
+  });
+
+  /// Focus that slipped out (to the page body when its button went away)
+  /// still answers Escape and Tab here.
+  function onWindowKeydown(e: KeyboardEvent) {
+    if (!dialog || dialog.contains(document.activeElement)) return;
+    if (e.key === "Escape" || e.key === "Tab") {
+      e.preventDefault();
+      if (e.key === "Escape") onClose();
+      else primary().focus();
+    }
   }
 
   function onKeydown(e: KeyboardEvent) {
@@ -84,8 +120,12 @@
 
   onMount(() => {
     void tick().then(() => dialog?.focus());
+    const clock = setInterval(() => (now = Date.now()), 5000);
+    return () => clearInterval(clock);
   });
 </script>
+
+<svelte:window onkeydown={onWindowKeydown} />
 
 <div class="approval-backdrop" role="presentation" onclick={onClose}></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -133,9 +173,11 @@
           <strong>Allow</strong>.
         </p>
       {/if}
-      <p class="note">
-        Waiting up to {waitMinutes} minutes. Closing this window keeps waiting; only Cancel request
-        stops it.
+      <p class="note" data-wait-note>
+        {#if minutesLeft !== null}
+          Waiting up to {minutesLeft === 1 ? "1 more minute" : `${minutesLeft} more minutes`}.
+        {/if}
+        Closing this window keeps waiting; only Cancel request stops it.
       </p>
     {:else if phase === "approved"}
       <p>Connected.</p>
@@ -167,11 +209,11 @@
 
   <div class="actions">
     {#if phase === "asking" || phase === "waiting"}
-      <button onclick={onClose}>Close</button>
+      <button onclick={onClose} data-primary>Close</button>
       <button onclick={onCancel}>Cancel request</button>
     {:else if phase === "not_approved" || phase === "error"}
       <button onclick={onClose}>Close</button>
-      <button class="primary" onclick={onRetry}>Try again</button>
+      <button class="primary" onclick={onRetry} data-primary>Try again</button>
     {/if}
   </div>
 </div>

@@ -108,9 +108,11 @@
         if (!refreshInFlight) await startRefresh(true);
         if (disposed || token !== nativeMonitorToken) return;
         // A request waits for the person (the backend bounds it); a scan's quiet
-        // attempts are watched for 90 seconds.
+        // attempts are watched for 90 seconds. An ended request still on
+        // screen is watched while it is shown, so a later listing that the
+        // TV allowed this computer corrects it.
         const connecting = (scanBusy || nativeConnections.pending.length > 0) && Date.now() < deadline;
-        if (!backendUnavailable && (connecting || waitingForApproval())) schedule();
+        if (!backendUnavailable && (connecting || waitingForApproval() || endedRequestShown())) schedule();
         else nativeMonitoring = false;
       }, 1000);
     };
@@ -119,7 +121,10 @@
 
   let scanError = $state<string | null>(null);
 
-  const waitingForApproval = () => (nativeConnections.awaiting_authorization?.length ?? 0) > 0;
+  const endedRequestShown = () =>
+    dialogState?.engine === "direct" && (dialogState.phase === "not_approved" || dialogState.phase === "error");
+  const waitingForApproval = () =>
+    (nativeConnections.awaiting_authorization?.length ?? 0) > 0 || (nativeConnections.requesting?.length ?? 0) > 0;
 
   let pairOpen = $state(false);
   let pairAddress = $state("");
@@ -202,7 +207,7 @@
       }
       adbMissing = false;
       const progress = status.connections ?? { pending: [], failed: [] };
-      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.not_allowed ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
+      const progressKey = JSON.stringify([ [...progress.pending].sort(), [...(progress.awaiting_authorization ?? [])].sort(), [...(progress.requesting ?? [])].sort(), [...(progress.not_allowed ?? [])].sort(), [...(progress.ready ?? [])].sort(), progress.failed.map(f => [f.address, f.message]).sort() ]);
       const changed = progressKey !== lastNativeProgress;
       nativeConnections = progress;
       if (adbBackend === "direct" && nativeScanSummary && !scanBusy) {
@@ -218,10 +223,11 @@
         const list = await api.listDevices();
         if (disposed) return;
         devices = list;
+        noteUnapproved(list);
         lastNativeProgress = progressKey;
       }
       reconcileApprovals();
-      if (!background && (progress.pending.length > 0 || (progress.awaiting_authorization?.length ?? 0) > 0) && !nativeMonitoring) monitorNativeConnections();
+      if (!background && (progress.pending.length > 0 || waitingForApproval()) && !nativeMonitoring) monitorNativeConnections();
     } catch (e) {
       if (!disposed && !background) error = String(e);
     } finally {
@@ -310,16 +316,22 @@
     pairMessage = "";
     pairDetail = "";
     if (!row) return null;
-    justConnected = row.serial;
-    flashSerial = row.serial;
+    await highlightRow(row.serial);
+    return row;
+  }
+
+  /// Scroll to a row, outline it for a moment and give it its call to
+  /// action. Leaves the Pair panel and Add by IP alone.
+  async function highlightRow(serial: string) {
+    justConnected = serial;
+    flashSerial = serial;
     await tick();
-    const el = document.querySelector(`[data-serial="${CSS.escape(row.serial)}"]`);
+    const el = document.querySelector(`[data-serial="${CSS.escape(serial)}"]`);
     const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
     el?.scrollIntoView({ block: "nearest", behavior: reduce ? "auto" : "smooth" });
     setTimeout(() => {
-      if (flashSerial === row.serial) flashSerial = null;
+      if (flashSerial === serial) flashSerial = null;
     }, 2400);
-    return row;
   }
 
   let connectInput = $state<HTMLInputElement | null>(null);
@@ -511,7 +523,7 @@
     // every adb key with this device's verified hardware id, never a match on
     // address. A USB row has nothing to forget.
     if (isUnapproved(d)) {
-      if (isAwaitingApproval(d)) {
+      if (requestOpen(d)) {
         items.push(
           { label: "Show approval request", run: () => showApproval(d) },
           { label: "Cancel approval request", run: () => cancelApprovalRequest(d.serial) },
@@ -846,9 +858,13 @@
   let repromptBusy = $state<string | null>(null);
   /// How long the app waits for Allow, under either engine. The built-in
   /// engine enforces it itself (`APPROVAL_WAIT`); under platform-tools the
-  /// app polls the device list this long.
+  /// app watches the transport this long.
   const APPROVAL_WAIT_MS = 10 * 60_000;
   const APPROVED_CLOSE_MS = 1600;
+  const APPROVAL_POLL_MS = 2000;
+  /// Platform-tools: the adb server offers its key when a TV connects, so for
+  /// this long after a TV first appears unapproved it is probably asking.
+  const PROMPT_FRESH_MS = 2 * 60_000;
 
   type ApprovalState = {
     serial: string;
@@ -859,7 +875,13 @@
     engine: "direct" | "subprocess";
     phase: ApprovalPhase;
     error: string | null;
-    startedAt: number;
+    /// When this window's wait ends; null when it doesn't know (a request
+    /// the built-in engine was already running when this window opened).
+    deadline: number | null;
+    /// Which Request approval this is. Results for an older one are dropped.
+    token: number;
+    /// It ended while the dialog was closed, so the row says how.
+    unseen: boolean;
   };
   /// Approval requests this window knows about, by transport key. The
   /// built-in engine's wait lives in the backend; this is what the dialog
@@ -867,9 +889,29 @@
   let approvals = $state<Record<string, ApprovalState>>({});
   let dialogSerial = $state<string | null>(null);
   const dialogState = $derived(dialogSerial ? approvals[dialogSerial] ?? null : null);
+  let approvalToken = 0;
   let approvalPoll: ReturnType<typeof setInterval> | null = null;
+  let approvalPollBusy = false;
+  /// Requests whose outcome is being resolved, so it is resolved once.
+  const settling = new Set<string>();
+  /// Platform-tools: unapproved keys already listed, and when each newly
+  /// listed one appeared (the adb server offered its key then).
+  let seenUnapproved: Set<string> | null = null;
+  let freshPrompt = $state<Record<string, number>>({});
 
-  function approvalFor(d: DeviceRow, phase: ApprovalPhase): ApprovalState {
+  /// A request is being made or waits on the TV: the dialog is the way back
+  /// to it, and Request approval is not offered again meanwhile.
+  const requestOpen = (d: DeviceRow) => isAwaitingApproval(d) || approvals[d.serial]?.phase === "asking";
+  /// How a request ended while its dialog was closed.
+  const unseenResult = (d: DeviceRow): string | null => {
+    const state = approvals[d.serial];
+    if (!state?.unseen) return null;
+    if (state.phase === "error") return state.error ?? "Couldn't ask it.";
+    if (state.phase === "not_approved") return "The request ended without Allow.";
+    return null;
+  };
+
+  function approvalFor(d: DeviceRow, phase: ApprovalPhase, token: number, deadline: number | null): ApprovalState {
     return {
       serial: d.serial,
       name: d.name,
@@ -879,140 +921,266 @@
       engine: adbBackend === "direct" ? "direct" : "subprocess",
       phase,
       error: null,
-      startedAt: Date.now(),
+      deadline,
+      token,
+      unseen: false,
     };
   }
 
-  function setPhase(serial: string, phase: ApprovalPhase, error: string | null = null) {
+  /// End a request in `phase`. Shown in the dialog when it is open, else on
+  /// the row.
+  function finish(serial: string, phase: "not_approved" | "error", error: string | null = null) {
     const current = approvals[serial];
-    if (current) approvals[serial] = { ...current, phase, error };
+    if (!current) return;
+    approvals[serial] = { ...current, phase, error, unseen: dialogSerial !== serial };
+    delete freshPrompt[serial];
   }
 
   /// Request approval: opens the dialog and asks. Built-in: the backend
   /// offers the key once and waits. Platform-tools: the adb server asks by
   /// itself; a network transport is redialled so the TV asks again, and the
-  /// app watches the device list. A USB device asks again when replugged.
+  /// app watches the transport. A USB device asks again when replugged.
   async function startApproval(d: DeviceRow) {
     const serial = d.serial;
-    approvals[serial] = approvalFor(d, "asking");
+    if (approvals[serial]?.phase === "asking") {
+      dialogSerial = serial;
+      return;
+    }
+    const token = ++approvalToken;
+    approvals[serial] = approvalFor(d, "asking", token, null);
     dialogSerial = serial;
+    const current = () => approvals[serial]?.token === token;
+    const waiting = () => {
+      approvals[serial] = { ...approvals[serial], phase: "waiting", deadline: Date.now() + APPROVAL_WAIT_MS };
+    };
     if (adbBackend === "direct") {
       let status: string;
       try {
         status = (await api.requestDeviceApproval(serial)).status;
       } catch (e) {
-        setPhase(serial, "error", String(e));
+        if (current()) finish(serial, "error", String(e));
         return;
       }
+      if (!current()) return;
       if (status === "canceled") {
         delete approvals[serial];
         if (dialogSerial === serial) closeApprovalDialog();
         return;
       }
-      await refresh();
-      if (!approvals[serial]) return;
-      if (status === "device") approved(serial);
-      else if (status === "not_allowed") setPhase(serial, "not_approved");
-      else {
-        setPhase(serial, "waiting");
+      if (status === "waiting") {
+        waiting();
         monitorNativeConnections();
       }
+      await refresh();
+      if (!current()) return;
+      if (status === "device") void settle(serial, token, "ended");
+      else if (status === "not_allowed") finish(serial, "not_approved");
       return;
     }
     if (!approvals[serial].usb) {
       try {
         const r = await api.repromptDevice(serial);
+        if (!current()) return;
         if (!r.ok) {
-          setPhase(serial, "error", r.message);
+          finish(serial, "error", r.message);
           return;
         }
       } catch (e) {
-        setPhase(serial, "error", String(e));
+        if (current()) finish(serial, "error", String(e));
         return;
       }
     }
-    if (!approvals[serial]) return;
-    approvals[serial] = { ...approvals[serial], phase: "waiting", startedAt: Date.now() };
+    if (!current()) return;
+    waiting();
     pollApprovals();
-    await pollApprovalsOnce();
+    void pollApprovalsOnce();
   }
 
   function showApproval(d: DeviceRow) {
     // The built-in engine's wait outlives this window's state (a reload).
-    if (!approvals[d.serial]) approvals[d.serial] = approvalFor(d, "waiting");
+    if (!approvals[d.serial]) approvals[d.serial] = approvalFor(d, "waiting", ++approvalToken, null);
     dialogSerial = d.serial;
   }
 
-  function approved(serial: string) {
-    setPhase(serial, "approved");
+  /// The TV allowed this computer and is listed as `row`: show it, then close.
+  function approved(serial: string, row: string) {
+    const state = approvals[serial];
+    if (!state || state.phase === "approved") return;
+    approvals[serial] = { ...state, phase: "approved", error: null, unseen: false };
+    delete freshPrompt[serial];
+    const token = state.token;
     setTimeout(() => {
-      if (approvals[serial]?.phase !== "approved") return;
+      if (approvals[serial]?.token !== token || approvals[serial]?.phase !== "approved") return;
       delete approvals[serial];
-      if (dialogSerial === serial) closeApprovalDialog();
-      void announceConnected(serial);
+      if (dialogSerial === serial) closeApprovalDialog(row);
+      void highlightRow(row);
     }, APPROVED_CLOSE_MS);
   }
 
-  /// Settle each waiting request against what the backend now reports.
+  /// The row a TV that allowed this computer is listed under: its own key,
+  /// or the row its transport was folded into, found by that transport's own
+  /// verified hardware id (never its address). Null while it isn't listed as
+  /// a device.
+  async function approvedRow(serial: string): Promise<string | null> {
+    if (devices.some(d => d.serial === serial && d.status === "device")) return serial;
+    try {
+      const row = await api.deviceProfile(serial);
+      return row.status === "device" ? row.serial : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /// Resolve how a request ended. "refused": the backend recorded a refusal.
+  /// "ended": it's over with no refusal, so the TV either allowed this
+  /// computer (perhaps folded into another row) or the connection ended.
+  /// "late": an ended request, and a later listing may show the TV allowed.
+  async function settle(serial: string, token: number, how: "refused" | "ended" | "late") {
+    if (settling.has(serial)) return;
+    settling.add(serial);
+    try {
+      const row = how === "refused" ? null : await approvedRow(serial);
+      const state = approvals[serial];
+      if (!state || state.token !== token || state.phase === "approved") return;
+      if (row) approved(serial, row);
+      else if (how === "refused") finish(serial, "not_approved");
+      else if (how === "ended" && (state.phase === "waiting" || state.phase === "asking")) {
+        finish(serial, "error", `The connection to ${state.name} ended before it allowed this computer. Try again.`);
+      }
+    } finally {
+      settling.delete(serial);
+    }
+  }
+
+  /// Settle each request against what the backend now reports.
   function reconcileApprovals() {
-    const awaiting = new Set(nativeConnections.awaiting_authorization ?? []);
+    const open = new Set([...(nativeConnections.awaiting_authorization ?? []), ...(nativeConnections.requesting ?? [])]);
+    const refused = new Set(nativeConnections.not_allowed ?? []);
+    const ready = new Set(nativeConnections.ready ?? []);
     for (const state of Object.values(approvals)) {
-      if (state.phase !== "waiting") continue;
+      if (state.phase === "asking" || state.phase === "approved") continue;
       if (devices.some(d => d.serial === state.serial && d.status === "device")) {
-        approved(state.serial);
-      } else if (state.engine === "direct" ? !awaiting.has(state.serial) : Date.now() - state.startedAt > APPROVAL_WAIT_MS) {
-        setPhase(state.serial, "not_approved");
+        approved(state.serial, state.serial);
+      } else if (state.phase !== "waiting") {
+        // Ended, but a scan reached it since: the TV may have allowed it.
+        if (state.engine === "direct" && ready.has(state.serial)) void settle(state.serial, state.token, "late");
+      } else if (state.engine === "direct") {
+        if (!open.has(state.serial)) void settle(state.serial, state.token, refused.has(state.serial) ? "refused" : "ended");
+      } else if (state.deadline !== null && Date.now() >= state.deadline) {
+        finish(state.serial, "not_approved");
       }
     }
   }
 
-  async function pollApprovalsOnce() {
-    try {
-      const list = await api.listDevices();
-      if (disposed) return;
-      devices = list;
-    } catch {
+  /// Platform-tools: which unapproved TVs were listed just now, so the row
+  /// says one is probably asking only while that is likely.
+  function noteUnapproved(list: Device[]) {
+    if (adbBackend !== "subprocess") {
+      seenUnapproved = null;
+      if (Object.keys(freshPrompt).length > 0) freshPrompt = {};
       return;
     }
-    reconcileApprovals();
+    const listed = new Set(list.filter(d => d.status === "unauthorized").map(d => d.serial));
+    if (seenUnapproved) {
+      for (const serial of listed) {
+        if (seenUnapproved.has(serial)) continue;
+        const stamp = Date.now();
+        freshPrompt[serial] = stamp;
+        setTimeout(() => {
+          if (freshPrompt[serial] === stamp) delete freshPrompt[serial];
+        }, PROMPT_FRESH_MS);
+      }
+    }
+    for (const serial of Object.keys(freshPrompt)) if (!listed.has(serial)) delete freshPrompt[serial];
+    seenUnapproved = listed;
   }
 
-  /// Platform-tools: re-read the device list until no request is waiting.
+  const subprocessWaiting = () =>
+    Object.values(approvals).filter(a => a.engine === "subprocess" && a.phase === "waiting");
+
+  /// The wait limit holds whether or not adb answers.
+  function expireApprovals() {
+    const now = Date.now();
+    for (const state of subprocessWaiting()) {
+      if (state.deadline !== null && now >= state.deadline) finish(state.serial, "not_approved");
+    }
+  }
+
+  /// Platform-tools: read each waiting TV's transport state (cheap: `adb
+  /// devices` alone), and re-read the full list only once one changed.
+  async function pollApprovalsOnce() {
+    if (approvalPollBusy || disposed) return;
+    approvalPollBusy = true;
+    try {
+      const allowed: ApprovalState[] = [];
+      let changed = false;
+      for (const state of subprocessWaiting()) {
+        let transport: string | null;
+        try {
+          transport = await api.transportState(state.serial);
+        } catch {
+          continue;
+        }
+        if (disposed || approvals[state.serial]?.token !== state.token) continue;
+        if (transport !== "unauthorized") changed = true;
+        if (transport === "device") allowed.push(state);
+      }
+      if (!changed || disposed) return;
+      await refresh();
+      for (const state of allowed) {
+        if (approvals[state.serial]?.token === state.token && approvals[state.serial]?.phase === "waiting") {
+          void settle(state.serial, state.token, "late");
+        }
+      }
+    } finally {
+      approvalPollBusy = false;
+    }
+  }
+
   function pollApprovals() {
     if (approvalPoll || disposed) return;
     approvalPoll = setInterval(() => {
-      if (disposed || !Object.values(approvals).some(a => a.engine === "subprocess" && a.phase === "waiting")) {
+      expireApprovals();
+      if (disposed || subprocessWaiting().length === 0) {
         if (approvalPoll) clearInterval(approvalPoll);
         approvalPoll = null;
         return;
       }
       void pollApprovalsOnce();
-    }, 2000);
+    }, APPROVAL_POLL_MS);
+  }
+
+  /// Stop this window's part of a request: the built-in engine's wait ends
+  /// in the backend, platform-tools polling stops with the state.
+  async function endApproval(serial: string): Promise<string | null> {
+    const engine = approvals[serial]?.engine ?? (adbBackend === "direct" ? "direct" : "subprocess");
+    delete approvals[serial];
+    delete freshPrompt[serial];
+    if (dialogSerial === serial) dialogSerial = null;
+    if (engine !== "direct") return null;
+    try {
+      await api.cancelDeviceApproval(serial);
+      return null;
+    } catch (e) {
+      return `Couldn't cancel the request: ${e}`;
+    }
   }
 
   /// Cancel request: the only way to stop a wait. Closing the dialog keeps it.
   async function cancelApprovalRequest(serial: string) {
-    const engine = approvals[serial]?.engine ?? (adbBackend === "direct" ? "direct" : "subprocess");
-    delete approvals[serial];
-    if (dialogSerial === serial) dialogSerial = null;
-    if (engine === "direct") {
-      try {
-        await api.cancelDeviceApproval(serial);
-      } catch (e) {
-        connectMessage = `Couldn't cancel the request: ${e}`;
-      }
-    }
+    const failed = await endApproval(serial);
+    if (failed) connectMessage = failed;
     await refresh();
     await focusRow(serial);
   }
 
-  function closeApprovalDialog() {
+  function closeApprovalDialog(focus: string | null = null) {
     const serial = dialogSerial;
     dialogSerial = null;
-    // A finished request has nothing left to show.
+    // A finished request has nothing left to show once it was seen.
     const state = serial ? approvals[serial] : undefined;
     if (serial && state && state.phase !== "waiting" && state.phase !== "asking") delete approvals[serial];
-    if (serial) void focusRow(serial);
+    if (serial) void focusRow(focus ?? serial);
   }
 
   /// Return focus to the row the dialog belongs to: its approval button, or
@@ -1058,6 +1226,8 @@
     connectDetail = "";
     if (justConnected === d.serial) justConnected = null;
     try {
+      // Forget ends a request for this TV too.
+      if (approvals[d.serial]) await endApproval(d.serial);
       const r = await api.forgetDevice(d.serial);
       await refresh();
       if (!r.ok || r.still_advertised) connectMessage = r.message;
@@ -1122,6 +1292,7 @@
       stopTierWatch();
       pairWaitToken++;
       reattachToken++;
+      if (approvalPoll) clearInterval(approvalPoll);
     };
   });
 </script>
@@ -1531,7 +1702,6 @@
             class="device-row not-clickable"
             class:discovered={!!d.discoveryState}
             class:unapproved={isUnapproved(d)}
-            class:unauthorized={d.status === "unauthorized"}
             class:flash={flashSerial === d.serial}
             data-serial={d.serial}
             oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
@@ -1570,14 +1740,18 @@
               <div class="device-meta muted mono">{d.serial}</div>
               {/if}
               {#if isUnapproved(d)}
-                <span class="sr-only" role="status">{isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : ""}</span>
-                <p class="approval-line">
+                <span class="sr-only" role="status">
+                  {isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : unseenResult(d) ? `${d.name}: ${unseenResult(d)}` : ""}
+                </span>
+                <p class="approval-line" class:approval-result={!!unseenResult(d) && approvals[d.serial]?.phase === "error"} data-approval-line>
                   {#if isAwaitingApproval(d)}
                     Waiting for you to choose Allow on it.
-                  {:else if adbBackend === "direct"}
-                    Hasn't allowed this computer yet.
-                  {:else}
+                  {:else if unseenResult(d)}
+                    {unseenResult(d)}
+                  {:else if adbBackend !== "direct" && freshPrompt[d.serial]}
                     Hasn't allowed this computer yet; it's probably asking now.
+                  {:else}
+                    Hasn't allowed this computer yet.
                   {/if}
                 </p>
               {/if}
@@ -1623,7 +1797,7 @@
                   Open anyway
                 </button>
               {/if}
-              {#if isAwaitingApproval(d)}
+              {#if requestOpen(d)}
                 <button
                   class="row-action"
                   onclick={() => showApproval(d)}
@@ -1691,10 +1865,11 @@
     wirelessDebugging={dialogState.wireless}
     phase={dialogState.phase}
     error={dialogState.error}
+    deadline={dialogState.deadline}
     onClose={closeApprovalDialog}
     onCancel={() => cancelApprovalRequest(dialogState.serial)}
     onRetry={() => {
-      const row = sortedDevices.find(d => d.serial === dialogState.serial);
+      const row = sortedDevices.find(d => d.serial === dialogState?.serial);
       if (row) void startApproval(row);
       else closeApprovalDialog();
     }}
@@ -1816,6 +1991,9 @@
     margin: 0.3rem 0 0;
     font-size: 0.85rem;
     color: var(--fg-secondary);
+  }
+  .approval-line.approval-result {
+    color: var(--danger-text);
   }
   .sr-only {
     position: absolute;

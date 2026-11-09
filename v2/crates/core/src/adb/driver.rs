@@ -222,6 +222,11 @@ pub struct ScanConnectionProgress {
     /// Explicit approval requests whose TV may be showing its prompt.
     #[serde(default)]
     pub awaiting_authorization: Vec<String>,
+    /// Explicit approval requests still open, whether or not the TV was asked
+    /// yet. A request leaves this list only after its outcome is recorded:
+    /// the TV listed as a device, a refusal in `not_allowed`, or a failure.
+    #[serde(default)]
+    pub requesting: Vec<String>,
     /// TVs that refused this computer's keys recently (the driver's bound),
     /// so a name looked up at that address belongs to them. Nothing was shown
     /// on them. An older refusal is still listed by `adb devices`, by address.

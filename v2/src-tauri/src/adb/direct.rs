@@ -1029,6 +1029,7 @@ impl AdbDriver for DirectNetworkAdb {
         progress
             .failed
             .retain(|failure| !active.contains(&failure.address));
+        progress.requesting = active.clone();
         for serial in active {
             if self.pool.awaiting_authorization(&serial).await {
                 progress.awaiting_authorization.push(serial);
@@ -1277,6 +1278,9 @@ mod tests {
         approve: tokio::sync::Notify,
         /// The person chooses Deny, which ends the connection.
         deny: tokio::sync::Notify,
+        /// After Allow, the prompt is gone but the connection finishes only
+        /// on `release`.
+        hold_after_allow: AtomicBool,
         auths: StdMutex<Vec<(ConnectAuth, Duration)>>,
         /// Every connect fails like this before reaching the TV.
         unreachable: StdMutex<Option<String>>,
@@ -1391,7 +1395,12 @@ mod tests {
                 .await;
                 self.authorization_pending.store(false, Ordering::Release);
                 match answer {
-                    Ok(true) => self.untrusted.store(false, Ordering::Release),
+                    Ok(true) => {
+                        self.untrusted.store(false, Ordering::Release);
+                        if self.hold_after_allow.load(Ordering::Acquire) {
+                            self.release.notified().await;
+                        }
+                    }
                     Ok(false) => return Err(ConnectFailure::NotApproved("denied".into())),
                     Err(_) => return Err(ConnectFailure::NotApproved("timed out".into())),
                 }
@@ -1640,6 +1649,47 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn a_request_stays_open_between_allow_and_the_tv_being_listed() {
+        let (driver, session) = untrusted_driver();
+        session.hold_after_allow.store(true, Ordering::Release);
+        let target = "192.0.2.1:5555";
+        assert_eq!(
+            driver.request_approval(target).await.unwrap(),
+            ApprovalRequestOutcome::Waiting
+        );
+        let progress = driver.scan_connection_progress().await;
+        assert_eq!(progress.awaiting_authorization, [target]);
+        assert_eq!(progress.requesting, [target]);
+        session.approve.notify_one();
+        while session.authorization_pending.load(Ordering::Acquire) {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        // The prompt is gone but nothing is listed yet: still open, so the
+        // window must not read it as a refusal.
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.awaiting_authorization.is_empty());
+        assert_eq!(progress.requesting, [target]);
+        assert!(progress.not_allowed.is_empty());
+        assert!(!driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1:5555\tdevice"));
+        session.release.notify_one();
+        request_settles(&driver, target).await;
+        // It leaves `requesting` only once the outcome is listed.
+        let progress = driver.scan_connection_progress().await;
+        assert!(progress.requesting.is_empty() && progress.not_allowed.is_empty());
+        assert!(driver
+            .raw(&["devices"])
+            .await
+            .unwrap()
+            .stdout
+            .contains("192.0.2.1:5555\tdevice"));
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn cancel_deny_or_the_wait_limit_return_the_tv_quietly_to_not_allowed() {
         for ending in ["cancel", "deny", "limit"] {
             let (driver, session) = untrusted_driver();
@@ -1662,6 +1712,7 @@ mod tests {
             let progress = driver.scan_connection_progress().await;
             assert_eq!(progress.not_allowed, [target], "{ending}");
             assert!(progress.awaiting_authorization.is_empty(), "{ending}");
+            assert!(progress.requesting.is_empty(), "{ending}");
             assert!(progress.failed.is_empty(), "{ending}: no transport error");
             assert!(!session.authorization_pending.load(Ordering::Acquire));
             assert!(driver
