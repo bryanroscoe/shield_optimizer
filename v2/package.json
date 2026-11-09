@@ -35,6 +35,7 @@
     "test:catalog-uninstall": "node tests/catalog-uninstall.mjs",
     "test:app-state-filter": "node tests/app-state-filter.mjs",
     "test:snapshot-delete": "node tests/snapshot-delete.mjs",
+    "test:native-dialogs": "node tests/native-dialogs.mjs",
     "test:playback-shell": "node tests/playback-shell.mjs",
     "test:optimize-safety-all-rows": "node tests/optimize-safety-all-rows.mjs",
     "test:shell-acknowledge": "node tests/shell-acknowledge.mjs",
