@@ -35,6 +35,16 @@ impl NetworkChange {
     }
 }
 
+/// What the Kotlin create-document picker reported: `saved` only after the whole file was
+/// written to the document the user chose; `false` when they backed out of the picker.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SaveCopyResponse {
+    pub saved: bool,
+    /// The provider's display name for the new document, when it reports one.
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
 // Payloads sent across the JNI bridge to the Kotlin AdbPlugin's @Commands.
 // Bridge-only, so gated off host builds where the desktop stub never sends them.
 
@@ -55,6 +65,21 @@ pub(crate) struct DiscoverResponse {
 #[derive(Serialize)]
 pub(crate) struct WatchNetworkPayload {
     pub channel: tauri::ipc::Channel,
+}
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+pub(crate) struct SaveCopyPayload<'a> {
+    pub path: &'a str,
+    pub name: &'a str,
+    pub mime: &'a str,
+}
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+pub(crate) struct ShareFilePayload<'a> {
+    pub path: &'a str,
+    pub mime: &'a str,
 }
 
 #[cfg(test)]
@@ -87,6 +112,16 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn save_copy_response_reads_the_kotlin_result() {
+        let saved: SaveCopyResponse =
+            serde_json::from_str(r#"{"saved":true,"name":"tv-screenshot.png"}"#).unwrap();
+        assert_eq!(saved.name.as_deref(), Some("tv-screenshot.png"));
+        let canceled: SaveCopyResponse = serde_json::from_str(r#"{"saved":false}"#).unwrap();
+        assert!(!canceled.saved);
+        assert_eq!(canceled.name, None);
     }
 
     #[test]

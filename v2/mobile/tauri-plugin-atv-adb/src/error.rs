@@ -6,6 +6,8 @@ pub enum Error {
     Transport(String),
     #[error("wireless ADB is only available on Android builds")]
     Unsupported,
+    #[error("Save a copy and Share are only available on Android.")]
+    ExportUnsupported,
     #[cfg(mobile)]
     #[error(transparent)]
     PluginInvoke(#[from] tauri::plugin::mobile::PluginInvokeError),

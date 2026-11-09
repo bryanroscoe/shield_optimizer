@@ -53,4 +53,20 @@ impl<R: Runtime> Adb<R> {
             .run_mobile_plugin("discover", DiscoverPayload { timeout_ms })?;
         Ok(res.devices)
     }
+
+    /// Opens Android's create-document picker and streams `path` into the chosen document.
+    /// Blocks until the picker closes and the copy finishes.
+    pub fn save_copy(&self, path: &str, name: &str, mime: &str) -> Result<SaveCopyResponse> {
+        Ok(self
+            .0
+            .run_mobile_plugin("saveCopy", SaveCopyPayload { path, name, mime })?)
+    }
+
+    /// Opens the share sheet for `path`, which must sit in the FileProvider's
+    /// `cache/exports/` folder. Returns once the sheet is shown, not when a receiver is done.
+    pub fn share_file(&self, path: &str, mime: &str) -> Result<()> {
+        self.0
+            .run_mobile_plugin::<()>("shareFile", ShareFilePayload { path, mime })?;
+        Ok(())
+    }
 }

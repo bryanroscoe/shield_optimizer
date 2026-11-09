@@ -9,6 +9,7 @@
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
 mod billing_commands;
+mod export_commands;
 mod file_commands;
 mod play_billing;
 mod remote_lifecycle;
@@ -224,6 +225,10 @@ pub fn run() {
                     tracing::info!(?reclaimed, "removed interrupted transfers");
                 }
             }
+            // Share copies a file into the cache; drop copies left from an earlier run.
+            if let Ok(cache_dir) = app.path().app_cache_dir() {
+                export_commands::prune_at_startup(&cache_dir);
+            }
             match scrcpy_resource::materialize(&data_dir) {
                 Ok(path) => tracing::info!(path = %path.display(), "scrcpy server materialized"),
                 Err(e) => tracing::warn!(error = %e, "scrcpy server materialization failed; remote input will use shell fallback"),
@@ -277,6 +282,7 @@ pub fn run() {
             spawn_support_refresh(app.handle().clone());
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
+            app.manage(export_commands::ExportGate::default());
             app.manage(billing);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -368,6 +374,7 @@ pub fn run() {
             file_commands::delete_backup,
             file_commands::find_files,
             file_commands::delete_path,
+            export_commands::export_file,
             telemetry::telemetry_settings,
             telemetry::set_telemetry_enabled,
             telemetry::dismiss_telemetry_notice,

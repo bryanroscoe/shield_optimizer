@@ -768,6 +768,15 @@
       ]
     },
     {
+      "command": "export_file",
+      "api": "exportFile",
+      "gate": "Free",
+      "backend": "src-tauri/src/export_commands.rs",
+      "callers": [
+        "src/components/ExportActions.svelte"
+      ]
+    },
+    {
       "command": "plugin:opener|open_url",
       "api": "openUrl",
       "gate": "Free",

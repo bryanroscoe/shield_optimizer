@@ -12,6 +12,8 @@
   import Toast from "../components/Toast.svelte";
   import SupportStatus from "../components/SupportStatus.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
+  import ExportActions from "../components/ExportActions.svelte";
+  import HelpSheet from "../components/HelpSheet.svelte";
 
   let { onDisconnect, navigate }: {
     onDisconnect: () => void;
@@ -406,7 +408,21 @@
       </div>
       <img class="shot-img" src={`data:image/png;base64,${screenshot.base64}`} alt="Current TV screen" />
       <p class="shot-note mono">Private app location: {screenshot.path}</p>
-      <p class="shot-note">Saved in ATV Optimizer's private storage on this phone, not in Gallery or Downloads. Sharing and export are not available yet.</p>
+      <p class="shot-note">Saved in ATV Optimizer's private storage on this phone, not in Gallery or Downloads.</p>
+      <ExportActions path={screenshot.path} label="screenshot" />
+      <HelpSheet title="About saving and sharing">
+        <p>
+          Save a copy opens Android's file picker. The copy goes only where you choose, and
+          backing out saves nothing. Share opens Android's share sheet and lets the app you pick
+          read a copy. Android doesn't tell ATV Optimizer whether that app finished.
+        </p>
+        <p>
+          The copy is named tv-screenshot with the date and time, without the TV's address.
+          Nothing leaves the phone unless you choose Save a copy or Share. A shared copy is
+          cleared from the app's cache once it is an hour old, the next time you share or open
+          the app.
+        </p>
+      </HelpSheet>
       <p class="shot-note">Close screenshot preview hides this view. The saved image stays in the app.</p>
     </div>
   {/if}

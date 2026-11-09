@@ -81,6 +81,11 @@ backups via shared core `commands::files`, copy to phone, TV-side delete under `
 app sheet (Apps, Optimize, Diagnostics) shows the TV's support-tier warning before a removal and
 offers Report this app, Research sources and Back up APK (into app-private storage, listed on
 Backups; no export). A scan that finds nothing opens connection help.
+Save a copy and Share (2026-11-08) export one screenshot (Dashboard preview) or one pulled file
+(Files › Copied this session) through Android's create-document picker or share sheet:
+`src-tauri/src/export_commands.rs` confines the source to `screenshots/` and `downloads/`, and the
+atv-adb Kotlin plugin runs the system UI. The FileProvider now maps only `cache/exports/`. Not yet
+run on a phone (`EXPORT-DISCOVERABILITY.md`).
 Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab
@@ -89,8 +94,9 @@ saves or uploads them. More › Bug report builds desktop's narrow bundle throug
 `commands::diagnostics` (with this app's `debug.log` tail), shows it for review and copies it to the
 clipboard; nothing is sent.
 
-Not on mobile yet, and why: export of saved files, phone→TV upload and install APK / sideload all
-need Android's document picker or share sheet (SAF), which isn't wired. Desktop's Send logs upload
+Not on mobile yet, and why: phone→TV upload and install APK / sideload need SAF *import* (an
+open-document picker), which isn't wired; export of APK bundles and snapshots needs its own format
+and privacy decisions. Desktop's Send logs upload
 (`upload_diagnostics`) is not offered on the phone (owner decision). A patch-notes viewer is
 deferred.
 
@@ -220,8 +226,10 @@ deferred.
 - **Entitlement fails closed.** The default is Free; desktop opts into Pro explicitly. Shared Rust
   gates return `LOCKED:<feature>` before side effects, and `require_pro` runs after the safety
   check.
-- Screenshots, pulled files, APK bundles and snapshots all land in app-private storage with no
-  export (`EXPORT-DISCOVERABILITY.md`). Copy text never claims to have saved a file.
+- Screenshots, pulled files, APK bundles and snapshots all land in app-private storage. Only a
+  screenshot or a pulled file can leave, one at a time and only on the user's Save a copy or Share
+  (`EXPORT-DISCOVERABILITY.md`). "Saved" is claimed only after the copy was written; Share claims
+  only that the share sheet opened. Copy text never claims to have saved a file otherwise.
 - **Support tiers claim only what the TV reported.** A tier comes from the connected TV's profile
   (`Device.support`), never from a saved row's address. Unreadable means `unknown` ("not verified"),
   and no tier relaxes a safety gate or blocks enable/restore/Recovery. The list is shared with
@@ -360,8 +368,8 @@ argument names are camelCase in TS and Tauri maps them to snake_case (`pkg` → 
    bug-bash checks, and the stability and UI checks in `BACKLOG.md` P0.
 2. Code pairing against a real adbd (`PAIRING-PLAN.md`).
 3. Fast-remote Phase 4 device gates (`FAST-REMOTE-PLAN.md`).
-4. Android SAF export/import, which also unblocks phone→TV upload; then sideload and a patch-notes
-   viewer. Separately: the connect-lock narrowing in `wireless_adb.rs`.
+4. Android SAF import (export phase 1 shipped 2026-11-08), which unblocks phone→TV upload; then
+   sideload and a patch-notes viewer. Separately: the connect-lock narrowing in `wireless_adb.rs`.
 5. Product decisions for the owner: a free read-only Optimize plan, and the unused
    `Feature::FileManager` / `Feature::BackupClone` gates.
 6. Release: signing key and Play App Signing, a signed build, resolved Android dependency notices,
