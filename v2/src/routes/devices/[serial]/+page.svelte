@@ -2710,6 +2710,7 @@
                         data-tip={appPkg === m.process ? "Open in the App List" : `Open ${appPkg} in the App List`}
                       ><BreakableId text={m.process} /></button>
                     {:else}
+                      <!-- Wrapped so tests/layout-clipping.mjs can measure the name alone. -->
                       <span class="mem-process"><BreakableId text={m.process} /></span>
                       <span
                         class="unconfirmed"
@@ -4431,6 +4432,13 @@
       left: auto;
       right: 0;
       transform: none;
+    }
+  }
+  /* Narrower still (larger text at the 720px minimum): the verbs' own labels
+     wrap, so "Review: uninstall if unused" stops setting the column's width. */
+  @container (max-width: 36rem) {
+    .app-table .actions-cell button {
+      white-space: normal;
     }
   }
   /* The verb buttons keep their own spacing rule; inside a flex row their

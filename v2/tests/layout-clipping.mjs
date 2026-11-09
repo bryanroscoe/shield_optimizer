@@ -5,8 +5,9 @@
 //   ids break after their dots rather than every few letters, long values
 //   (a screensaver component, a Home app id) wrap inside Now and Will become,
 //   and no cell runs past its box or past the table's rounded frame.
-// - App List: a name too long for its row ends in an ellipsis inside the row,
-//   with the full name in `title`, instead of being cut mid-glyph; at 720px
+// - App List: a name too long for its row wraps onto a second line, and past
+//   two lines ends in an ellipsis inside the row with the full name in
+//   `title`, instead of being cut mid-glyph; at 720px
 //   the Actions column wraps so the App column keeps a readable width and the
 //   table stays inside the card.
 // - Health memory table: process names break at their separators.
@@ -83,8 +84,8 @@ function setHarnessEnvironment() {
 
 // In the page: every soft line break inside `el` that is not clean. A break
 // is clean after a separator or at a space, or inside a segment (the text
-// between separators) that is wider than the element's content box on its
-// own, where nothing else could fit it.
+// after one separator up to and including the next) that is wider than the
+// element's content box on its own, where nothing else could fit it.
 const LINE_BREAKS = (el) => {
   const SEP = /[.:/_@\-,\s]/;
   const chars = [];
@@ -96,6 +97,8 @@ const LINE_BREAKS = (el) => {
       range.setEnd(node, i + 1);
       const rect = Array.from(range.getClientRects()).find((r) => r.width > 0);
       if (rect) chars.push({ ch: node.data[i], top: rect.top, height: rect.height, width: rect.width });
+      // A space the line wrapped at collapses to no box; keep it as a marker.
+      else if (/\s/.test(node.data[i]) && chars.length) chars.push({ ...chars[chars.length - 1], ch: " ", width: 0 });
     }
   }
   const style = getComputedStyle(el);
@@ -104,11 +107,14 @@ const LINE_BREAKS = (el) => {
   const bad = [];
   for (let i = 1; i < chars.length; i++) {
     if (chars[i].top - chars[i - 1].top <= chars[i - 1].height / 2) continue;
-    if (SEP.test(chars[i - 1].ch) || SEP.test(chars[i].ch)) continue;
+    if (SEP.test(chars[i - 1].ch) || /\s/.test(chars[i].ch)) continue;
+    // The segment runs to and includes its trailing separator, which stays on
+    // the segment's line: "android." has to fit, not just "android".
     let start = i;
     while (start > 0 && !SEP.test(chars[start - 1].ch)) start--;
     let end = i;
     while (end < chars.length && !SEP.test(chars[end].ch)) end++;
+    if (end < chars.length && !/\s/.test(chars[end].ch)) end++;
     const segment = chars.slice(start, end).reduce((sum, c) => sum + c.width, 0);
     if (segment > box) continue;
     bad.push({ text, at: i, segment: text.slice(start, end), segmentWidth: Math.round(segment), box: Math.round(box) });
@@ -206,12 +212,12 @@ async function restorePreview(page, base, width) {
     );
   }
 
-  const items = await table.locator("tbody td:first-child").evaluateAll(
+  const items = await table.locator("tbody td").evaluateAll(
     (tds, fn) => tds.map((td) => new Function(`return (${fn})`)()(td)),
     LINE_BREAKS.toString(),
   );
   const midWord = items.flat();
-  assert.deepEqual(midWord, [], `${width}: Item ids must break after a separator, not mid-word`);
+  assert.deepEqual(midWord, [], `${width}: ids and values in the plan must break after a separator, not mid-word`);
 }
 
 async function appList(page, base, width) {
@@ -231,8 +237,10 @@ async function appList(page, base, width) {
         return {
           name: el.textContent,
           title: el.getAttribute("title"),
-          truncated: el.scrollWidth > el.clientWidth + 1,
-          ellipsis: style.textOverflow === "ellipsis" && style.overflow !== "visible",
+          truncated: el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1,
+          ellipsis:
+            style.overflow !== "visible" &&
+            (style.textOverflow === "ellipsis" || (style.webkitLineClamp && style.webkitLineClamp !== "none")),
           outside: Math.max(0, r.right - row.right, row.left - r.left),
         };
       }),
@@ -248,6 +256,12 @@ async function appList(page, base, width) {
   const long = rows.find((r) => r.name === LONG_NAME);
   assert.ok(long, `${width}: the long-named app is listed`);
   assert.ok(long.truncated, `${width}: the fixture name is long enough to need truncating`);
+  // In the wide window every catalog name is whole. At 720px a single word
+  // wider than the column ("Recommendations") can still need the ellipsis.
+  if (width === "1360") {
+    const cut = rows.filter((r) => r.truncated && r.name !== LONG_NAME).map((r) => r.name);
+    assert.deepEqual(cut, [], `${width}: every catalog name is shown whole`);
+  }
   for (const r of rows.filter((row) => row.truncated)) {
     assert.ok(r.ellipsis, `${width}: ${r.name} is truncated without an ellipsis`);
     assert.equal(r.title, r.name, `${width}: a truncated name keeps its full text in title`);
@@ -296,7 +310,7 @@ async function main() {
       }
     }
     console.log(
-      `Layout clipping passed at ${CASES.map((c) => c.label).join(", ")}: restore preview Item column readable and nothing overflows, long app names ellipsized in their row, ids break at separators.`,
+      `Layout clipping passed at ${CASES.map((c) => c.label).join(", ")}: restore preview Item column readable and nothing overflows, long app names wrap or ellipsize inside their row, ids break at separators.`,
     );
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

@@ -382,18 +382,21 @@
     row-gap: 0.25rem;
     overflow: hidden;
   }
-  /* The name never wraps: it is the one thing you read to decide, and
-     `.app-cell`'s inherited `overflow-wrap: anywhere` will happily break
-     "Funimation" across two lines. The tags beside it wrap under it first;
-     only a name wider than the whole row shrinks, and then it ends in an
-     ellipsis with the full name in `title`, never a mid-letter cut. */
+  /* The name is the one thing you read to decide. The tags beside it wrap
+     under it first; a name wider than the whole row wraps at its spaces onto
+     a second line, and only a name longer than two lines ends in an
+     ellipsis, with the full name in `title`. `overflow-wrap: break-word`
+     splits a word only when that word alone is wider than the row, so
+     "Funimation" is never broken just to sit beside its tags. */
   .app-name {
     flex: 0 1 auto;
     min-width: 0;
-    white-space: nowrap;
-    overflow-wrap: normal;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
+    overflow-wrap: break-word;
   }
   .app-desc {
     margin-top: 0.1rem;
