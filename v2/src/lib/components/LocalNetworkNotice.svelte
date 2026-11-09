@@ -3,6 +3,9 @@
   import Icon from "./Icon.svelte";
   import { LOCAL_NETWORK_BLOCKED } from "$lib/adb-errors";
   import { localNetwork, openLocalNetworkSettings } from "$lib/local-network.svelte";
+
+  /// Native Rust ADB connects from the app itself, so there is no server to restart.
+  let { hostServer = true }: { hostServer?: boolean } = $props();
 </script>
 
 <!-- Only on the probe's evidence (status "blocked"); see local-network.svelte.ts. -->
@@ -15,7 +18,7 @@
         <p>
           Otherwise, click Open Privacy &amp; Security, then Local Network, and turn ATV Optimizer on.
           If it is already on, turn it off and on again. If it's listed more than once, turn all of
-          them on. Then Restart ADB.
+          them on. {hostServer ? "Then Restart ADB." : "Then try again."}
         </p>
         <p>
           macOS remembers an earlier Don't Allow, or a prompt that was dismissed, and doesn't ask

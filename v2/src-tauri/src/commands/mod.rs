@@ -5,6 +5,7 @@
 //! installation, the desktop updater, host-network scanning, or macOS Local
 //! Network privacy.
 
+pub mod adb_engine;
 pub mod app_report;
 pub mod backup;
 pub mod diagnostics;

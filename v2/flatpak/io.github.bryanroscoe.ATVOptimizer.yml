@@ -1,0 +1,65 @@
+id: io.github.bryanroscoe.ATVOptimizer
+runtime: org.gnome.Platform
+runtime-version: '50'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node22
+command: atv-optimizer
+finish-args:
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # ADB over Wi-Fi, LAN scanning, the platform-tools download and the update check.
+  - --share=network
+  # ADB over USB opens /dev/bus/usb directly.
+  - --device=all
+modules:
+  - name: atv-optimizer
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin:/usr/lib/sdk/node22/bin
+      env:
+        CARGO_HOME: /run/build/atv-optimizer/cargo
+        CARGO_NET_OFFLINE: 'true'
+        XDG_CACHE_HOME: /run/build/atv-optimizer/flatpak-node/cache
+        npm_config_cache: /run/build/atv-optimizer/flatpak-node/npm-cache
+        npm_config_offline: 'true'
+        # Same endpoint as the GitHub release builds. Reports are anonymous and
+        # can be turned off in Settings.
+        ATVOPT_TELEMETRY_URL: https://atv-optimizer-telemetry.bryanroscoe.workers.dev
+    build-commands:
+      - npm ci --offline --no-audit --no-fund
+      - npm run build
+      # tauri/custom-protocol is what `tauri build` adds: serve the embedded
+      # frontend instead of the dev server URL.
+      - cargo build --offline --release -p atv-optimizer --features tauri/custom-protocol
+      - install -Dm755 target/release/atv-optimizer ${FLATPAK_DEST}/bin/atv-optimizer
+      # Tauri resolves bundled resources to <exe>/../lib/<productName>/.
+      - install -Dm644 src-tauri/resources/scrcpy-server-v3.1 "${FLATPAK_DEST}/lib/ATV Optimizer/resources/scrcpy-server-v3.1"
+      - install -Dm644 flatpak/${FLATPAK_ID}.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 flatpak/${FLATPAK_ID}.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - install -Dm644 src-tauri/icons/source.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg
+      - install -Dm644 src-tauri/icons/32x32.png ${FLATPAK_DEST}/share/icons/hicolor/32x32/apps/${FLATPAK_ID}.png
+      - install -Dm644 src-tauri/icons/64x64.png ${FLATPAK_DEST}/share/icons/hicolor/64x64/apps/${FLATPAK_ID}.png
+      - install -Dm644 src-tauri/icons/128x128.png ${FLATPAK_DEST}/share/icons/hicolor/128x128/apps/${FLATPAK_ID}.png
+      - install -Dm644 src-tauri/icons/128x128@2x.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/${FLATPAK_ID}.png
+      - install -Dm644 src-tauri/icons/icon.png ${FLATPAK_DEST}/share/icons/hicolor/512x512/apps/${FLATPAK_ID}.png
+    sources:
+      # Local and CI builds use the checkout. The Flathub copy of this manifest
+      # replaces this with a `git` source pinned to a release tag and commit.
+      - type: dir
+        path: ..
+        skip:
+          - node_modules
+          - target
+          - build
+          - .svelte-kit
+          - mobile/node_modules
+          - e2e/artifacts
+          - evidence
+          - screenshots
+          - flatpak/generated-sources
+      - generated-sources/cargo-sources.json
+      - generated-sources/node-sources.json

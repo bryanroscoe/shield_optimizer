@@ -30,8 +30,11 @@ try {
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: "networkidle" });
   const curated = await page.evaluate(() => {
     const original = window.__TAURI_INTERNALS__.invoke;
-    window.__APP_STATE_TEST__ = { curated: [], mutations: [] };
+    window.__APP_STATE_TEST__ = { curated: [], mutations: [], inventoryReads: [] };
     window.__TAURI_INTERNALS__.invoke = async (command, args) => {
+      if (["app_list_for_device", "list_other_packages"].includes(command)) {
+        window.__APP_STATE_TEST__.inventoryReads.push({ command, deviceType: args?.deviceType });
+      }
       if (["disable_package", "enable_package", "uninstall_package", "reinstall_existing"].includes(command)) {
         window.__APP_STATE_TEST__.mutations.push(command);
         throw new Error("Filter tests must not mutate packages");
@@ -158,8 +161,19 @@ try {
   await packages(0, [curated[0], curated[1], curated[3]]);
 
   assert.deepEqual(await page.evaluate(() => window.__APP_STATE_TEST__.mutations), [], "filter controls issue no package mutations");
+  // "Everything else" excludes exactly the catalog that was read, so it must
+  // ask for the same device type (core list_other_packages' device_type).
+  const reads = await page.evaluate(() => window.__APP_STATE_TEST__.inventoryReads);
+  const otherReads = reads.filter((read) => read.command === "list_other_packages");
+  assert.ok(otherReads.length >= 3, `every App List load reads other packages: ${JSON.stringify(reads)}`);
+  let catalogType;
+  for (const read of reads) {
+    if (read.command === "app_list_for_device") catalogType = read.deviceType;
+    else assert.equal(read.deviceType, catalogType, `other packages use the catalog's device type: ${JSON.stringify(reads)}`);
+  }
+  assert.deepEqual([...new Set(otherReads.map((read) => read.deviceType))].sort(), ["shield", "unknown"], "the Shield and the unprofiled demo TV each pass their own type");
   assert.deepEqual(errors, [], "the filter flow raises no page errors");
-  console.log("App state filters passed: enabled/disabled/all, unknown and missing exclusion, both inventories, search/system/decided filters, empty counts, Refresh and Health navigation.");
+  console.log("App state filters passed: enabled/disabled/all, unknown and missing exclusion, both inventories, search/system/decided filters, empty counts, Refresh and Health navigation; other packages read with the catalog's device type.");
 } finally {
   await context?.close();
   if (evidence && recording) {

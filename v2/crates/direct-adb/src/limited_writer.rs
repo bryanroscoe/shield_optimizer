@@ -17,7 +17,7 @@ impl<W: Write> LimitedWriter<W> {
 impl<W: Write> Write for LimitedWriter<W> {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if bytes.len() as u64 > self.remaining {
-            return Err(io::Error::other("Download exceeds the file size limit."));
+            return Err(io::Error::other("Output exceeds the byte limit."));
         }
         let written = self.inner.write(bytes)?;
         self.remaining -= written as u64;
@@ -29,9 +29,26 @@ impl<W: Write> Write for LimitedWriter<W> {
     }
 }
 
+pub(crate) fn bounded_text(bytes: &[u8], limit: usize) -> io::Result<String> {
+    let text = String::from_utf8_lossy(bytes);
+    if text.len() > limit {
+        return Err(io::Error::other(
+            "Decoded output exceeds the text byte limit.",
+        ));
+    }
+    Ok(text.into_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn replacement_characters_do_not_expand_retained_text_past_byte_limit() {
+        assert!(bounded_text(&[0xff; 4], 4).is_err());
+        assert_eq!(bounded_text("é😀".as_bytes(), 6).unwrap(), "é😀");
+        assert!(bounded_text("é😀".as_bytes(), 5).is_err());
+    }
 
     #[test]
     fn rejects_growth_without_writing_past_the_limit() {

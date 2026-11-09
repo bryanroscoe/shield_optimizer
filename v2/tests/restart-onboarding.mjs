@@ -30,7 +30,8 @@ try {
             status: scenario === 'auth' ? 'unauthorized' : 'device',
             device_type: scenario === 'auth' ? 'unknown' : 'shield',
             tv_evidence: scenario === 'auth' ? 'unknown' : 'tv',
-            properties: scenario === 'auth' ? {} : { ...fixture.properties, serial_number: 'SIMULATED-SHIELD' } }];
+            // Nothing is readable from a device that hasn't allowed this computer.
+            properties: scenario === 'auth' ? null : { ...fixture.properties, serial_number: 'SIMULATED-SHIELD' } }];
         }
         if (command === 'connect_device') {
           attempts++;
@@ -84,7 +85,7 @@ try {
     }
     if (scenario === 'auth') {
       await page.getByText('failed to authenticate — approve this computer on the TV, then refresh', { exact: true }).waitFor();
-      await page.getByRole('button', { name: 'Ask again', exact: true }).waitFor();
+      await page.getByRole('button', { name: /^Request approval from / }).waitFor();
       assert.equal(await page.locator('.device-row.clickable').count(), 0);
       if (evidence) await page.screenshot({ path: `${evidence}/restart-auth-simulated.png` });
     }

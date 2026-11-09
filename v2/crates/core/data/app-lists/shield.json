@@ -189,9 +189,11 @@
     "default_optimize": false,
     "default_restore": true,
     "play_store": true,
+    "review": true,
     "reviewed_at": "2026-09-19",
     "sources": [
-      "git history (115ded0)"
+      "git history (115ded0)",
+      "Owner review-tier audit, 2026-11-08: installed or used by choice, so remove only if unused (review); docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md"
     ],
     "device_scope": [
       "shield"

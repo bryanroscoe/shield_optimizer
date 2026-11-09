@@ -1,12 +1,14 @@
 //! Remote input — keys and text to the TV.
 //!
 //! Two transports, tried in order:
-//! 1. The persistent scrcpy control channel (`adb::remote_input`) — per-press
-//!    cost is network RTT (~ms). Lazily started on first use; full UTF-8 text.
+//! 1. The persistent scrcpy control channel — per-press cost is network RTT
+//!    (~ms). Lazily started on first use; full UTF-8 text. Platform-tools
+//!    reaches it through `adb forward` (`adb::remote_input`); the built-in
+//!    engine through identity-bound streams (`adb::native_remote`).
 //! 2. `adb shell input …` — the slow (~690 ms/press, ASCII-only) but
-//!    universally-available fallback when the channel can't start or its
-//!    socket dies. A failed channel send drops the session so the next press
-//!    retries a fresh start.
+//!    compatibility path when selected explicitly or the channel cannot start.
+//!    A failed channel send closes the session without replay: delivery is
+//!    uncertain, so the user must check the TV before retrying.
 
 use serde::Serialize;
 use tauri::State;
@@ -23,15 +25,99 @@ pub struct SendTextResult {
     pub transport: &'static str,
 }
 
+#[derive(Serialize)]
+pub struct RemoteOpenResult {
+    pub generation: String,
+}
+
+fn parse_generation(generation: Option<&str>) -> Result<Option<u64>, String> {
+    generation
+        .map(|value| {
+            if value.is_empty()
+                || value.len() > 20
+                || value.starts_with('0')
+                || !value.bytes().all(|b| b.is_ascii_digit())
+            {
+                return Err("Invalid Remote session generation.".to_string());
+            }
+            value
+                .parse::<u64>()
+                .map_err(|_| "Invalid Remote session generation.".to_string())
+        })
+        .transpose()
+}
+
+async fn validate_generation(
+    state: &AppState,
+    serial: &str,
+    generation: Option<u64>,
+) -> Result<(), String> {
+    if let Some(generation) = generation {
+        state.validate_remote_generation(serial, generation).await?;
+    }
+    Ok(())
+}
+
+async fn request_generation(
+    state: &AppState,
+    serial: &str,
+    generation: Option<&str>,
+) -> Result<u64, String> {
+    let generation = match parse_generation(generation)? {
+        Some(generation) => generation,
+        None => state.capture_remote_generation(serial).await?,
+    };
+    validate_generation(state, serial, Some(generation)).await?;
+    Ok(generation)
+}
+
+#[tauri::command]
+pub async fn remote_open(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<RemoteOpenResult, String> {
+    if serial.trim().is_empty() || serial.len() > 512 || serial.contains('\0') {
+        return Err("Select a TV before opening Remote.".into());
+    }
+    Ok(RemoteOpenResult {
+        generation: state.begin_remote_generation(&serial).await?.to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn remote_close(
+    state: State<'_, AppState>,
+    serial: String,
+    generation: String,
+) -> Result<(), String> {
+    let generation = parse_generation(Some(&generation))?
+        .ok_or_else(|| "A Remote session generation is required.".to_string())?;
+    state.close_remote_generation(&serial, generation).await
+}
+
+async fn close_attempted_generation(state: &AppState, serial: &str, generation: Option<u64>) {
+    if let Some(generation) = generation {
+        if let Err(error) = state.close_remote_generation(serial, generation).await {
+            tracing::warn!(%error, "remote cleanup did not confirm completion");
+        }
+    } else {
+        state.drop_remote_session(serial).await;
+    }
+}
+
 /// Make sure the scrcpy session for `serial` is up (starting it if needed).
 async fn channel_ready<R: tauri::Runtime>(
     state: &AppState,
     app: &tauri::AppHandle<R>,
     serial: &str,
+    generation: Option<u64>,
 ) -> Result<(), String> {
+    validate_generation(state, serial, generation).await?;
     let jar = resolve_scrcpy_server_jar(app)?;
     let adb = state.adb_snapshot().await;
-    state.ensure_remote_session(adb, &jar, serial).await
+    state
+        .ensure_remote_session_for_generation(adb, &jar, serial, generation)
+        .await
 }
 
 #[derive(Serialize)]
@@ -57,13 +143,16 @@ pub async fn remote_warm<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
     serial: String,
+    generation: Option<String>,
 ) -> Result<RemoteWarmResult, String> {
-    match channel_ready(&state, &app, &serial).await {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
+    match channel_ready(&state, &app, &serial, generation).await {
         Ok(()) => Ok(RemoteWarmResult {
             transport: "channel",
             message: "Fast remote ready.".to_string(),
         }),
         Err(e) => {
+            validate_generation(&state, &serial, generation).await?;
             tracing::warn!(error = %e, %serial, "remote warm-up unavailable; presses will use input");
             Ok(RemoteWarmResult {
                 transport: "shell",
@@ -102,8 +191,43 @@ fn encode_input_text(text: &str) -> Result<String, String> {
     Ok(format!("'{}'", spaced.replace('\'', r"'\''")))
 }
 
+async fn dispatch_remote_input<Ready, Send, Sent, Cleanup, Cleaned, Fallback, FallbackResult>(
+    force_shell: bool,
+    ready: Ready,
+    send: Send,
+    cleanup: Cleanup,
+    fallback: Fallback,
+) -> Result<SendTextResult, String>
+where
+    Ready: std::future::Future<Output = Result<(), String>>,
+    Send: FnOnce() -> Sent,
+    Sent: std::future::Future<Output = Result<SendTextResult, String>>,
+    Cleanup: FnOnce() -> Cleaned,
+    Cleaned: std::future::Future<Output = ()>,
+    Fallback: FnOnce() -> FallbackResult,
+    FallbackResult: std::future::Future<Output = Result<SendTextResult, String>>,
+{
+    if force_shell {
+        return fallback().await;
+    }
+    if let Err(error) = ready.await {
+        tracing::warn!(%error, "remote channel unavailable before input; using selected driver's shell");
+        return fallback().await;
+    }
+    match send().await {
+        Ok(result) => Ok(result),
+        Err(error) => {
+            cleanup().await;
+            // A failed write or flush may have delivered part or all of the input.
+            Err(format!(
+                "Remote input outcome unknown. It was not resent. Check the TV before retrying. {error}"
+            ))
+        }
+    }
+}
+
 /// `send_text` — type `text` into whatever input field has focus on the TV.
-/// Channel first (full UTF-8, instant); `input text` (ASCII-only) fallback.
+/// Channel first (full UTF-8); shell compatibility only before input is attempted.
 #[tauri::command]
 pub async fn send_text<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
@@ -114,7 +238,9 @@ pub async fn send_text<R: tauri::Runtime>(
     // Remote tab's "Force compatible mode" escape hatch for devices where the
     // channel starts but misbehaves.
     force_shell: bool,
+    generation: Option<String>,
 ) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
     if text.is_empty() {
         return Ok(SendTextResult {
             ok: false,
@@ -123,35 +249,35 @@ pub async fn send_text<R: tauri::Runtime>(
         });
     }
 
-    let channel = if force_shell {
-        Err("compatibility mode forced".to_string())
-    } else {
-        match channel_ready(&state, &app, &serial).await {
-            Ok(()) => match state.remote_send_text(&serial, &text).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    state.drop_remote_session(&serial).await;
-                    Err(e)
-                }
-            },
-            Err(e) => Err(e),
-        }
-    };
-    if channel.is_ok() {
-        return Ok(SendTextResult {
-            ok: true,
-            message: format!(
-                "Sent {} character(s) to the focused field.",
-                text.chars().count()
-            ),
-            transport: "channel",
-        });
-    }
-    if !force_shell {
-        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input text");
-    }
+    dispatch_remote_input(
+        force_shell,
+        channel_ready(&state, &app, &serial, generation),
+        || async {
+            state
+                .remote_send_text_for_generation(&serial, &text, generation)
+                .await?;
+            Ok(SendTextResult {
+                ok: true,
+                message: format!(
+                    "Sent {} character(s) to the focused field.",
+                    text.chars().count()
+                ),
+                transport: "channel",
+            })
+        },
+        || close_attempted_generation(&state, &serial, generation),
+        || send_compatible_text(&state, &serial, &text, generation),
+    )
+    .await
+}
 
-    let encoded = match encode_input_text(&text) {
+async fn send_compatible_text(
+    state: &AppState,
+    serial: &str,
+    text: &str,
+    generation: Option<u64>,
+) -> Result<SendTextResult, String> {
+    let encoded = match encode_input_text(text) {
         Ok(e) => e,
         Err(message) => {
             return Ok(SendTextResult {
@@ -162,8 +288,11 @@ pub async fn send_text<R: tauri::Runtime>(
         }
     };
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
-        .shell(&serial, &format!("input text {encoded}"))
+        .shell(serial, &format!("input text {encoded}"))
         .await
         .map_err(|e| format!("input text: {e}"))?;
     // `input` is silent on success and prints usage/exception text on failure.
@@ -213,7 +342,7 @@ fn keycode_for(key: &str) -> Option<u32> {
 }
 
 /// `send_key` — one remote button press. Channel first (instant, real
-/// down/up); `input keyevent` fallback. Used by the Remote panel's D-pad and
+/// down/up); shell compatibility only before input is attempted. Used by the D-pad and
 /// by live typing for Backspace/Enter.
 #[tauri::command]
 pub async fn send_key<R: tauri::Runtime>(
@@ -223,39 +352,45 @@ pub async fn send_key<R: tauri::Runtime>(
     key: String,
     // See `send_text` — forces the slow `input keyevent` path.
     force_shell: bool,
+    generation: Option<String>,
 ) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
     let Some(code) = keycode_for(&key) else {
         return Err(format!("Unknown remote key: {key:?}"));
     };
 
-    let channel = if force_shell {
-        Err("compatibility mode forced".to_string())
-    } else {
-        match channel_ready(&state, &app, &serial).await {
-            Ok(()) => match state.remote_send_key_press(&serial, code).await {
-                Ok(()) => Ok(()),
-                Err(e) => {
-                    state.drop_remote_session(&serial).await;
-                    Err(e)
-                }
-            },
-            Err(e) => Err(e),
-        }
-    };
-    if channel.is_ok() {
-        return Ok(SendTextResult {
-            ok: true,
-            message: format!("Sent {key}."),
-            transport: "channel",
-        });
-    }
-    if !force_shell {
-        tracing::warn!(error = ?channel, %serial, "scrcpy channel unavailable; using input keyevent");
-    }
+    dispatch_remote_input(
+        force_shell,
+        channel_ready(&state, &app, &serial, generation),
+        || async {
+            state
+                .remote_send_key_press_for_generation(&serial, code, generation)
+                .await?;
+            Ok(SendTextResult {
+                ok: true,
+                message: format!("Sent {key}."),
+                transport: "channel",
+            })
+        },
+        || close_attempted_generation(&state, &serial, generation),
+        || send_compatible_key(&state, &serial, &key, code, generation),
+    )
+    .await
+}
 
+async fn send_compatible_key(
+    state: &AppState,
+    serial: &str,
+    key: &str,
+    code: u32,
+    generation: Option<u64>,
+) -> Result<SendTextResult, String> {
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
-        .shell(&serial, &format!("input keyevent {code}"))
+        .shell(serial, &format!("input keyevent {code}"))
         .await
         .map_err(|e| format!("input keyevent: {e}"))?;
     let noise = out.combined().trim().to_string();
@@ -278,10 +413,23 @@ pub async fn send_key<R: tauri::Runtime>(
 pub async fn open_settings(
     state: State<'_, AppState>,
     serial: String,
+    generation: Option<String>,
+) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
+    open_settings_impl(&state, &serial, generation).await
+}
+
+async fn open_settings_impl(
+    state: &AppState,
+    serial: &str,
+    generation: Option<u64>,
 ) -> Result<SendTextResult, String> {
     let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
     let out = adb
-        .shell(&serial, "am start -a android.settings.SETTINGS")
+        .shell(serial, "am start -a android.settings.SETTINGS")
         .await
         .map_err(|e| format!("am start: {e}"))?;
     // `am start` prints "Starting: Intent { ... }" on success and an
@@ -303,6 +451,360 @@ pub async fn open_settings(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn generation_tokens_preserve_full_integer_precision_and_reject_invalid_input() {
+        assert_eq!(parse_generation(None).unwrap(), None);
+        assert_eq!(
+            parse_generation(Some("18446744073709551615")).unwrap(),
+            Some(u64::MAX)
+        );
+        for invalid in [
+            "",
+            "0",
+            "01",
+            "-1",
+            "+1",
+            "1.0",
+            " 1",
+            "1e3",
+            "18446744073709551616",
+        ] {
+            assert!(parse_generation(Some(invalid)).is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn stale_generation_cannot_reach_compatible_text_keys_or_settings() {
+        let mock = super::super::test_support::MockAdb::default();
+        let shell = mock.shell_log();
+        let raw = mock.raw_log();
+        let state = AppState::new(
+            std::sync::Arc::new(mock),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let old = state.begin_remote_generation("fixture-TV").await.unwrap();
+        let current = state.begin_remote_generation("fixture-TV").await.unwrap();
+        assert_ne!(old, current);
+        assert!(
+            send_compatible_text(&state, "fixture-TV", "text", Some(old))
+                .await
+                .is_err()
+        );
+        assert!(
+            send_compatible_key(&state, "fixture-TV", "home", 3, Some(old))
+                .await
+                .is_err()
+        );
+        assert!(open_settings_impl(&state, "fixture-TV", Some(old))
+            .await
+            .is_err());
+        close_attempted_generation(&state, "fixture-TV", Some(old)).await;
+        assert!(validate_generation(&state, "fixture-TV", Some(current))
+            .await
+            .is_ok());
+        assert!(raw.lock().unwrap().is_empty());
+        assert!(shell.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn legacy_request_captures_one_generation_before_startup_and_fallback() {
+        let mock = super::super::test_support::MockAdb::default();
+        let shell = mock.shell_log();
+        let state = AppState::new(
+            std::sync::Arc::new(mock),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let captured = request_generation(&state, "fixture-TV", None)
+            .await
+            .unwrap();
+        assert_eq!(
+            request_generation(&state, "fixture-TV", None)
+                .await
+                .unwrap(),
+            captured
+        );
+        state.drop_remote_session("fixture-TV").await;
+        assert!(
+            send_compatible_key(&state, "fixture-TV", "home", 3, Some(captured))
+                .await
+                .is_err()
+        );
+        assert!(shell.lock().unwrap().is_empty());
+        assert_ne!(
+            request_generation(&state, "fixture-TV", None)
+                .await
+                .unwrap(),
+            captured
+        );
+    }
+
+    /// A built-in-engine driver: no host server, only identity-bound services.
+    #[derive(Default)]
+    struct NativeDriver {
+        fail_binding: bool,
+        services: std::sync::Mutex<Vec<String>>,
+        bindings: std::sync::Mutex<Vec<crate::adb::AdbDeviceBinding>>,
+        control: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+    }
+
+    #[derive(Default)]
+    struct Hold {
+        released: std::sync::Mutex<bool>,
+        changed: std::sync::Condvar,
+    }
+    impl crate::adb::AdbServiceCancellation for Hold {
+        fn cancel(&self) {
+            *self.released.lock().unwrap() = true;
+            self.changed.notify_all();
+        }
+    }
+
+    /// Answers `reply`, then ends, or for a resident service blocks like an
+    /// idle one until cancelled.
+    struct Service {
+        reply: std::io::Cursor<Vec<u8>>,
+        resident: bool,
+        writes: std::sync::Arc<std::sync::Mutex<Vec<u8>>>,
+        hold: std::sync::Arc<Hold>,
+    }
+    impl std::io::Read for Service {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            let read = std::io::Read::read(&mut self.reply, out)?;
+            if read > 0 || !self.resident {
+                return Ok(read);
+            }
+            let mut released = self.hold.released.lock().unwrap();
+            while !*released {
+                released = self.hold.changed.wait(released).unwrap();
+            }
+            Ok(0)
+        }
+    }
+    impl std::io::Write for Service {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes.lock().unwrap().extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::adb::AdbDriver for NativeDriver {
+        fn uses_host_server(&self) -> bool {
+            false
+        }
+        async fn raw(&self, _: &[&str]) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("native Remote must not use host-server commands")
+        }
+        async fn shell(&self, _: &str, _: &str) -> crate::adb::AdbResult<crate::adb::AdbOutput> {
+            panic!("native Remote must not use the TV's shared shell")
+        }
+        async fn device_binding(
+            &self,
+            serial: &str,
+        ) -> crate::adb::AdbResult<crate::adb::AdbDeviceBinding> {
+            if self.fail_binding {
+                return Err(crate::adb::AdbError::Transport(
+                    "fixture identity unavailable".into(),
+                ));
+            }
+            Ok(crate::adb::AdbDeviceBinding {
+                serial: serial.into(),
+                hardware_id: "fixture-hardware".into(),
+            })
+        }
+        async fn open_bound_device_service(
+            &self,
+            binding: &crate::adb::AdbDeviceBinding,
+            service: &str,
+            _: std::time::Duration,
+        ) -> crate::adb::AdbResult<crate::adb::AdbOwnedService> {
+            self.bindings.lock().unwrap().push(binding.clone());
+            self.services.lock().unwrap().push(service.into());
+            let control = service.starts_with("localabstract:");
+            let reply = if service == "sync:" {
+                b"OKAY\0\0\0\0".to_vec()
+            } else if service.starts_with("shell:rm ") {
+                b"REMOVED".to_vec()
+            } else if control {
+                vec![0]
+            } else {
+                Vec::new()
+            };
+            let hold = std::sync::Arc::new(Hold::default());
+            Ok(crate::adb::AdbOwnedService {
+                stream: Box::new(Service {
+                    reply: std::io::Cursor::new(reply),
+                    resident: control || service.starts_with("shell:trap "),
+                    writes: if control {
+                        self.control.clone()
+                    } else {
+                        std::sync::Arc::default()
+                    },
+                    hold: hold.clone(),
+                }),
+                cancellation: hold,
+            })
+        }
+    }
+
+    fn helper_fixture() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
+    }
+
+    #[tokio::test]
+    async fn production_admission_starts_native_remote_on_identity_bound_streams() {
+        let driver = std::sync::Arc::new(NativeDriver::default());
+        let state = AppState::new(
+            driver.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let generation = state.begin_remote_generation("fixture-TV").await.unwrap();
+        state
+            .ensure_remote_session_for_generation(
+                state.adb_snapshot().await,
+                &helper_fixture(),
+                "fixture-TV",
+                Some(generation),
+            )
+            .await
+            .unwrap();
+        state
+            .remote_send_key_press_for_generation("fixture-TV", 20, Some(generation))
+            .await
+            .unwrap();
+        let mut expected = crate::adb::remote_input::encode_inject_keycode(0, 20, 0, 0);
+        expected.extend(crate::adb::remote_input::encode_inject_keycode(1, 20, 0, 0));
+        assert_eq!(*driver.control.lock().unwrap(), expected);
+        state
+            .close_remote_generation("fixture-TV", generation)
+            .await
+            .unwrap();
+        let services = driver.services.lock().unwrap().clone();
+        assert_eq!(services[0], "sync:");
+        assert!(services[1].starts_with("shell:trap "));
+        assert!(services[2].starts_with("localabstract:scrcpy_"));
+        assert!(services.last().unwrap().starts_with("shell:rm -f -- "));
+        assert!(driver
+            .bindings
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|binding| binding.serial == "fixture-TV"
+                && binding.hardware_id == "fixture-hardware"));
+    }
+
+    #[tokio::test]
+    async fn native_startup_failure_is_reported_before_any_input() {
+        let driver = std::sync::Arc::new(NativeDriver {
+            fail_binding: true,
+            ..NativeDriver::default()
+        });
+        let state = AppState::new(
+            driver.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let generation = state.begin_remote_generation("fixture-TV").await.unwrap();
+        let started = state
+            .ensure_remote_session_for_generation(
+                state.adb_snapshot().await,
+                &helper_fixture(),
+                "fixture-TV",
+                Some(generation),
+            )
+            .await;
+        assert!(started
+            .unwrap_err()
+            .contains("fixture identity unavailable"));
+        assert!(driver.services.lock().unwrap().is_empty());
+        assert!(driver.control.lock().unwrap().is_empty());
+        // The send_key command's shell fallback is still allowed for this request.
+        state
+            .validate_remote_generation("fixture-TV", generation)
+            .await
+            .unwrap();
+    }
+
+    async fn exercise_dispatch(
+        forced: bool,
+        startup_error: Option<&str>,
+        write_error: Option<&str>,
+    ) -> (Result<SendTextResult, String>, Vec<&'static str>) {
+        let calls = std::sync::Mutex::new(Vec::new());
+        let result = dispatch_remote_input(
+            forced,
+            async {
+                calls.lock().unwrap().push("start");
+                startup_error.map_or(Ok(()), |error| Err(error.to_string()))
+            },
+            || async {
+                calls.lock().unwrap().push("write");
+                match write_error {
+                    Some(error) => Err(error.to_string()),
+                    None => Ok(SendTextResult {
+                        ok: true,
+                        message: "Sent é漢字😀.".into(),
+                        transport: "channel",
+                    }),
+                }
+            },
+            || async {
+                calls.lock().unwrap().push("close");
+            },
+            || async {
+                calls.lock().unwrap().push("shell");
+                Ok(SendTextResult {
+                    ok: true,
+                    message: "Explicit or pre-send compatibility path.".into(),
+                    transport: "shell",
+                })
+            },
+        )
+        .await;
+        (result, calls.into_inner().unwrap())
+    }
+
+    #[tokio::test]
+    async fn explicit_compatible_input_never_starts_or_writes_channel() {
+        let (result, calls) = exercise_dispatch(true, None, None).await;
+        assert_eq!(result.unwrap().transport, "shell");
+        assert_eq!(calls, ["shell"]);
+    }
+
+    #[tokio::test]
+    async fn startup_failure_can_use_same_driver_shell_before_any_input() {
+        let (result, calls) = exercise_dispatch(false, Some("unavailable"), None).await;
+        assert_eq!(result.unwrap().transport, "shell");
+        assert_eq!(calls, ["start", "shell"]);
+    }
+
+    #[tokio::test]
+    async fn channel_input_success_is_not_replayed() {
+        let (result, calls) = exercise_dispatch(false, None, None).await;
+        let result = result.unwrap();
+        assert_eq!(result.transport, "channel");
+        assert!(result.message.contains("é漢字😀"));
+        assert_eq!(calls, ["start", "write"]);
+    }
+
+    #[tokio::test]
+    async fn uncertain_partial_write_flush_or_key_up_never_replays_input() {
+        for error in ["partial text write", "flush failed", "key-up failed"] {
+            let (result, calls) = exercise_dispatch(false, None, Some(error)).await;
+            let message = result.err().expect("must not claim input success");
+            assert!(message.contains("outcome unknown"));
+            assert!(message.contains("not resent"));
+            assert!(message.contains(error));
+            assert_eq!(calls, ["start", "write", "close"]);
+        }
+    }
 
     #[test]
     fn encodes_spaces_as_percent_s() {

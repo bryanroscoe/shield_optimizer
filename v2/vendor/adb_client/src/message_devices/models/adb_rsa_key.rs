@@ -73,6 +73,10 @@ impl ADBRsaKey {
         })
     }
 
+    pub(crate) const fn from_private_key(private_key: RsaPrivateKey) -> Self {
+        Self { private_key }
+    }
+
     pub fn android_pubkey_encode(&self) -> Result<String> {
         // Helped from project: https://github.com/hajifkd/webadb
         // Source code: https://android.googlesource.com/platform/system/core/+/refs/heads/main/libcrypto_utils/android_pubkey.cpp

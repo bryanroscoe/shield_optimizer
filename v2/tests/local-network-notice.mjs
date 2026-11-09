@@ -61,6 +61,10 @@ async function run(browser, base) {
             t.calls.push(command);
             if (command === "local_network_access") t.targets.push(args?.target ?? null);
             if (command === "restart_adb") return { ok: true, server_ready: true, message: "ADB server restarted." };
+            if (command === "adb_status" && sessionStorage.getItem("ln.native")) {
+              const status = await original(command, args);
+              return { ...status, backend: "direct", path: null };
+            }
             if (command === "local_network_access") return { status: t.status };
             if (command === "open_local_network_settings") {
               if (t.openFails) throw "exit status: 1";
@@ -225,13 +229,71 @@ async function run(browser, base) {
     await macHelp.getByRole("button", { name: "Privacy & Security", exact: true }).click();
     assert.equal(await calls("open_local_network_settings"), 1, "calls restart with the reload");
 
+    // Native Rust ADB: the app itself makes every connection and there is no
+    // adb server, so nothing may point at Restart ADB or a stale server.
+    await page.evaluate(() => {
+      localStorage.removeItem("shieldopt.demo.noDevices");
+      sessionStorage.setItem("ln.native", "1");
+      window.ln.status = "blocked";
+    });
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByTestId("adb-backend").getByText("Native Rust ADB · direct connection").waitFor();
+    await notice.waitFor();
+    const nativeTrigger = notice.getByRole("button", { name: `About ${BLOCKED}`, exact: true });
+    await nativeTrigger.click();
+    const nativeHelp = await notice.locator(".help-content").innerText();
+    assert.ok(nativeHelp.includes("Then try again."), "native help says try again");
+    assert.doesNotMatch(nativeHelp, /Restart ADB/, "native help never offers Restart ADB");
+    await nativeTrigger.click();
+    await page.getByPlaceholder("IP[:port]", { exact: false }).fill("192.168.1.9");
+    await page.getByRole("button", { name: "Add by IP" }).click();
+    await err.waitFor();
+    const nativeBlocked = await err.innerText();
+    assert.match(nativeBlocked, /Couldn't reach 192\.168\.1\.9\. macOS is blocking ATV Optimizer.*then try again\./s);
+    assert.doesNotMatch(nativeBlocked, /Restart ADB|server/);
+
+    await page.evaluate(() => (window.ln.status = "unknown"));
+    await page.getByPlaceholder("IP[:port]", { exact: false }).fill("192.168.1.9");
+    await page.getByRole("button", { name: "Add by IP" }).click();
+    await page.waitForFunction(() =>
+      document.querySelector(".connect-form .error-notice")?.textContent.includes("may be blocking"),
+    );
+    const nativeUnknown = await err.innerText();
+    assert.doesNotMatch(nativeUnknown, /Restart ADB|server/);
+    const nativeRemedies = page.locator(".connect-form .remedies");
+    await nativeRemedies.getByRole("button", { name: "Open Privacy & Security", exact: true }).waitFor();
+    assert.equal(await nativeRemedies.getByRole("button", { name: "Restart ADB", exact: true }).count(), 0);
+    await shot("local-network-native-unknown");
+
+    await page.evaluate(() => (window.ln.status = "allowed"));
+    await page.getByPlaceholder("IP[:port]", { exact: false }).fill("192.168.1.9");
+    await page.getByRole("button", { name: "Add by IP" }).click();
+    await page.waitForFunction(() => {
+      const text = document.querySelector(".connect-form .error-notice")?.textContent ?? "";
+      return text.includes("Couldn't reach") && !text.includes("may be blocking");
+    });
+    const nativeAllowed = await err.innerText();
+    assert.doesNotMatch(nativeAllowed, /Restart ADB|server|Local Network|macOS/);
+    assert.equal(await page.locator(".connect-form .remedies").count(), 0, "allowed: no Mac remedies");
+
+    await page.evaluate(() => localStorage.setItem("shieldopt.demo.noDevices", "1"));
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "No devices connected.", exact: true }).waitFor();
+    const nativeMacHelp = await page.locator(".help-details .local-network-help").innerText();
+    assert.match(nativeMacHelp, /check that ATV Optimizer is on in Privacy & Security → Local Network/);
+    assert.doesNotMatch(nativeMacHelp, /Restart ADB|server/);
+    await page.evaluate(() => {
+      localStorage.removeItem("shieldopt.demo.noDevices");
+      sessionStorage.removeItem("ln.native");
+    });
+
     if (out) {
       const video = page.video();
       await context.close();
       await video.saveAs(`${out}/local-network-notice-simulated.webm`);
     }
     console.log(
-      "Local Network notice passed: hidden off macOS and when allowed or unknown, shown on blocked with on-demand help (keyboard, Escape, narrow), deep-link button and its failure, focus re-probe clears it, no-route errors offer Restart ADB when allowed, Restart ADB then settings when unknown and state a block only on evidence, the failing TV is re-probed, and the Mac-only connection-help item.",
+      "Local Network notice passed: hidden off macOS and when allowed or unknown, shown on blocked with on-demand help (keyboard, Escape, narrow), deep-link button and its failure, focus re-probe clears it, no-route errors offer Restart ADB when allowed, Restart ADB then settings when unknown and state a block only on evidence, the failing TV is re-probed, the Mac-only connection-help item, and native ADB never pointing at Restart ADB or a stale server.",
     );
   } finally {
     await context.close();

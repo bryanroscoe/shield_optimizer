@@ -153,6 +153,17 @@ test("filtering never mutates packages and protected-app safety stays enforced",
 
   const commands = await page.evaluate(() => window.calls.map((call) => call.command));
   assert.equal(commands.filter((command) => command === "list_other_packages").length, 1);
+  // Core excludes only the catalog of the type it is given, the same one
+  // app_list_for_device was asked for.
+  const inventoryTypes = await page.evaluate(() =>
+    window.calls
+      .filter((call) => ["list_other_packages", "app_list_for_device"].includes(call.command))
+      .map((call) => [call.command, call.args?.deviceType]),
+  );
+  assert.deepEqual(
+    inventoryTypes.sort(),
+    [["app_list_for_device", "shield"], ["list_other_packages", "shield"]],
+  );
   assert.equal(commands.filter((command) => command === "safety_info").length, 1);
   assert.deepEqual(
     commands.filter((command) =>

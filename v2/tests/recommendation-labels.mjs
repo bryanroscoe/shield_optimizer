@@ -159,27 +159,32 @@ async function exercise({ browser, base }) {
     `${NOT_REINSTALLABLE} has no Play Store listing, so Optimize must not offer Uninstall: ${JSON.stringify(options)}`,
   );
 
-  // "Select all safe" arms only rows rated Safe to remove. Caution and
-  // Unknown rows must stay on Keep.
-  await opt.getByRole("button", { name: "Keep all", exact: true }).click();
-  await opt.getByRole("button", { name: "Select all safe", exact: true }).click();
-  const armed = await opt.evaluate((root) =>
+  // There is no bulk arm. By default a review row ("remove only if unused")
+  // and a Caution or Unknown row stay on Keep; only the recommended bloat is
+  // armed, and Keep all disarms that too.
+  assert.equal(await opt.getByRole("button", { name: /Select all/ }).count(), 0, "Optimize has no bulk arm control");
+  const readRows = () => opt.evaluate((root) =>
     [...root.querySelectorAll("table.optimize-table tbody tr")]
       .map((tr) => {
         const active = tr.querySelector(".action-radio .radio-pill.active .radio-label");
         const verdict = tr.querySelector("td.verdict-cell [data-verdict], td.verdict-cell[data-verdict]")?.getAttribute("data-verdict")
           ?? tr.querySelector("[data-verdict]")?.getAttribute("data-verdict");
         const pkg = tr.querySelector(".pkg-id")?.textContent?.trim();
-        return { pkg, action: active?.textContent?.trim() ?? null, verdict };
+        const review = !!tr.querySelector(".review-pill");
+        return { pkg, action: active?.textContent?.trim() ?? null, verdict, review };
       })
       .filter((r) => r.pkg),
   );
-  const armedRows = armed.filter((r) => r.action && r.action !== "Keep");
-  assert.ok(armedRows.length > 0, "Select all safe arms at least one row");
-  const armedUnsafe = armedRows.filter((r) => r.verdict !== "safe");
-  assert.deepEqual(armedUnsafe, [], `Select all safe must only arm Safe to remove rows: ${JSON.stringify(armedUnsafe)}`);
-  const notSafeWithChoice = armed.filter((r) => r.action === "Keep" && r.verdict && r.verdict !== "safe");
-  assert.ok(notSafeWithChoice.length > 0, "the demo plan has a Caution or Unknown row with a choice, so the check is not vacuous");
+  const byDefault = await readRows();
+  const reviewRows = byDefault.filter((r) => r.review);
+  assert.ok(reviewRows.length > 0, "the demo plan has review rows, so the check is not vacuous");
+  const armedReview = reviewRows.filter((r) => r.action !== "Keep");
+  assert.deepEqual(armedReview, [], `review rows start at Keep: ${JSON.stringify(armedReview)}`);
+  const armedNotSafe = byDefault.filter((r) => r.action && r.action !== "Keep" && r.verdict !== "safe" && r.verdict !== "caution");
+  assert.deepEqual(armedNotSafe, [], `nothing Unknown or Protected is armed by default: ${JSON.stringify(armedNotSafe)}`);
+  await opt.getByRole("button", { name: "Keep all", exact: true }).click();
+  const afterKeepAll = (await readRows()).filter((r) => r.action && r.action !== "Keep");
+  assert.deepEqual(afterKeepAll, [], `Keep all leaves every row on Keep: ${JSON.stringify(afterKeepAll)}`);
 
   console.log(
     `Recommendation labels passed: Health "${healthSuggestion}" matches App List, no Remove labels, ${NOT_REINSTALLABLE} offers ${options.join("/")}.`,

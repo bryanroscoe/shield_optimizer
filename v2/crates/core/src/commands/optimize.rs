@@ -53,8 +53,11 @@ pub async fn prepare_optimize_impl(
     // One round-trip: the mobile transport serializes concurrent shells behind
     // a single connection, so three separate reads would cost three Wi-Fi RTTs
     // for no concurrency.
-    let cmd =
-        checked_batch_command(&["pm list packages", "pm list packages -d", "dumpsys meminfo"]);
+    let cmd = checked_batch_command(&[
+        super::LIST_PACKAGES,
+        super::LIST_DISABLED_PACKAGES,
+        "dumpsys meminfo",
+    ]);
     let out = adb
         .shell(serial, &cmd)
         .await
@@ -249,6 +252,9 @@ mod tests {
             !calls[0].contains("&&"),
             "sub-commands must run even if an earlier one fails"
         );
+        // Same user as App List and every package action (#233).
+        assert!(calls[0].contains("(pm list packages --user 0)"));
+        assert!(calls[0].contains("(pm list packages -d --user 0)"));
     }
 
     #[tokio::test]

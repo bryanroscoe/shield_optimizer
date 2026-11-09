@@ -12,3 +12,5 @@ mod verity;
 
 #[cfg(feature = "framebuffer")]
 mod framebuffer;
+
+pub(crate) use shell::decode_shell_v2;

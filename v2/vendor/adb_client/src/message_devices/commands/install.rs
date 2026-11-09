@@ -130,8 +130,13 @@ impl Apk {
 }
 
 /// Send exactly `size` bytes of `file`; a file that shrank meanwhile would
-/// leave the package manager waiting for bytes that never come.
-fn copy_apk<T: ADBMessageTransport>(apk: &mut Apk, stream: &mut ADBService<T>) -> Result<()> {
+/// leave the package manager waiting for bytes that never come. Sets
+/// `answered_early` if the device replied before the last chunk went out.
+fn copy_apk<T: ADBMessageTransport>(
+    apk: &mut Apk,
+    stream: &mut ADBService<T>,
+    answered_early: &mut bool,
+) -> Result<()> {
     let mut chunk = vec![0_u8; stream.max_write().min(1024 * 1024)];
     let mut remaining = apk.size;
     while remaining > 0 {
@@ -147,6 +152,7 @@ fn copy_apk<T: ADBMessageTransport>(apk: &mut Apk, stream: &mut ADBService<T>) -
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
             Err(error) => return Err(RustADBError::LocalIo(error)),
         };
+        *answered_early |= stream.has_pending();
         std::io::Write::write_all(stream, &chunk[..read]).map_err(adb_error)?;
         remaining -= read as u64;
     }
@@ -355,17 +361,33 @@ impl<T: ADBMessageTransport> ADBMessageDevice<T> {
             InstallChannel::Pm => unreachable!("pm is not a streamed channel"),
         };
         let mut stream = self.open_stream_service(destination.as_bytes(), timeout)?;
-        if let Some(apk) = apk
-            && let Err(error) = copy_apk(apk, &mut stream)
-        {
-            // The package manager gave up and closed the stream. What it
-            // printed (perhaps nothing) is the result; the connection is fine.
-            if stream.closed_by_peer_during_write(&error) {
-                return stream.read_text_to_close(INSTALL_OUTPUT_LIMIT);
+        // The device answered, or closed the stream, before every declared
+        // byte went out.
+        let mut premature = false;
+        if let Some(apk) = apk {
+            let mut answered_early = false;
+            if let Err(error) = copy_apk(apk, &mut stream, &mut answered_early) {
+                // The package manager gave up and closed the stream. What it
+                // printed (perhaps nothing) is the result; the connection is fine.
+                if !stream.closed_by_peer_during_write(&error) {
+                    return Err(error);
+                }
+                premature = stream.bytes_sent() < apk.size;
             }
-            return Err(error);
+            premature |= answered_early;
         }
-        stream.read_text_to_close(INSTALL_OUTPUT_LIMIT)
+        let output = stream.read_text_to_close(INSTALL_OUTPUT_LIMIT)?;
+        // A package manager cannot have installed what it had not received,
+        // so a success it reports early proves nothing either way. A refusal
+        // stays a refusal.
+        if premature && succeeded(&output) {
+            return Err(RustADBError::ADBRequestFailed(format!(
+                "the package manager answered {:?} before the whole APK was sent; \
+                 whether it installed is not confirmed",
+                output.trim()
+            )));
+        }
+        Ok(output)
     }
 
     /// Run `pm <args>` and return its combined output and exit report.

@@ -31,7 +31,7 @@ that wasn't reported can't match. An unauthorized or unreadable TV has no proper
 unknown claims nothing.
 
 The same goes for the data behind a tier change. Only what TVs reported to the telemetry backend
-counts: installs, action results and error codes. A forum post, a spec sheet or "it's the same
+counts (test builds, the PR's native test packages, never send these reports): installs, action results and error codes. A forum post, a spec sheet or "it's the same
 chipset as X" is a reason to look, not evidence for a tier. The weekly report never suggests a tier
 for a row with no manufacturer or model.
 

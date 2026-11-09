@@ -1074,3 +1074,722 @@ fn a_refused_root_open_is_still_a_failure() {
     drop(device);
     join();
 }
+
+// ---- sync regressions ported from the desktop native-ADB work (#268) ----
+
+/// After a refused request, the host may only close the stream: no new
+/// OPEN, and no more data on any stream.
+fn assert_no_replay(peer: &mut Peer) {
+    loop {
+        match peer.try_next(Duration::from_millis(500)) {
+            Ok(message) if message.header().command() == MessageCommand::Clse => {}
+            Ok(message) => panic!(
+                "the host went on after a refusal: {}",
+                message.header().command()
+            ),
+            Err(_) => return,
+        }
+    }
+}
+
+/// A device refusing an upload part-way, as adbd's `handle_send_file` does:
+/// it answers at the `reject_at`th WRTE (0 holds SEND), with its reply split
+/// into 3-byte WRTEs and the transport OKAY for that WRTE either after the
+/// first fragment or after the whole reply, then discards data until DONE.
+fn refuse_upload(peer: &mut Peer, reject_at: usize, reply: &[u8], interleave_ack: bool) {
+    let sync = peer.accept_open("sync:");
+    for _ in 0..reject_at {
+        let message = peer.next();
+        assert_eq!(message.header().command(), MessageCommand::Write);
+        peer.raw(MessageCommand::Okay, sync.remote, sync.local, &[]);
+    }
+    let answered = peer.next();
+    assert_eq!(answered.header().command(), MessageCommand::Write);
+    let fragments = reply.chunks(3).count();
+    for (index, part) in reply.chunks(3).enumerate() {
+        peer.raw(MessageCommand::Write, sync.remote, sync.local, part);
+        if index == 0 && interleave_ack {
+            peer.raw(MessageCommand::Okay, sync.remote, sync.local, &[]);
+        }
+    }
+    if !interleave_ack {
+        peer.raw(MessageCommand::Okay, sync.remote, sync.local, &[]);
+    }
+    // The host acknowledges every fragment and, once its write was
+    // acknowledged, sends the rest of what it had queued; in any order.
+    let mut acknowledged = 0;
+    let mut after = Vec::new();
+    while acknowledged < fragments || !after.windows(4).any(|window| window == b"DONE") {
+        let message = peer.next();
+        match message.header().command() {
+            MessageCommand::Okay => acknowledged += 1,
+            MessageCommand::Write => {
+                peer.raw(MessageCommand::Okay, sync.remote, sync.local, &[]);
+                after.extend_from_slice(message.payload());
+            }
+            other => panic!("unexpected {other} during a refused upload"),
+        }
+    }
+    assert_eq!(acknowledged, fragments);
+    let done = after
+        .windows(4)
+        .position(|window| window == b"DONE")
+        .unwrap();
+    // Only the rest of the chunk in flight precedes DONE; no new DATA.
+    assert!(!after[..done].windows(4).any(|window| window == b"DATA"));
+    assert!(after[..done].iter().all(|&byte| byte == 7));
+    assert_eq!(after.len(), done + 8, "nothing follows DONE");
+    peer.close(sync);
+}
+
+#[test]
+fn a_fragmented_fail_around_the_transport_ack_is_reported_at_send_and_any_data() {
+    for reject_at in 0..=2 {
+        for interleave_ack in [false, true] {
+            let (mut device, join) = run("", 4096, move |peer| {
+                refuse_upload(peer, reject_at, &fail("Permission denied"), interleave_ack);
+                // The connection is still usable.
+                let shell = peer.accept_open("shell:echo ok");
+                peer.send(shell, b"ok\n", usize::MAX);
+                peer.close(shell);
+            });
+            let data = vec![7_u8; 2 * 65535 + 1];
+            let error = device.push(&mut &data[..], &"/fixture").unwrap_err();
+            assert!(
+                matches!(&error, RustADBError::SyncFailed(m) if m.contains("Permission denied")),
+                "reject_at {reject_at}, interleave {interleave_ack}: {error:?}"
+            );
+            let mut out = Vec::new();
+            device
+                .shell_command_with_timeout(&"echo ok", Some(&mut out), None, TIMEOUT)
+                .unwrap();
+            assert_eq!(out, b"ok\n");
+            drop(device);
+            join();
+        }
+    }
+}
+
+#[test]
+fn a_premature_sync_okay_is_never_a_completed_upload() {
+    for reject_at in 0..=2 {
+        for interleave_ack in [false, true] {
+            let (mut device, join) = run("", 4096, move |peer| {
+                refuse_upload(
+                    peer,
+                    reject_at,
+                    &sync_reply(*b"OKAY", 0, &[]),
+                    interleave_ack,
+                );
+            });
+            let data = vec![7_u8; 2 * 65535 + 1];
+            let error = device.push(&mut &data[..], &"/fixture").unwrap_err();
+            assert!(
+                error.to_string().contains("premature"),
+                "reject_at {reject_at}, interleave {interleave_ack}: {error:?}"
+            );
+            drop(device);
+            join();
+        }
+    }
+}
+
+#[test]
+fn a_stalled_partial_rejection_ends_at_the_transfer_deadline_without_replay() {
+    let (mut device, join) = run("", 4096, |peer| {
+        let sync = peer.accept_open("sync:");
+        peer.next();
+        peer.send(sync, b"FAI", usize::MAX);
+        // Neither the rest of the reply nor an OKAY ever comes.
+        let next = peer.try_next(Duration::from_secs(3));
+        assert!(
+            next.is_err(),
+            "the upload went on or was replayed: {next:?}"
+        );
+    });
+    let control = super::BoundedShellControl::new(Duration::from_millis(300)).unwrap();
+    let started = std::time::Instant::now();
+    let data = vec![7_u8; 20_000];
+    assert!(
+        device
+            .push_with_control(&mut &data[..], &"/fixture", control)
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_controlled_upload_needs_a_fragmented_final_okay_and_never_replays_a_refusal() {
+    for rejected in [false, true] {
+        let (mut device, join) = run("", 256 * 1024, move |peer| {
+            let sync = peer.accept_open("sync:");
+            assert_eq!(
+                peer.sync_request(sync),
+                (*b"SEND", b"/fixture,33188".to_vec())
+            );
+            let (data, _) = receive_pushed(peer, sync);
+            assert_eq!(data, b"fixture bytes");
+            let status = if rejected {
+                fail("Permission denied")
+            } else {
+                sync_reply(*b"OKAY", 0, &[])
+            };
+            peer.send(sync, &status, 3);
+            if rejected {
+                peer.close(sync);
+                assert_no_replay(peer);
+            } else {
+                peer.expect_quit(sync);
+            }
+        });
+        let control = super::BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        let result = device.push_with_control(&mut &b"fixture bytes"[..], &"/fixture", control);
+        if rejected {
+            let error = result.unwrap_err();
+            assert!(
+                matches!(&error, RustADBError::SyncFailed(m) if m.contains("Permission denied")),
+                "{error:?}"
+            );
+        } else {
+            result.unwrap();
+        }
+        drop(device);
+        join();
+    }
+}
+
+#[test]
+fn a_controlled_push_interrupts_a_stalled_open_or_data_ack_without_replay() {
+    for accept_open in [false, true] {
+        let (mut device, join) = run("", 256 * 1024, move |peer| {
+            let (local, destination) = peer.expect_open();
+            assert_eq!(destination, "sync:");
+            if accept_open {
+                peer.accept(local);
+                assert_eq!(peer.next().header().command(), MessageCommand::Write);
+            }
+            let next = peer.try_next(Duration::from_secs(3));
+            assert!(
+                next.is_err(),
+                "a stalled upload replayed its OPEN or DATA: {next:?}"
+            );
+        });
+        let control = super::BoundedShellControl::new(Duration::from_millis(100)).unwrap();
+        let started = std::time::Instant::now();
+        assert!(
+            device
+                .push_with_control(&mut &vec![42_u8; 65536][..], &"/fixture", control)
+                .is_err()
+        );
+        assert!(started.elapsed() < Duration::from_secs(2));
+        drop(device);
+        join();
+    }
+}
+
+#[test]
+fn done_like_bytes_inside_file_content_survive_every_split() {
+    let content = b"file contents ending with DONE\0\0\0\0 and more";
+    let mut reply = sync_reply(*b"DATA", u32::try_from(content.len()).unwrap(), content);
+    reply.extend(sync_reply(*b"DATA", 4, b"tail"));
+    reply.extend(sync_reply(*b"DONE", 0, &[]));
+    for width in [1, 2, 3, 5, 7, 8, 13, reply.len()] {
+        let reply = reply.clone();
+        let (mut device, join) = run("", 256 * 1024, move |peer| {
+            let sync = peer.accept_open("sync:");
+            peer.sync_request(sync);
+            let mut stat = b"STAT".to_vec();
+            for value in [0o100_644_u32, 49, 1] {
+                stat.extend(value.to_le_bytes());
+            }
+            peer.send(sync, &stat, width);
+            peer.sync_request(sync);
+            peer.send(sync, &reply, width);
+            peer.expect_quit(sync);
+        });
+        let mut out = Vec::new();
+        device.pull(&"/fixture", &mut out).unwrap();
+        assert_eq!(out, [&content[..], b"tail"].concat(), "WRTE width {width}");
+        drop(device);
+        join();
+    }
+}
+
+#[test]
+fn a_fragmented_pull_refusal_is_never_written_as_file_data() {
+    let refusal = fail("open failed: Permission denied");
+    for width in [1, 3, 4, 8, 9, refusal.len()] {
+        let refusal = refusal.clone();
+        let (mut device, join) = run("", 256 * 1024, move |peer| {
+            let sync = peer.accept_open("sync:");
+            peer.sync_request(sync);
+            let mut stat = b"STAT".to_vec();
+            for value in [0o100_600_u32, 5, 1] {
+                stat.extend(value.to_le_bytes());
+            }
+            peer.send(sync, &stat, usize::MAX);
+            peer.sync_request(sync);
+            peer.send(sync, &refusal, width);
+            peer.close(sync);
+        });
+        let mut out = Vec::new();
+        let error = device.pull(&"/data/secret", &mut out).unwrap_err();
+        assert!(
+            matches!(&error, RustADBError::SyncFailed(m) if m.contains("Permission denied")),
+            "WRTE width {width}: {error:?}"
+        );
+        assert!(out.is_empty(), "WRTE width {width}: {out:?}");
+        drop(device);
+        join();
+    }
+}
+
+#[test]
+fn a_truncated_or_unknown_pull_reply_fails_the_request() {
+    for reply in [
+        // A DATA chunk cut short by the device closing the stream.
+        b"DATA\x04\0\0\0abc".to_vec(),
+        // A header cut short.
+        b"DAT".to_vec(),
+        // No DONE.
+        sync_reply(*b"DATA", 3, b"abc"),
+        // An id that is not DATA, DONE or FAIL.
+        sync_reply(*b"WHAT", 0, &[]),
+    ] {
+        let (mut device, join) = run("", 256 * 1024, move |peer| {
+            let sync = peer.accept_open("sync:");
+            peer.sync_request(sync);
+            let mut stat = b"STAT".to_vec();
+            for value in [0o100_644_u32, 3, 1] {
+                stat.extend(value.to_le_bytes());
+            }
+            peer.send(sync, &stat, usize::MAX);
+            peer.sync_request(sync);
+            peer.send(sync, &reply, usize::MAX);
+            peer.close(sync);
+        });
+        let error = device.pull(&"/fixture", &mut Vec::new()).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                RustADBError::ADBRequestFailed(_) | RustADBError::UnknownResponseType(_)
+            ),
+            "{error:?}"
+        );
+        drop(device);
+        join();
+    }
+}
+
+#[test]
+fn a_pull_reply_from_the_wrong_remote_stream_is_refused_and_not_written() {
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let sync = peer.accept_open("sync:");
+        peer.sync_request(sync);
+        let mut stat = b"STAT".to_vec();
+        for value in [0o100_644_u32, 3, 1] {
+            stat.extend(value.to_le_bytes());
+        }
+        peer.send(sync, &stat, usize::MAX);
+        peer.sync_request(sync);
+        let mut reply = sync_reply(*b"DATA", 3, b"abc");
+        reply.extend(sync_reply(*b"DONE", 0, &[]));
+        peer.raw(MessageCommand::Write, sync.remote + 1, sync.local, &reply);
+    });
+    let mut out = Vec::new();
+    let error = device.pull(&"/fixture", &mut out).unwrap_err();
+    assert!(matches!(error, RustADBError::ProtocolError(_)), "{error:?}");
+    assert!(out.is_empty());
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_controlled_pull_keeps_bytes_split_anywhere_and_flushes_before_success() {
+    struct Output {
+        bytes: Vec<u8>,
+        flushed: bool,
+    }
+    impl std::io::Write for Output {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushed = true;
+            Ok(())
+        }
+    }
+    let (mut device, join) = run("", 256 * 1024, |peer| {
+        let sync = peer.accept_open("sync:");
+        assert_eq!(peer.sync_request(sync), (*b"STAT", b"/fixture".to_vec()));
+        let mut stat = b"STAT".to_vec();
+        for value in [0o100_644_u32, 3, 0] {
+            stat.extend(value.to_le_bytes());
+        }
+        peer.send(sync, &stat, 3);
+        assert_eq!(peer.sync_request(sync), (*b"RECV", b"/fixture".to_vec()));
+        let mut reply = sync_reply(*b"DATA", 3, b"abc");
+        reply.extend(sync_reply(*b"DONE", 0, &[]));
+        peer.send(sync, &reply, 5);
+        peer.expect_quit(sync);
+    });
+    let mut output = Output {
+        bytes: Vec::new(),
+        flushed: false,
+    };
+    device
+        .pull_with_control(
+            &"/fixture",
+            &mut output,
+            super::BoundedShellControl::new(Duration::from_secs(2)).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(output.bytes, b"abc");
+    assert!(output.flushed);
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_total_deadline_interrupts_a_stat_or_a_download_that_never_ends() {
+    // (download, dedicated connection with the control from the start)
+    for (download, dedicated) in [(false, true), (true, true), (true, false)] {
+        let (address, server) = fake_adbd(move |stream| {
+            let mut peer = Peer::connect(stream, "", 256 * 1024);
+            let sync = peer.accept_open("sync:");
+            peer.sync_request(sync);
+            if !download {
+                let next = peer.try_next(Duration::from_secs(3));
+                assert!(next.is_err(), "{next:?}");
+                return;
+            }
+            let mut stat = b"STAT".to_vec();
+            for value in [0o100_644_u32, 1000, 0] {
+                stat.extend(value.to_le_bytes());
+            }
+            peer.send(sync, &stat, usize::MAX);
+            peer.sync_request(sync);
+            for _ in 0..300 {
+                // The host hangs up once its deadline passes; that ends the
+                // download here, whichever of the write or the read sees it.
+                if peer
+                    .try_raw(
+                        MessageCommand::Write,
+                        sync.remote,
+                        sync.local,
+                        &sync_reply(*b"DATA", 1, b"x"),
+                    )
+                    .is_err()
+                {
+                    return;
+                }
+                match peer.try_next(Duration::from_secs(3)) {
+                    Ok(message) if message.header().command() == MessageCommand::Okay => {}
+                    _ => return,
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            panic!("a continuous download outlived its total deadline");
+        });
+        let key = shared_test_key();
+        let (mut device, control) = if dedicated {
+            let control = super::BoundedShellControl::new(Duration::from_millis(300)).unwrap();
+            let device =
+                ADBTcpDevice::new_with_required_key_and_control(address, key, &control).unwrap();
+            (device, control)
+        } else {
+            let device = connect(address);
+            (
+                device,
+                super::BoundedShellControl::new(Duration::from_millis(300)).unwrap(),
+            )
+        };
+        let started = std::time::Instant::now();
+        let mut out = Vec::new();
+        let result = match (download, dedicated) {
+            (false, _) => device.stat(&"/fixture").map(|_| ()),
+            (true, true) => device.pull(&"/fixture", &mut out),
+            (true, false) => device.pull_with_control(&"/fixture", &mut out, control),
+        };
+        assert!(result.is_err());
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            started.elapsed()
+        );
+        if download {
+            assert!(!out.is_empty());
+        }
+        drop(device);
+        server.join().unwrap();
+    }
+}
+
+// ---- install outcomes reported before the whole APK was sent ----
+
+#[test]
+fn a_success_before_the_whole_apk_was_sent_is_never_an_install() {
+    // pm claims success after the first chunk and hangs up.
+    let apk = TempApk::new("base", &[1; 10_000]);
+    let (mut device, join) = run("cmd", 4096, |peer| {
+        let (local, _) = peer.expect_open();
+        let install = peer.accept(local);
+        assert_eq!(peer.next().header().command(), MessageCommand::Write);
+        peer.send(install, b"Success\n", usize::MAX);
+        peer.close(install);
+    });
+    let error = device.install_apks(&[&apk.0], &[], TIMEOUT).unwrap_err();
+    assert!(
+        matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("not confirmed")),
+        "{error:?}"
+    );
+    drop(device);
+    join();
+
+    // pm claims success early, then still takes the rest of the APK.
+    let apk = TempApk::new("base", &[1; 10_000]);
+    let (mut device, join) = run("cmd", 4096, |peer| {
+        let (local, _) = peer.expect_open();
+        let install = peer.accept(local);
+        let first = peer.next();
+        assert_eq!(first.header().command(), MessageCommand::Write);
+        peer.send(install, b"Success\n", usize::MAX);
+        peer.raw(MessageCommand::Okay, install.remote, install.local, &[]);
+        peer.read_host(install, 10_000 - first.payload().len());
+        peer.close(install);
+    });
+    let error = device.install_apks(&[&apk.0], &[], TIMEOUT).unwrap_err();
+    assert!(
+        matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("not confirmed")),
+        "{error:?}"
+    );
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_refusal_before_the_whole_apk_was_sent_stays_an_install_failure() {
+    let apk = TempApk::new("base", &[1; 10_000]);
+    let (mut device, join) = run("cmd", 4096, |peer| {
+        let (local, _) = peer.expect_open();
+        let install = peer.accept(local);
+        assert_eq!(peer.next().header().command(), MessageCommand::Write);
+        peer.send(
+            install,
+            b"Failure [INSTALL_FAILED_INVALID_APK]\n",
+            usize::MAX,
+        );
+        peer.close(install);
+    });
+    let error = device.install_apks(&[&apk.0], &[], TIMEOUT).unwrap_err();
+    assert!(
+        matches!(&error, RustADBError::InstallFailed(m) if m == "Failure [INSTALL_FAILED_INVALID_APK]"),
+        "{error:?}"
+    );
+    drop(device);
+    join();
+}
+
+#[test]
+fn a_success_after_the_last_byte_counts_even_if_its_okay_never_came() {
+    let apk = TempApk::new("base", &[1; 10_000]);
+    let (mut device, join) = run("cmd", 4096, |peer| {
+        let (local, _) = peer.expect_open();
+        let install = peer.accept(local);
+        let mut received = 0;
+        loop {
+            let message = peer.next();
+            assert_eq!(message.header().command(), MessageCommand::Write);
+            received += message.payload().len();
+            if received == 10_000 {
+                break;
+            }
+            peer.raw(MessageCommand::Okay, install.remote, install.local, &[]);
+        }
+        // pm answers and closes before adbd acknowledged the last WRTE.
+        peer.send(install, b"Success\n", usize::MAX);
+        peer.close(install);
+    });
+    let output = device.install_apks(&[&apk.0], &[], TIMEOUT).unwrap();
+    assert_eq!(output, "Success\n");
+    drop(device);
+    join();
+}
+
+// ---- controlled binary output ----
+
+#[test]
+fn controlled_exec_out_uses_shell_v2_when_negotiated_and_exec_otherwise() {
+    let png = b"\x89PNG\r\n\x1a\n\0binary\r\n";
+    let (mut device, join) = run("shell_v2", 256 * 1024, move |peer| {
+        let shell = peer.accept_open("shell,v2,raw:screencap -p");
+        let mut reply = shell_packet(1, png);
+        reply.extend(shell_packet(2, b"warning"));
+        reply.extend(shell_packet(3, &[0]));
+        peer.send(shell, &reply, 7);
+        peer.close(shell);
+    });
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let control = super::BoundedShellControl::new(TIMEOUT).unwrap();
+    let exit = device
+        .exec_out_with_control(
+            "screencap -p",
+            &mut stdout,
+            Some(&mut stderr),
+            control.clone(),
+        )
+        .unwrap();
+    assert_eq!(exit, ShellExit::Code(0));
+    assert_eq!(stdout, png);
+    assert_eq!(stderr, b"warning");
+    assert!(control.was_registered());
+    drop(device);
+    join();
+
+    let (mut device, join) = run("", 256 * 1024, move |peer| {
+        let exec = peer.accept_open("exec:screencap -p");
+        peer.send(exec, png, 5);
+        peer.close(exec);
+    });
+    let mut stdout = Vec::new();
+    let exit = device
+        .exec_out_with_control(
+            "screencap -p",
+            &mut stdout,
+            None,
+            super::BoundedShellControl::new(TIMEOUT).unwrap(),
+        )
+        .unwrap();
+    assert_eq!(exit, ShellExit::Unreported);
+    assert_eq!(stdout, png);
+    drop(device);
+    join();
+}
+
+#[test]
+fn controlled_exec_out_ends_at_its_deadline_and_a_spent_control_sends_nothing() {
+    let (mut device, join) = run("shell_v2", 256 * 1024, |peer| {
+        let shell = peer.accept_open("shell,v2,raw:screencap -p");
+        peer.send(shell, &shell_packet(1, b"\x89PNG partial"), usize::MAX);
+        let next = peer.try_next(Duration::from_secs(3));
+        assert!(next.is_err(), "the socket outlived the deadline: {next:?}");
+    });
+    let spent = super::BoundedShellControl::new(TIMEOUT).unwrap();
+    spent.cancel();
+    assert!(
+        device
+            .exec_out_with_control("never", &mut Vec::new(), None, spent.clone())
+            .is_err()
+    );
+    assert!(!spent.was_registered());
+    let control = super::BoundedShellControl::new(Duration::from_millis(300)).unwrap();
+    let started = std::time::Instant::now();
+    let mut stdout = Vec::new();
+    assert!(
+        device
+            .exec_out_with_control("screencap -p", &mut stdout, None, control)
+            .is_err()
+    );
+    assert!(started.elapsed() < Duration::from_secs(2));
+    assert_eq!(stdout, b"\x89PNG partial");
+    drop(device);
+    join();
+}
+
+// ---- a connection adbd closes before answering CNXN ----
+
+/// Accepts one connection per script, in order, and counts them.
+fn adbd_sequence(
+    scripts: Vec<Box<dyn FnOnce(std::net::TcpStream) + Send>>,
+) -> (SocketAddr, std::thread::JoinHandle<usize>) {
+    let listener = std::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0)).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = std::thread::spawn(move || {
+        listener.set_nonblocking(true).unwrap();
+        let mut scripts = scripts.into_iter();
+        let mut accepted = 0;
+        let quiet_until = std::time::Instant::now() + Duration::from_secs(3);
+        while std::time::Instant::now() < quiet_until {
+            match listener.accept() {
+                Ok((stream, _)) => {
+                    stream.set_nonblocking(false).unwrap();
+                    accepted += 1;
+                    match scripts.next() {
+                        Some(script) => script(stream),
+                        None => drop(stream),
+                    }
+                }
+                Err(_) => std::thread::sleep(Duration::from_millis(10)),
+            }
+        }
+        accepted
+    });
+    (address, handle)
+}
+
+fn hang_up_after_cnxn(mut stream: std::net::TcpStream) {
+    let cnxn = super::test_support::read_message(&mut stream).unwrap();
+    assert_eq!(cnxn.header().command(), MessageCommand::Cnxn);
+}
+
+#[test]
+fn a_connection_closed_before_any_reply_is_tried_once_more() {
+    let (address, server) = adbd_sequence(vec![
+        Box::new(hang_up_after_cnxn),
+        Box::new(|stream| {
+            let mut peer = Peer::connect(stream, "shell_v2", 256 * 1024);
+            let _ = peer.try_next(Duration::from_secs(1));
+        }),
+    ]);
+    let started = std::time::Instant::now();
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(device.is_ok(), "{:?}", device.err());
+    assert!(started.elapsed() >= Duration::from_millis(150));
+    drop(device);
+    assert_eq!(server.join().unwrap(), 2);
+}
+
+#[test]
+fn a_second_silent_close_is_returned_without_a_third_attempt() {
+    let (address, server) = adbd_sequence(vec![
+        Box::new(hang_up_after_cnxn),
+        Box::new(hang_up_after_cnxn),
+    ]);
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(
+        matches!(&device, Err(RustADBError::IOError(e)) if e.kind() == std::io::ErrorKind::UnexpectedEof),
+        "{:?}",
+        device.err()
+    );
+    assert_eq!(server.join().unwrap(), 2);
+}
+
+#[test]
+fn a_close_after_the_device_answered_is_not_retried() {
+    let (address, server) = adbd_sequence(vec![Box::new(|mut stream| {
+        let _ = super::test_support::read_message(&mut stream).unwrap();
+        // Ask for authentication, then hang up: the device did answer.
+        super::test_support::write_message(&mut stream, MessageCommand::Auth, 1, 0, &[7; 20])
+            .unwrap();
+        let _ = super::test_support::read_message(&mut stream);
+    })]);
+    let device = ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+        address,
+        shared_test_key(),
+        TIMEOUT,
+    );
+    assert!(device.is_err());
+    assert_eq!(server.join().unwrap(), 1);
+}

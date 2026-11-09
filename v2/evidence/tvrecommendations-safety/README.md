@@ -1,5 +1,11 @@
 # TV Recommendations conservative safety correction
 
+> **Historical.** This records the change as it shipped. Desktop Optimize lost
+> "Select all safe" on 2026-11-08 (PR #333): nothing arms removals in bulk, and
+> `tests/tvrecommendations-safety.mjs` now checks that TV Recommendations starts at
+> Keep and that there is no bulk arm control. References to Select all safe below
+> describe the earlier screen.
+
 The v2 SHIELD catalog previously described `com.google.android.tvrecommendations`
 as Safe, selected it for default optimization, and claimed custom launchers had no
 consequences. It now defaults to Keep and produces Caution, with original wording

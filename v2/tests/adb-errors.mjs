@@ -155,4 +155,38 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(LOCAL_NETWORK_POSSIBLE, "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.");
 }
 
-console.log("adb errors passed: pair/connect failures map to guidance with raw details kept, unknown errors are not guessed at, the subnet typo warning only fires on readable IPv4, and a macOS No route to host points at Restart ADB or Local Network according to the probe, stating a block only on evidence.");
+// Native Rust ADB connects from the app itself and has no adb server, so no
+// remedy may point at Restart ADB or a stale server.
+{
+  const raw = "Couldn't connect to 192.168.1.9:5555: No route to host (os error 65)";
+  const native = (status) => explainAdbFailure("connect", "192.168.1.9", raw, status, false);
+
+  const blocked = native("blocked");
+  assert.equal(blocked.localNetwork, "blocked");
+  assert.equal(
+    blocked.summary,
+    `Couldn't reach 192.168.1.9. ${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then try again.`,
+  );
+
+  // The app itself reached the network: Local Network is not the cause.
+  const allowed = native("allowed");
+  assert.equal(allowed.localNetwork, null);
+  assert.doesNotMatch(allowed.summary, /macOS|Restart ADB|server/);
+
+  const unknown = native("unknown");
+  assert.equal(unknown.localNetwork, "settings");
+  assert.equal(unknown.summary, `Couldn't reach 192.168.1.9. ${LOCAL_NETWORK_POSSIBLE}`);
+
+  const pair = explainAdbFailure("pair", "192.168.1.9:40000", raw, "unknown", false);
+  assert.equal(pair.localNetwork, "settings");
+  assert.doesNotMatch(pair.summary, /Restart ADB|server/);
+
+  for (const status of ["no_network", "not_applicable", null]) {
+    assert.equal(native(status).localNetwork, null, String(status));
+  }
+  assert.equal(localNetworkHint(raw, "allowed", false), null);
+  assert.equal(localNetworkHint(raw, "unknown", false), "settings");
+  assert.equal(localNetworkHint("Connection refused", "blocked", false), null);
+}
+
+console.log("adb errors passed: pair/connect failures map to guidance with raw details kept, unknown errors are not guessed at, the subnet typo warning only fires on readable IPv4, and a macOS No route to host points at Restart ADB or Local Network according to the probe, stating a block only on evidence; native ADB never points at a server restart.");

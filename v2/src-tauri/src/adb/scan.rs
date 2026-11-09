@@ -6,18 +6,24 @@
 //! directly — it's the only port we care about, it's faster, and many TVs
 //! firewall ICMP but must expose 5555 for adb-over-network to work at all.
 
-use std::net::{IpAddr, SocketAddr};
-use std::time::Duration;
+use std::net::IpAddr;
+#[cfg(not(feature = "e2e"))]
+use std::net::SocketAddr;
+use std::time::{Duration, Instant};
 
-use futures_util::stream::{FuturesUnordered, StreamExt};
+use futures_util::{stream, stream::BoxStream, StreamExt};
+#[cfg(not(feature = "e2e"))]
 use tokio::net::TcpStream;
 use tokio::process::Command;
+#[cfg(not(feature = "e2e"))]
 use tokio::time::timeout;
 
 /// How long to wait per TCP connect before giving up.
+#[cfg(not(feature = "e2e"))]
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 
 /// How many simultaneous probes to keep in flight.
+#[cfg(not(feature = "e2e"))]
 const PROBE_CONCURRENCY: usize = 64;
 
 /// ADB-over-network listening port.
@@ -204,6 +210,7 @@ pub struct SweepStats {
     pub elapsed: Duration,
 }
 
+#[cfg_attr(feature = "e2e", allow(dead_code))]
 enum Probe {
     Open(ScanHit),
     Refused,
@@ -211,62 +218,60 @@ enum Probe {
     Other,
 }
 
-/// Probe all 254 addresses in the given /24 in parallel. Returns IPs that
-/// answered on the ADB port, and how many probes timed out or were refused.
-/// Honors a global concurrency cap so we don't flood the user's network
-/// stack.
+/// Collect the same streaming sweep used by native discovery, with diagnostics.
 pub async fn scan_subnet_with_stats(prefix: [u8; 3]) -> (Vec<ScanHit>, SweepStats) {
-    let started = std::time::Instant::now();
-    #[cfg(feature = "e2e")]
-    if let Some(ips) = SWEEP_OVERRIDE
-        .read()
-        .ok()
-        .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
-    {
-        let hits: Vec<ScanHit> = ips.into_iter().map(|ip| ScanHit { ip }).collect();
-        let stats = SweepStats {
-            probed: 254,
-            open: hits.len(),
-            elapsed: started.elapsed(),
-            ..Default::default()
-        };
-        return (hits, stats);
-    }
-    // Priority sweep mirroring v1: common DHCP range first, then the rest.
-    let ordered_hosts: Vec<u8> = (100..=150).chain(2..=99).chain(151..=254).collect();
-    let mut stats = SweepStats {
-        probed: ordered_hosts.len(),
-        ..Default::default()
-    };
-
-    let mut in_flight: FuturesUnordered<_> = FuturesUnordered::new();
-    let mut iter = ordered_hosts.into_iter();
-    let mut hits = Vec::new();
-
-    // Prime the pump.
-    for _ in 0..PROBE_CONCURRENCY {
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
-        }
-    }
-
-    while let Some(result) = in_flight.next().await {
-        match result {
-            Probe::Open(hit) => hits.push(hit),
-            Probe::Refused => stats.refused += 1,
-            Probe::TimedOut => stats.timeouts += 1,
-            Probe::Other => {}
-        }
-        if let Some(host) = iter.next() {
-            in_flight.push(probe(prefix, host));
-        }
-    }
-
-    stats.open = hits.len();
-    stats.elapsed = started.elapsed();
+    let mut stats = SweepStats::default();
+    let hits = scan_subnet_hits(prefix, &mut stats).collect().await;
     (hits, stats)
 }
 
+pub fn scan_subnet_hits(prefix: [u8; 3], stats: &mut SweepStats) -> BoxStream<'_, ScanHit> {
+    #[cfg(feature = "e2e")]
+    let probes = {
+        let ips = SWEEP_OVERRIDE
+            .read()
+            .ok()
+            .and_then(|guard| guard.as_ref().map(|sweep| sweep(prefix)))
+            .expect("E2E fixture sweep is missing; live network probing was refused");
+        stream::iter(ips.into_iter().map(|ip| Probe::Open(ScanHit { ip })))
+    };
+    #[cfg(not(feature = "e2e"))]
+    let probes = stream::iter((100..=150).chain(2..=99).chain(151..=254))
+        .map(move |host| probe(prefix, host))
+        .buffer_unordered(PROBE_CONCURRENCY);
+    tracked_hits(probes, stats)
+}
+
+fn tracked_hits<'a>(
+    probes: impl futures_util::Stream<Item = Probe> + Send + 'a,
+    stats: &'a mut SweepStats,
+) -> BoxStream<'a, ScanHit> {
+    let started = Instant::now();
+    probes
+        .filter_map(move |probe| {
+            stats.probed += 1;
+            stats.elapsed = started.elapsed();
+            let hit = match probe {
+                Probe::Open(hit) => {
+                    stats.open += 1;
+                    Some(hit)
+                }
+                Probe::Refused => {
+                    stats.refused += 1;
+                    None
+                }
+                Probe::TimedOut => {
+                    stats.timeouts += 1;
+                    None
+                }
+                Probe::Other => None,
+            };
+            futures_util::future::ready(hit)
+        })
+        .boxed()
+}
+
+#[cfg(not(feature = "e2e"))]
 async fn probe(prefix: [u8; 3], host: u8) -> Probe {
     let addr = SocketAddr::from((
         std::net::Ipv4Addr::new(prefix[0], prefix[1], prefix[2], host),
@@ -286,6 +291,44 @@ async fn probe(prefix: [u8; 3], host: u8) -> Probe {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[cfg(feature = "e2e")]
+    #[tokio::test]
+    #[should_panic(expected = "live network probing was refused")]
+    async fn missing_e2e_provider_never_falls_through_to_network_probes() {
+        assert!(SWEEP_OVERRIDE.read().unwrap().is_none());
+        scan_subnet_with_stats([192, 0, 2]).await;
+    }
+
+    #[tokio::test]
+    async fn sweep_statistics_do_not_buffer_early_responders() {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        let probes = stream::iter([
+            Probe::Refused,
+            Probe::Open(ScanHit {
+                ip: "192.0.2.1".into(),
+            }),
+        ])
+        .chain(stream::once(async move {
+            rx.await.unwrap();
+            Probe::TimedOut
+        }))
+        .chain(stream::iter([Probe::Other]));
+        let mut stats = SweepStats::default();
+        let mut hits = tracked_hits(probes, &mut stats);
+        let first = tokio::time::timeout(Duration::from_secs(1), hits.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(first.ip, "192.0.2.1");
+        tx.send(()).unwrap();
+        assert!(hits.next().await.is_none());
+        drop(hits);
+        assert_eq!(
+            (stats.probed, stats.open, stats.refused, stats.timeouts),
+            (4, 1, 1, 1)
+        );
+    }
 
     #[test]
     fn parses_dotted_prefix() {
