@@ -11,7 +11,8 @@
   import { session } from "../lib/session.svelte";
   import { reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
   import { safetySourceLabel } from "../../../shared/safety";
-  import { canOfferUninstall, recommendation } from "../lib/recommendation";
+  import { canOfferUninstall, recommendation, uninstallOutcome } from "../lib/recommendation";
+  import { router } from "../lib/router.svelte";
   import { formatBytes, hasStorage, measuredAt, type AppMeasurements, type ApkReportMeasurement, type MeasureStatus } from "../lib/app-details";
   import type { AppItem } from "../lib/appsList";
   import type { AppStorage, AppUsage, Safety } from "../lib/types";
@@ -172,9 +173,55 @@
     onReport?.(app, fallback);
   }
 
+  // "Back up APK" copies this app's APK files into ATV Optimizer's private
+  // storage on this phone, the same place the Backups screen lists. Nothing
+  // leaves the phone, so the result says where it went and nothing more.
+  type BackupRead =
+    | { status: "idle" }
+    | { status: "saving"; package: string }
+    | { status: "saved"; package: string; parts: number }
+    | { status: "failed"; package: string; message: string };
+  let backup = $state<BackupRead>({ status: "idle" });
+  let backupToken = 0;
+
+  // Keyed on primitives: the Apps screen rebuilds its `app` object on every
+  // refresh, which must not drop a backup that is still running.
+  const backupKey = $derived(`${app?.package ?? ""}|${session.serial}|${session.generation}`);
+  $effect(() => {
+    // A different app, or a different connection, drops the last result.
+    void backupKey;
+    ++backupToken;
+    backup = { status: "idle" };
+  });
+
+  function backupApk() {
+    const pkg = app?.package;
+    const serial = session.serial;
+    const generation = session.generation;
+    if (!pkg || !serial || !session.isConnected || backup.status === "saving") return;
+    const token = ++backupToken;
+    const current = () =>
+      token === backupToken && app?.package === pkg && session.serial === serial && session.generation === generation;
+    backup = { status: "saving", package: pkg };
+    api.backupApk(serial, pkg).then(
+      (entry) => {
+        if (current()) backup = { status: "saved", package: pkg, parts: entry.apk_count };
+      },
+      (e) => {
+        if (current()) backup = { status: "failed", package: pkg, message: String(e) };
+      },
+    );
+  }
+
+  function openBackups() {
+    onClose();
+    router.navigate("backups");
+  }
+
   onDestroy(() => {
     ++safetyRequest;
     ++apkToken;
+    ++backupToken;
   });
 
   const tier = $derived(tierOf(safety));
@@ -189,6 +236,7 @@
   const missing = $derived(app?.state === "missing");
   const offerUninstall = $derived(!!app && (!app.entry || canOfferUninstall(app.entry)));
   const offerPlayStore = $derived(!!app && (!app.entry || app.entry.play_store));
+  const outcome = $derived(app ? uninstallOutcome(app.package, app.entry) : null);
 
   const safetyStatus = $derived<SafetyStatus>(
     safety
@@ -368,8 +416,8 @@
       <div class="reversible">
         <span class="msr">restore</span>
         <span>
-          Disable is reversible with Enable. Uninstall removes the app for this user — Reinstall
-          brings back an APK still on the TV; anything else needs the Play Store.
+          Disable is reversible with Enable.{#if offerUninstall && outcome && !uninstalled && !missing}{" "}After
+            Uninstall: {outcome.short}.{/if}
         </span>
       </div>
 
@@ -475,12 +523,26 @@
             <span class="msr">refresh</span>{measuring ? "Measuring…" : "Re-measure"}
           </button>
         {/if}
+        {#if !uninstalled && !missing}
+          <button class="link-btn" onclick={backupApk} disabled={backup.status === "saving" || !stateKnown}>
+            <span class="msr">backup</span>{backup.status === "saving" ? "Backing up…" : "Back up APK"}
+          </button>
+        {/if}
         {#if canReport && onReport}
           <button class="link-btn" onclick={reportApp}>
             <span class="msr">warning</span>Report this app
           </button>
         {/if}
       </div>
+      {#if backup.status === "saved"}
+        <p class="backup-note" role="status">
+          Saved {backup.parts} APK part{backup.parts === 1 ? "" : "s"} to this phone, in ATV Optimizer's
+          private storage.
+          <button class="inline-link" onclick={openBackups}>View in Backups</button>
+        </p>
+      {:else if backup.status === "failed"}
+        <p class="backup-note failed" role="status">Backup failed: {backup.message}</p>
+      {/if}
 
     </div>
   </div>
@@ -663,6 +725,27 @@
   }
   .link-btn .msr {
     font-size: 16px;
+  }
+  .backup-note {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-soft);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+  .backup-note.failed {
+    color: var(--danger);
+  }
+  .inline-link {
+    min-height: 32px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--accent);
+    font-family: var(--sans);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
   }
   .fine-note {
     margin: 0;

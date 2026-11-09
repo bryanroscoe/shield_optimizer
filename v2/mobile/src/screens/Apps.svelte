@@ -866,7 +866,7 @@
   const removalNote = $derived.by(() => {
     const intent = removalIntent;
     if (!intent || intent.action !== "uninstall") return "";
-    return uninstallNote(intent.app.package, intent.app.entry) ?? "";
+    return uninstallNote(intent.app.package, intent.app.entry);
   });
 </script>
 
@@ -1127,7 +1127,7 @@
     supportWarning={destructiveWarning(session.support)}
     message={removalIntent?.action === "disable"
       ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
-      : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${removalNote ? ` ${removalNote}` : ""}`}
+      : `${verdictSummary(removalIntent?.verdict)} ${removalNote}`}
     confirmLabel={removalIntent?.action === "disable" ? "Disable" : "Uninstall"}
     onConfirm={confirmRemoval}
     onCancel={() => {

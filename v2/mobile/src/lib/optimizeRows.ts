@@ -6,7 +6,13 @@
 import type { OptimizeMode, OptimizePlanItem, Safety } from "./types";
 import { catalogItem, type AppItem } from "./appsList";
 import { SAFETY_TIERS, isBlocked, type SafetyKind, type SafetyStatus } from "./safety";
-import { isReinstallable, recommendation, type PackageState, type RemovalMethod } from "./recommendation";
+import {
+  isReinstallable,
+  recommendation,
+  uninstallOutcome,
+  type PackageState,
+  type RemovalMethod,
+} from "./recommendation";
 
 export type RowAction = RemovalMethod | "enable";
 
@@ -118,7 +124,16 @@ export function applyConfirmation(
 ): { warning: string; message: string } {
   const tiers = new Map<SafetyKind, Map<string, string[]>>();
   const enables: string[] = [];
-  let uninstalls = 0;
+  // How an uninstalled app comes back depends on the app. When every
+  // uninstall shares one case it is said once; otherwise each uninstall
+  // carries its own, so every app is still named once.
+  const lower = (text: string) => `${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+  const outcomes = new Set(
+    items
+      .filter(({ item }) => naturalAction(item) === "uninstall")
+      .map(({ item }) => uninstallOutcome(item.entry.package, item.entry).short),
+  );
+  const perApp = outcomes.size > 1;
   for (const { item, verdict } of items) {
     const action = naturalAction(item);
     if (!action) continue;
@@ -126,14 +141,17 @@ export function applyConfirmation(
       enables.push(item.entry.name);
       continue;
     }
-    if (action === "uninstall") uninstalls += 1;
     const kind = verdict?.kind ?? "unknown";
     const reason = verdict?.reason.trim() ?? "";
     const byReason = tiers.get(kind) ?? new Map<string, string[]>();
     tiers.set(kind, byReason);
     const names = byReason.get(reason) ?? [];
     byReason.set(reason, names);
-    names.push(`${action === "uninstall" ? "Uninstall" : "Disable"} ${item.entry.name}`);
+    names.push(
+      action === "uninstall"
+        ? `Uninstall ${item.entry.name}${perApp ? ` (${lower(uninstallOutcome(item.entry.package, item.entry).short)})` : ""}`
+        : `Disable ${item.entry.name}`,
+    );
   }
   const warning = CONFIRM_TIER_ORDER.filter((kind) => tiers.has(kind))
     .map((kind) => {
@@ -145,8 +163,10 @@ export function applyConfirmation(
     .join(" ");
   const message = [
     enables.length > 0 ? `Re-enable ${enables.join(", ")}.` : "",
-    uninstalls > 0
-      ? "Uninstall removes an app for this TV's user; Reinstall works only while its APK remains on the TV, otherwise use the Play Store."
+    outcomes.size > 0
+      ? `Uninstall removes an app for this TV's user, and Restore can't bring it back.${
+          perApp ? "" : ` ${[...outcomes][0]}.`
+        }`
       : "",
     mode === "optimize"
       ? "Afterward, animation scales are set to 0.5×."
