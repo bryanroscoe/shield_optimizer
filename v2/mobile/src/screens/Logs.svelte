@@ -63,7 +63,7 @@
 </script>
 
 <svelte:document onvisibilitychange={visibilityChanged} />
-<div class="screen">
+<div class="screen logs-screen">
   <div class="topline">
     <div class="header-left">
       <button class="iconbtn" onclick={back} aria-label="Back">
@@ -139,6 +139,9 @@
 </div>
 
 <style>
+  .logs-screen {
+    gap: 14px;
+  }
   .header-left {
     display: flex;
     gap: 8px;
