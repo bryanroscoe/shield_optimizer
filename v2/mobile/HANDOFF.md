@@ -68,7 +68,9 @@ closed-source product**, which constrains the transport (§2). It shares the aud
 (`v2/crates/core`) with the desktop app (`v2/src-tauri` + `v2/src`); the rule is *reuse the
 desktop, keep core aligned, never fork it*.
 
-Mobile has desktop parity for Optimize (search, app sheet, desktop's recommendation defaults),
+Mobile has desktop parity for Optimize (search, app sheet, desktop's recommendation defaults; no
+Select all, Keep all, Restore's Re-enable all disabled, a per-row note on how an uninstalled app
+comes back, and a post-run offer to save a snapshot; as of desktop #333, 2026-11-08),
 Diagnostics (Suggestion column; a process counts as an app only once the TV confirms the package is
 installed), Snapshots (marked Beta; Preview restore with a Now column that names a skipped Home app
 and packages kept on for Home with the core's reasons; Delete names the snapshot), Apps (Recognised
@@ -77,7 +79,8 @@ app as Home, a separate confirmed Disable stock launcher step that stays off whi
 unknown, source links on every launcher, re-read after every action), Tweaks, and Files (find app
 backups via shared core `commands::files`, copy to phone, TV-side delete under `/sdcard`). Every
 app sheet (Apps, Optimize, Diagnostics) shows the TV's support-tier warning before a removal and
-offers Report this app and Research sources. A scan that finds nothing opens connection help.
+offers Report this app, Research sources and Back up APK (into app-private storage, listed on
+Backups; no export). A scan that finds nothing opens connection help.
 Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab

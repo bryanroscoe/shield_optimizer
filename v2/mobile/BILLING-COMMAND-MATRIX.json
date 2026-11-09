@@ -672,6 +672,7 @@
       "backend": "../crates/core/src/commands/snapshot.rs",
       "callers": [
         "src/screens/Launcher.svelte",
+        "src/screens/Optimize.svelte",
         "src/screens/Snapshots.svelte"
       ]
     },
@@ -717,6 +718,7 @@
       "gate": "Free",
       "backend": "src-tauri/src/file_commands.rs",
       "callers": [
+        "src/components/AppDetailSheet.svelte",
         "src/screens/Backups.svelte"
       ]
     },

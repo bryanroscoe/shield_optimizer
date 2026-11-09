@@ -79,8 +79,7 @@ go-ahead; don't infer permission from a phone being powered on.
    under it only if the request id is still the latest.
 7. **Device findings left from the 2026-11-05 pass** (P2): the TV menu's Disconnect has no
    confirmation; Cancel during the approval wait leaves the socket open until the 30 s deadline,
-   so the TV queues one Allow prompt per cancelled try (pairs with the connect-lock item above);
-   Optimize Restore pre-selects every disabled recommended app — check against desktop; a phone
+   so the TV queues one Allow prompt per cancelled try (pairs with the connect-lock item above); a phone
    advertising wireless debugging is listed under "new TVs"; the Send Text dialog sits under the
    keyboard; Apps rows reach the accessibility tree only after the first tap. Android 11 Shields
    can hold a stale "Allow debugging" prompt (`adbd_auth: prompt currently pending, skipping`) and

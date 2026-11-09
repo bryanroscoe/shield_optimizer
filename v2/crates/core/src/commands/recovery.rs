@@ -41,7 +41,7 @@ pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<Recov
         .map_err(|e| format!("pm list packages -d: {e}"))?;
     // A failed read must not report "nothing to restore" to someone who is
     // here because their TV is broken.
-    if !disabled_out.success() || disabled_out.shell_reported_failure() {
+    if !super::verification::succeeded(&disabled_out) {
         return Err(format!(
             "pm list packages -d: {}",
             disabled_out.combined().trim()
@@ -68,13 +68,22 @@ pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<Recov
             });
             continue;
         }
-        match adb.shell(serial, &format!("pm enable {pkg}")).await {
-            Ok(out) if !out.shell_reported_failure() => {
-                restored.push(pkg.clone());
+        match adb
+            .shell(serial, &format!("pm enable --user 0 {pkg}"))
+            .await
+        {
+            Ok(out) if super::verification::succeeded(&out) => {
+                match super::verification::verify_package(adb.as_ref(), serial, pkg, true).await {
+                    Ok(()) => restored.push(pkg.clone()),
+                    Err(e) => failed.push(RecoveryFailure {
+                        package: pkg.clone(),
+                        error: e.message().to_string(),
+                    }),
+                }
             }
             Ok(out) => failed.push(RecoveryFailure {
                 package: pkg.clone(),
-                error: out.combined().trim().to_string(),
+                error: super::verification::failure_text(&out),
             }),
             Err(e) => failed.push(RecoveryFailure {
                 package: pkg.clone(),
@@ -109,10 +118,25 @@ mod tests {
 
     #[tokio::test]
     async fn free_user_can_recover_disabled_packages_after_downgrade() {
-        let mock = MockAdb::default().on_shell(
-            "pm list packages -d",
-            "package:com.example.one\npackage:com.example.two\n",
-        );
+        let mock = MockAdb::default()
+            .on_shell(
+                "pm list packages -d --user 0",
+                "package:com.example.one\npackage:com.example.two\n",
+            )
+            .on_shell(
+                "pm list packages -e --user 0 com.example.one",
+                &format!(
+                    "package:com.example.one\n{}0\n",
+                    crate::adb::batch::BATCH_STATUS
+                ),
+            )
+            .on_shell(
+                "pm list packages -e --user 0 com.example.two",
+                &format!(
+                    "package:com.example.two\n{}0\n",
+                    crate::adb::batch::BATCH_STATUS
+                ),
+            );
         let log = mock.shell_log();
         let state = state_with(mock).with_entitlement(Entitlement::Pro);
         state.set_entitlement(Entitlement::Free);
@@ -120,8 +144,12 @@ mod tests {
         assert_eq!(result.restored, vec!["com.example.one", "com.example.two"]);
         assert!(result.failed.is_empty());
         let calls = log.lock().unwrap();
-        assert!(calls.iter().any(|x| x == "pm enable com.example.one"));
-        assert!(calls.iter().any(|x| x == "pm enable com.example.two"));
+        assert!(calls
+            .iter()
+            .any(|x| x == "pm enable --user 0 com.example.one"));
+        assert!(calls
+            .iter()
+            .any(|x| x == "pm enable --user 0 com.example.two"));
         assert!(!calls
             .iter()
             .any(|x| x.contains("disable-user") || x.contains("uninstall")));
@@ -136,5 +164,27 @@ mod tests {
             255,
         ));
         assert!(panic_recovery_impl(&state, "TV").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn recovery_nonzero_and_unconfirmed_enable_are_not_restored() {
+        for mock in [
+            MockAdb::default()
+                .on_shell("pm list packages -d --user 0", "package:com.example.app")
+                .on_shell_exit("pm enable --user 0", "", 1),
+            MockAdb::default()
+                .on_shell("pm list packages -d --user 0", "package:com.example.app")
+                .on_shell(
+                    "pm list packages -e --user 0",
+                    &format!("\n{}0\n", crate::adb::batch::BATCH_STATUS),
+                ),
+            MockAdb::default()
+                .on_shell("pm list packages -d --user 0", "package:com.example.app")
+                .on_shell_err("pm list packages -e --user 0", "device offline"),
+        ] {
+            let result = panic_recovery_impl(&state_with(mock), "TV").await.unwrap();
+            assert!(result.restored.is_empty());
+            assert_eq!(result.failed.len(), 1);
+        }
     }
 }

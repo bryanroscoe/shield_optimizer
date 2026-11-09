@@ -83,12 +83,12 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `delete_snapshot` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Snapshots.svelte` |
 | `snapshot_dir_path` | Snapshot | `../crates/core/src/commands/snapshot.rs` | No direct API caller |
 | `list_snapshots` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Snapshots.svelte` |
-| `save_snapshot` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Launcher.svelte`, `src/screens/Snapshots.svelte` |
+| `save_snapshot` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Launcher.svelte`, `src/screens/Optimize.svelte`, `src/screens/Snapshots.svelte` |
 | `apply_snapshot` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Snapshots.svelte` |
 | `preview_apply` | Snapshot | `../crates/core/src/commands/snapshot.rs` | `src/screens/Snapshots.svelte` |
 | `list_remote_dir` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `pull_file` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
-| `backup_apk` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
+| `backup_apk` | Free | `src-tauri/src/file_commands.rs` | `src/components/AppDetailSheet.svelte`, `src/screens/Backups.svelte` |
 | `restore_apk_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `list_backups` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `delete_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
