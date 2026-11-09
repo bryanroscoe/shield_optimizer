@@ -58,6 +58,40 @@ pub const EXCERPTS_PER_DAY: u32 = 20;
 /// diagnostics, desktop log excerpts and the support id.
 pub const NOTICE_VERSION: u32 = 2;
 
+/// The build-time variable that marks a test build with the commit it was
+/// built from. Only the native test package jobs in `v2-tests.yml` set it;
+/// a release build never has it.
+pub const TEST_BUILD_ENV: &str = "ATVOPT_TEST_BUILD";
+
+/// The test-build marker compiled into this build, shortened to the usual
+/// seven characters for a full commit hash. `None` for a release build.
+pub fn build_test_marker() -> Option<String> {
+    normalize_test_marker(option_env!("ATVOPT_TEST_BUILD"))
+}
+
+fn normalize_test_marker(raw: Option<&str>) -> Option<String> {
+    let raw = raw?.trim();
+    if raw.is_empty()
+        || raw.len() > 64
+        || !raw
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+    {
+        return None;
+    }
+    if raw.len() > 12 && raw.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Some(raw[..7].to_string());
+    }
+    Some(raw.to_string())
+}
+
+/// A test build's uploads carry its version as a `-dev` release, which the
+/// worker accepts and no release build ever sends.
+fn dev_version(version: &str) -> String {
+    let core = version.split(['-', '+']).next().unwrap_or(version);
+    format!("{core}-dev")
+}
+
 /// The base URL compiled into this build, without a trailing slash.
 pub fn build_base_url() -> Option<String> {
     normalize_base_url(option_env!("ATVOPT_TELEMETRY_URL"))
@@ -140,8 +174,13 @@ pub struct TelemetrySettings {
     /// The random install id reports carry, so a user can quote it and the
     /// developer can find their reports. `None` while reports are off or the
     /// build has no endpoint. Never derived from hardware, a serial or an
-    /// address, and replaced whenever reports are turned back on.
+    /// address, and replaced whenever reports are turned back on. A test
+    /// build shows the id its log uploads carry.
     pub support_id: Option<String>,
+    /// The commit of a test build. Its automatic reports are always off;
+    /// Send logs still works and marks each upload as a test build.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub test_build: Option<String>,
 }
 
 /// What `upload_diagnostics` needs to post the user's logs.
@@ -151,6 +190,8 @@ pub struct UploadTarget {
     pub app: AppKind,
     pub app_version: String,
     pub os: String,
+    /// The test build's commit, which the upload names on its first line.
+    pub test_build: Option<String>,
 }
 
 /// Builds the redacted log excerpt for an automatic report from the
@@ -168,16 +209,20 @@ pub struct TelemetryConfig {
     pub app: AppKind,
     pub app_version: String,
     pub os: String,
+    /// [`build_test_marker`]: a test build sends no automatic reports.
+    pub test_build: Option<String>,
 }
 
 impl TelemetryConfig {
-    /// Configuration for a shipped app: the compiled-in URL and the host OS.
+    /// Configuration for a shipped app: the compiled-in URL, the host OS and
+    /// whether this is a test build.
     pub fn for_build(app: AppKind, app_version: &str) -> Self {
         Self {
             base_url: build_base_url(),
             app,
             app_version: app_version.to_string(),
             os: host_os(),
+            test_build: build_test_marker(),
         }
     }
 }
@@ -281,6 +326,7 @@ impl Telemetry {
                 app: AppKind::Desktop,
                 app_version: String::new(),
                 os: String::new(),
+                test_build: None,
             },
             None,
             StoredSettings {
@@ -377,8 +423,10 @@ impl Telemetry {
         })
     }
 
+    /// Whether automatic reports can be sent at all: an endpoint, and not a
+    /// test build.
     fn configured(&self) -> bool {
-        self.config.base_url.is_some()
+        self.config.base_url.is_some() && self.config.test_build.is_none()
     }
 
     fn active(inner: &Inner, configured: bool) -> bool {
@@ -392,11 +440,17 @@ impl Telemetry {
     pub fn settings(&self) -> TelemetrySettings {
         let inner = self.lock();
         let active = Self::active(&inner, self.configured());
+        let test_build = self.config.test_build.clone();
+        let uploads_carry_id = test_build.is_some()
+            && self.config.base_url.is_some()
+            && uuid::Uuid::parse_str(&inner.settings.install_id).is_ok();
         TelemetrySettings {
-            enabled: inner.settings.enabled,
-            available: self.configured(),
-            notice_seen: inner.settings.notice_current(),
-            support_id: active.then(|| inner.settings.install_id.clone()),
+            enabled: inner.settings.enabled && test_build.is_none(),
+            available: self.config.base_url.is_some(),
+            // A test build sends no reports, so the notice has nothing to say.
+            notice_seen: test_build.is_some() || inner.settings.notice_current(),
+            support_id: (active || uploads_carry_id).then(|| inner.settings.install_id.clone()),
+            test_build,
         }
     }
 
@@ -412,8 +466,12 @@ impl Telemetry {
             url: format!("{base}/v1/diagnostics"),
             install_id: inner.settings.install_id.clone(),
             app: self.config.app,
-            app_version: self.config.app_version.clone(),
+            app_version: match self.config.test_build {
+                Some(_) => dev_version(&self.config.app_version),
+                None => self.config.app_version.clone(),
+            },
             os: self.config.os.clone(),
+            test_build: self.config.test_build.clone(),
         })
     }
 
@@ -449,6 +507,9 @@ impl Telemetry {
     /// Off takes effect in this session even if saving fails; the error is
     /// returned so the UI can say the choice may not survive a restart.
     pub fn set_enabled(&self, enabled: bool) -> Result<TelemetrySettings, String> {
+        if enabled && self.config.test_build.is_some() {
+            return Err("Test builds never send anonymous reports. Send logs still works.".into());
+        }
         {
             let mut inner = self.lock();
             if inner.settings.enabled != enabled {
@@ -544,7 +605,7 @@ impl Telemetry {
         inner
             .devices
             .insert(device.serial.clone(), snapshot.clone());
-        if !Self::active(&inner, true) || !inner.seen.insert(key) {
+        if !Self::active(&inner, self.config.test_build.is_none()) || !inner.seen.insert(key) {
             return;
         }
         let event = device_seen_event(&self.context(&inner), &now(), snapshot);
@@ -1070,7 +1131,94 @@ mod tests {
             app: AppKind::Mobile,
             app_version: "0.1.0".into(),
             os: "android 15".into(),
+            test_build: None,
         }
+    }
+
+    #[test]
+    fn a_release_build_has_no_test_marker_and_only_ci_test_packages_set_one() {
+        // `cargo test` and release builds are compiled without it.
+        assert_eq!(build_test_marker(), None);
+        assert_eq!(normalize_test_marker(None), None);
+        assert_eq!(normalize_test_marker(Some("  ")), None);
+        assert_eq!(normalize_test_marker(Some("abc def")), None);
+        assert_eq!(
+            normalize_test_marker(Some("4f156e4c0ffee1234567890abcdef0123456789a")),
+            Some("4f156e4".into())
+        );
+        assert_eq!(
+            normalize_test_marker(Some("4f156e4")),
+            Some("4f156e4".into())
+        );
+        let workflows = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../.github/workflows");
+        let release = std::fs::read_to_string(format!("{workflows}/v2-release.yml")).unwrap();
+        assert!(
+            !release.contains(TEST_BUILD_ENV),
+            "release builds must never be marked as test builds"
+        );
+        let tests = std::fs::read_to_string(format!("{workflows}/v2-tests.yml")).unwrap();
+        assert_eq!(
+            tests.matches(&format!("{TEST_BUILD_ENV}:")).count(),
+            2,
+            "both native test package jobs (macOS, and Linux/Windows) mark their builds"
+        );
+    }
+
+    #[test]
+    fn a_test_build_sends_logs_marked_dev_but_never_automatic_reports() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                app_version: "2.5.0".into(),
+                test_build: Some("4f156e4".into()),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        let settings = hub.settings();
+        assert!(!settings.enabled, "reports are off in a test build");
+        assert!(settings.available);
+        assert!(settings.notice_seen, "no reports, so no notice");
+        assert_eq!(settings.test_build.as_deref(), Some("4f156e4"));
+        assert_eq!(
+            settings.support_id.as_deref(),
+            Some(hub.install_id().as_str()),
+            "the id its log uploads carry"
+        );
+        assert!(!hub.is_active());
+        assert!(hub.set_enabled(true).is_err());
+        assert!(!hub.settings().enabled);
+        hub.device_profiled(&shield("192.0.2.1:5555", "SERIAL1"));
+        assert!(hub.lock().queue.is_empty(), "nothing is queued for upload");
+        let target = hub.upload_target().unwrap();
+        assert_eq!(target.app_version, "2.5.0-dev");
+        assert_eq!(target.test_build.as_deref(), Some("4f156e4"));
+        assert_eq!(dev_version("2.6.0-beta.2"), "2.6.0-dev");
+    }
+
+    #[test]
+    fn a_release_build_reports_and_uploads_exactly_as_before() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(
+            TelemetryConfig {
+                app: AppKind::Desktop,
+                app_version: "2.5.0".into(),
+                ..config(Some("https://t.example"))
+            },
+            dir.path(),
+        );
+        let settings = hub.settings();
+        assert!(settings.enabled && settings.available);
+        assert_eq!(settings.test_build, None);
+        assert!(serde_json::to_value(&settings)
+            .unwrap()
+            .get("test_build")
+            .is_none());
+        assert!(hub.is_active());
+        let target = hub.upload_target().unwrap();
+        assert_eq!(target.app_version, "2.5.0");
+        assert_eq!(target.test_build, None);
     }
 
     fn shield(serial: &str, hardware_id: &str) -> Device {

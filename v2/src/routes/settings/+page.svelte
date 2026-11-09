@@ -265,7 +265,12 @@
           <p>{NOTICE_TEXT}</p>
           <p>Turning this off stops sending at once and discards anything not yet sent.</p>
         </HelpTip>
-        {#if !telemetry?.available}
+        {#if telemetry?.test_build}
+        <p class="row-note" role="status" data-test-build>
+          Test build <span class="mono">{telemetry.test_build}</span>: anonymous usage reports are
+          always off. Send logs still works and marks each upload as this test build.
+        </p>
+        {:else if !telemetry?.available}
         <p class="row-note" role="status">
           {#if telemetry && !telemetry.available}
             This build doesn't send reports.
@@ -283,7 +288,7 @@
           id="reports-toggle"
           type="checkbox"
           checked={telemetry?.enabled ?? false}
-          disabled={!telemetry?.available}
+          disabled={!telemetry?.available || !!telemetry?.test_build}
           onchange={toggleReports}
         />
       </div>
@@ -411,6 +416,9 @@
       <div class="row-text">
         <span class="row-label">
           Version <span class="mono">{shell.currentVersion ? `v${shell.currentVersion}` : "unknown"}</span>
+          {#if telemetry?.test_build}
+            · <span data-test-build-version>Test build <span class="mono">{telemetry.test_build}</span></span>
+          {/if}
         </span>
         <p class="row-help" role="status">
           {#if shell.updateInstalled}

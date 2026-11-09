@@ -683,6 +683,35 @@ fn device_lines(list: &[atv_optimizer_core::engine::types::Device]) -> Vec<Strin
         .collect()
 }
 
+/// The upload's own lines, written before redaction so the id survives it.
+/// A test build's upload starts with `Test build <commit>`.
+fn upload_preamble(
+    target: &atv_optimizer_core::telemetry::UploadTarget,
+    reports_enabled: bool,
+) -> String {
+    let mut text = String::new();
+    if let Some(commit) = &target.test_build {
+        text.push_str(&format!("Test build {commit}\n\n"));
+    }
+    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
+    text.push_str(&format!(
+        "- Support ID: {} (`{}`)\n",
+        format_support_id(&target.install_id),
+        target.install_id
+    ));
+    text.push_str(&format!("- App version: {}\n", target.app_version));
+    text.push_str(&format!(
+        "- OS: {} ({})\n",
+        target.os,
+        std::env::consts::ARCH
+    ));
+    text.push_str(&format!(
+        "- Automatic reports: {}\n",
+        if reports_enabled { "on" } else { "off" }
+    ));
+    text
+}
+
 /// `upload_diagnostics` — Send logs to developer.
 ///
 /// The user pressed a button that says it sends their logs, so this runs
@@ -729,23 +758,7 @@ pub async fn upload_diagnostics(
         .unwrap_or_else(|e| vec![format!("- (could not list devices: {e})")]);
 
     // Our own values, written before redaction so the id survives it.
-    let mut text = String::new();
-    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
-    text.push_str(&format!(
-        "- Support ID: {} (`{}`)\n",
-        format_support_id(&target.install_id),
-        target.install_id
-    ));
-    text.push_str(&format!("- App version: {}\n", target.app_version));
-    text.push_str(&format!(
-        "- OS: {} ({})\n",
-        target.os,
-        std::env::consts::ARCH
-    ));
-    text.push_str(&format!(
-        "- Automatic reports: {}\n",
-        if reports_enabled { "on" } else { "off" }
-    ));
+    let mut text = upload_preamble(&target, reports_enabled);
 
     let mut header = String::new();
     header.push_str("\n### Devices\n\n");
@@ -896,6 +909,32 @@ mod tests {
         assert!(!valid_ui_event("Route\n"));
         assert!(log_ui_event("bad event".into(), "x".into(), None).is_err());
         assert!(log_ui_event("tab".into(), "Apps".into(), Some("/devices/x".into())).is_ok());
+    }
+
+    #[test]
+    fn a_test_build_upload_says_so_first_and_a_release_upload_does_not() {
+        let target = |test_build: Option<&str>| atv_optimizer_core::telemetry::UploadTarget {
+            url: "https://t.example/v1/diagnostics".into(),
+            install_id: "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11".into(),
+            app: atv_optimizer_core::engine::telemetry::AppKind::Desktop,
+            app_version: if test_build.is_some() {
+                "2.5.0-dev"
+            } else {
+                "2.5.0"
+            }
+            .into(),
+            os: "macos 26.6".into(),
+            test_build: test_build.map(str::to_string),
+        };
+        let test = upload_preamble(&target(Some("4f156e4")), false);
+        assert!(test.starts_with("Test build 4f156e4\n"), "{test}");
+        assert!(test.contains("- App version: 2.5.0-dev"));
+        let release = upload_preamble(&target(None), true);
+        assert!(
+            release.starts_with("## ATV Optimizer logs (Send logs)"),
+            "{release}"
+        );
+        assert!(!release.contains("Test build"));
     }
 
     #[test]

@@ -55,6 +55,10 @@ jobs:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
+      # Owner-test builds can Send logs; each upload is marked as this test
+      # build and its automatic reports stay off. Release builds never set it.
+      ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+      ATVOPT_TEST_BUILD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -156,6 +160,10 @@ jobs:
       CARGO_BUILD_JOBS: '1'
       CARGO_INCREMENTAL: '0'
       CARGO_PROFILE_DEV_DEBUG: '0'
+      # Owner-test builds can Send logs; each upload is marked as this test
+      # build and its automatic reports stay off. Release builds never set it.
+      ATVOPT_TELEMETRY_URL: ${{ vars.ATVOPT_TELEMETRY_URL }}
+      ATVOPT_TEST_BUILD: ${{ github.event.pull_request.head.sha || github.sha }}
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -517,6 +525,10 @@ jobs:
       - name: Native discovery
         working-directory: v2
         run: npm run test:native-discovery && npm run test:native-scan-progress
+
+      - name: Approval dialog and test-build settings
+        working-directory: v2
+        run: npm run test:approval-dialog && npm run test:test-build-settings
 
       # Right-click shows the app menu, not the webview's link menu (#129),
       # while text fields keep their native Cut / Copy / Paste.

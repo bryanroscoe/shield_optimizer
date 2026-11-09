@@ -211,8 +211,11 @@ export interface TelemetrySettings {
   notice_seen: boolean;
   /// The random install id reports carry, so a user can quote it and the
   /// developer can find their reports. `null` while reports are off or the
-  /// build has no endpoint.
+  /// build has no endpoint. A test build shows the id its log uploads carry.
   support_id: string | null;
+  /// The commit of a test build, whose automatic reports are always off.
+  /// Absent in a release build.
+  test_build?: string | null;
 }
 
 /// What `upload_diagnostics` returns: the user pressed "Send logs".

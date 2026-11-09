@@ -42,6 +42,11 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 
 ### Send logs uploads
 
+A test build (a native test package marked with `ATVOPT_TEST_BUILD`) can send logs too. Its upload
+carries `app_version` as `<version>-dev`, which the version check here already accepts, and its text
+starts with `Test build <commit>`. Test builds never send automatic reports, so they add nothing to
+`events` or the device-support aggregates.
+
 `diag_uploads` holds what a desktop user sent with **Send logs to developer**: a summary (support
 ID, app and OS, TVs by state and public build properties, `adb devices -l` and a `diag` object)
 and up to 256 KiB of the app's own log, redacted line by line on the client
@@ -259,7 +264,7 @@ it does not substitute for a native app or physical TV test.
 | Worker | `atv-optimizer-telemetry` |
 | D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
 | Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters |
-| Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it; the sync and report workflows call it. |
+| Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it, and so do the PR's native test packages (`v2-tests.yml`), which also set `ATVOPT_TEST_BUILD` to their commit; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
 
 Secrets live in the owner's personal 1Password (`my.1password.com`, vault **Bryan Code**), never
