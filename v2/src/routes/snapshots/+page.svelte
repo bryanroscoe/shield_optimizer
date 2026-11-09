@@ -4,6 +4,7 @@
   import Icon from "$lib/components/Icon.svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
   import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
@@ -88,7 +89,9 @@
       plan.settings_to_delete.length +
       (plan.launcher_to_set ? 1 : 0);
     const tierWarning = destructiveWarning(devices.find((d) => d.serial === serial)?.support);
-    if (!confirm(`Restore ${snap.filename} to ${previewState.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`)) return;
+    const current = previewState;
+    if (!(await confirmAction(`Restore ${snap.filename} to ${current.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+      || previewState !== current || actionBusy || applyBusy || deletingPath) return;
     applyBusy = true;
     applyErr = null;
     try {
@@ -102,7 +105,8 @@
 
   async function deleteSnap(snap: SnapshotFile) {
     if (loading || actionBusy || applyBusy || deletingPath) return;
-    if (!confirm(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`)) return;
+    if (!(await confirmAction(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`))
+      || loading || actionBusy || applyBusy || deletingPath) return;
     deletingPath = snap.path;
     actionMsg = "";
     try {
