@@ -455,10 +455,20 @@ const health: HealthReport = {
   },
   ram: { total_mb: 2956, used_mb: 1894, free_mb: 1062, swap_mb: 512 },
   storage: { total: "15G", used: "9.2G", available: "5.1G", used_percent: 64 },
-  // Warm enough that the Temperature card's amber tier shows in the generated
-  // gallery — the tiers are the point of that card and a permanently green
-  // fixture never renders them.
+  // A warm Shield reading with its own sensor threshold, so the Temperature
+  // card shows the sensor context and how far the reading sits below the
+  // throttling point the TV reports for that sensor.
   temperature_c: 78,
+  temperature_reading: {
+    celsius: 78,
+    source: "hardware_properties",
+    sensor_name: "CPU temperatures[0]",
+    sensor_type: "CPU",
+    status: null,
+    throttling_c: 89,
+    shutdown_c: 102.5,
+  },
+  thermal_status: 0,
   audio_device: "Dolby Atmos over HDMI (eARC)",
   // Full process names as `dumpsys meminfo` reports them, from a real Shield.
   // The native rows, the `:background` subprocess and the package-shaped

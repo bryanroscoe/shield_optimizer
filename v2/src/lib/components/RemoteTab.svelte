@@ -1,12 +1,44 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy, untrack } from "svelte";
-  import type { SendTextResult } from "$lib/types";
+  import type { DeviceType, SendTextResult } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import { api } from "$lib/api";
   import { getRemoteForceShell, setRemoteForceShell } from "$lib/prefs";
 
-  let { serial, active = true }: { serial: string; active?: boolean } = $props();
+  let {
+    serial,
+    active = true,
+    deviceType = "unknown",
+  }: { serial: string; active?: boolean; deviceType?: DeviceType } = $props();
+
+  // The locator activity exists only on Shield builds, so the control appears
+  // only for a device that reported itself as a Shield, as on the phone.
+  let isShield = $derived(deviceType === "shield");
+  let findBusy = $state(false);
+  let findMessage = $state<{ ok: boolean; text: string } | null>(null);
+  let findTimer: ReturnType<typeof setTimeout> | null = null;
+
+  async function findRemote() {
+    if (findBusy) return;
+    const target = serial;
+    findBusy = true;
+    findMessage = null;
+    if (findTimer) clearTimeout(findTimer);
+    try {
+      const res = await api.findRemote(target);
+      if (serial !== target) return;
+      findMessage = res.ok
+        ? { ok: true, text: "Ringing your Shield remote — listen for the beep." }
+        : { ok: false, text: `${res.message || "Couldn't ring the remote."} Make sure the TV is on.` };
+    } catch (error) {
+      if (serial !== target) return;
+      findMessage = { ok: false, text: `${String(error)} Make sure the TV is on.` };
+    } finally {
+      findBusy = false;
+    }
+    if (findMessage?.ok) findTimer = setTimeout(() => (findMessage = null), 5000);
+  }
 
   // Escape hatch: force the slow but universal `input` transport, skipping the
   // fast scrcpy channel. Persisted across sessions.
@@ -271,7 +303,10 @@
     return () => { void target; void visible; invalidate(); };
   });
 
-  onDestroy(invalidate);
+  onDestroy(() => {
+    invalidate();
+    if (findTimer) clearTimeout(findTimer);
+  });
 </script>
 
 <svelte:window onblur={invalidate} />
@@ -280,15 +315,29 @@
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-remote" aria-labelledby="tab-remote">
   <div class="remote-header">
     <h2><Icon name="settings_remote" size={20} /> Remote</h2>
-    {#if transport}
-      <span class="transport" class:live={transport === "channel"}
-        title={transport === "channel"
-          ? "Low-latency control channel — presses reach the TV in milliseconds, and holding a D-pad button repeats."
-          : "Compatibility mode — each press is a slower ADB call (~0.7s)."}>
-        {transport === "channel" ? "● instant" : "○ compatible (slower)"}
-      </span>
-    {/if}
+    <div class="header-actions">
+      {#if transport}
+        <span class="transport" class:live={transport === "channel"}
+          title={transport === "channel"
+            ? "Low-latency control channel — presses reach the TV in milliseconds, and holding a D-pad button repeats."
+            : "Compatibility mode — each press is a slower ADB call (~0.7s)."}>
+          {transport === "channel" ? "● instant" : "○ compatible (slower)"}
+        </span>
+      {/if}
+      {#if isShield}
+        <button
+          class="small-action find-remote"
+          onclick={findRemote}
+          disabled={findBusy}
+          data-tip="Makes the Shield remote beep. The TV must be on."
+          data-tip-align="end"
+        ><Icon name="settings_remote" size={14} /> {findBusy ? "Ringing…" : "Find remote"}</button>
+      {/if}
+    </div>
   </div>
+  {#if isShield}
+    <p class="find-status small" class:warn-text={findMessage && !findMessage.ok} role="status">{findMessage?.text ?? ""}</p>
+  {/if}
   <div class="remote-layout">
     <div class="remote-typing">
       <div class="typing-header">
@@ -404,8 +453,26 @@
     gap: 0.8rem;
     flex-wrap: wrap;
   }
-  .transport {
+  .header-actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+  .find-remote {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .find-status {
+    margin: 0.35rem 0 0.75rem;
+  }
+  /* Kept in the accessibility tree while empty so the result is announced. */
+  .find-status:empty {
+    margin: 0;
+  }
+  .transport {
     font-size: 0.74rem;
     color: var(--fg-muted);
     cursor: default;
