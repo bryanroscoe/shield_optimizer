@@ -28,15 +28,19 @@ function redactSerials(text: string, redact: string[]): string {
   return out;
 }
 
-function redactIdentifiers(text: string, redact: string[], reportedPackage?: string): string {
-  const keep = reportedPackage?.toLowerCase();
+function redactAddresses(text: string, redact: string[]): string {
   return redactSerials(text, redact)
     .replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}\b/g, REDACTED)
     .replace(/\b(?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}\b/g, REDACTED)
     .replace(/(?:\b[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*)?::(?:[0-9A-Fa-f]{1,4}(?::[0-9A-Fa-f]{1,4})*\b)?/g, (m) =>
       m === "::" ? m : REDACTED,
-    )
+    );
+}
+
+function redactIdentifiers(text: string, redact: string[], reportedPackage?: string): string {
+  const keep = reportedPackage?.toLowerCase();
+  return redactAddresses(text, redact)
     .replace(PACKAGE_SHAPED, (_m, before: string, token: string) => {
       if (token.toLowerCase() === keep) return before + token;
       if (token.split(".").every((segment) => segment.length === 1)) return before + token;
@@ -46,10 +50,20 @@ function redactIdentifiers(text: string, redact: string[], reportedPackage?: str
 
 // Only an explicit HTTP(S) authority can be treated as a domain rather than
 // an installed-package token. Every other URL component keeps privacy rules.
-function publicHostname(host: string): boolean {
+// Private-network names stay redacted, and so does a host that reads like a
+// package id (`com.private.app`): real hostnames don't start with a generic TLD.
+function publicHostname(host: string, reportedPackage?: string): boolean {
+  if (reportedPackage && host === reportedPackage.toLowerCase()) return true;
   return /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}$/i.test(host)
-    && !/(?:^|\.)(?:localhost|local|lan|internal|home|invalid|test|onion)$/i.test(host);
+    && !/(?:^|\.)(?:localhost|local|localdomain|lan|internal|intranet|private|corp|home|home\.arpa|box|invalid|test|onion|ts\.net)$/i.test(host)
+    && !/^(?:com|org|net|edu|gov|mil|int|io|info|biz)\./i.test(host)
+    // Wildcard-DNS names spell an address with dashes (192-168-1-5.sslip.io).
+    && !/(?:^|[^0-9])\d{1,3}(?:-\d{1,3}){3}(?![0-9])/.test(host);
 }
+
+// Query keys can be tokens too. Only these carry no personal data, and only
+// the reported id and a language/country code survive as values.
+const PUBLIC_QUERY_KEYS = new Set(["id", "hl", "gl"]);
 
 function decoded(value: string): string | null {
   // Inspect nested escaping as well as the ordinary single-encoded case.
@@ -67,7 +81,9 @@ function redactUrl(raw: string, redact: string[], reportedPackage?: string): str
   let url: URL;
   try { url = new URL(raw); } catch { return REDACTED; }
   const scrub = (value: string) => redactIdentifiers(value, redact, reportedPackage);
-  const host = publicHostname(url.hostname) && scrubSerialsAndAddresses(url.hostname, redact) === url.hostname
+  // A host is checked for serials and addresses only: its dots and hyphens
+  // would otherwise read as package ids (#323).
+  const host = publicHostname(url.hostname, reportedPackage) && redactAddresses(url.hostname, redact) === url.hostname
     ? url.hostname : REDACTED;
   // Decode each path segment for inspection, retaining its original encoding
   // only when no identifying content was found. Encoded separators are inspected too.
@@ -78,18 +94,13 @@ function redactUrl(raw: string, redact: string[], reportedPackage?: string): str
   // Query values and fragments may be credentials, account ids or nested URLs.
   // The reported app's exact id is the only query value the report needs.
   const query = [...url.searchParams].map(([key, value]) => {
-    const plainKey = decoded(key);
-    const safeKey = plainKey === null ? REDACTED : scrub(plainKey);
-    const safeValue = key === 'id' && value === reportedPackage && scrub(value) === value ? value : REDACTED;
-    return `${encodeURIComponent(safeKey)}=${safeValue === REDACTED ? REDACTED : encodeURIComponent(safeValue)}`;
+    const safeKey = PUBLIC_QUERY_KEYS.has(key.toLowerCase()) ? encodeURIComponent(key) : REDACTED;
+    const safeValue = (key === 'id' && value === reportedPackage && scrub(value) === value)
+      || (/^(?:hl|gl)$/i.test(key) && /^[a-z]{2,3}(?:[-_][a-z]{2,4})?$/i.test(value))
+      ? value : REDACTED;
+    return `${safeKey}=${safeValue === REDACTED ? REDACTED : encodeURIComponent(safeValue)}`;
   }).join('&');
   return `${url.protocol}//${url.username || url.password ? REDACTED + '@' : ''}${host}${url.port ? ':' + scrub(url.port) : ''}${path}${query ? '?' + query : ''}${url.hash ? '#' + REDACTED : ''}`;
-}
-
-function scrubSerialsAndAddresses(text: string, redact: string[]): string {
-  // Hostnames get the same serial/address pass, with only the package pass
-  // exempted. A serial hidden in a hostname must still disappear.
-  return redactIdentifiers(text, redact, text);
 }
 
 export function redactReportNote(text: string, redact: string[], reportedPackage?: string): string {
