@@ -67,7 +67,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ### Fixed
 
-- Linux AppImage: updating in the app works again. Since 2.0.0-beta.13 each AppImage was repacked after it was signed, so the app rejected every AppImage update as having an invalid signature and stayed on its version. The release now signs the repacked file and checks every update signature before publishing, so an AppImage on 2.5.0 or earlier can update to this version in the app.
+- Linux AppImage: updating in the app works. Each AppImage was repacked after it was signed, so since in-app updates arrived in 2.0.0-beta.14 the app rejected every AppImage update as having an invalid signature and stayed on its version. The release now signs the repacked file and checks every update signature before publishing, so an AppImage from 2.0.0-beta.14 through 2.5.0 can update to this version in the app.
 
 ## v2-2.5.0 — 2026-11-04
 

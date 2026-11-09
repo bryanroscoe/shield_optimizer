@@ -16,8 +16,8 @@ const { checkManifest, keyIdHex, parsePublicKey, updaterPublicKey, verifySignatu
   await import(script);
 
 const fixtures = join(v2Root, "tests/fixtures/updater-signature");
-const data = readFileSync(join(fixtures, "artifact.bin"));
-const sig = readFileSync(join(fixtures, "artifact.bin.sig"), "utf8");
+const data = readFileSync(join(fixtures, "artifact.txt"));
+const sig = readFileSync(join(fixtures, "artifact.txt.sig"), "utf8");
 const throwawayKey = readFileSync(join(fixtures, "throwaway.key.pub"), "utf8");
 const realKey = updaterPublicKey(join(v2Root, "src-tauri/tauri.conf.json"));
 
@@ -42,9 +42,9 @@ assert.throws(() => verifySignature(data, "", throwawayKey), /not a base64-encod
 
 const dir = mkdtempSync(join(tmpdir(), "updater-signatures-"));
 try {
-  copyFileSync(join(fixtures, "artifact.bin"), join(dir, "ATV Optimizer_9.9.9_amd64.AppImage"));
-  copyFileSync(join(fixtures, "artifact.bin.sig"), join(dir, "ATV Optimizer_9.9.9_amd64.AppImage.sig"));
-  copyFileSync(join(fixtures, "artifact.bin"), join(dir, "setup.exe"));
+  copyFileSync(join(fixtures, "artifact.txt"), join(dir, "ATV Optimizer_9.9.9_amd64.AppImage"));
+  copyFileSync(join(fixtures, "artifact.txt.sig"), join(dir, "ATV Optimizer_9.9.9_amd64.AppImage.sig"));
+  copyFileSync(join(fixtures, "artifact.txt"), join(dir, "setup.exe"));
   const url = (name) => `https://github.com/o/r/releases/download/v2-9.9.9/${encodeURIComponent(name)}`;
   const manifest = () => ({
     version: "9.9.9",
@@ -82,6 +82,16 @@ try {
   result = checkManifest(manifest(), dir, realKey, { repair: true });
   assert.ok(result.results.every((r) => !r.ok));
 
+  // A platform a matrix leg's merge dropped is caught, not published.
+  result = checkManifest(manifest(), dir, throwawayKey, {
+    repair: true,
+    expect: ["linux-x86_64-appimage", "darwin-aarch64"],
+  });
+  assert.deepEqual(
+    result.results.filter((r) => !r.ok).map((r) => [r.platform, r.reason]),
+    [["darwin-aarch64", "missing from the manifest"]],
+  );
+
   const missing = { platforms: { "darwin-aarch64": { url: url("gone.tar.gz"), signature: sig } } };
   assert.equal(checkManifest(missing, dir, throwawayKey).results[0].reason, "artifact not found");
   assert.throws(() => checkManifest({ platforms: {} }, dir, throwawayKey), /no platforms/);
@@ -101,6 +111,11 @@ try {
   assert.equal(JSON.parse(readFileSync(latest, "utf8")).platforms["linux-x86_64-appimage"].signature, sig.trim());
   cli = run("manifest", latest, dir);
   assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+  cli = run("manifest", latest, dir, "--expect", "linux-x86_64,windows-x86_64-nsis");
+  assert.equal(cli.status, 0, cli.stdout + cli.stderr);
+  cli = run("manifest", latest, dir, "--expect", "linux-x86_64,darwin-x86_64");
+  assert.equal(cli.status, 1, cli.stdout + cli.stderr);
+  assert.match(cli.stderr, /INVALID darwin-x86_64: -: missing from the manifest/);
 
   const appimage = join(dir, "ATV Optimizer_9.9.9_amd64.AppImage");
   assert.equal(run("file", appimage, `${appimage}.sig`).status, 0);

@@ -9,12 +9,13 @@
 // global signature covers the signature plus the trusted comment.
 //
 //   node scripts/updater-signatures.mjs file <artifact> <artifact.sig>
-//   node scripts/updater-signatures.mjs manifest <latest.json> <assets-dir> [--repair]
+//   node scripts/updater-signatures.mjs manifest <latest.json> <assets-dir> [--repair] [--expect a,b]
 //
 // `manifest` checks every platform entry in latest.json against the file its
 // URL names in <assets-dir>. With --repair, an entry that fails is replaced by
 // that file's `.sig` from <assets-dir> when the `.sig` verifies, and the
-// manifest is rewritten. Either way every entry must verify at the end.
+// manifest is rewritten. Either way every entry must verify at the end, and
+// every platform named by --expect must be present.
 // `--config <tauri.conf.json>` overrides where the public key is read from.
 
 import { createHash, createPublicKey, verify } from "node:crypto";
@@ -125,10 +126,20 @@ export function assetName(url) {
 
 // Returns { manifest, results, changed }. results: one { platform, file, ok,
 // reason, repaired } per platform entry.
-export function checkManifest(manifest, assetsDir, publicKeyB64, { repair = false } = {}) {
+export function checkManifest(
+  manifest,
+  assetsDir,
+  publicKeyB64,
+  { repair = false, expect = [] } = {},
+) {
   const platforms = Object.entries(manifest?.platforms ?? {});
   if (platforms.length === 0) throw new Error("manifest lists no platforms");
   const results = [];
+  for (const platform of expect) {
+    if (!manifest.platforms[platform]) {
+      results.push({ platform, file: null, ok: false, reason: "missing from the manifest", repaired: false });
+    }
+  }
   let changed = false;
   for (const [platform, entry] of platforms) {
     const file = assetName(entry.url);
@@ -164,6 +175,12 @@ function main(argv) {
     config = args[configAt + 1];
     args.splice(configAt, 2);
   }
+  let expect = [];
+  const expectAt = args.indexOf("--expect");
+  if (expectAt !== -1) {
+    expect = (args[expectAt + 1] ?? "").split(",").filter(Boolean);
+    args.splice(expectAt, 2);
+  }
   const repairAt = args.indexOf("--repair");
   const repair = repairAt !== -1;
   if (repair) args.splice(repairAt, 1);
@@ -187,11 +204,11 @@ function main(argv) {
       JSON.parse(readFileSync(a, "utf8")),
       b,
       publicKey,
-      { repair },
+      { repair, expect },
     );
     for (const r of results) {
       if (r.ok) console.log(`ok ${r.platform}: ${r.file}${r.repaired ? " (signature replaced from .sig)" : ""}`);
-      else console.error(`INVALID ${r.platform}: ${r.file}: ${r.reason}`);
+      else console.error(`INVALID ${r.platform}: ${r.file ?? "-"}: ${r.reason}`);
     }
     if (changed) {
       writeFileSync(a, JSON.stringify(manifest, null, 2) + "\n");
@@ -202,7 +219,7 @@ function main(argv) {
 
   console.error(
     "usage: updater-signatures.mjs [--config tauri.conf.json] file <artifact> <sig>\n" +
-      "       updater-signatures.mjs [--config tauri.conf.json] manifest <latest.json> <assets-dir> [--repair]",
+      "       updater-signatures.mjs [--config tauri.conf.json] manifest <latest.json> <assets-dir> [--repair] [--expect a,b]",
   );
   return 2;
 }
