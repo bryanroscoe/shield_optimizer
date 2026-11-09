@@ -75,15 +75,15 @@ pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<Recov
             Ok(out) if super::verification::succeeded(&out) => {
                 match super::verification::verify_package(adb.as_ref(), serial, pkg, true).await {
                     Ok(()) => restored.push(pkg.clone()),
-                    Err(error) => failed.push(RecoveryFailure {
+                    Err(e) => failed.push(RecoveryFailure {
                         package: pkg.clone(),
-                        error,
+                        error: e.message().to_string(),
                     }),
                 }
             }
             Ok(out) => failed.push(RecoveryFailure {
                 package: pkg.clone(),
-                error: format!("exit {:?}: {}", out.exit_code, out.combined().trim()),
+                error: super::verification::failure_text(&out),
             }),
             Err(e) => failed.push(RecoveryFailure {
                 package: pkg.clone(),
@@ -178,6 +178,9 @@ mod tests {
                     "pm list packages -e --user 0",
                     &format!("\n{}0\n", crate::adb::batch::BATCH_STATUS),
                 ),
+            MockAdb::default()
+                .on_shell("pm list packages -d --user 0", "package:com.example.app")
+                .on_shell_err("pm list packages -e --user 0", "device offline"),
         ] {
             let result = panic_recovery_impl(&state_with(mock), "TV").await.unwrap();
             assert!(result.restored.is_empty());

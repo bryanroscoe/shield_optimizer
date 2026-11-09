@@ -188,7 +188,7 @@ async fn write_setting_for(
     if !super::verification::succeeded(&out) {
         return Ok(WriteResult {
             ok: false,
-            message: format!("exit {:?}: {}", out.exit_code, out.combined().trim()),
+            message: super::verification::failure_text(&out),
         });
     }
     match super::verification::verify_setting(
@@ -204,7 +204,10 @@ async fn write_setting_for(
             ok: true,
             message: "Setting confirmed.".into(),
         }),
-        Err(message) => Ok(WriteResult { ok: false, message }),
+        Err(e) => Ok(WriteResult {
+            ok: false,
+            message: e.message().to_string(),
+        }),
     }
 }
 

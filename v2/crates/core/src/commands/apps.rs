@@ -983,9 +983,8 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
         }
     } else {
         format!(
-            "Command failed (exit {:?}): {}",
-            out.exit_code,
-            output.trim()
+            "Command failed: {}",
+            super::verification::failure_text(&out)
         )
     };
     Ok(ActionResult { ok, message })
