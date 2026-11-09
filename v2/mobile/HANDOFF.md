@@ -57,7 +57,7 @@ The open physical gates are GitHub [#93](https://github.com/bryanroscoe/shield_o
 (the app-restart report), code pairing against a real adbd, and fast-remote Phase 4. See
 `BACKLOG.md` P0.
 
-Optimize now recognizes eighteen additional reviewed package identities from shared `common.json` as optional Disable-if-unused suggestions. Each retains Caution, default Keep and explicit Restore selection; no source-profile matching is involved. Evidence and exclusions: [initial two-agent review](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md) and [2026-11-06 batch](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md). Future batches follow the [review process](../../docs/OPTIMIZE-CATALOG-REVIEW-PROCESS.md).
+Optimize now recognizes twenty additional reviewed package identities from shared `common.json` as optional Disable-if-unused suggestions. Each retains Caution, default Keep and explicit Restore selection; no source-profile matching is involved. Evidence and exclusions: [initial two-agent review](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-05-BATCH-2.md) and [2026-11-06 batch](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-06.md). Latest addition: [2026-11-07 batch](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-07.md). Latest CANAL+ review: [2026-11-08 batch](../../docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md). Future batches follow the [review process](../../docs/OPTIMIZE-CATALOG-REVIEW-PROCESS.md).
 
 ## 1. What this is
 
