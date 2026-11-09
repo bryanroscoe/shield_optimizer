@@ -3885,15 +3885,6 @@
     font-size: 0.68rem;
     white-space: nowrap;
   }
-  /* Only on hover: an undo does not need to advertise itself on every
-     decided row. */
-  .change-keep {
-    opacity: 0;
-  }
-  tr:hover .change-keep,
-  .change-keep:focus-visible {
-    opacity: 1;
-  }
   .tabs button.far {
     margin-left: auto;
   }
