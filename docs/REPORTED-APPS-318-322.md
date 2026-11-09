@@ -1,4 +1,4 @@
-# Reports 318–322: three optional media clients and two holds
+# Reports 318–322: initial optional media-client review
 
 Reviewed 2026-11-06. Separate batch stacked on `a11a7eaea8dd08f8fc4e7722022bd1ca59659193`, main ancestor `c3624ecf09a6a8f32f8c7b866bf1dd3fd54ee613`. Reporter sightings on optimizer2.5/GoogleTV14 are untrusted inventory, not removal/recovery evidence. No installed APK/signature/manifest/dependency audit or physical-device test was obtained.
 
@@ -10,13 +10,15 @@ Reviewed 2026-11-06. Separate batch stacked on `a11a7eaea8dd08f8fc4e7722022bd1ca
 
 These optional app roles justify medium/Caution, explicit Disable-if-unused suggestions, review true and both Optimize/Restore defaults false in common scope. They do not establish absence of all OEM/operator dependencies, global safety, universal compatibility or a performance improvement. Installed app callers, launcher recommendations, paid access and household use may matter. No shared auth/Cast/DRM/provider/TV input service changes. Original source snapshot has no exact occurrences for these three IDs; observations are not safety votes or automatic family matching. Source bytes, notices, research ledger, attribution and license are unchanged.
 
-## Held, with no new action authority
+## Initial holds (superseded 2026-11-09)
+
+The assessments below are historical. [The follow-up publisher evidence review](REPORTED-APPS-307-318-321.md) resolves DisneyNOW and Live Channels with conditional Caution/default-Keep recommendations and explicit recovery/tuner warnings.
 
 #318 `com.disney.datg.videoplatforms.android.watchdc`: [official DisneyNOW help](https://disneynow.com/help) says mobile/streaming apps are no longer available and describes desktop/mobile website alternatives with US/provider restrictions. Exact Play URL returned 404. Brand retirement alone does not independently establish this historical exact package's identity, installed role or recovery. Historical exact-ID links retained by [Premier Communications](https://www.mypremieronline.com/newsroom/new-disney-now-app-available.html) and [Orlando Health](https://www.orlandohealth.com/facilities/arnold-palmer-hospital/patients-and-visitors/disney-team-of-heroes/disneynow-app) corroborate identity, but their stale install instructions are not a current publisher listing or recovery authority. No APK/signature was independently inspected. Held pending adequate primary exact-ID and installed-scope evidence. No defunct/action entry, no reinstall/service restoration or Google TV browser promise. Existing core `AppEntry::reinstallable` and frontend `isReinstallable` treat `defunct=true` as reinstallable even with `play_store=false`; that would permit Uninstall and suppress the unavailable-store warning. This batch avoids those flags and leaves the held package absent, preserving Unknown and unavailable-APK safeguards without changing shared guard design. DisneyNOW content availability is not a removal-safety claim.
 
 #321 `com.google.android.tv`: existing descriptive known-name remains unchanged, with Unknown/no_record and no actionable catalog entry. [Google Play](https://play.google.com/store/apps/details?id=com.google.android.tv) confirms tuner/IP-channel/guide functions and deprecation messaging. [AOSP TV reference app](https://source.android.com/docs/devices/tv/reference-tv-app) and [TIF guidance](https://developer.android.com/training/tv/tif) explain firmware customization and system/input integration; this does not prove the reporter's exact installed role. Pinned source observations include active, commented-out and keep-context references, not transferable removal evidence. Original SHIELD 2019 context says its disable tool keeps Live Channels enabled because it answers a TV intent; SHIELD Pro keeps it for network tuners, Verizon explicitly keeps it, Mi Box S records Live-button behavior, and Formovie records channel/HDMI integration. These profile-specific observations strengthen the hold without certifying the reporter firmware. Hold until installed provenance/manifest/roles, firmware/input dependencies, recovery and enforceable scope are established. No unsupported claim of bricking or HDMI failure. Separate `com.android.providers.tv`, launcher/HOME and all system guards remain untouched.
 
-DIRECTV `com.att.tv` remains held and Unknown. Both new holds are research bookkeeping only, reconsider no earlier than 2026-12-06 absent material new evidence; dates grant no action permission.
+The follow-up review also resolves DIRECTV. New publisher-linked identity/function evidence and explicit consequences supersede these initial holds and their reconsideration dates.
 
 ## Defaults and recovery limits
 

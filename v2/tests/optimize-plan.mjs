@@ -111,7 +111,7 @@ async function exercise({ browser, base }) {
   assert.deepEqual(armedProtected, [], `protected rows must offer no action: ${JSON.stringify(armedProtected)}`);
 
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     assert.equal(await row.locator('[data-verdict="caution"]').count(), 1, entry.package);
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", entry.package);
     assert.equal((await row.locator(".review-pill").innerText()).trim(), "Review: disable if unused");
@@ -129,12 +129,12 @@ async function exercise({ browser, base }) {
   assert.equal(await panel.getByRole("button", { name: /Select all/ }).count(), 0, "Optimize has no bulk arm control");
   await panel.getByRole("button", { name: "Keep all", exact: true }).click();
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     assert.equal((await row.locator(".radio-pill.active .radio-label").innerText()).trim(), "Keep", `Keep all: ${entry.package}`);
   }
   const focusPackage = process.env.OPTIMIZE_CATALOG_FOCUS || reviewed[0].package;
   assert.ok(reviewed.some((entry) => entry.package === focusPackage), "evidence focus must be a reviewed package");
-  const first = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: focusPackage }) });
+  const first = panel.locator("tr").filter({ has: page.getByText(focusPackage, { exact: true }) });
   if (evidence) {
     await first.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
@@ -167,7 +167,7 @@ async function exercise({ browser, base }) {
   }));
   assert.ok(overflow.width <= overflow.viewport, `the page fits; wide choices scroll inside the table region: ${JSON.stringify(overflow)}`);
   for (const entry of reviewed) {
-    const row = panel.locator("tr").filter({ has: page.locator(".pkg-id", { hasText: entry.package }) });
+    const row = panel.locator("tr").filter({ has: page.getByText(entry.package, { exact: true }) });
     const name = row.locator(".app-name");
     assert.ok(await name.evaluate((el) => el.getBoundingClientRect().width <= el.parentElement.clientWidth), `readable enlarged name: ${entry.package}`);
   }
@@ -215,7 +215,18 @@ async function main() {
       }
     }
     console.log(`Reviewed catalog state checks passed: ${reviewed.length * 3} enabled/disabled/missing cases.`);
-    const { suggestedMethod, installSource } = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    const { suggestedMethod, installSource, uninstallOutcome } = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    for (const pkg of ["com.att.tv", "com.google.android.tv", "com.disney.datg.videoplatforms.android.watchdc"]) {
+      const entry = catalog.find((a) => a.package === pkg);
+      const retired = pkg === "com.disney.datg.videoplatforms.android.watchdc";
+      for (const source of ["user", "preinstalled", "unknown"]) {
+        assert.equal(suggestedMethod(entry, source), source === "user" && !retired ? "uninstall" : "disable", `${pkg}: ${source}`);
+      }
+      if (retired) {
+        assert.equal(entry.play_store, false);
+        assert.match(uninstallOutcome(pkg, entry).detail, /discontinued.*nowhere to download/i);
+      }
+    }
     const ready = { status: "ready", verdict: { kind: "safe", source: "reviewed_catalog", reason: "Optional." } };
     const store = { package: "x.store", name: "Store", method: "disable", risk: "safe", play_store: true, defunct: false, review: true, default_optimize: false, default_restore: false, optimize_description: "", restore_description: "" };
     // Uninstall only for an ordinary store app the user installed.

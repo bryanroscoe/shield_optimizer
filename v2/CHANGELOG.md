@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop and Android: DIRECTV, DisneyNOW and Live Channels now have reviewed Caution recommendations, starting at Keep. DIRECTV explains the operator-box and subscription caveats; retired DisneyNOW warns that it has no current Play download; Live Channels warns about tuner viewing, its guide and TV input shortcuts. None is selected automatically (#307, #318, #321).
+
 - Desktop and Android: an app you might not use now suggests **Uninstall** only when it is a Play Store app that was added to the TV rather than built in, so you can get it back from the store and uninstalling frees its storage. Apps that came with the TV or were sideloaded suggest **Disable**, which is fully reversible; when the app can't tell how an app got there, it suggests Disable. On desktop, Uninstall is still offered where it was before, and a **?** beside the App List and Optimize filters explains the difference. On Android, choosing such an app in Optimize now disables it; Uninstall stays in its app sheet. Optimize's default picks are unchanged.
 - Desktop and Android: snapshots also record the known apps that weren't on the TV when you saved. Restoring one disables any of those apps that are back since, and shows them in the preview as "not installed in snapshot". A restore still never uninstalls anything, and it keeps the same protections: protected system apps are refused, the TV keeps a Home app, and only apps the current catalog lists as safe to turn off are touched. Snapshots from earlier versions restore as before; versions before this one can't open the new snapshots.
 - Lift the TV artwork slightly to balance the launcher icon and in-app brand marks, including the legs.

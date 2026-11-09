@@ -282,10 +282,6 @@
     "name": "Google Calendar Sync",
     "description": "Syncs Google Calendar data to the device."
   },
-  "com.google.android.tv": {
-    "name": "Live Channels",
-    "description": "Google's app for watching channels from tuners and channel apps."
-  },
   "com.google.android.tv.frameworkpackagestubs": {
     "name": "Framework Package Stubs",
     "description": "Answers requests for phone features a TV does not have."

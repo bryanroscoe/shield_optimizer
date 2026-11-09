@@ -858,7 +858,7 @@ mod tests {
     }
 
     #[test]
-    fn followup_apps_are_optional_and_directv_stays_unreviewed() {
+    fn followup_apps_remain_optional() {
         use crate::engine::{ActionMethod, RiskTier};
         let lists = load_embedded_app_lists().unwrap();
         let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
@@ -891,11 +891,6 @@ mod tests {
             .find("com.aetnd.svod.historyvault.androidtv")
             .is_some());
         assert!(lists.find("com.britbox.us").is_some());
-        assert!(lists.find("com.att.tv").is_none());
-        assert!(matches!(
-            classify_with_catalog("com.att.tv", None),
-            Safety::Unknown { .. }
-        ));
         let analiti = lists.find("com.analiti.fastest.android").unwrap();
         assert!(analiti
             .optimize_description
@@ -954,11 +949,6 @@ mod tests {
         );
         assert_eq!(lists.find("com.cbs.ott").unwrap().name, "Paramount+");
         assert!(lists.find("com.cbsnews.ott").is_some());
-        assert!(lists.find("com.att.tv").is_none());
-        assert!(matches!(
-            classify_with_catalog("com.att.tv", None),
-            Safety::Unknown { .. }
-        ));
     }
 
     #[test]
@@ -1007,15 +997,73 @@ mod tests {
             .find("com.discovery.discoveryplus.androidtv")
             .is_some());
         assert!(lists.find("com.discovery.discoveryplus.mobile").is_some());
-        assert!(lists.find("com.att.tv").is_none());
-        assert!(matches!(
-            classify_with_catalog("com.att.tv", None),
-            Safety::Unknown { .. }
-        ));
     }
 
     #[test]
-    fn media_reports_preserve_legacy_identities_and_system_holds() {
+    fn newly_resolved_reports_are_caution_and_preserve_recovery_limits() {
+        use crate::engine::{ActionMethod, InstallSource, RiskTier};
+        let lists = load_embedded_app_lists().unwrap();
+        for package in [
+            "com.att.tv",
+            "com.disney.datg.videoplatforms.android.watchdc",
+            "com.google.android.tv",
+        ] {
+            let entry = lists.find(package).unwrap();
+            assert_eq!(entry.risk, RiskTier::Medium);
+            assert_eq!(entry.method, ActionMethod::Disable);
+            assert!(entry.review && !entry.default_optimize && !entry.default_restore);
+            assert_eq!(entry.reviewed_at.as_deref(), Some("2026-11-09"));
+            assert_eq!(
+                entry.suggested_method(InstallSource::Unknown),
+                ActionMethod::Disable
+            );
+            assert_eq!(
+                entry.suggested_method(InstallSource::Preinstalled),
+                ActionMethod::Disable
+            );
+            assert!(matches!(
+                classify_with_catalog(
+                    package,
+                    Some(CatalogVerdict {
+                        risk: entry.risk,
+                        description: &entry.optimize_description,
+                    })
+                ),
+                Safety::Caution {
+                    source: SafetySource::ReviewedCatalog,
+                    ..
+                }
+            ));
+        }
+        let disney = lists
+            .find("com.disney.datg.videoplatforms.android.watchdc")
+            .unwrap();
+        assert!(disney.defunct && !disney.play_store);
+        assert_eq!(
+            disney.suggested_method(InstallSource::User),
+            ActionMethod::Disable
+        );
+        assert!(disney.sources[0].starts_with("https://d23.com/"));
+        assert!(disney.restore_description.contains("No current Play Store"));
+        let directv = lists.find("com.att.tv").unwrap();
+        assert!(directv.optimize_description.contains("Gemini/operator"));
+        assert!(directv.optimize_description.contains("does not cancel"));
+        let channels = lists.find("com.google.android.tv").unwrap();
+        assert!(channels.optimize_description.contains("tuner/IP-channel"));
+        assert!(channels.optimize_description.contains("TV input/remote"));
+        assert!(!load_known_names().contains_key("com.google.android.tv"));
+        for entry in [directv, channels] {
+            assert!(entry.play_store && !entry.defunct);
+            assert_eq!(
+                entry.suggested_method(InstallSource::User),
+                ActionMethod::Uninstall
+            );
+        }
+        assert!(lists.find("com.att.tv.openvideo").is_none());
+    }
+
+    #[test]
+    fn media_reports_preserve_legacy_identities() {
         use crate::engine::{ActionMethod, RiskTier};
         let lists = load_embedded_app_lists().unwrap();
         let fixture: Vec<serde_json::Value> = serde_json::from_str(include_str!(
@@ -1027,7 +1075,7 @@ mod tests {
             .filter(|e| {
                 e["issue"]
                     .as_u64()
-                    .is_some_and(|n| (319..=322).contains(&n))
+                    .is_some_and(|n| [319, 320, 322].contains(&n))
             })
             .collect();
         assert_eq!(reports.len(), 3);
@@ -1045,23 +1093,6 @@ mod tests {
             assert!(entry.restore_description.contains("if still installed"));
         }
         assert!(lists.find("com.epix.epixnow.google").unwrap().defunct);
-        for held in [
-            "com.disney.datg.videoplatforms.android.watchdc",
-            "com.google.android.tv",
-        ] {
-            assert!(lists.find(held).is_none());
-            assert!(matches!(
-                classify_with_catalog(held, None),
-                Safety::Unknown { .. }
-            ));
-        }
-        assert!(lists.find("com.att.tv").is_none());
-        assert!(matches!(
-            classify_with_catalog("com.att.tv", None),
-            Safety::Unknown { .. }
-        ));
-        // Live Channels keeps its descriptive name, and only that.
-        assert!(load_known_names().contains_key("com.google.android.tv"));
     }
 
     #[test]

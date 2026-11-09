@@ -202,6 +202,37 @@
     "source_url": "https://play.google.com/store/apps/details?id=com.weathergroup.localnow"
   },
   {
+    "package": "com.att.tv",
+    "name": "DIRECTV",
+    "issue": 307,
+    "source_url": "https://play.google.com/store/apps/details?id=com.att.tv",
+    "consequence_fragments": [
+      "Gemini/operator box",
+      "does not cancel a subscription"
+    ]
+  },
+  {
+    "package": "com.disney.datg.videoplatforms.android.watchdc",
+    "name": "DisneyNOW",
+    "issue": 318,
+    "source_url": "https://d23.com/9-reasons-why-you-need-disneynow-this-very-minute/",
+    "consequence_fragments": [
+      "Retired DisneyNOW video app",
+      "no current Play Store download"
+    ]
+  },
+  {
+    "package": "com.google.android.tv",
+    "name": "Live Channels",
+    "issue": 321,
+    "source_url": "https://play.google.com/store/apps/details?id=com.google.android.tv",
+    "consequence_fragments": [
+      "tuner/IP-channel",
+      "program guide",
+      "TV input/remote shortcut"
+    ]
+  },
+  {
     "package": "com.accuweather.android",
     "name": "AccuWeather",
     "consequence_fragments": [

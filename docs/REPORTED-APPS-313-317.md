@@ -39,7 +39,7 @@ may rely on these app functions. Their interruption is a functional assessment,
 not an observed physical outcome. No source identifies these as operator core,
 HOME, input or accessibility infrastructure, but complete dependency graphs and
 firmware-specific behavior remain unverified. The separate DIRECTV operator-scope
-hold remains unresolved; `com.att.tv` stays absent and Unknown.
+hold was resolved on 2026-11-09 with explicit operator-device caveats; see [the follow-up review](REPORTED-APPS-307-318-321.md).
 
 ## Source observations and preservation
 

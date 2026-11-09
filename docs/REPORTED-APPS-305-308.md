@@ -1,4 +1,4 @@
-# Reported apps 305–308: functional review and DIRECTV hold
+# Reported apps 305–308: initial functional review
 
 Reviewed 2026-11-06. Follow-up to the separate four-app branch at
 `d56049963b4d635d9741b09c5f1d017156264862`, based on main `c3624ec`.
@@ -61,7 +61,9 @@ occurrence of this exact ID was found in the pinned snapshot. A separate researc
 handoff and this implementation review independently checked the publisher
 listing; the normal independent final reviewer must also assess this addition.
 
-## Held: #307 DIRECTV `com.att.tv`
+## Initial hold: #307 DIRECTV `com.att.tv` (superseded 2026-11-09)
+
+The assessment below is historical. [The follow-up publisher evidence review](REPORTED-APPS-307-318-321.md) resolves this hold with conditional Caution/default-Keep guidance and an explicit Gemini/operator warning.
 
 The [exact DIRECTV publisher listing](https://play.google.com/store/apps/details?id=com.att.tv)
 confirms live/on-demand and recorded-program viewing on Android devices. The
