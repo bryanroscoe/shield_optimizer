@@ -10,6 +10,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { parseSafety } from "../../../shared/safety";
 import type { MediaCapabilities } from "../../../shared/media";
+import type { DeviceLogOptions, DeviceLogResult } from "../../../shared/device-logs";
 import { observeCall, type Send, type TelemetrySettings } from "../../../shared/telemetry";
 import { logCall, summarizeArgs } from "./log";
 import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
@@ -303,6 +304,9 @@ export const api = {
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),
+  collectDiagnostics: (serial: string | null) => call<string>("collect_diagnostics", { serial }),
+  readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
+    call<DeviceLogResult>("read_device_logs", { serial, options }),
 
   // ---- Anonymous reports ----
   telemetrySettings: () => call<TelemetrySettings>("telemetry_settings"),

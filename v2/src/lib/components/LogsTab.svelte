@@ -2,8 +2,11 @@
   import { onDestroy } from "svelte";
   import { api } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
-  import { LogPoller, type LogPollState } from "$lib/log-poller";
-  import type { DeviceLogOptions, DeviceLogResult } from "$lib/types";
+  import { LogPoller, type LogPollState } from "../../../shared/log-poller";
+  import {
+    checkLogRead, filterLogLines, logOptions, partialReason,
+    type DeviceLogOptions, type DeviceLogResult,
+  } from "../../../shared/device-logs";
 
   let { serial, resetToken = 0, active = true }: {
     serial: string; resetToken?: number; active?: boolean;
@@ -17,18 +20,12 @@
   type Snapshot = { data: DeviceLogResult; options: DeviceLogOptions; at: string };
   let pollState = $state<LogPollState<Snapshot>>({ busy: false, running: false, value: null, error: null });
   const poller = new LogPoller<Snapshot>(async () => {
-    const options: DeviceLogOptions = {
-      priority, lines, tag: tag.trim() || null, package: packageName.trim() || null,
-    };
-    const data = await api.readDeviceLogs(serial, options);
-    if (data.output.exit_code !== 0 && data.output.termination === "completed") {
-      // Retain raw diagnostics on screen; this component never exports them.
-      throw new Error(data.output.stderr || `logcat exited with code ${data.output.exit_code ?? "unknown"}`);
-    }
+    const options = logOptions(priority, lines, tag, packageName);
+    const data = checkLogRead(await api.readDeviceLogs(serial, options));
     return { data, options, at: new Date().toLocaleTimeString() };
   }, () => active && visible ? `${serial}:${resetToken}` : null, next => { pollState = next; });
   const text = $derived(pollState.value?.data.output.stdout ?? "");
-  const displayed = $derived(search ? text.split("\n").filter(line => line.toLowerCase().includes(search.toLowerCase())).join("\n") : text);
+  const displayed = $derived(filterLogLines(text, search));
 
   function visibilityChanged() {
     visible = document.visibilityState !== "hidden";
@@ -86,8 +83,8 @@
       {pollState.value.options.tag ? `tag ${pollState.value.options.tag}` : "all tags"} ·
       {pollState.value.data.package ? `${pollState.value.data.package} (PID ${pollState.value.data.pid})` : "all processes"}
     </p>
-    {#if pollState.value.data.output.termination !== "completed"}
-      <p class="error" role="alert">Partial snapshot: {pollState.value.data.output.termination === "timeout" ? "the read timed out" : "the output limit was reached"}.</p>
+    {#if partialReason(pollState.value.data)}
+      <p class="error" role="alert">Partial snapshot: {partialReason(pollState.value.data)}.</p>
     {/if}
     {#if pollState.value.data.output.stderr}<pre class="diagnostic">{pollState.value.data.output.stderr}</pre>{/if}
     <label class="search">Find in this snapshot<input bind:value={search} placeholder="Filter displayed lines" /></label>

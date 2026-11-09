@@ -219,8 +219,8 @@ of being labeled "ADB not found".
   cannot be assumed to run there. Keep updater integration separate from the quit path. Real
   macOS/Windows/Linux checks with other adb clients, the updater restart and custom servers have
   not been run.
-- **Logs tab** (`crates/core/src/commands/logcat.rs`, desktop only; mobile does not register
-  it) takes finite, read-only logcat snapshots, not a stream: each read replaces the last,
+- **Logs tab** (`crates/core/src/commands/logcat.rs`; desktop's Logs tab and the phone's
+  More › Device logs, both polled by `v2/shared/log-poller.ts`) takes finite, read-only logcat snapshots, not a stream: each read replaces the last,
   entries can repeat between reads, and high-volume traffic can roll out of the window. Reads
   start only on an explicit click. Severity, one exact tag and an optional package constrain
   the device-side read; package filtering resolves the running main PID per snapshot and fails
@@ -231,7 +231,11 @@ of being labeled "ADB not found".
   settings. Logs are never saved, uploaded or added to bug reports.
 - **App logs**: `<data_dir>/logs/`, daily rotation, 7 kept. Debug level is per-crate, not
   global, so adb lines are not buried under hyper. `collect_diagnostics` formats in the engine
-  (pure) and reads in `src-tauri/src/commands/diagnostics.rs`.
+  (pure) and reads the device in core `commands/diagnostics.rs`, shared with mobile; desktop's
+  `src-tauri/src/commands/diagnostics.rs` adds the adb binary path and its log tail.
+- **Install outcome** (`engine/install_outcome.rs`, pure): the `Success`-line check, the
+  `INSTALL_FAILED_*` hints and the strict `pm path` parser, shared by desktop sideload, backup and
+  clone and by the phone's APK backups.
 - **Support tiers and telemetry** (both apps, shared core). `Device.support` comes from the pure
   `engine/support.rs` matching `crates/core/data/device-support.json` (or a validated fetched copy
   cached as `<data_dir>/support-tiers.json`). Tiers are copy only: they never feed

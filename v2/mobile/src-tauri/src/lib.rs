@@ -20,8 +20,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use atv_optimizer_core::commands::{
-    apps, devices, health, input, launcher, license, loader, optimize, reboot, recovery,
-    screenshot, snapshot, telemetry, tuning, AppState,
+    apps, devices, diagnostics, health, input, launcher, license, loader, logcat, optimize, reboot,
+    recovery, screenshot, snapshot, telemetry, tuning, AppState,
 };
 use atv_optimizer_core::engine;
 use atv_optimizer_core::engine::telemetry::AppKind;
@@ -123,19 +123,48 @@ async fn get_entitlement(state: State<'_, AppState>) -> Result<Entitlement, Stri
     Ok(state.entitlement())
 }
 
+/// The last `lines` lines of the on-disk debug log. An absent log is not an
+/// error — it is empty.
+fn debug_log_tail(data_dir: &Path, lines: usize) -> Result<Vec<String>, String> {
+    let path = data_dir.join("debug.log");
+    match std::fs::read_to_string(&path) {
+        Ok(contents) => Ok(diagnostics::tail_lines(&contents, lines)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Vec::new()),
+        Err(e) => Err(format!("read debug log: {e}")),
+    }
+}
+
 /// `read_debug_log` — return the last ~500 lines of the on-disk debug log for
 /// the More screen. An absent log is not an error — returns an empty string.
 #[tauri::command]
 async fn read_debug_log(state: State<'_, AppState>) -> Result<String, String> {
-    let path = state.data_dir.join("debug.log");
-    let contents = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(String::new()),
-        Err(e) => return Err(format!("read debug log: {e}")),
-    };
-    let lines: Vec<&str> = contents.lines().collect();
-    let start = lines.len().saturating_sub(500);
-    Ok(lines[start..].join("\n"))
+    Ok(debug_log_tail(&state.data_dir, 500)?.join("\n"))
+}
+
+/// `collect_diagnostics` — the bug-report text the More screen copies to the
+/// clipboard. Nothing is sent anywhere. The same narrow bundle desktop builds
+/// (app and phone facts, one TV's identity, its Home apps, the Support ID),
+/// with this app's own debug-log tail. No package inventory, no device logs.
+#[tauri::command]
+async fn collect_diagnostics(
+    state: State<'_, AppState>,
+    serial: Option<String>,
+) -> Result<String, String> {
+    // An unreadable log costs the tail, never the report.
+    let tail = debug_log_tail(&state.data_dir, diagnostics::LOG_TAIL_LINES)
+        .unwrap_or_else(|e| vec![format!("({e})")]);
+    Ok(diagnostics::collect_diagnostics_text(
+        state.inner(),
+        diagnostics::HostDiagnostics {
+            app_version: env!("CARGO_PKG_VERSION"),
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            adb_path: Some("(not applicable: built-in wireless ADB client, no adb binary)"),
+            log_tail: &tail,
+        },
+        serial.as_deref(),
+    )
+    .await)
 }
 
 /// Host-dev fallback when Tauri's app-scoped data dir is unavailable. On Android
@@ -188,6 +217,13 @@ pub fn run() {
                 .unwrap_or_else(|_| default_data_dir());
             init_logging(&data_dir);
             tracing::info!(data_dir = %data_dir.display(), "resolved data dir");
+            // Before any transfer can start: interrupted pulls and backups
+            // otherwise hold app-private space nothing lists or frees.
+            if let Some(reclaimed) = file_commands::reclaim_at_startup(&data_dir) {
+                if reclaimed != file_commands::Reclaimed::default() {
+                    tracing::info!(?reclaimed, "removed interrupted transfers");
+                }
+            }
             match scrcpy_resource::materialize(&data_dir) {
                 Ok(path) => tracing::info!(path = %path.display(), "scrcpy server materialized"),
                 Err(e) => tracing::warn!(error = %e, "scrcpy server materialization failed; remote input will use shell fallback"),
@@ -263,6 +299,8 @@ pub fn run() {
             billing_commands::billing_purchase,
             license::license_info,
             read_debug_log,
+            collect_diagnostics,
+            logcat::read_device_logs,
             devices::list_devices,
             devices::device_profile,
             devices::rename_device,
