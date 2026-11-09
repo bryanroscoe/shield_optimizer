@@ -44,11 +44,13 @@
     type SafetyStatus,
   } from "$lib/safety";
   import {
+    canOfferStoreUninstall,
     canOfferUninstall,
     isReinstallable,
     recommendation,
     sideloadSource,
     uninstallNote,
+    uninstallOutcome,
     type Recommendation,
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
@@ -3245,14 +3247,15 @@
                       data-tip="pm disable-user --user 0"
                     >Disable</button>
                   {/if}
-                  <!-- Store apps and the existing named sideload recovery path.
-                       Defunct alone is not evidence of a working store route. -->
-                  {#if canRemove && (a.play_store || (!isReinstallable(a) && canOfferUninstall(a))) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
+                  <!-- Ordinary store apps (not once Kept) and the named
+                       sideload recovery path. Defunct alone is not evidence
+                       of a working store route. -->
+                  {#if canRemove && ((canOfferStoreUninstall(a) && !keptPackages.has(a.package)) || (!isReinstallable(a) && canOfferUninstall(a))) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
                     <button
                       class="small-action subtle danger"
                       onclick={() => uninstallApp(a.package)}
                       disabled={appActionBusy === a.package || appMutationInFlight}
-                      data-tip={a.play_store ? "Uninstall — reinstall from the Play Store" : `Not on the Play Store — reinstall from ${sideloadSource(a.package)?.name ?? "its source"}`}
+                      data-tip={a.play_store ? uninstallOutcome(a.package, a).short : `Not on the Play Store — reinstall from ${sideloadSource(a.package)?.name ?? "its source"}`}
                     >Uninstall</button>
                   {/if}
                   {#if state === "disabled"}
@@ -4317,6 +4320,15 @@
   .app-table-scroll:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
+  }
+  /* A scroll region clips and measures its tooltips: a hidden one must not
+     widen it, and the header's open downward to stay inside it. */
+  .app-table-scroll :global([data-tip]:not(:hover):not(:focus-visible)::after) {
+    display: none;
+  }
+  .app-table-scroll thead :global([data-tip]::after) {
+    bottom: auto;
+    top: calc(100% + 6px);
   }
   .app-table {
     min-width: 48rem;

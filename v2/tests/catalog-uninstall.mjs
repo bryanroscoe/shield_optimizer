@@ -29,7 +29,7 @@ try {
   await page.evaluate(() => {
     const original = window.__TAURI_INTERNALS__.invoke;
     const fixture = (id, overrides = {}) => ({ package: `test.fixture.${id}`, name: `Fixture ${id}`, method: 'disable', play_store: true, risk: 'safe', default_optimize: true, default_restore: false, optimize_description: 'Synthetic optional app; removing it loses its functionality.', ...overrides });
-    const entries = [fixture('disable'), fixture('review', { review: true, default_optimize: false, risk: 'caution' }), fixture('keep', { default_optimize: false }), fixture('disabled'), fixture('primary', { method: 'uninstall' }), fixture('reviewprimary', { method: 'uninstall', default_optimize: false, review: true }), fixture('defunctsource', { package: 'org.fdroid.fdroid', play_store: false, defunct: true }), fixture('defunct', { play_store: false, defunct: true }), fixture('nostore', { play_store: false }), fixture('missing'), fixture('unreadable'), fixture('protected'), fixture('unavailable'), fixture('long', { name: 'Fixture long optional streaming application with a deliberately long descriptive name' }), fixture('sideload', { package: 'org.smarttube.stable', play_store: false })];
+    const entries = [fixture('disable'), fixture('review', { review: true, default_optimize: false, risk: 'medium' }), fixture('keep', { default_optimize: false }), fixture('disabled'), fixture('primary', { method: 'uninstall' }), fixture('reviewprimary', { method: 'uninstall', default_optimize: false, review: true }), fixture('defunctsource', { package: 'org.fdroid.fdroid', play_store: false, defunct: true }), fixture('defunct', { play_store: false, defunct: true }), fixture('nostore', { play_store: false }), fixture('missing'), fixture('unreadable'), fixture('protected'), fixture('unavailable'), fixture('long', { name: 'Fixture long optional streaming application with a deliberately long descriptive name' }), fixture('sideload', { package: 'org.smarttube.stable', play_store: false }), fixture('system', { risk: 'high', default_restore: true }), fixture('shipped', { risk: 'medium', default_restore: true }), fixture('advanced', { risk: 'advanced' })];
     window.__UNINSTALL_TEST__ = { entries, calls: [], mode: 'normal', reads: 0 };
     window.__TAURI_INTERNALS__.invoke = async (command, args) => {
       const t = window.__UNINSTALL_TEST__; t.calls.push({ command, args });
@@ -66,11 +66,14 @@ try {
   await row('primary').locator('[data-rec=Kept]').waitFor();
   assert.equal(await uninstall('primary').count(), 0, 'preserve kept primary suppression');
   assert.equal(await uninstall('sideload').count(), 1, 'named sideload route preserved');
-  for (const id of ['defunct', 'defunctsource', 'nostore', 'missing', 'unreadable', 'protected', 'unavailable']) assert.equal(await uninstall(id).count(), 0, id);
+  for (const id of ['defunct', 'defunctsource', 'nostore', 'missing', 'unreadable', 'protected', 'unavailable', 'system', 'shipped', 'advanced']) assert.equal(await uninstall(id).count(), 0, id);
+  assert.equal(await row('system').getByRole('button', { name: 'Disable', exact: true }).count(), 1, 'high-risk system app keeps Disable');
+  assert.equal(await uninstall('disable').getAttribute('data-tip'), 'Get it back from the Play Store');
+  const region = page.getByRole('region', { name: 'Curated apps', exact: true });
+  assert.ok(await region.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'hidden tooltips must not widen the table region');
   await row('review').getByRole('button', { name: 'Keep', exact: true }).click();
   assert.equal(await row('review').locator('[data-rec="Kept"]').count(), 1);
-  if (!baseline) await uninstall('review').waitFor();
-  assert.equal(await uninstall('review').count(), baseline ? 0 : 1, 'Kept row');
+  assert.equal(await uninstall('review').count(), 0, 'a Kept row is not offered the irreversible removal');
   await page.mouse.move(0, 0);
   if (evidence) await page.screenshot({ path: join(evidence, baseline ? 'before-desktop-synthetic.png' : 'after-desktop-synthetic.png') });
   if (evidence) await page.waitForTimeout(1500);
