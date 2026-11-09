@@ -255,7 +255,7 @@ subprocess build does not acquire this dependency. No Rust toolchain was install
 | Discovery | Explicit bounded DNS-SD observations for legacy ADB, TLS pairing and TLS connect; selection only prefills manual forms. Cached/unusable observations cannot be selected. Interface and numeric IPv6 scope are preserved; no subnet sweep, USB discovery or automatic dialing |
 | Ready state and Refresh | Probes owned sessions before listing; failed liveness remains an offline row with Forget available; at most four probes run concurrently |
 | Curated app actions and profiling | Existing command/engine path and safety checks; shared shell results retain exit status and stderr |
-| File push/pull and bounded downloads | Shared sync transfer and streaming size limit, finite inactivity timeouts; no hardware evidence |
+| File push/pull and bounded downloads | Shared sync transfer over a dedicated, hardware-id-checked connection (the selected session stays free), streaming size limit, finite inactivity timeouts; no hardware evidence |
 | Screenshots and reboot | Shared binary screenshot/reboot services; no hardware evidence |
 | APK installer | Single local APK with optional replacement, streamed through the native package service; requires verified hardware-ID agreement between the current control session and new install connection. Unknown IDs or unsupported shell-v2 identity queries refuse installation. Split APKs remain unavailable; no replay or cross-driver fallback |
 | Remote | Existing shell-input fallback remains in this backend. Desktop fast Remote is explicitly declined before pushing a jar; forwarding/spawn are unavailable (since 2026-11-06 fast Remote runs natively; see `NATIVE-REMOTE-ACCEPTANCE.md`) |

@@ -61,6 +61,14 @@ export function canOfferUninstall(a: AppEntry): boolean {
   return isReinstallable(a) || sideloadSource(a.package) !== null;
 }
 
+/// Whether App List offers Uninstall beside Disable for a catalog store app
+/// (#325). Only an ordinary store app: a high-risk or advanced system piece
+/// (Google TV Home, Setup Wraith, the voice service) or one the TV ships with
+/// and Reinstall restores keeps Disable as its only removal on that row.
+export function canOfferStoreUninstall(a: AppEntry): boolean {
+  return a.play_store && !a.defunct && !a.default_restore && (a.risk === "safe" || a.risk === "medium");
+}
+
 export function reviewLabel(method: RemovalMethod): string {
   return method === "uninstall" ? "Review: uninstall if unused" : "Review: disable if unused";
 }
