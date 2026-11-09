@@ -109,6 +109,7 @@ export const scenarios = [
 
       await ctx.openDevice(SHIELD.key, "snapshot");
       await ctx.page.getByRole("button", { name: "Save snapshot" }).first().click();
+      await ctx.nameSnapshot();
       await ctx.page.getByRole("button", { name: "Preview restore" }).first().waitFor();
       const snaps = (await ctx.invoke("list_snapshots", {})).value;
       ctx.assert.equal(snaps[0].launcher, MONET, "the snapshot records Monet");

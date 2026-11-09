@@ -1,12 +1,14 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { revealItemInDir, openUrl } from "@tauri-apps/plugin-opener";
   import { Channel } from "@tauri-apps/api/core";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
+  import SnapshotNameDialog from "$lib/components/SnapshotNameDialog.svelte";
   import type {
     Device,
     HealthReport,
@@ -402,6 +404,8 @@
   let snapshotDeleteMsg = $state("");
   let snapshotDeleteErr = $state<string | null>(null);
   let saveBusy = $state(false);
+  /// The open "Save snapshot" name dialog, waiting for a name or Cancel.
+  let snapshotNameRequest = $state<{ resolve: (label: string | null) => void; returnFocus: HTMLElement | null } | null>(null);
   let saveResult = $state<string>("");
   let previewPath = $state<string | null>(null);
   let preview = $state<SnapshotApplyPlan | null>(null);
@@ -694,6 +698,7 @@
     if (liveRefreshTimer) clearInterval(liveRefreshTimer);
     if (nowTicker) clearInterval(nowTicker);
     stopStorePoll();
+    answerSnapshotName(null);
   });
 
   async function loadLauncher() {
@@ -1074,7 +1079,7 @@
       // A sideload the store cannot give back: offer the backup before the
       // uninstall, while there is still something to back up.
       const sideload = action === "uninstall" ? sideloadSource(pkg) : null;
-      if (sideload && confirm(
+      if (sideload && await confirmAction(
         `Back up ${name}'s APK before uninstalling it?\n\n${name} isn't on the Play Store. To get it back you would reinstall it from ${sideload.url}. A backup keeps this exact version.\n\nOK: choose a folder and back it up first.\nCancel: continue without a backup.`,
       )) {
         const folder = await openDialog({ directory: true, title: `Choose a folder for the ${name} APK backup` });
@@ -1094,7 +1099,7 @@
       const entry = apps.find((a) => a.package === pkg) ?? null;
       const note = action === "uninstall" ? uninstallNote(pkg, entry) : null;
       const tierWarning = destructiveWarning(device?.support);
-      const approved = confirm(
+      const approved = await confirmAction(
         `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${verdictLabel(before.safety)}\nReason: ${before.safety.reason}${note ? `\n\n${note}` : ""}${tierWarning ? `\n\n${tierWarning}` : ""}\n\nProceed?`,
       );
       if (!approved
@@ -1326,10 +1331,13 @@
   async function cloneTo(target: Device) {
     if (!clonePkg) return;
     const pkg = clonePkg;
+    if (cloneBusy) return;
     if (
-      !confirm(
+      !(await confirmAction(
         `Copy ${pkg} to ${target.name} (${target.serial})?\n\nApp data does not transfer, and DRM/licensed apps may refuse to run. Paid apps should be installed via the Play Store instead.`,
-      )
+      ))
+      || cloneBusy
+      || clonePkg !== pkg
     )
       return;
     cloneBusy = true;
@@ -1642,7 +1650,8 @@
       ? `Disable ${pkg}?\n\nThis is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen.\n\nIt stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset.`
       : `Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`;
     const tierWarning = destructiveWarning(device?.support);
-    if (!confirm(tierWarning ? `${question}\n\n${tierWarning}` : question)) return;
+    if (launcherActionBusy !== null) return;
+    if (!(await confirmAction(tierWarning ? `${question}\n\n${tierWarning}` : question)) || launcherActionBusy !== null) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     launcherProgress = "Disabling this launcher";
@@ -1702,10 +1711,10 @@
         // The only working method on this build disables the stock launcher.
         // Never do that silently — ask, then retry with the opt-in flag.
         launcherProgress = "";
-        const proceed = confirm(
+        const proceed = await confirmAction(
           `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.${destructiveWarning(device?.support) ? `\n\n${destructiveWarning(device?.support)}` : ""}`,
         );
-        if (proceed) r = await api.setDefaultLauncher(context.serial, pkg, true, onProgress);
+        if (proceed && pageContextIsCurrent(context)) r = await api.setDefaultLauncher(context.serial, pkg, true, onProgress);
       }
       if (!pageContextIsCurrent(context)) return;
       let message: string;
@@ -1774,14 +1783,19 @@
     if (!device) return { kind: "busy", message: "Not saved: the TV isn't connected." };
     if (saveBusy) return { kind: "busy", message: "Not saved: another snapshot is still being saved." };
     if (snapshotDeletePath) return { kind: "busy", message: "Not saved: a snapshot is being deleted. Try again when it finishes." };
-    const answer = prompt("Name this snapshot (optional):", "");
+    if (snapshotNameRequest) return { kind: "busy", message: "Not saved: the snapshot name dialog is already open." };
+    const context = capturePageContext();
+    const answer = await askSnapshotName();
     // Cancel means no snapshot, not one without a name.
-    if (answer === null) return { kind: "cancelled", message: "" };
+    if (answer === null || !pageContextIsCurrent(context)) return { kind: "cancelled", message: "" };
+    if (!device) return { kind: "busy", message: "Not saved: the TV isn't connected." };
+    if (saveBusy) return { kind: "busy", message: "Not saved: another snapshot is still being saved." };
+    if (snapshotDeletePath) return { kind: "busy", message: "Not saved: a snapshot is being deleted. Try again when it finishes." };
     const label = answer.trim();
     saveBusy = true;
     saveResult = "";
     try {
-      const result = await api.saveSnapshot(serial, device.name, label || null);
+      const result = await api.saveSnapshot(context.serial, device.name, label || null);
       saveResult = `Saved ${result.label ?? result.filename} — ${result.disabled_count} disabled packages captured.`;
       await loadSnapshots();
       return { kind: "saved", message: saveResult };
@@ -1791,6 +1805,23 @@
     } finally {
       saveBusy = false;
     }
+  }
+
+  function askSnapshotName(): Promise<string | null> {
+    return new Promise((resolve) => {
+      const active = document.activeElement;
+      snapshotNameRequest = { resolve, returnFocus: active instanceof HTMLElement ? active : null };
+    });
+  }
+
+  function answerSnapshotName(label: string | null) {
+    const request = snapshotNameRequest;
+    if (!request) return;
+    snapshotNameRequest = null;
+    request.resolve(label);
+    void tick().then(() => {
+      if (request.returnFocus?.isConnected) request.returnFocus.focus();
+    });
   }
 
   async function previewSnapshot(path: string) {
@@ -1813,7 +1844,8 @@
 
   async function deleteSnapshot(snap: SnapshotFile) {
     if (saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
-    if (!confirm(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`)) return;
+    if (!(await confirmAction(`Delete snapshot "${snap.label ?? snap.device_name}"?\n\n${snap.filename}\n\nThis permanently deletes the saved file from this computer. It does not change the TV.`))
+      || saveBusy || previewBusy || applyBusy || snapshotDeletePath) return;
     const context = capturePageContext();
     snapshotDeletePath = snap.path;
     snapshotDeleteMsg = "";
@@ -1875,12 +1907,15 @@
       preview.settings_to_delete.length +
       (preview.launcher_to_set ? 1 : 0);
     const tierWarning = destructiveWarning(device?.support);
-    if (!confirm(`Restore this snapshot? ${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`)) return;
+    const path = previewPath;
+    const plan = preview;
+    if (!(await confirmAction(`Restore this snapshot? ${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+      || previewPath !== path || preview !== plan || applyBusy || snapshotDeletePath) return;
     applyBusy = true;
     applyErr = null;
     applyResult = null;
     try {
-      applyResult = await api.applySnapshot(serial, previewPath);
+      applyResult = await api.applySnapshot(serial, path);
     } catch (e) {
       applyErr = String(e);
     } finally {
@@ -1890,7 +1925,8 @@
   }
 
   async function runRecovery() {
-    if (!confirm("Re-enable every disabled package on this device? This is the panic button — use it if something went wrong.")) return;
+    if (recoveryBusy) return;
+    if (!(await confirmAction("Re-enable every disabled package on this device? This is the panic button — use it if something went wrong.")) || recoveryBusy) return;
     recoveryBusy = true;
     recoveryResult = null;
     recoveryErr = null;
@@ -1906,7 +1942,8 @@
 
   async function rebootDevice(mode: RebootMode) {
     const label = mode === "normal" ? "" : ` into ${mode}`;
-    if (!confirm(`Reboot the device${label}? You will lose ADB connection briefly.`)) return;
+    if (rebootBusy) return;
+    if (!(await confirmAction(`Reboot the device${label}? You will lose ADB connection briefly.`)) || rebootBusy) return;
     rebootMenuOpen = false;
     rebootBusy = true;
     headerActionMsg = "";
@@ -1966,7 +2003,8 @@
 
   async function disconnectAndLeave() {
     if (device?.connection === "usb") {
-      if (!confirm("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?")) return;
+      if (disconnectBusy) return;
+      if (!(await confirmAction("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?")) || disconnectBusy) return;
     }
     disconnectBusy = true;
     headerActionMsg = "";
@@ -2054,6 +2092,7 @@
   /// component (loadDevice moves a collapsed transport alias to the row's own
   /// key), so no device's data or in-flight timer can leak onto another.
   function resetDeviceState() {
+    answerSnapshotName(null);
     pageEpoch++;
     deviceRequest++;
     healthRequest++;
@@ -3752,6 +3791,10 @@
       />
     </div>
   {/if}
+{/if}
+
+{#if snapshotNameRequest}
+  <SnapshotNameDialog onSave={(label) => answerSnapshotName(label)} onCancel={() => answerSnapshotName(null)} />
 {/if}
 
 <style>

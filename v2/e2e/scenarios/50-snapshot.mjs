@@ -30,6 +30,7 @@ export const scenarios = [
       await ctx.openDevice(SHIELD.key, "snapshot");
       const page = ctx.page;
       await page.getByRole("button", { name: "Save snapshot" }).first().click();
+      await ctx.nameSnapshot();
       await page.getByRole("button", { name: "Preview restore" }).first().waitFor();
       await ctx.step("snapshot saved");
 

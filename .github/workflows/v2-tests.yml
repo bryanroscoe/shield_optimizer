@@ -464,6 +464,11 @@ jobs:
         working-directory: v2
         run: npm run test:snapshot-delete
 
+      # The desktop app's confirm() is async and its prompt() returns null.
+      - name: Confirmation and snapshot name dialogs
+        working-directory: v2
+        run: npm run test:native-dialogs
+
       # Every plan row must resolve its verdict, including rows the plan
       # proposes no action on.
       - name: Optimize safety on every row

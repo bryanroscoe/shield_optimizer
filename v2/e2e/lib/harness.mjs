@@ -187,6 +187,14 @@ export async function scenarioContext({ browser, base, serverUrl, name, colorSch
     answerDialogs(accept) {
       dialogAnswer = accept;
     },
+    /// Answers the in-app "Save snapshot" name dialog a save opens.
+    async nameSnapshot(label = "") {
+      const dialog = page.getByRole("dialog", { name: "Save snapshot" });
+      await dialog.waitFor();
+      if (label) await dialog.getByLabel("Name (optional)").fill(label);
+      await dialog.getByRole("button", { name: "Save snapshot", exact: true }).click();
+      await dialog.waitFor({ state: "detached" });
+    },
     async step(label) {
       n += 1;
       await page.waitForTimeout(150);

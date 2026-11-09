@@ -2,6 +2,7 @@
   import { onDestroy, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
@@ -408,10 +409,11 @@
     const confirmation = (removalDetails
       ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
       : `Run ${label} on ${selected.length} package(s)?`) + (tierWarning ? `\n\n${tierWarning}` : "");
-    if (!confirm(confirmation)
+    if (!(await confirmAction(confirmation))
       || !contextIsCurrent(context)
       || optimizePlan !== plan
       || optimizeMode !== mode
+      || optimizeRunning
       || snapshotSaving) return;
 
     const request = ++runRequest;
