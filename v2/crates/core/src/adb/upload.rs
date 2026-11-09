@@ -19,7 +19,7 @@ fn quote(s: &str) -> String {
     format!("'{}'", s.replace('\'', "'\\''"))
 }
 fn acknowledged(out: &AdbOutput, marker: &str) -> bool {
-    out.exit_code.map_or(true, |code| code == 0) && out.stdout.lines().any(|line| line == marker)
+    matches!(out.exit_code, None | Some(0)) && out.stdout.lines().any(|line| line == marker)
 }
 fn cleanup(io: &mut impl UploadIo, stage: &str) -> String {
     // Never recursive, never a target path, and only after mkdir was acknowledged.
@@ -124,7 +124,7 @@ pub fn upload(
         )));
     }
     let verified = match io.shell(&format!("stat -c %s {}", quote(&partial))) {
-        Ok(out) if out.exit_code.map_or(true, |code| code == 0) => match out.stdout.trim().parse::<u64>() {
+        Ok(out) if matches!(out.exit_code, None | Some(0)) => match out.stdout.trim().parse::<u64>() {
             Ok(size) if size == expected_size => true,
             Ok(size) => {
                 let left = cleanup(io, &stage);

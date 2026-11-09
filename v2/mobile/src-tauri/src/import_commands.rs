@@ -547,6 +547,9 @@ pub enum UploadOutcome {
 }
 
 /// `upload_imported` — push one staged file into a TV folder.
+// Keep the existing flat Tauri IPC arguments; the hardware identity is a required
+// upload authorization bound, not an optional field hidden inside another argument.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn upload_imported(
     state: State<'_, AppState>,
@@ -571,6 +574,8 @@ pub async fn upload_imported(
     .await
 }
 
+// Mirrors the command boundary so tests exercise the same explicit request fields.
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_imported_impl(
     state: &AppState,
     store: &ImportStore,

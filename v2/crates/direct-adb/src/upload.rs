@@ -37,7 +37,7 @@ impl UploadIo for UploadConnection {
         self.device
             .push_with_control(
                 &mut file,
-                remote,
+                &remote,
                 BoundedShellControl::new(self.control.remaining()?)?,
             )
             .map_err(upload_error)
