@@ -42,13 +42,15 @@ try {
 
   for (const theme of ['dark', 'light']) {
     for (const width of [1280, 720]) {
-      const context = await browser.newContext({ viewport: { width, height: 900 } });
+      const video = evidence && theme === 'dark' && width === 1280 ? { recordVideo: { dir: `${evidence}/video`, size: { width, height: 900 } } } : {};
+      const context = await browser.newContext({ viewport: { width, height: 900 }, ...video });
       await context.addInitScript(theme => localStorage.setItem('shieldopt.theme', theme), theme);
       const page = await context.newPage();
       await page.goto(url, { waitUntil: 'networkidle' });
       await page.getByText('NVIDIA SHIELD', { exact: false }).first().click();
       await record(page);
       const shot = name => evidence ? page.screenshot({ path: `${evidence}/${name}-${theme}-${width}.png` }) : null;
+      const pause = ms => video.recordVideo ? page.waitForTimeout(ms) : null;
 
       // Temperature: the reading, its sensor threshold and Android's status,
       // all as the TV reported them.
@@ -58,11 +60,13 @@ try {
       await tile.locator('.stat-foot').getByText('No throttling reported', { exact: true }).waitFor();
       assert.match(await tile.locator('.stat-big').innerText(), /^78\s*°C$/);
       assert.equal(await tile.locator('.stat-big.warn, .stat-big.danger').count(), 0, 'status 0 below the sensor threshold is not coloured');
+      await pause(1200);
       await shot('health-tile');
       await tile.getByRole('button', { name: 'About Temperature' }).click();
       const help = page.getByRole('region', { name: 'Temperature' });
       await help.getByText('11°C below reported sensor threshold', { exact: false }).waitFor();
       await help.getByText('CPU reading 1 · CPU/GPU hardware report', { exact: true }).waitFor();
+      await pause(2000);
       await shot('health-temperature');
       await page.keyboard.press('Escape');
 
@@ -95,6 +99,7 @@ try {
       const rang = await calls(page, 'find_remote');
       assert.equal(rang.length, 1);
       assert.equal(rang[0].args.serial, decodeURIComponent(new URL(page.url()).pathname.split('/').pop()));
+      await pause(1500);
       await shot('remote-find');
 
       // Force stop: in the app detail panel, and a stop re-measures.
@@ -109,6 +114,7 @@ try {
       assert.equal(stopped.length, 1);
       assert.ok(stopped[0].args.package, 'force stop names the package');
       await page.waitForFunction(() => window.parityCalls.some(c => c.command === 'app_memory_map'));
+      await pause(1500);
       await shot('app-force-stop');
       await context.close();
     }
