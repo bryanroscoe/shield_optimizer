@@ -662,7 +662,7 @@ async fn apply_snapshot_impl(
         "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
         packages_disabled.len(),
         real_failures(&packages_failed, &kept),
-        launcher_outcome(&plan, launcher_set, launcher_message.as_deref()),
+        launcher_outcome(&plan, launcher_set),
         settings_written.len(),
         settings_deleted.len(),
         settings_failed.len()
@@ -704,20 +704,15 @@ fn real_failures(packages_failed: &[String], kept: &[String]) -> usize {
 }
 
 /// The launcher half of the restore summary: set, skipped with the reason,
-/// failed with the setter's error, or unchanged when Home already matched.
-fn launcher_outcome(
-    plan: &SnapshotApplyPlan,
-    launcher_set: bool,
-    launcher_message: Option<&str>,
-) -> String {
+/// failed, or unchanged when the snapshot named no Home app or Home already
+/// matched. A failure's detail is `launcher_message`, which every client shows
+/// beside the summary, so it is not repeated here.
+fn launcher_outcome(plan: &SnapshotApplyPlan, launcher_set: bool) -> String {
     if launcher_set {
         return "set".to_string();
     }
     if let Some(launcher) = &plan.launcher_to_set {
-        return match launcher_message.map(str::trim).filter(|m| !m.is_empty()) {
-            Some(error) => format!("failed ({launcher} wasn't set as Home: {error})"),
-            None => format!("failed ({launcher} wasn't set as Home)"),
-        };
+        return format!("failed ({launcher} wasn't set as Home)");
     }
     if let Some(launcher) = &plan.launcher_disabled {
         return format!("skipped ({launcher} is disabled; enable it first, then restore)");
@@ -1285,25 +1280,21 @@ mod tests {
     fn the_summary_names_the_launcher_as_set_skipped_failed_or_unchanged() {
         use super::launcher_outcome;
         let to_set = launcher_plan(Some(PROJECTIVY), None, None);
-        assert_eq!(launcher_outcome(&to_set, true, Some("x via role")), "set");
+        assert_eq!(launcher_outcome(&to_set, true), "set");
         assert_eq!(
-            launcher_outcome(&to_set, false, Some("role holder refused")),
-            format!("failed ({PROJECTIVY} wasn't set as Home: role holder refused)")
-        );
-        assert_eq!(
-            launcher_outcome(&to_set, false, None),
+            launcher_outcome(&to_set, false),
             format!("failed ({PROJECTIVY} wasn't set as Home)")
         );
         assert_eq!(
-            launcher_outcome(&launcher_plan(None, Some(PROJECTIVY), None), false, None),
+            launcher_outcome(&launcher_plan(None, Some(PROJECTIVY), None), false),
             format!("skipped ({PROJECTIVY} is disabled; enable it first, then restore)")
         );
         assert_eq!(
-            launcher_outcome(&launcher_plan(None, None, Some(PROJECTIVY)), false, None),
+            launcher_outcome(&launcher_plan(None, None, Some(PROJECTIVY)), false),
             format!("skipped ({PROJECTIVY} isn't installed)")
         );
         assert_eq!(
-            launcher_outcome(&launcher_plan(None, None, None), false, None),
+            launcher_outcome(&launcher_plan(None, None, None), false),
             "unchanged"
         );
     }

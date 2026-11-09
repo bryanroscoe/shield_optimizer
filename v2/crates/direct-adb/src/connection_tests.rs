@@ -1051,8 +1051,9 @@ async fn a_quiet_connect_succeeds_once_the_tv_trusts_the_key() {
     peer.join().unwrap();
 }
 
-/// Upper bound for an event the approval test waits on. Not a timing claim:
-/// the test still proves the request keeps waiting (1.5 s) before Allow.
+/// Upper bound for an event the approval tests wait on. Not a timing claim:
+/// they still prove the request keeps waiting (1.5 s) before Allow, and that
+/// a canceled or closed request ends without approval.
 const OFFER_OR_CONNECT_DEADLINE: Duration = Duration::from_secs(15);
 
 #[tokio::test]
@@ -1154,7 +1155,9 @@ async fn a_canceled_or_closed_approval_request_is_not_approved() {
                 )
                 .await
         });
-        tokio::time::timeout(Duration::from_secs(3), async {
+        // Hang bounds on events, as in the approval test: debug-build RSA
+        // signing on a loaded runner can take seconds before the offer.
+        tokio::time::timeout(OFFER_OR_CONNECT_DEADLINE, async {
             while !driver.awaiting_authorization() && !task.is_finished() {
                 tokio::time::sleep(Duration::from_millis(5)).await;
             }
@@ -1164,7 +1167,7 @@ async fn a_canceled_or_closed_approval_request_is_not_approved() {
         if cancel {
             driver.begin_request(2).unwrap();
         }
-        let result = tokio::time::timeout(Duration::from_secs(3), task)
+        let result = tokio::time::timeout(OFFER_OR_CONNECT_DEADLINE, task)
             .await
             .unwrap()
             .unwrap();
