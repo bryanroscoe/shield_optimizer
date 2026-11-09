@@ -88,6 +88,29 @@ fn leanback(value: Option<bool>) -> &'static str {
     }
 }
 
+static GOOGLE_ADB_RELEASE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"^Version [0-9]+\.[0-9]+\.[0-9]+(?:-[0-9]+)?$")
+        .expect("constant Google ADB release pattern")
+});
+
+fn adb_version_text(output: Option<&str>) -> String {
+    let mut lines = output.unwrap_or("").lines();
+    let first = lines.next().unwrap_or("").trim();
+    if first.is_empty() {
+        return "(unavailable)".to_string();
+    }
+    if first.starts_with("Android Debug Bridge version ") {
+        // Only release/build numbers are useful here; extra lines can contain local paths.
+        if let Some(line) = lines
+            .map(str::trim)
+            .find(|line| GOOGLE_ADB_RELEASE.is_match(line))
+        {
+            return format!("{first}\n  {line}");
+        }
+    }
+    first.to_string()
+}
+
 /// Render the bundle. Stable enough to assert on; it is read by people, not
 /// parsed by anything.
 pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
@@ -112,11 +135,7 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
     ));
     out.push_str(&format!(
         "- adb version: {}\n",
-        input
-            .adb_version
-            .map(|v| v.lines().next().unwrap_or("").trim())
-            .filter(|v| !v.is_empty())
-            .unwrap_or("(unavailable)")
+        adb_version_text(input.adb_version)
     ));
 
     match &input.device {
@@ -224,6 +243,110 @@ pub fn format_diagnostics(input: &DiagnosticsInput) -> String {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    fn host_report(version: Option<&str>, path: &str) -> String {
+        format_diagnostics(&DiagnosticsInput {
+            app_version: "2.4.1",
+            os: "macos",
+            arch: "aarch64",
+            adb_path: Some(path),
+            adb_version: version,
+            device: None,
+            unreadable_device: None,
+            log_tail: &[],
+            support_id: None,
+        })
+    }
+
+    #[test]
+    fn google_adb_versions_keep_release_build_without_extra_paths_or_platform() {
+        let cases = [
+            (
+                "Android Debug Bridge version 1.0.41\nVersion 37.0.0-14910828\nInstalled as /Users/test/Library/Application Support/ShieldOptimizer/platform-tools/adb\nRunning on Darwin 25.6.0 (arm64)\n",
+                "37.0.0-14910828",
+            ),
+            (
+                "Android Debug Bridge version 1.0.41\nVersion 37.0.1-15733141\nInstalled as /tmp/staged/platform-tools/adb\nRunning on Darwin 25.6.0 (arm64)\n",
+                "37.0.1-15733141",
+            ),
+        ];
+        for (output, build) in cases {
+            let output = format!("{output}arbitrary trailing text\n");
+            let report = host_report(Some(&output), "/selected/adb");
+            assert!(
+                report.contains("- adb version: Android Debug Bridge version 1.0.41\n"),
+                "{report}"
+            );
+            assert!(
+                report.contains(&format!("\n  Version {build}\n")),
+                "{report}"
+            );
+            assert!(report.contains("- adb path: /selected/adb\n"), "{report}");
+            for excluded in [
+                "Installed as",
+                "/Users/test/",
+                "/tmp/staged/",
+                "Running on",
+                "Darwin 25.6.0",
+                "arbitrary trailing text",
+            ] {
+                assert!(!report.contains(excluded), "{report}");
+            }
+        }
+    }
+
+    #[test]
+    fn empty_and_unrecognized_version_output_stays_honest() {
+        for output in [None, Some(""), Some(" \r\n\t ")] {
+            let report = host_report(output, "adb");
+            assert!(
+                report.contains("- adb version: (unavailable)\n"),
+                "{report}"
+            );
+        }
+        let report = host_report(
+            Some(" unrecognized version output\r\nsecond line\r\n"),
+            "adb",
+        );
+        assert!(
+            report.contains("- adb version: unrecognized version output\n"),
+            "{report}"
+        );
+        assert!(!report.contains("second line"), "{report}");
+        assert!(!report.contains("Android Debug Bridge version"), "{report}");
+        for malformed in [
+            "Version /Users/test/private",
+            "Version 37.0.1-15733141 extra",
+            "Version 37.0.1-",
+            "Version 37..1",
+        ] {
+            let output = format!("Android Debug Bridge version 1.0.41\r\n{malformed}\r\n");
+            let report = host_report(Some(&output), "adb");
+            assert!(
+                report.contains("- adb version: Android Debug Bridge version 1.0.41\n"),
+                "{report}"
+            );
+            assert!(!report.contains(malformed), "{report}");
+        }
+    }
+
+    #[test]
+    fn native_transport_version_does_not_invent_a_host_binary_or_google_build() {
+        let version = "Experimental direct ADB (shared Android transport); no host adb server";
+        let path = "(not applicable: direct network transport, no host binary)";
+        let output = format!("{version}\nVersion 37.0.1-15733141\nInstalled as /private/adb\n");
+        let report = host_report(Some(&output), path);
+        assert!(
+            report.contains(&format!("- adb version: {version}\n")),
+            "{report}"
+        );
+        assert!(
+            report.contains(&format!("- adb path: {path}\n")),
+            "{report}"
+        );
+        assert!(!report.contains("Installed as"), "{report}");
+        assert!(!report.contains("Version 37."), "{report}");
+    }
 
     fn props() -> DeviceProperties {
         DeviceProperties {
@@ -370,11 +493,12 @@ mod tests {
             ),
             "{report}"
         );
-        // Only the first line of `adb version`; the rest is build noise.
+        // Protocol and package/build information are both useful in a report.
         assert!(
             report.contains("- adb version: Android Debug Bridge version 1.0.41\n"),
             "{report}"
         );
+        assert!(report.contains("\n  Version 35.0.0\n"), "{report}");
         assert!(report.contains("```\nfirst\nsecond\n```"), "{report}");
     }
 
