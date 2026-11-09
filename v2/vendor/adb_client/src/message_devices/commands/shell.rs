@@ -69,11 +69,34 @@ fn write_local(writer: &mut dyn Write, bytes: &[u8]) -> Result<()> {
     writer.write_all(bytes).map_err(RustADBError::LocalIo)
 }
 
+/// Pass the next `len` bytes of `input` to `sink` (or drop them) as they
+/// arrive, so a large declared packet is never allocated up front and what
+/// arrived before a failure has already reached the writer.
+fn forward(input: &mut dyn Read, len: usize, sink: &mut Option<&mut dyn Write>) -> Result<()> {
+    let mut chunk = [0_u8; 8192];
+    let mut remaining = len;
+    while remaining > 0 {
+        let want = remaining.min(chunk.len());
+        let read = match input.read(&mut chunk[..want]) {
+            Ok(0) => return Err(RustADBError::ShellExitUnknown),
+            Ok(read) => read,
+            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
+            Err(error) => return Err(adb_error(error)),
+        };
+        if let Some(writer) = sink.as_mut() {
+            write_local(*writer, &chunk[..read])?;
+        }
+        remaining -= read;
+    }
+    Ok(())
+}
+
 /// Decode shell v2 packets until the exit packet and return its status.
 /// Output is passed on as raw bytes, so a UTF-8 character split across
 /// packets or WRTEs reaches the writer intact. A stream that closes before
-/// the exit packet is [`RustADBError::ShellExitUnknown`].
-fn decode_shell_v2(
+/// the exit packet is [`RustADBError::ShellExitUnknown`]. A failing writer
+/// is [`RustADBError::LocalIo`] and stops decoding.
+pub(crate) fn decode_shell_v2(
     input: &mut dyn Read,
     mut stdout: Option<&mut dyn Write>,
     mut stderr: Option<&mut dyn Write>,
@@ -94,22 +117,19 @@ fn decode_shell_v2(
             )));
         }
 
-        let mut payload = vec![0_u8; payload_size];
-        fill(input, &mut payload)?;
         match channel {
-            ShellChannel::Stdout => {
-                if let Some(writer) = stdout.as_mut() {
-                    write_local(*writer, &payload)?;
-                }
+            ShellChannel::Stderr if stderr.is_some() => {
+                forward(input, payload_size, &mut stderr)?;
             }
-            ShellChannel::Stderr => {
-                if let Some(writer) = stderr.as_mut() {
-                    write_local(*writer, &payload)?;
-                } else if let Some(writer) = stdout.as_mut() {
-                    write_local(*writer, &payload)?;
-                }
+            // Without its own writer, stderr is merged into stdout.
+            ShellChannel::Stdout | ShellChannel::Stderr => {
+                forward(input, payload_size, &mut stdout)?;
             }
-            ShellChannel::ExitStatus => return Ok(payload[0]),
+            ShellChannel::ExitStatus => {
+                let mut code = [0_u8; 1];
+                fill(input, &mut code)?;
+                return Ok(code[0]);
+            }
         }
     }
 }
@@ -362,5 +382,48 @@ mod tests {
         let mut stdout = Vec::new();
         decode_shell_v2(&mut Cursor::new(bytes), Some(&mut stdout), None).unwrap();
         assert_eq!(String::from_utf8(stdout).unwrap(), "café!");
+    }
+
+    #[test]
+    fn output_reaches_the_writer_before_its_packet_is_complete() {
+        // A packet declaring 64 MiB is forwarded as it arrives, never
+        // allocated whole, and what came before the cut is kept.
+        let mut bytes = vec![1];
+        bytes.extend(u32::try_from(64 * 1024 * 1024).unwrap().to_le_bytes());
+        bytes.extend(b"part");
+        let mut stdout = Vec::new();
+        let error = decode_shell_v2(&mut Cursor::new(bytes), Some(&mut stdout), None).unwrap_err();
+        assert!(matches!(error, RustADBError::ShellExitUnknown), "{error:?}");
+        assert_eq!(stdout, b"part");
+    }
+
+    #[test]
+    fn shell_v2_cancelled_before_first_read_is_terminal_without_retry() {
+        use crate::message_devices::tcp::BoundedShellControl;
+        use std::io::{ErrorKind, Read};
+        use std::time::Duration;
+
+        struct CancelledService {
+            control: BoundedShellControl,
+            reads: usize,
+        }
+        impl Read for CancelledService {
+            fn read(&mut self, _buf: &mut [u8]) -> std::io::Result<usize> {
+                self.reads += 1;
+                // Fail promptly on regression instead of hanging the test runner.
+                assert_eq!(self.reads, 1, "terminal cancellation must not be retried");
+                self.control.remaining()?;
+                panic!("cancelled control unexpectedly admitted a read");
+            }
+        }
+        let control = BoundedShellControl::new(Duration::from_secs(2)).unwrap();
+        control.cancel();
+        let mut input = CancelledService { control, reads: 0 };
+        let error = decode_shell_v2(&mut input, None, None).unwrap_err();
+        assert!(matches!(
+            error,
+            RustADBError::IOError(error) if error.kind() == ErrorKind::ConnectionAborted
+        ));
+        assert_eq!(input.reads, 1);
     }
 }

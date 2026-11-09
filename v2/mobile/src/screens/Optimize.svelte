@@ -1,10 +1,11 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { router, type Screen } from "../lib/router.svelte";
   import { isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
-  import { effectiveMethod, reviewLabel } from "../lib/recommendation";
+  import { effectiveMethod, reviewLabel, uninstallOutcome } from "../lib/recommendation";
   import {
     applyConfirmation,
     isPlanRecommended,
@@ -73,6 +74,16 @@
   let applyTotal = $state(0);
   let applyCurrent = $state("");
 
+  /// Changes the last Optimize run made to the TV. A snapshot taken before a
+  /// run can't undo it, so saving one is offered only after a run changed it.
+  let lastOptimizeChanged = $state(0);
+  let snapshotSaving = $state(false);
+  /// Saves still running in the backend, whether or not their offer is
+  /// current: a snapshot records the TV as it is, so Apply waits for all of them.
+  let snapshotsInFlight = $state(0);
+  let snapshotResult = $state<{ ok: boolean; message: string } | null>(null);
+  let snapshotRequest = 0;
+
   type PlanIdentity = {
     serial: string;
     generation: number;
@@ -118,6 +129,7 @@
     ++planRequest;
     ++safetyRequest;
     ++applyRequest;
+    ++snapshotRequest;
     applyIntent = null;
     cancelRequested = true;
     if (applying) session.applyInProgress = false;
@@ -298,6 +310,7 @@
     if (key === observedSession) return;
     observedSession = key;
     untrack(() => {
+      resetSnapshotOffer();
       ++planRequest;
       ++safetyRequest;
       applyIntent = null;
@@ -419,15 +432,73 @@
     if (!selected.has(it.entry.package)) toggle(it);
   }
 
-  function selectAll() {
+  // There is deliberately no "select everything" in Optimize, matching
+  // desktop: most removable apps are ones someone here chose to install, and
+  // only they know whether anyone uses them. Each one is chosen by hand.
+
+  /// Every row back to Keep, in both modes.
+  function keepAll() {
+    if (applying || !plan) return;
+    for (const it of actionable) selectionTouched.add(it.entry.package);
+    selected = new Set();
+    selectionChanged();
+  }
+
+  /// Restore only. Turning apps back on is the safe direction, so every
+  /// disabled catalog app can be selected at once; removals never can.
+  function reenableAll() {
+    if (applying || !plan || mode !== "restore") return;
     const next = new Set(selected);
-    for (const it of visibleItems) {
+    for (const it of actionable) {
+      if (it.action.kind !== "enable" || !isSelectable(it)) continue;
       selectionTouched.add(it.entry.package);
-      if (isSelectable(it)) next.add(it.entry.package);
-      else next.delete(it.entry.package);
+      next.add(it.entry.package);
     }
     selected = next;
     selectionChanged();
+  }
+
+  const disabledRows = $derived(actionable.filter((it) => it.action.kind === "enable").length);
+
+  function switchMode(next: OptimizeMode) {
+    if (applying || snapshotsInFlight > 0 || next === mode) return;
+    resetSnapshotOffer();
+    void loadPlan(next);
+  }
+
+  /// Drops the offer and any save still in flight for it: a result that
+  /// lands after this belongs to an offer that is gone.
+  function resetSnapshotOffer() {
+    ++snapshotRequest;
+    lastOptimizeChanged = 0;
+    snapshotSaving = false;
+    snapshotResult = null;
+  }
+
+  async function saveSetupSnapshot() {
+    const serial = session.serial;
+    const generation = session.generation;
+    if (snapshotSaving || applying || !serial || !session.isConnected) return;
+    const request = ++snapshotRequest;
+    const current = () => request === snapshotRequest && sessionCurrent(serial, generation);
+    snapshotSaving = true;
+    snapshotResult = null;
+    snapshotsInFlight += 1;
+    try {
+      const snap = await api.saveSnapshot(serial, session.deviceLabel, "After Optimize");
+      if (!current()) return;
+      snapshotResult = {
+        ok: true,
+        message: `Saved "${snap.label ?? snap.device_name}" with ${snap.disabled_count} disabled app${snap.disabled_count === 1 ? "" : "s"}. It's on the Snapshots screen.`,
+      };
+    } catch (e) {
+      if (!current()) return;
+      if (String(e).includes("LOCKED:")) showPaywall = true;
+      snapshotResult = { ok: false, message: `Not saved: ${String(e)}` };
+    } finally {
+      snapshotsInFlight -= 1;
+      if (request === snapshotRequest) snapshotSaving = false;
+    }
   }
 
   function actionLabel(it: OptimizePlanItem): string {
@@ -447,7 +518,9 @@
       return;
     }
     const identity = planIdentity;
-    if (!identity || !planCurrent(identity) || selectedCount === 0 || !safetyReady) return;
+    // A snapshot being saved records the TV as it is, so nothing changes it
+    // until the save is done.
+    if (!identity || !planCurrent(identity) || selectedCount === 0 || !safetyReady || snapshotsInFlight > 0) return;
     const items: FrozenItem[] = selectedItems.map((item) => ({
       item,
       verdict: item.action.kind === "enable" ? null : safetyMap[item.entry.package] ?? null,
@@ -475,6 +548,7 @@
     applyIntent = null;
     if (
       applying ||
+      snapshotsInFlight > 0 ||
       !intent ||
       !planCurrent(intent) ||
       intent.selectionVersion !== selectionVersion ||
@@ -489,6 +563,7 @@
 
     applying = true;
     session.applyInProgress = true;
+    resetSnapshotOffer();
     cancelRequested = false;
     applyTotal = items.length;
     applyDone = 0;
@@ -624,6 +699,8 @@
       // screen silences it.
       if (request !== applyRequest) return;
       const live = sessionCurrent(serial, generation);
+      // Offered whenever the TV changed, even if the run stopped early.
+      if (runMode === "optimize" && live) lastOptimizeChanged = completed;
       const verb = runMode === "optimize" ? "Optimization" : "Restore";
       if (safetyStopped) {
         // The specific safety message was already shown above.
@@ -694,16 +771,16 @@
       <button
         class="mode-btn"
         class:active={mode === "optimize"}
-        disabled={applying}
-        onclick={() => mode !== "optimize" && loadPlan("optimize")}
+        disabled={applying || snapshotsInFlight > 0}
+        onclick={() => switchMode("optimize")}
       >
         Optimize
       </button>
       <button
         class="mode-btn"
         class:active={mode === "restore"}
-        disabled={applying}
-        onclick={() => mode !== "restore" && loadPlan("restore")}
+        disabled={applying || snapshotsInFlight > 0}
+        onclick={() => switchMode("restore")}
       >
         Restore
       </button>
@@ -749,8 +826,8 @@
   {:else if plan}
     <p class="mode-hint">
       {mode === "optimize"
-        ? "Disables or uninstalls curated bloat for this TV. Restore re-enables disabled items; uninstalled apps may require Reinstall or the Play Store."
-        : "Re-enables curated apps that are currently disabled on this TV."}
+        ? "Disables or uninstalls curated bloat for this TV. Undo a Disable with Restore. Uninstall can't always be undone, so check the row's note before you apply."
+        : "Re-enables curated apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest."}
     </p>
 
     {#if actionable.length > 0}
@@ -786,7 +863,18 @@
     {#if mode === "optimize" && activeTab === "optional"}
       <p class="tab-hint">Keep anything you use. Nothing changes until you confirm.</p>
     {:else}
-      <details class="help-disclosure"><summary>About this plan</summary><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></details>
+      <HelpSheet title="About this plan"><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></HelpSheet>
+    {/if}
+    {#if mode === "optimize"}
+      <HelpSheet title="Undoing a run">
+        <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers curated apps only; Emergency recovery in More re-enables every disabled package on the TV.</p>
+        <p><b>Uninstall:</b> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
+      </HelpSheet>
+    {:else}
+      <HelpSheet title="What Restore covers">
+        <p>Restore lists the curated apps that are disabled on this TV. It never reinstalls an app that was uninstalled.</p>
+        <p>To turn on a disabled app that isn't curated, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled package on the TV at once.</p>
+      </HelpSheet>
     {/if}
     {#if sharedUnknownReason}
       <p class="tab-hint">
@@ -803,9 +891,12 @@
           ? ` · ≈ ${Math.round(runningMb)} MB of RAM in play`
           : ""}
       </span>
-      {#if activeTab !== "optional"}
-        <button class="select-all-btn" onclick={selectAll} disabled={applying}>Select all</button>
-      {/if}
+      <span class="bulk-actions">
+        {#if mode === "restore"}
+          <button class="select-all-btn" onclick={reenableAll} disabled={applying || disabledRows === 0}>Re-enable all disabled</button>
+        {/if}
+        <button class="select-all-btn" onclick={keepAll} disabled={applying || selectedCount === 0}>Keep all</button>
+      </span>
     </div>
     {#if runningMb > 0}
       <p class="mb-note">
@@ -889,6 +980,11 @@
               {#if purpose}
                 <span class="row-purpose">{purpose}</span>
               {/if}
+              {#if naturalAction(item) === "uninstall" && selected.has(item.entry.package)}
+                <!-- Whether an uninstall can be taken back depends on the app,
+                     so a row set to Uninstall says which case it is. -->
+                <span class="row-uninstall">{uninstallOutcome(item.entry.package, item.entry).short}</span>
+              {/if}
             </button>
             {#if mode === "optimize" && activeTab === "optional"}
               <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">
@@ -947,12 +1043,30 @@
     {:else}
       <button
         class="primary"
-        disabled={selectedCount === 0 || !safetyReady}
+        disabled={selectedCount === 0 || !safetyReady || snapshotsInFlight > 0}
         onclick={handleApply}
       >
         <span class="msr">{mode === "optimize" ? "auto_fix_high" : "restore"}</span>
         {mode === "optimize" ? "Apply optimization" : "Apply restore"}{session.isPro ? "" : " (Pro)"}
       </button>
+      {#if mode === "optimize" && lastOptimizeChanged > 0}
+        <!-- Offered after the run, not before: a snapshot records the result,
+             so it can set the TV up this way again but never take this run back. -->
+        <div class="snapshot-offer">
+          <button class="ghost snapshot-save" onclick={saveSetupSnapshot} disabled={snapshotSaving || snapshotResult?.ok === true}>
+            <span class="msr">photo_camera_back</span>
+            {snapshotSaving ? "Saving…" : snapshotResult?.ok ? "Snapshot saved" : "Save this setup as a snapshot"}
+          </button>
+          {#if snapshotResult}
+            <p class="snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
+          {/if}
+          <HelpSheet title="What a snapshot is for">
+            <p>Use it to set this TV up the same way again, for example after a factory reset: restoring it from the Snapshots screen disables the apps it recorded and puts back its Home app and settings.</p>
+            <p>It disables every app it recorded, with no per-app choice, on whichever TV you restore it to. Don't restore it to another TV unless nobody there uses those apps.</p>
+            <p>It can't undo this run. It never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To turn apps back on, use Restore here.</p>
+          </HelpSheet>
+        </div>
+      {/if}
     {/if}
   {/if}
 
@@ -1176,6 +1290,47 @@
   }
   .select-all-btn:disabled {
     opacity: 0.5;
+  }
+  .bulk-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0 14px;
+  }
+  .row-uninstall {
+    font-size: 11px;
+    color: var(--amber);
+    line-height: 1.35;
+  }
+  .snapshot-offer {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 12px;
+    padding: 12px 14px;
+    border-radius: 15px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+  }
+  .snapshot-save {
+    min-height: 48px;
+    gap: 8px;
+    padding: 8px 14px;
+    font-size: 14px;
+  }
+  .snapshot-save .msr {
+    font-size: 20px;
+  }
+  .snapshot-result {
+    margin: 0;
+    font-size: 12px;
+    color: var(--text-soft);
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .snapshot-result.failed {
+    color: var(--danger);
   }
   .mb-note {
     margin: 0 0 12px;

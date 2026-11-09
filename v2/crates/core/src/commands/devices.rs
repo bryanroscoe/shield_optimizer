@@ -7,8 +7,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    batch_command, instance_serial, parse_device_list, parse_mdns_services, split_batch, AdbDriver,
-    MdnsService, MDNS_SERVICE_CONNECT,
+    batch_command, instance_serial, pair_output_guid, parse_device_list, parse_mdns_services,
+    split_batch, AdbDriver, MdnsService, MDNS_SERVICE_CONNECT,
 };
 use crate::engine::cast_name::serial_lookup_target;
 use crate::engine::telemetry_diag::{device_diag, lacks_details, Diag, DiagReason};
@@ -49,7 +49,8 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     for e in &entries {
         state.telemetry.note_transport(&e.serial);
     }
-    let cast_names = unqueried_names(state, &entries).await;
+    let current = current_unauthorized(&*adb).await;
+    let cast_names = unqueried_names(state, &entries, current.as_ref()).await;
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
@@ -143,13 +144,29 @@ async fn list_transports(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(out)
 }
 
+/// Unauthorized endpoints the built-in engine has current evidence for: a
+/// recent quiet refusal, or a request whose key reached the TV. `None` under
+/// platform-tools, whose server holds a live connection to every one.
+async fn current_unauthorized(adb: &dyn AdbDriver) -> Option<Vec<String>> {
+    if adb.uses_host_server() {
+        return None;
+    }
+    let progress = adb.scan_connection_progress().await;
+    let mut current = progress.not_allowed;
+    current.extend(progress.awaiting_authorization);
+    Some(current)
+}
+
 /// Cast names for unauthorized network transports, when the app has lookups
-/// enabled. Only unauthorized: adb holds a live connection to that address, so
-/// the answer comes from the same TV. An offline transport's address may since
-/// belong to another device. Display only: rows still match on hardware id.
+/// enabled. Only unauthorized with current evidence: adb holds a live
+/// connection to that address (platform-tools), or the built-in engine was
+/// refused there recently (`current`), so the answer comes from the same TV.
+/// An offline transport's address, or an old refusal's, may since belong to
+/// another device. Display only: rows still match on hardware id.
 async fn unqueried_names(
     state: &AppState,
     entries: &[crate::adb::parse::DeviceListEntry],
+    current: Option<&Vec<String>>,
 ) -> HashMap<Ipv4Addr, String> {
     let Some(cast_names) = state.cast_names() else {
         return HashMap::new();
@@ -159,6 +176,7 @@ async fn unqueried_names(
         .filter(|e| {
             e.status == DeviceStatus::Unauthorized && e.connection == ConnectionType::Network
         })
+        .filter(|e| current.map_or(true, |current| current.contains(&e.serial)))
         .filter_map(|e| serial_lookup_target(&e.serial))
         .collect();
     if hosts.is_empty() {
@@ -207,7 +225,8 @@ fn hardware_id(device: &Device) -> Option<&str> {
     verified_hardware_id(&device.properties.as_ref()?.serial_number)
 }
 
-fn verified_hardware_id(raw: &str) -> Option<&str> {
+/// Accepts only hardware identity evidence used by transport deduplication.
+pub fn verified_hardware_id(raw: &str) -> Option<&str> {
     let id = raw.trim();
     if id.is_empty() || id.eq_ignore_ascii_case("unknown") {
         return None;
@@ -316,6 +335,13 @@ pub async fn connect_device(
     result
 }
 
+/// What Add by IP says when the built-in engine reached a TV that has not
+/// allowed this computer. It connected without offering a key, so nothing is
+/// on the TV's screen; the row's own button asks.
+pub fn native_not_allowed_message(target: &str) -> String {
+    format!("{target} hasn't allowed this computer yet. Use Request approval on its row.")
+}
+
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
     let target = normalize_connect_address(address)?;
     let adb = state.adb_snapshot().await;
@@ -326,13 +352,23 @@ pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<Conn
             if classify_connect_output(&message) == ConnectOutcome::Unauthorized {
                 return Ok(ConnectResult {
                     ok: true,
-                    message: format!("{message} — approve this computer on the TV, then refresh."),
+                    message: if adb.uses_host_server() {
+                        format!("{message} — approve this computer on the TV, then refresh.")
+                    } else {
+                        native_not_allowed_message(&target)
+                    },
                 });
             }
             return Err(format!("adb connect: {message}"));
         }
     };
     let mut result = connect_result_from(&out);
+    if !adb.uses_host_server()
+        && classify_connect_output(&result.message) == ConnectOutcome::Unauthorized
+    {
+        result.message = native_not_allowed_message(&target);
+        return Ok(result);
+    }
     if classify_connect_output(&result.message) == ConnectOutcome::Connected {
         match verify_connected_transport(&*adb, &target).await {
             Ok(TransportReadiness::Ready) => {}
@@ -493,6 +529,17 @@ pub async fn forget_device(
 
 pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
     let adb = state.adb_snapshot().await;
+    if native_scan_has_endpoint(&*adb, serial).await {
+        adb.raw(&["disconnect", serial])
+            .await
+            .map_err(|e| format!("disconnect: {e}"))?;
+        return Ok(ForgetResult {
+            ok: true,
+            disconnected: vec![serial.to_string()],
+            still_advertised: false,
+            message: format!("Disconnected {serial}."),
+        });
+    }
     let raw = adb
         .raw(&["devices"])
         .await
@@ -532,9 +579,13 @@ pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<Forget
         }
     }
 
-    let services = match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
+    // Only a host server re-attaches advertised devices by itself. The
+    // built-in engine never dials on its own, and its mDNS read is a
+    // multi-second browse.
+    let services = if adb.uses_host_server() {
+        read_mdns_services(&*adb).await
+    } else {
+        Vec::new()
     };
     let still_advertised = still_advertised(&services, &disconnected);
 
@@ -568,19 +619,17 @@ pub const READVERTISE_MESSAGE: &str = "Disconnected, but the device is still adv
 #[derive(Serialize, Debug)]
 pub struct RepromptResult {
     pub ok: bool,
-    /// What adb holds for this device afterwards: `unauthorized` (the TV is
-    /// asking again), `device` (it was approved meanwhile), or `none`.
+    /// What adb holds afterwards: `unauthorized` (approval still needed),
+    /// `device` (approved), or `none`.
     pub status: String,
     pub message: String,
 }
 
-/// `reprompt_device` — show the "Allow debugging?" prompt again on one TV.
+/// `reprompt_device` — reconnect one endpoint to retry authorization.
 ///
-/// Android shows the prompt once per connection. Once it is missed or
-/// dismissed, the transport stays `unauthorized` and redialling the same
-/// address is a no-op ("already connected"), so nothing ever asks again. The
-/// prompt needs a fresh connection: drop this one transport and dial it
-/// again. Only this device is touched, so no other TV prompts.
+/// Redialling an existing unauthorized transport can be a no-op ("already
+/// connected"). Drop only this transport to send a fresh request; the device
+/// controls whether it displays a dialog.
 #[tauri::command]
 pub async fn reprompt_device(
     state: State<'_, AppState>,
@@ -599,7 +648,44 @@ pub async fn reprompt_device_impl(
     serial: &str,
 ) -> Result<RepromptResult, String> {
     let adb = state.adb_snapshot().await;
-    let entry = transport_entry(&*adb, serial).await?;
+    let native_attempt = native_scan_has_endpoint(&*adb, serial).await;
+    let entry = if native_attempt {
+        None
+    } else {
+        transport_entry(&*adb, serial).await?
+    };
+    let native_offline = !adb.uses_host_server()
+        && crate::adb::is_network_endpoint(serial)
+        && entry.as_ref().is_some_and(|entry| {
+            entry.status == DeviceStatus::Offline && entry.connection == ConnectionType::Network
+        });
+    if native_attempt || native_offline {
+        adb.raw(&["disconnect", serial])
+            .await
+            .map_err(|e| format!("disconnect: {e}"))?;
+        // The built-in engine retries quietly; only Request approval asks the TV.
+        let outcome = adb
+            .scan_connect(serial, std::time::Duration::from_secs(45))
+            .await
+            .map_err(|e| format!("connect: {e}"))?;
+        return Ok(match outcome {
+            crate::adb::ScanConnectOutcome::Ready => RepromptResult {
+                ok: true,
+                status: "device".into(),
+                message: "Connected and authorized.".into(),
+            },
+            crate::adb::ScanConnectOutcome::NotAllowed => RepromptResult {
+                ok: true,
+                status: "unauthorized".into(),
+                message: native_not_allowed_message(serial),
+            },
+            crate::adb::ScanConnectOutcome::Pending => RepromptResult {
+                ok: true,
+                status: "none".into(),
+                message: "Reconnecting to this address; this row updates automatically.".into(),
+            },
+        });
+    }
     let Some(entry) = entry else {
         return Ok(RepromptResult {
             ok: false,
@@ -649,8 +735,8 @@ pub async fn reprompt_device_impl(
     let (ok, message) = match after {
         Some(DeviceStatus::Unauthorized) => (
             true,
-            "Asked again. Look at the TV, check \"Always allow from this computer\" and choose \
-             Allow."
+            "Approval requested again. Check the device for the debugging prompt, select \
+             \"Always allow from this computer\" if offered, and choose Allow."
                 .to_string(),
         ),
         Some(DeviceStatus::Device) => (true, "Connected and authorized.".to_string()),
@@ -680,6 +766,123 @@ async fn transport_entry(
     Ok(parse_device_list(&raw.stdout)
         .into_iter()
         .find(|e| e.serial == serial))
+}
+
+async fn native_scan_has_endpoint(adb: &dyn AdbDriver, serial: &str) -> bool {
+    if adb.uses_host_server() {
+        return false;
+    }
+    let progress = adb.scan_connection_progress().await;
+    progress
+        .pending
+        .iter()
+        .chain(&progress.not_allowed)
+        .chain(&progress.awaiting_authorization)
+        .any(|address| address == serial)
+        || progress
+            .failed
+            .iter()
+            .any(|failure| failure.address == serial)
+}
+
+#[derive(Serialize, Debug)]
+pub struct ApprovalResult {
+    pub ok: bool,
+    /// `waiting` (the TV may be showing its prompt), `device` (it already
+    /// allowed this computer), `not_allowed` (the TV ended it) or `canceled`
+    /// (stopped here before the TV was asked).
+    pub status: String,
+    pub message: String,
+}
+
+/// `request_device_approval` — built-in engine: ask one TV to allow this
+/// computer. This is the only action that shows the TV's prompt; scans,
+/// Add by IP and refreshes connect without offering a key.
+#[tauri::command]
+pub async fn request_device_approval(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<ApprovalResult, String> {
+    let result = request_device_approval_impl(state.inner(), &serial).await;
+    match &result {
+        Ok(r) => tracing::info!(%serial, status = %r.status, "approval request started"),
+        Err(e) => tracing::info!(%serial, error = %e, "approval request failed"),
+    }
+    result
+}
+
+pub async fn request_device_approval_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<ApprovalResult, String> {
+    let adb = state.adb_snapshot().await;
+    let outcome = adb
+        .request_approval(serial)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(match outcome {
+        crate::adb::ApprovalRequestOutcome::Waiting => ApprovalResult {
+            ok: true,
+            status: "waiting".into(),
+            message: "Choose Allow on the TV.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::Ready => ApprovalResult {
+            ok: true,
+            status: "device".into(),
+            message: "Connected. This TV already allows this computer.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::NotApproved => ApprovalResult {
+            ok: false,
+            status: "not_allowed".into(),
+            message: "The TV ended the request without allowing this computer. Try again.".into(),
+        },
+        crate::adb::ApprovalRequestOutcome::Canceled => ApprovalResult {
+            ok: true,
+            status: "canceled".into(),
+            message: String::new(),
+        },
+    })
+}
+
+/// `transport_state` — one transport's state from `adb devices` alone, with
+/// no property reads or name lookups, so it is cheap enough to poll while a
+/// TV decides. `None` when adb doesn't list that key.
+#[tauri::command]
+pub async fn transport_state(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Option<DeviceStatus>, String> {
+    transport_state_impl(state.inner(), &serial).await
+}
+
+pub async fn transport_state_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Option<DeviceStatus>, String> {
+    let adb = state.adb_snapshot().await;
+    let raw = adb
+        .raw(&["devices"])
+        .await
+        .map_err(|e| format!("adb devices: {e}"))?;
+    Ok(parse_device_list(&raw.stdout)
+        .into_iter()
+        .find(|entry| entry.serial == serial)
+        .map(|entry| entry.status))
+}
+
+/// `cancel_device_approval` — stop waiting for one TV's answer.
+#[tauri::command]
+pub async fn cancel_device_approval(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<(), String> {
+    let adb = state.adb_snapshot().await;
+    let result = adb
+        .cancel_approval(&serial)
+        .await
+        .map_err(|error| error.to_string());
+    tracing::info!(%serial, ok = result.is_ok(), "approval request canceled");
+    result
 }
 
 fn status_name(status: Option<DeviceStatus>) -> &'static str {
@@ -1007,13 +1210,15 @@ pub async fn pair_device(
 pub struct PairResult {
     pub ok: bool,
     pub message: String,
-    /// The mDNS instance of the device that was paired, read from its
-    /// pairing service. `probe_paired_connect` finds the connect service by
-    /// it. `None` when adb's mDNS view did not show that pairing service.
+    /// The mDNS instance of the device that was paired: the name it reported
+    /// while pairing (`[guid=...]`), or else the pairing service a host
+    /// server saw on that port. `probe_paired_connect` finds the connect
+    /// service by it. `None` when neither named it, or they named devices
+    /// with different serials.
     pub instance: Option<String>,
 }
 
-async fn pair_device_impl(
+pub async fn pair_device_impl(
     state: &AppState,
     pair_address: &str,
     pin: &str,
@@ -1027,9 +1232,17 @@ async fn pair_device_impl(
     }
     let target = normalize_pairing_address(pair_address)?;
     let adb = state.adb_snapshot().await;
+    // A host server answers `mdns services` from its cache. The built-in
+    // engine browses for seconds per read, and its pair output carries the
+    // device's own name, so it skips these reads.
+    let host_server = adb.uses_host_server();
     // Read before pairing: the device can stop advertising its pairing
     // service the moment pairing completes.
-    let mut instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
+    let mut advertised = if host_server {
+        pairing_instance(&target, &read_mdns_services(&*adb).await)
+    } else {
+        None
+    };
     let pair_out = adb
         .raw(&["pair", &target, pin])
         .await
@@ -1042,15 +1255,33 @@ async fn pair_device_impl(
             instance: None,
         });
     }
-    if instance.is_none() {
-        instance = pairing_instance(&target, &read_mdns_services(&*adb).await);
+    let reported = pair_output_guid(&combined)
+        .filter(|guid| instance_serial(guid).is_some())
+        .map(str::to_string);
+    if reported.is_none() && advertised.is_none() && host_server {
+        advertised = pairing_instance(&target, &read_mdns_services(&*adb).await);
     }
 
     Ok(PairResult {
         ok: true,
         message: "Paired.".to_string(),
-        instance,
+        instance: paired_instance(reported, advertised),
     })
+}
+
+/// Which device was paired. The name the device reported in the
+/// PIN-authenticated exchange wins over an advertisement, but if the two
+/// carry different serials, neither is trusted.
+fn paired_instance(reported: Option<String>, advertised: Option<String>) -> Option<String> {
+    match (reported, advertised) {
+        (Some(reported), Some(advertised)) => {
+            match (instance_serial(&reported), instance_serial(&advertised)) {
+                (Some(a), Some(b)) if a != b => None,
+                _ => Some(reported),
+            }
+        }
+        (reported, advertised) => reported.or(advertised),
+    }
 }
 
 /// Validate a wireless-debugging pairing PIN. The message is surfaced verbatim
@@ -1381,6 +1612,293 @@ fn friendly_model_for(device_type: DeviceType, props: &DeviceProperties) -> Stri
 mod tests {
     use super::*;
     use crate::commands::test_support::{state_with, MockAdb};
+
+    #[tokio::test]
+    async fn native_unapproved_rows_can_retry_and_forget_without_a_published_transport() {
+        use crate::adb::{AdbOutput, AdbResult, ScanConnectOutcome, ScanConnectionProgress};
+        use std::sync::{Arc, Mutex};
+        struct NativePending {
+            calls: Mutex<Vec<String>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativePending {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn scan_connection_progress(&self) -> ScanConnectionProgress {
+                ScanConnectionProgress {
+                    pending: vec!["192.0.2.1:5555".into()],
+                    failed: vec![crate::adb::ScanConnectionFailure {
+                        address: "192.0.2.2:5555".into(),
+                        message: "timeout".into(),
+                    }],
+                    ..Default::default()
+                }
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                assert_eq!(
+                    args[0], "disconnect",
+                    "must not wait on other TVs or invoke a host server"
+                );
+                self.calls.lock().unwrap().push(args.join(" "));
+                Ok(AdbOutput {
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connect(
+                &self,
+                address: &str,
+                _: std::time::Duration,
+            ) -> AdbResult<ScanConnectOutcome> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("scan_connect {address}"));
+                Ok(ScanConnectOutcome::Pending)
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("unapproved endpoint has no readable identity")
+            }
+        }
+        let adb = Arc::new(NativePending {
+            calls: Mutex::new(Vec::new()),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let retried = reprompt_device_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert!(retried.ok);
+        assert_eq!(retried.status, "none");
+        assert!(!retried.message.contains("already authorized"));
+        let failed_retry = reprompt_device_impl(&state, "192.0.2.2:5555")
+            .await
+            .unwrap();
+        assert!(failed_retry.ok);
+        let forgotten = forget_device_impl(&state, "192.0.2.1:5555").await.unwrap();
+        assert_eq!(forgotten.disconnected, ["192.0.2.1:5555"]);
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "disconnect 192.0.2.1:5555",
+                "scan_connect 192.0.2.1:5555",
+                "disconnect 192.0.2.2:5555",
+                "scan_connect 192.0.2.2:5555",
+                "disconnect 192.0.2.1:5555",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn native_add_by_ip_never_claims_a_prompt_and_only_the_button_requests_one() {
+        use crate::adb::{AdbOutput, AdbResult, ApprovalRequestOutcome};
+        use std::sync::{Arc, Mutex};
+        struct NativeQuiet {
+            calls: Mutex<Vec<String>>,
+            outcome: Mutex<AdbResult<ApprovalRequestOutcome>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativeQuiet {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                self.calls.lock().unwrap().push(args.join(" "));
+                let ["connect", target] = args else {
+                    panic!("unexpected {args:?}");
+                };
+                Ok(AdbOutput {
+                    stdout: format!(
+                        "failed to authenticate to {target}: this TV has not allowed this computer yet"
+                    ),
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn request_approval(&self, address: &str) -> AdbResult<ApprovalRequestOutcome> {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("request {address}"));
+                std::mem::replace(
+                    &mut *self.outcome.lock().unwrap(),
+                    Ok(ApprovalRequestOutcome::Waiting),
+                )
+            }
+            async fn cancel_approval(&self, address: &str) -> AdbResult<()> {
+                self.calls.lock().unwrap().push(format!("cancel {address}"));
+                Ok(())
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("an unapproved TV has nothing to read")
+            }
+        }
+        let adb = Arc::new(NativeQuiet {
+            calls: Mutex::new(Vec::new()),
+            outcome: Mutex::new(Ok(ApprovalRequestOutcome::Waiting)),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let added = connect_device_impl(&state, "192.0.2.1").await.unwrap();
+        assert!(added.ok);
+        assert!(
+            added.message.contains("hasn't allowed this computer yet"),
+            "{}",
+            added.message
+        );
+        assert!(added.message.contains("Request approval"));
+        assert!(!added.message.contains("approve this computer on the TV"));
+        let waiting = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!((waiting.ok, waiting.status.as_str()), (true, "waiting"));
+        *adb.outcome.lock().unwrap() = Ok(ApprovalRequestOutcome::NotApproved);
+        let ended = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!((ended.ok, ended.status.as_str()), (false, "not_allowed"));
+        *adb.outcome.lock().unwrap() = Ok(ApprovalRequestOutcome::Canceled);
+        let canceled = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap();
+        assert_eq!(
+            (canceled.status.as_str(), canceled.message.as_str()),
+            ("canceled", "")
+        );
+        *adb.outcome.lock().unwrap() =
+            Err(crate::adb::AdbError::Transport("SIMULATED no route".into()));
+        let unreachable = request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .unwrap_err();
+        assert!(unreachable.contains("SIMULATED no route"));
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "connect 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+                "request 192.0.2.1:5555",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn transport_state_reads_only_the_transport_list() {
+        let mock = MockAdb::default().on_raw(
+            "devices",
+            "List of devices attached\n192.0.2.1:5555\tunauthorized\n192.0.2.2:5555\tdevice\n",
+        );
+        let shells = mock.shell_log();
+        let state = state_with(mock);
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.1:5555")
+                .await
+                .unwrap(),
+            Some(DeviceStatus::Unauthorized)
+        );
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.2:5555")
+                .await
+                .unwrap(),
+            Some(DeviceStatus::Device)
+        );
+        // Exact keys only: another port on the same address is another transport.
+        assert_eq!(
+            transport_state_impl(&state, "192.0.2.1:5556")
+                .await
+                .unwrap(),
+            None
+        );
+        assert!(shells.lock().unwrap().is_empty(), "no property reads");
+    }
+
+    #[tokio::test]
+    async fn platform_tools_has_no_separate_approval_request() {
+        let state = state_with(MockAdb::default());
+        assert!(request_device_approval_impl(&state, "192.0.2.1:5555")
+            .await
+            .is_err());
+    }
+
+    #[tokio::test]
+    async fn native_offline_route_retries_without_a_scan_job_and_leaves_ready_tv_alone() {
+        use crate::adb::{AdbOutput, AdbResult, ScanConnectOutcome};
+        use std::sync::{Arc, Mutex};
+        const OFFLINE: &str = "[fe80::abcd%14]:5555";
+        const READY: &str = "192.0.2.42:5555";
+        struct NativeOffline {
+            calls: Mutex<Vec<String>>,
+        }
+        #[async_trait::async_trait]
+        impl AdbDriver for NativeOffline {
+            fn uses_host_server(&self) -> bool {
+                false
+            }
+            async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
+                self.calls.lock().unwrap().push(args.join(" "));
+                let stdout = match args {
+                    ["devices"] => {
+                        format!("List of devices attached\n{READY}\tdevice\n{OFFLINE}\toffline\n")
+                    }
+                    ["disconnect", target] if *target == OFFLINE => String::new(),
+                    _ => panic!("must not disconnect another TV or use a blocking connect"),
+                };
+                Ok(AdbOutput {
+                    stdout,
+                    stderr: String::new(),
+                    exit_code: Some(0),
+                })
+            }
+            async fn scan_connect(
+                &self,
+                address: &str,
+                _: std::time::Duration,
+            ) -> AdbResult<ScanConnectOutcome> {
+                assert_eq!(address, OFFLINE);
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push(format!("scan_connect {address}"));
+                Ok(ScanConnectOutcome::Pending)
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("retry must not probe hardware identity or other TVs")
+            }
+        }
+        let adb = Arc::new(NativeOffline {
+            calls: Mutex::new(Vec::new()),
+        });
+        let state = AppState::new(
+            adb.clone(),
+            crate::engine::AppListBundle::default(),
+            std::env::temp_dir(),
+        );
+        let retried = reprompt_device_impl(&state, OFFLINE).await.unwrap();
+        assert!(retried.ok);
+        assert_eq!(retried.status, "none");
+        assert!(!retried.message.contains("already authorized"));
+        let ready = reprompt_device_impl(&state, READY).await.unwrap();
+        assert!(ready.ok);
+        assert_eq!(ready.status, "device");
+        assert_eq!(
+            *adb.calls.lock().unwrap(),
+            [
+                "devices",
+                &format!("disconnect {OFFLINE}"),
+                &format!("scan_connect {OFFLINE}"),
+                "devices"
+            ]
+        );
+    }
 
     /// Build what a device's batched property read looks like on the wire:
     /// one section per entry in `PROPERTY_READS`, sentinel-delimited. Short
@@ -1837,6 +2355,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_built_in_engine_names_only_tvs_it_has_current_evidence_for() {
+        let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let cast_names = crate::net::CastNames::with_lookup(std::sync::Arc::new(move |ip| {
+            seen.lock().unwrap().push(ip);
+            Box::pin(async move { Some(format!("TV at {ip}")) })
+        }));
+        // (RFC 1918 addresses: only those are ever looked up.) .10 refused recently, .11 is waiting on a request whose key
+        // reached it, .12 refused long ago: listed, but by address only.
+        let mock = MockAdb::default()
+            .without_host_server()
+            .with_progress(crate::adb::ScanConnectionProgress {
+                not_allowed: vec!["10.0.50.10:5555".into()],
+                awaiting_authorization: vec!["10.0.50.11:5555".into()],
+                ..Default::default()
+            })
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 10.0.50.10:5555\tunauthorized\n\
+                 10.0.50.11:5555\tunauthorized\n\
+                 10.0.50.12:5555\tunauthorized\n",
+            );
+        let state = state_with(mock).with_cast_names(std::sync::Arc::new(cast_names));
+        let devices = list_devices_impl(&state).await.unwrap();
+        let names: Vec<_> = devices.iter().map(|d| d.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["TV at 10.0.50.10", "TV at 10.0.50.11", "10.0.50.12:5555"]
+        );
+        let mut asked = asked.lock().unwrap().clone();
+        asked.sort_unstable();
+        assert_eq!(
+            asked,
+            [Ipv4Addr::new(10, 0, 50, 10), Ipv4Addr::new(10, 0, 50, 11)],
+            "no lookup without current evidence"
+        );
+        assert!(devices.iter().all(|d| d.properties.is_none()));
+    }
+
+    #[tokio::test]
     async fn an_unqueried_network_tv_is_named_from_its_cast_endpoint() {
         let asked = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let seen = asked.clone();
@@ -1996,6 +2555,110 @@ mod tests {
             result.instance.as_deref(),
             Some("adb-58040DLCH005YV-A1b2C3")
         );
+    }
+
+    #[tokio::test]
+    async fn pair_takes_the_name_the_device_reported_while_pairing() {
+        // platform-tools prints the device's PeerInfo name; it agrees with
+        // the advertisement on the serial, so the reported name is kept.
+        let mock = MockAdb::default()
+            .on_raw(
+                "pair 192.168.42.211:45439 123456",
+                "Successfully paired to 192.168.42.211:45439 [guid=adb-58040DLCH005YV-jBeCEe]\n",
+            )
+            .on_raw("mdns services", &mdns_pixel(46545));
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.211:45439", "123456")
+            .await
+            .unwrap();
+
+        assert_eq!(
+            result.instance.as_deref(),
+            Some("adb-58040DLCH005YV-jBeCEe")
+        );
+    }
+
+    #[tokio::test]
+    async fn pair_trusts_neither_name_when_their_serials_disagree() {
+        let mock = MockAdb::default()
+            .on_raw(
+                "pair 192.168.42.211:45439 123456",
+                "Successfully paired to 192.168.42.211:45439 [guid=adb-OTHERTV0001-q1W2e3]\n",
+            )
+            .on_raw("mdns services", &mdns_pixel(46545));
+        let state = state_with(mock);
+
+        let result = pair_device_impl(&state, "192.168.42.211:45439", "123456")
+            .await
+            .unwrap();
+
+        assert!(result.ok);
+        assert_eq!(result.instance, None);
+    }
+
+    #[tokio::test]
+    async fn pair_without_a_host_server_uses_only_the_reported_name() {
+        for (printed, expected) in [
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=adb-FAKE0001-a1B2c3]",
+                Some("adb-FAKE0001-a1B2c3"),
+            ),
+            ("Successfully paired to 192.0.2.5:40000", None),
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=Living Room TV]",
+                None,
+            ),
+            (
+                "Successfully paired to 192.0.2.5:40000 [guid=adb-1321920044953]",
+                None,
+            ),
+        ] {
+            let mock = MockAdb::default()
+                .without_host_server()
+                .on_raw("pair 192.0.2.5:40000 123456", printed)
+                .on_raw("mdns services", &mdns_pixel(46545));
+            let raw_log = mock.raw_log();
+            let state = state_with(mock);
+
+            let result = pair_device_impl(&state, "192.0.2.5:40000", "123456")
+                .await
+                .unwrap();
+
+            assert!(result.ok);
+            assert_eq!(result.instance.as_deref(), expected, "{printed}");
+            assert_eq!(
+                *raw_log.lock().unwrap(),
+                vec!["pair 192.0.2.5:40000 123456".to_string()],
+                "no multicast browse before or after pairing"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn forget_without_a_host_server_never_promises_a_reattach() {
+        let mock = MockAdb::default()
+            .without_host_server()
+            .on_raw(
+                "devices",
+                &format!("List of devices attached\n{PIXEL_IP}\tdevice\n"),
+            )
+            .on_raw("disconnect", "disconnected")
+            .on_raw("mdns services", &mdns_pixel(46545))
+            .on_shell_for(PIXEL_IP, "ro.serialno", "58040DLCH005YV\n");
+        let raw_log = mock.raw_log();
+        let state = state_with(mock);
+
+        let r = forget_device_impl(&state, PIXEL_IP).await.unwrap();
+
+        assert!(r.ok);
+        assert!(!r.still_advertised);
+        assert_ne!(r.message, READVERTISE_MESSAGE);
+        assert!(raw_log
+            .lock()
+            .unwrap()
+            .iter()
+            .all(|c| !c.starts_with("mdns")));
     }
 
     #[tokio::test]

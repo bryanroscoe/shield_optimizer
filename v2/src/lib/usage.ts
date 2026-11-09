@@ -1,6 +1,5 @@
 // Shared "last used" interpretation — UsageBadge renders it per-row and the
-// Optimize wizard's review callout aggregates it; both must agree on what
-// counts as stale.
+// app detail panel spells it out; both must agree on what counts as stale.
 
 import type { AppUsage } from "./types";
 

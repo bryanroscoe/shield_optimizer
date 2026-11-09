@@ -61,9 +61,9 @@ try {
   await row.locator('[data-verdict="caution"]').waitFor();
   const active = row.locator('.radio-pill.active .radio-label');
   assert.equal((await active.innerText()).trim(), 'Keep', 'default optimization must leave the phone-remote dependency enabled');
+  assert.equal(await panel.getByRole('button', { name: /Select all/ }).count(), 0, 'Optimize has no bulk arm control');
   await panel.getByRole('button', { name: 'Keep all', exact: true }).click();
-  await panel.getByRole('button', { name: 'Select all safe', exact: true }).click();
-  assert.equal((await active.innerText()).trim(), 'Keep', 'Select all safe must not select Caution');
+  assert.equal((await active.innerText()).trim(), 'Keep', 'Keep all leaves the Caution row on Keep');
   await row.getByRole('button', { name: 'Show why TV Recommendations has this verdict' }).click();
   assert.match(await panel.locator('.safety-detail-row').innerText(), /phone app.*reboot/s);
   if (evidence) {
@@ -79,7 +79,7 @@ try {
   const video = page.video();
   await context.close();
   if (evidence) await video.saveAs(join(dir, 'caution-review-simulated.webm'));
-  console.log('TVRecommendations: Caution, full consequence/model limits, default Keep, Select all safe exclusion and restore Enable passed. No removals executed.');
+  console.log('TVRecommendations: Caution, full consequence/model limits, default Keep, no bulk arm and restore Enable passed. No removals executed.');
 } finally {
   await browser?.close();
   await server?.close();

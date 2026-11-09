@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -865,7 +866,7 @@
   const removalNote = $derived.by(() => {
     const intent = removalIntent;
     if (!intent || intent.action !== "uninstall") return "";
-    return uninstallNote(intent.app.package, intent.app.entry) ?? "";
+    return uninstallNote(intent.app.package, intent.app.entry);
   });
 </script>
 
@@ -891,10 +892,9 @@
     />
   </div>
 
-  <details class="help-disclosure">
-    <summary>Using the app list</summary>
+  <HelpSheet title="Using the app list">
     <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; Everything else does not. All removals use the same safety checks.</p>
-  </details>
+  </HelpSheet>
 
   <div class="filters-row">
     <button class="filter-chip" class:active={activeFilter === "all"} onclick={() => (activeFilter = "all")}>All</button>
@@ -1127,7 +1127,7 @@
     supportWarning={destructiveWarning(session.support)}
     message={removalIntent?.action === "disable"
       ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
-      : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${removalNote ? ` ${removalNote}` : ""}`}
+      : `${verdictSummary(removalIntent?.verdict)} ${removalNote}`}
     confirmLabel={removalIntent?.action === "disable" ? "Disable" : "Uninstall"}
     onConfirm={confirmRemoval}
     onCancel={() => {

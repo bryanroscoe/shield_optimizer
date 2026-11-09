@@ -7,8 +7,8 @@
 #   - push of a `mobile-v*` tag    -> release job, publish mode: internal track, DRAFT release
 #   - workflow_dispatch            -> mode `build` (signed + verified, no upload), `publish`
 #                                     (choose track and draft/completed) or `smoke`
-#   - pull_request touching this   -> smoke job: the full build and verification with a
-#     workflow or its scripts         throwaway key and license key; needs no secrets, uploads nothing
+#   - pull_request or main push    -> smoke job for mobile inputs: the full build and
+#                                     verification with throwaway keys; no secrets or upload
 #
 # A draft release does nothing until someone opens Play Console and rolls it out, so a tag never
 # reaches testers on its own. The release job refuses revisions that are not on main, a tag that
@@ -24,17 +24,35 @@ name: Mobile Play release
 
 on:
   push:
+    branches: [main]
     tags:
       - 'mobile-v*'
+    paths:
+      - '.github/workflows/mobile-play-release.yml'
+      - '.github/actions/android-release-toolchain/**'
+      - 'v2/mobile/**'
+      - 'v2/shared/**'
+      - 'v2/crates/core/**'
+      - 'v2/vendor/adb_client/**'
+      - 'v2/Cargo.toml'
+      - 'v2/Cargo.lock'
+      - 'v2/src-tauri/resources/**'
+      - 'v2/src/lib/**'
+      - 'v2/catalogs/**'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     paths:
       - '.github/workflows/mobile-play-release.yml'
       - '.github/actions/android-release-toolchain/**'
-      - 'v2/mobile/scripts/build-play-release.py'
-      - 'v2/mobile/scripts/verify-play-bundle.py'
-      - 'v2/mobile/scripts/verify-release-apk.py'
-      - 'v2/mobile/scripts/play-publish.py'
+      - 'v2/mobile/**'
+      - 'v2/shared/**'
+      - 'v2/crates/core/**'
+      - 'v2/vendor/adb_client/**'
+      - 'v2/Cargo.toml'
+      - 'v2/Cargo.lock'
+      - 'v2/src-tauri/resources/**'
+      - 'v2/src/lib/**'
+      - 'v2/catalogs/**'
   workflow_dispatch:
     inputs:
       mode:
@@ -66,8 +84,8 @@ concurrency:
     ${{ github.workflow }}-${{ github.event_name == 'pull_request'
     && format('pr-{0}-{1}', github.event.pull_request.number,
        ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci') && github.run_id || 'ci')
-    || 'release' }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-smoke') || 'release' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
   OUTPUTS: v2/mobile/src-tauri/gen/android/app/build/outputs
@@ -76,6 +94,7 @@ jobs:
   smoke:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.mode == 'smoke') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/main') ||
       (github.event_name == 'pull_request' &&
        github.event.pull_request.state == 'open' &&
        !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
@@ -129,6 +148,24 @@ jobs:
             --previous-version-code 0 --previous-version-source smoke \
             --min-free-gib 15 --build-jobs 4
 
+      - name: Kotlin discovery and network regression tests
+        working-directory: v2/mobile/src-tauri/gen/android
+        run: ./gradlew :tauri-plugin-atv-adb:testDebugUnitTest --no-daemon --max-workers=4
+
+      - name: Verify Kotlin test evidence
+        run: python3 v2/mobile/scripts/release-evidence.py junit v2/mobile/tauri-plugin-atv-adb/android/build/test-results/testDebugUnitTest
+
+      - name: Keep Kotlin test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-kotlin-tests-${{ github.job }}
+          path: |
+            v2/mobile/tauri-plugin-atv-adb/android/build/test-results/testDebugUnitTest/
+            v2/mobile/tauri-plugin-atv-adb/android/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Verify bundle and APKs
         run: |
           mkdir -p "$RUNNER_TEMP/verify"
@@ -178,7 +215,7 @@ jobs:
         run: |
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
-            echo "::error::$GITHUB_SHA is not on main. Release only merged, CI-checked revisions."
+            echo "::error::$GITHUB_SHA is not on main. Release only revisions merged into main; verify their CI separately."
             exit 1
           fi
           if [[ "$TRACK" == production ]]; then
@@ -292,6 +329,24 @@ jobs:
             --previous-version-code "${{ steps.play.outputs.highest }}" --previous-version-source play-api \
             --min-free-gib 15 --build-jobs 4
 
+      - name: Kotlin discovery and network regression tests
+        working-directory: v2/mobile/src-tauri/gen/android
+        run: ./gradlew :tauri-plugin-atv-adb:testDebugUnitTest --no-daemon --max-workers=4
+
+      - name: Verify Kotlin test evidence
+        run: python3 v2/mobile/scripts/release-evidence.py junit v2/mobile/tauri-plugin-atv-adb/android/build/test-results/testDebugUnitTest
+
+      - name: Keep Kotlin test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-kotlin-tests-${{ github.job }}
+          path: |
+            v2/mobile/tauri-plugin-atv-adb/android/build/test-results/testDebugUnitTest/
+            v2/mobile/tauri-plugin-atv-adb/android/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Verify bundle and APKs
         env:
           ATVOPT_KEYSTORE_PASSWORD: ${{ secrets.ATVOPT_UPLOAD_KEYSTORE_PASSWORD }}
@@ -324,6 +379,7 @@ jobs:
           retention-days: 30
 
       - name: Upload to Google Play
+        id: upload
         if: env.MODE == 'publish'
         env:
           SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
@@ -345,6 +401,8 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
         run: |
           {
             echo "## ATV Optimizer for Android ${{ steps.version.outputs.version }} (versionCode ${{ steps.version.outputs.code }})"
@@ -355,10 +413,9 @@ jobs:
               echo "- AAB SHA-256: \`$(jq -r .aab_sha256 "$OUTPUTS/play-verification.json")\`"
               echo "- Verified: $(jq -r '.verified | join(", ")' "$OUTPUTS/play-verification.json")"
             fi
-            if [[ -f "$RUNNER_TEMP/publish.json" ]]; then
-              echo "- Uploaded to track \`$TRACK\` as a **$STATUS** release."
-              [[ "$STATUS" == draft ]] && echo "  Roll it out in Play Console → Test and release → the track → Edit release → Review release."
-            fi
+            python3 v2/mobile/scripts/release-evidence.py publish \
+              --outcome "$UPLOAD_OUTCOME" --receipt "$RUNNER_TEMP/publish.json" \
+              --track "$TRACK" --status "$STATUS" --version-code "${{ steps.version.outputs.code }}"
             echo
             echo "Still manual: Play pre-launch report, actual 16 KB page-size runtime, the phone/TV and purchase matrices (v2/mobile/RELEASE.md)."
           } >> "$GITHUB_STEP_SUMMARY"

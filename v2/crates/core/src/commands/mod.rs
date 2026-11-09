@@ -22,6 +22,7 @@ pub mod snapshot;
 pub mod state;
 pub mod telemetry;
 pub mod tuning;
+mod verification;
 
 pub use license::license_info;
 pub use state::AppState;
@@ -79,6 +80,7 @@ pub mod test_support {
         /// Stdout plus an explicit exit code — a command that answered and
         /// still exited nonzero, like `pm has-feature` saying "false".
         Code(String, i32),
+        Output(AdbOutput),
         Err(String),
     }
 
@@ -109,9 +111,21 @@ pub mod test_support {
         raw_rules: Vec<Rule>,
         shell_log: Arc<Mutex<Vec<String>>>,
         raw_log: Arc<Mutex<Vec<String>>>,
+        no_host_server: bool,
+        progress: crate::adb::ScanConnectionProgress,
     }
 
     impl MockAdb {
+        /// Report no host server, as the built-in engine does.
+        pub fn without_host_server(mut self) -> Self {
+            self.no_host_server = true;
+            self
+        }
+        /// What `scan_connection_progress` reports.
+        pub fn with_progress(mut self, progress: crate::adb::ScanConnectionProgress) -> Self {
+            self.progress = progress;
+            self
+        }
         /// Like `on_shell`, but only for calls against `serial`. Checked before
         /// the serial-agnostic rules.
         pub fn on_shell_for(mut self, serial: &str, needle: &str, stdout: &str) -> Self {
@@ -134,6 +148,11 @@ pub mod test_support {
         pub fn on_shell_exit(mut self, needle: &str, stdout: &str, exit_code: i32) -> Self {
             self.shell_rules
                 .push(Rule::single(needle, Reply::Code(stdout.into(), exit_code)));
+            self
+        }
+        pub fn on_shell_output(mut self, needle: &str, output: AdbOutput) -> Self {
+            self.shell_rules
+                .push(Rule::single(needle, Reply::Output(output)));
             self
         }
         /// Make matching `shell` calls fail with a typed `AdbError` carrying
@@ -226,6 +245,7 @@ pub mod test_support {
                     .fetch_add(1, Ordering::Relaxed)
                     .min(rule.replies.len() - 1);
                 return match &rule.replies[idx] {
+                    Reply::Output(out) => Ok(out.clone()),
                     Reply::Ok(out) => ok(out.clone()),
                     Reply::Code(out, code) => Ok(AdbOutput {
                         stdout: out.clone(),
@@ -244,6 +264,12 @@ pub mod test_support {
 
     #[async_trait]
     impl AdbDriver for MockAdb {
+        async fn scan_connection_progress(&self) -> crate::adb::ScanConnectionProgress {
+            self.progress.clone()
+        }
+        fn uses_host_server(&self) -> bool {
+            !self.no_host_server
+        }
         async fn shell_bounded(
             &self,
             serial: &str,
@@ -270,6 +296,7 @@ pub mod test_support {
                 .find(|(s, rule)| s == serial && command.contains(rule.needle.as_str()));
             if let Some((_, rule)) = for_serial {
                 return match &rule.replies[0] {
+                    Reply::Output(out) => Ok(out.clone()),
                     Reply::Ok(out) => ok(out.clone()),
                     Reply::Code(out, code) => Ok(AdbOutput {
                         stdout: out.clone(),

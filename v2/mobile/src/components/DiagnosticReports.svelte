@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "./HelpSheet.svelte";
   import { formatSupport, matchContentLabel, type MediaCapabilities } from "../../../shared/media";
   import type { ResourceSample } from "../lib/types";
 
@@ -25,7 +26,7 @@
       <button class="report-action" disabled={playbackBusy || resourceBusy || !connected} onclick={onReadPlayback}>{playbackBusy ? "Reading…" : "Read playback report"}</button>
     </header>
     <p class="report-note">Advertised configuration, not a playback test.</p>
-    <details class="help-disclosure"><summary>Playback limits</summary><p class="report-note">Actual decoding and passthrough depend on the app, content and connected display or receiver.</p></details>
+    <HelpSheet title="Playback limits"><p class="report-note">Actual decoding and passthrough depend on the app, content and connected display or receiver.</p></HelpSheet>
     {#if playbackError}<p class="error" role="alert">{playbackError}</p>{/if}
     {#if playback}
       <section class="report-group" aria-label="Video decoders">
@@ -79,7 +80,7 @@
       <h3>CPU &amp; network</h3>
       <button class="report-action" disabled={resourceBusy || playbackBusy || !connected} onclick={onSampleResources}>{resourceBusy ? "Sampling…" : "Sample resources"}</button>
     </header>
-    <details class="help-disclosure"><summary>How samples are measured</summary><p class="report-note">One device-side sample per tap. Interfaces are shown separately because VPN traffic can also appear on the physical interface.</p></details>
+    <HelpSheet title="How samples are measured"><p class="report-note">One device-side sample per tap. Interfaces are shown separately because VPN traffic can also appear on the physical interface.</p></HelpSheet>
     {#if resourceError}<p class="error" role="alert">{resourceError}</p>{/if}
     {#if resources}
       <dl class="sample-summary">

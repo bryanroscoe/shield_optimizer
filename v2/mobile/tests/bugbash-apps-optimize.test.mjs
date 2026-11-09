@@ -1,7 +1,8 @@
 // Optimize bug-bash regressions: a run interrupted by a lost connection (and
 // its silent redial) still reports where it stopped and drops the Dashboard's
 // cached count; losing Pro mid-run says so and offers Pro; the Apply
-// confirmation names each app once; Select all stays on one line.
+// confirmation names each app once; Keep all stays on one line, and there is
+// no Select all in Optimize (desktop removed "Select all safe").
 import assert from "node:assert/strict";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
@@ -141,7 +142,9 @@ test("the Apply confirmation names each app once and states shared text once", (
   assert.match(warning, /Uninstall Stadia, Uninstall Stadia TV — Service shut down January 2023\./);
   assert.equal(all.split("Service shut down January 2023").length - 1, 1);
   assert.match(warning, /Disable Nvidia Games — Removable, but you may notice it go\./);
-  assert.equal(all.split("Reinstall works only while its APK remains on the TV").length - 1, 1);
+  assert.equal(all.split("Restore can't bring it back").length - 1, 1);
+  // Every uninstall here comes back the same way, so that is said once.
+  assert.equal(all.split("Get it back from the Play Store").length - 1, 1);
   assert.match(message, /animation scales are set to 0\.5×\.$/);
   // Nothing beyond each app's verb, name and reason plus a fixed preamble.
   const essential = items.reduce((n, { item: { entry: e }, verdict }) => n + e.name.length + verdict.reason.length + 14, 0);
@@ -151,9 +154,10 @@ test("the Apply confirmation names each app once and states shared text once", (
   assert.deepEqual(restore, { warning: "", message: "Re-enable Netflix. Afterward, animation scales are reset to 1×." });
 });
 
-test("Select all stays on one line at 150% text", async (t) => {
+test("Keep all stays on one line at 150% text, and Optimize has no Select all", async (t) => {
   const page = await openOptimize(t, { viewport: { width: 275, height: 610 } });
-  const button = page.getByRole("button", { name: "Select all", exact: true });
+  assert.equal(await page.getByRole("button", { name: /^Select all/ }).count(), 0);
+  const button = page.getByRole("button", { name: "Keep all", exact: true });
   const lines = await button.evaluate((el) => {
     const range = document.createRange();
     range.selectNodeContents(el);
