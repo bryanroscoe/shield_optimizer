@@ -76,8 +76,8 @@
     detailOpen?: boolean;
     onToggleDetail?: () => void;
     /// How many columns the host table has, so the detail row spans all of
-    /// them. Six is the App List's shape (caret, app, verdict, RAM, last used,
-    /// actions); the Optimize wizard adds a Result column and passes seven.
+    /// them. Six is the shape both tables use (caret, app, verdict, RAM, last
+    /// used, actions).
     columns?: number;
     rowClass?: string;
     /// What the shared detail panel shows under the verdict: the page's one
