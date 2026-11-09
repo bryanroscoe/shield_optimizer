@@ -1026,11 +1026,12 @@ mod tests {
         let lists = read_saved_package_lists(&mock, "serial").await.unwrap();
         assert_eq!(lists.installed, ["com.example.on", "com.example.off"]);
         assert_eq!(lists.disabled, ["com.example.off"]);
-        let calls = log.lock().unwrap();
-        assert_eq!(calls.len(), 1, "{calls:?}");
-        assert!(calls[0].contains("(pm list packages --user 0)"));
-        assert!(calls[0].contains("(pm list packages -d --user 0)"));
-        drop(calls);
+        {
+            let calls = log.lock().unwrap();
+            assert_eq!(calls.len(), 1, "{calls:?}");
+            assert!(calls[0].contains("(pm list packages --user 0)"));
+            assert!(calls[0].contains("(pm list packages -d --user 0)"));
+        }
         // An empty disabled list read successfully is a real answer.
         let none = MockAdb::default().on_shell(
             "pm list packages -d",
