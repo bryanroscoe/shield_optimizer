@@ -98,5 +98,107 @@
       "live, replay and offline viewing",
       "does not cancel your subscription"
     ]
+  },
+  {
+    "package": "com.abc.abcnews",
+    "name": "ABC News",
+    "issue": 301,
+    "source_url": "https://play.google.com/store/apps/details?id=com.abc.abcnews"
+  },
+  {
+    "package": "com.amazon.music.tv",
+    "name": "Amazon Music",
+    "issue": 302,
+    "source_url": "https://play.google.com/store/apps/details?id=com.amazon.music.tv"
+  },
+  {
+    "package": "com.aetnd.svod.historyvault.androidtv",
+    "name": "HISTORY Vault",
+    "issue": 303,
+    "source_url": "https://play.google.com/store/apps/details?id=com.aetnd.svod.historyvault.androidtv"
+  },
+  {
+    "package": "com.amcplus.amcandroidtv",
+    "name": "AMC+",
+    "issue": 304,
+    "source_url": "https://play.google.com/store/apps/details?id=com.amcplus.amcandroidtv"
+  },
+  {
+    "package": "com.aetn.history.watch.androidtv",
+    "name": "HISTORY: Shows & Documentaries",
+    "issue": 305,
+    "source_url": "https://play.google.com/store/apps/details?id=com.aetn.history.watch.androidtv"
+  },
+  {
+    "package": "com.analiti.fastest.android",
+    "name": "analiti - Speed & WiFi",
+    "issue": 306,
+    "source_url": "https://play.google.com/store/apps/details?id=com.analiti.fastest.android"
+  },
+  {
+    "package": "com.britbox.tv",
+    "name": "BritBox: Home of British TV",
+    "issue": 308,
+    "source_url": "https://play.google.com/store/apps/details?id=com.britbox.tv"
+  },
+  {
+    "package": "com.bamnetworks.mobile.android.gameday.atbat",
+    "name": "MLB",
+    "issue": 310,
+    "source_url": "https://play.google.com/store/apps/details?id=com.bamnetworks.mobile.android.gameday.atbat"
+  },
+  {
+    "package": "com.bydeluxe.d3.android.program.starz",
+    "name": "STARZ",
+    "issue": 311,
+    "source_url": "https://play.google.com/store/apps/details?id=com.bydeluxe.d3.android.program.starz"
+  },
+  {
+    "package": "com.cbs.tve",
+    "name": "CBS",
+    "issue": 312,
+    "source_url": "https://play.google.com/store/apps/details?id=com.cbs.tve"
+  },
+  {
+    "package": "com.clearchannel.iheartradio.tv",
+    "name": "iHeartRadio for Google TV",
+    "issue": 314,
+    "source_url": "https://play.google.com/store/apps/details?id=com.clearchannel.iheartradio.tv"
+  },
+  {
+    "package": "com.cw.fullepisodes.android",
+    "name": "The CW",
+    "issue": 315,
+    "source_url": "https://play.google.com/store/apps/details?id=com.cw.fullepisodes.android"
+  },
+  {
+    "package": "com.discovery.discoveryplus.mobile",
+    "name": "discovery+ | Stream TV Shows",
+    "issue": 316,
+    "source_url": "https://play.google.com/store/apps/details?id=com.discovery.discoveryplus.mobile"
+  },
+  {
+    "package": "com.discovery.dsctve",
+    "name": "Discovery GO - Watch with TV",
+    "issue": 317,
+    "source_url": "https://play.google.com/store/apps/details?id=com.discovery.dsctve"
+  },
+  {
+    "package": "com.epix.epix.now",
+    "name": "MGM+",
+    "issue": 319,
+    "source_url": "https://play.google.com/store/apps/details?id=com.epix.epix.now"
+  },
+  {
+    "package": "com.france24.androidapp.gtv",
+    "name": "FRANCE 24 - Android TV",
+    "issue": 320,
+    "source_url": "https://play.google.com/store/apps/details?id=com.france24.androidapp.gtv"
+  },
+  {
+    "package": "com.weathergroup.localnow",
+    "name": "Local Now: News, Movies & TV",
+    "issue": 322,
+    "source_url": "https://play.google.com/store/apps/details?id=com.weathergroup.localnow"
   }
 ]

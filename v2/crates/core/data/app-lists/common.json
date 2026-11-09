@@ -1789,5 +1789,332 @@
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xgimi-mogo-4/debloat.txt#L110",
       "Two-agent source-based functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08-BATCH.md. Optional viewing loss and limited installed-package recovery assessed; subscription/region/DRM limits preserved. Exact identity is not model/firmware certification; hardware removal/recovery unverified."
     ]
+  },
+  {
+    "package": "com.abc.abcnews",
+    "name": "ABC News",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops ABC News live news, programmes and alerts through this app. Keep it if anyone here uses ABC News.",
+    "restore_description": "Re-enables ABC News if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.abc.abcnews",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.amazon.music.tv",
+    "name": "Amazon Music",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Amazon Music playback and access to your music library through this app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables Amazon Music if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.amazon.music.tv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.aetnd.svod.historyvault.androidtv",
+    "name": "HISTORY Vault",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops HISTORY Vault documentaries and series through this app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables HISTORY Vault if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.aetnd.svod.historyvault.androidtv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.amcplus.amcandroidtv",
+    "name": "AMC+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops AMC+ series, movies and live channels through this Android TV app. It does not cancel your subscription. Keep it if used.",
+    "restore_description": "Re-enables AMC+ if still installed. Does not restore sign-in, subscriptions, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-05",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.amcplus.amcandroidtv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-CONTENT-CLIENTS-301-304.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.aetn.history.watch.androidtv",
+    "name": "HISTORY: Shows & Documentaries",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops HISTORY episodes and clips through this app, including TV-provider viewing. Keep it if anyone here uses HISTORY. This is separate from HISTORY Vault.",
+    "restore_description": "Re-enables HISTORY if still installed. Does not restore provider sign-in, account access, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.aetn.history.watch.androidtv",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.analiti.fastest.android",
+    "name": "analiti - Speed & WiFi",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops analiti speed tests, WiFi diagnostics, background connection tracking and embedded test servers. Keep it if anyone relies on its monitoring or remote tests. It does not undo network changes already made.",
+    "restore_description": "Re-enables analiti if still installed. Check monitoring and server settings before relying on them again. Does not restore deleted reports, settings or paid access.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.analiti.fastest.android",
+      "https://developer.android.com/tools/adb#pm",
+      "https://analiti.com/",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu31/debloat.txt#L104-L112",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.britbox.tv",
+    "name": "BritBox: Home of British TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops BritBox playback through this app and opening links that target it. It does not cancel your subscription. Keep it if anyone uses BritBox on this device.",
+    "restore_description": "Re-enables BritBox if still installed. Does not restore sign-in, paid access, deleted downloads or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.britbox.tv",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "https://developer.android.com/tools/adb#pm",
+      "Source-based functional review: docs/REPORTED-APPS-305-308.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.bamnetworks.mobile.android.gameday.atbat",
+    "name": "MLB",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops MLB video, audio, scores and alerts through this app. It does not cancel your subscription. Keep it if anyone relies on MLB or links that open it.",
+    "restore_description": "Re-enables MLB if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.bamnetworks.mobile.android.gameday.atbat",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.bydeluxe.d3.android.program.starz",
+    "name": "STARZ",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops STARZ streaming and TV-provider viewing through this app. It does not cancel your subscription. Keep it if anyone here uses STARZ.",
+    "restore_description": "Re-enables STARZ if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.bydeluxe.d3.android.program.starz",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cbs.tve",
+    "name": "CBS",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops CBS episodes and local live TV through this app, including cable-provider access. Keep it if anyone here uses CBS.",
+    "restore_description": "Re-enables CBS if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cbs.tve",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/androidtv/answer/9461288?hl=en",
+      "Source-based functional review: docs/REPORTED-APPS-309-312.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.clearchannel.iheartradio.tv",
+    "name": "iHeartRadio for Google TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops radio, music and podcasts through this iHeartRadio TV app. Keep it if anyone here listens with it.",
+    "restore_description": "Re-enables iHeartRadio if still installed. Does not restore account sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.clearchannel.iheartradio.tv",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "https://help.iheart.com/hc/en-us/articles/360028981511-Adding-iHeartRadio-to-Android-TV",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hisense-smarttv-4k-ffm/debloat.txt#L78-L87",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/bell-fibe-tv-vip7802/debloat.txt#L83-L99",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.cw.fullepisodes.android",
+    "name": "The CW",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops The CW episodes, movies, sports and channels through this app, including watch-list and continue-watching access. Keep it if used.",
+    "restore_description": "Re-enables The CW if still installed. Does not restore profile access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.cw.fullepisodes.android",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.discovery.discoveryplus.mobile",
+    "name": "discovery+ | Stream TV Shows",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops viewing and app controls through this discovery+ app. Keep it if used for playback or casting. It does not cancel your subscription.",
+    "restore_description": "Re-enables this discovery+ app if still installed. Does not restore sign-in, subscriptions, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.discovery.discoveryplus.mobile",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "https://help.discoveryplus.com/hc/en-us/articles/32717632355607-discovery-app-update",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.discovery.dsctve",
+    "name": "Discovery GO - Watch with TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Discovery GO live/on-demand viewing and guide/list access through this app, including TV-provider viewing. Keep it if used. Provider subscriptions are not cancelled.",
+    "restore_description": "Re-enables Discovery GO if still installed. Does not restore provider authorization, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.discovery.dsctve",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-313-317.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.epix.epix.now",
+    "name": "MGM+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops MGM+ movies, series, live channels and list access through this app. Keep it if used. Your subscription is not cancelled.",
+    "restore_description": "Re-enables MGM+ if still installed. Does not restore sign-in, paid access, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.epix.epix.now",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.france24.androidapp.gtv",
+    "name": "FRANCE 24 - Android TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops FRANCE 24 live news, bulletins and on-demand shows through this TV app. Keep it if anyone watches with it.",
+    "restore_description": "Re-enables FRANCE 24 if still installed. Does not restore deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.france24.androidapp.gtv",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
+  },
+  {
+    "package": "com.weathergroup.localnow",
+    "name": "Local Now: News, Movies & TV",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Local Now news, weather coverage, channels and on-demand viewing through this app. Keep it if used, including for local or severe-weather coverage.",
+    "restore_description": "Re-enables Local Now if still installed. Does not restore local preferences, deleted data or app settings.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-06",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.weathergroup.localnow",
+      "https://developer.android.com/tools/adb#pm",
+      "https://support.google.com/googleplay/answer/7018481",
+      "Source-based functional review: docs/REPORTED-APPS-318-322.md. Device/firmware dependencies and disable/re-enable behavior unverified."
+    ]
   }
 ]

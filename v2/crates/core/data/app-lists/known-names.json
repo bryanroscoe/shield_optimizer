@@ -45,10 +45,6 @@
     "name": "Smithsonian Channel",
     "description": "Smithsonian Channel's streaming app."
   },
-  "com.amazon.music.tv": {
-    "name": "Amazon Music",
-    "description": "Amazon's music streaming app."
-  },
   "com.overdevs.at4k": {
     "name": "AT4K (Apple TV 4K launcher)",
     "description": "A third-party Home screen styled after Apple TV."
