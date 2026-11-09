@@ -10,8 +10,8 @@ use crate::adb::{
     parse_installed_packages_output,
 };
 use crate::engine::snapshot::{
-    compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan,
-    SCHEMA_VERSION,
+    absent_catalog_packages, compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot,
+    SnapshotApplyPlan, SCHEMA_VERSION,
 };
 use crate::engine::{
     home_keep_reason, is_never_disable, is_valid_package_name, may_be_home_handler,
@@ -94,20 +94,36 @@ async fn restore_reads(
     })
 }
 
-/// The disabled packages a snapshot records. A failed read must fail the
-/// save: a "nothing disabled" snapshot is one the Launcher's "Save snapshot
-/// first" would trust as a way back.
-async fn read_disabled_packages(
+/// The installed and disabled packages a snapshot records from. A failed
+/// read must fail the save: a "nothing disabled" snapshot is one the
+/// Launcher's "Save snapshot first" would trust as a way back, and a "nothing
+/// installed" one would record every catalog app as absent.
+struct SavedPackageLists {
+    installed: Vec<String>,
+    disabled: Vec<String>,
+}
+
+async fn read_saved_package_lists(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
-) -> Result<Vec<String>, String> {
+) -> Result<SavedPackageLists, String> {
     let out = adb
-        .shell(serial, &checked_batch_command(&[LIST_DISABLED_PACKAGES]))
+        .shell(
+            serial,
+            &checked_batch_command(&[LIST_PACKAGES, LIST_DISABLED_PACKAGES]),
+        )
         .await
-        .map_err(|e| format!("pm list packages -d: {e}"))?;
-    let sections = parse_checked_batch(&out.stdout, 1, &[0])
-        .map_err(|e| format!("pm list packages -d: {e}"))?;
-    Ok(parse_disabled_packages_output(&sections[0]))
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let sections = parse_checked_batch(&out.stdout, 2, &[0, 1])
+        .map_err(|e| format!("pm list packages: {e}"))?;
+    let installed = parse_installed_packages_output(&sections[0]);
+    if installed.is_empty() {
+        return Err("pm list packages: no packages reported".to_string());
+    }
+    Ok(SavedPackageLists {
+        installed,
+        disabled: parse_disabled_packages_output(&sections[1]),
+    })
 }
 
 /// Read and parse a snapshot, confined to the snapshot directory: the
@@ -292,7 +308,7 @@ pub async fn save_snapshot(
     let adb = state.adb_snapshot().await;
 
     // Pull all the inputs the engine needs.
-    let disabled_packages = read_disabled_packages(adb.as_ref(), &serial).await?;
+    let lists = read_saved_package_lists(adb.as_ref(), &serial).await?;
 
     // Current launcher: the HOME role holder, not a setup helper the
     // resolver ranks higher (#122).
@@ -321,6 +337,8 @@ pub async fn save_snapshot(
         .await
         .map_err(|e| format!("getprop: {e}"))?;
     let android_version = ver_out.stdout.trim().to_string();
+    let absent_packages =
+        absent_catalog_packages(&state.app_lists.for_device(device_type), &lists.installed);
 
     let saved_at = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
     let snap = Snapshot {
@@ -331,10 +349,11 @@ pub async fn save_snapshot(
         device_serial: serial.clone(),
         device_type,
         android_version,
-        disabled_packages,
+        disabled_packages: lists.disabled,
         current_launcher,
         settings,
         absent_settings,
+        absent_packages,
     };
 
     // Write to disk.
@@ -667,6 +686,15 @@ async fn apply_snapshot_impl(
         settings_deleted.len(),
         settings_failed.len()
     );
+    let absent_disabled = packages_disabled
+        .iter()
+        .filter(|pkg| plan.packages_absent_in_snapshot.contains(pkg))
+        .count();
+    if absent_disabled > 0 {
+        summary.push_str(&format!(
+            " {absent_disabled} of them weren't installed when the snapshot was saved, so they were disabled, not uninstalled."
+        ));
+    }
     if !kept.is_empty() {
         summary.push_str(&format!(
             " Kept on so the TV keeps a Home screen: {}.",
@@ -794,7 +822,7 @@ async fn apply_settings_from_plan(
 mod tests {
     use super::{
         apply_settings_from_plan, apply_snapshot_impl, current_settings_map, delete_snapshot_file,
-        disable_from_plan, read_disabled_packages, restore_reads, HomeGuard,
+        disable_from_plan, read_saved_package_lists, restore_reads, HomeGuard,
     };
     use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::{state_with, MockAdb};
@@ -961,35 +989,53 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_failed_disabled_read_fails_the_save_instead_of_recording_none() {
+    async fn a_failed_package_read_fails_the_save_instead_of_recording_none() {
         let status = crate::adb::batch::BATCH_STATUS;
         // Desktop: nonzero exit is a transport error. Mobile: Ok with the
         // exit status in the batch.
         let failed = MockAdb::default().on_shell_err("pm list packages -d", "exit 255");
-        assert!(read_disabled_packages(&failed, "serial").await.is_err());
+        assert!(read_saved_package_lists(&failed, "serial").await.is_err());
         let failed = MockAdb::default().on_shell(
             "pm list packages -d",
-            &format!("Error: java.lang.SecurityException\n{status}255\n"),
+            &format!(
+                "package:com.example.on\n{status}0\n{BATCH_SEPARATOR}\nError: java.lang.SecurityException\n{status}255\n"
+            ),
         );
-        assert!(read_disabled_packages(&failed, "serial").await.is_err());
+        assert!(read_saved_package_lists(&failed, "serial").await.is_err());
         let truncated = MockAdb::default().on_shell("pm list packages -d", "");
-        assert!(read_disabled_packages(&truncated, "serial").await.is_err());
+        assert!(read_saved_package_lists(&truncated, "serial")
+            .await
+            .is_err());
+        // Nothing installed is not an answer: it would record every catalog
+        // app as absent.
+        let empty = MockAdb::default().on_shell("pm list packages -d", &batched(&["", ""]));
+        assert!(read_saved_package_lists(&empty, "serial").await.is_err());
 
         let mock = MockAdb::default().on_shell(
             "pm list packages -d",
-            &batched(&["package:com.example.off"]),
+            &batched(&[
+                "package:com.example.on\npackage:com.example.off",
+                "package:com.example.off",
+            ]),
         );
         let log = mock.shell_log();
-        assert_eq!(
-            read_disabled_packages(&mock, "serial").await.unwrap(),
-            ["com.example.off"]
+        let lists = read_saved_package_lists(&mock, "serial").await.unwrap();
+        assert_eq!(lists.installed, ["com.example.on", "com.example.off"]);
+        assert_eq!(lists.disabled, ["com.example.off"]);
+        let calls = log.lock().unwrap();
+        assert_eq!(calls.len(), 1, "{calls:?}");
+        assert!(calls[0].contains("(pm list packages --user 0)"));
+        assert!(calls[0].contains("(pm list packages -d --user 0)"));
+        drop(calls);
+        // An empty disabled list read successfully is a real answer.
+        let none = MockAdb::default().on_shell(
+            "pm list packages -d",
+            &batched(&["package:com.example.on", ""]),
         );
-        assert!(log.lock().unwrap()[0].contains("(pm list packages -d --user 0)"));
-        // An empty list read successfully is a real answer.
-        let none = MockAdb::default().on_shell("pm list packages -d", &batched(&[""]));
-        assert!(read_disabled_packages(&none, "serial")
+        assert!(read_saved_package_lists(&none, "serial")
             .await
             .unwrap()
+            .disabled
             .is_empty());
     }
 
@@ -1051,6 +1097,7 @@ mod tests {
     async fn setting_apply_distinguishes_empty_put_delete_and_failure() {
         let plan = super::SnapshotApplyPlan {
             packages_to_disable: vec![],
+            packages_absent_in_snapshot: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: None,
@@ -1093,6 +1140,7 @@ mod tests {
     fn settings_plan(write: (&str, &str)) -> super::SnapshotApplyPlan {
         super::SnapshotApplyPlan {
             packages_to_disable: vec![],
+            packages_absent_in_snapshot: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: None,
@@ -1197,7 +1245,57 @@ mod tests {
             current_launcher: launcher.map(str::to_string),
             settings: Default::default(),
             absent_settings: Vec::new(),
+            absent_packages: Vec::new(),
         }
+    }
+
+    #[tokio::test]
+    async fn a_restore_disables_an_app_the_snapshot_did_not_have_and_never_uninstalls_it() {
+        const GONE: &str = "com.example.gone";
+        let mock = restore_tv(&[SETTINGS, BLOAT, GONE], &[], &[SETTINGS], "");
+        let log = mock.shell_log();
+        let mut snap = snapshot(None, &[BLOAT]);
+        snap.absent_packages = vec![GONE.into(), "com.example.missing".into()];
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+            .await
+            .unwrap();
+        assert_eq!(res.packages_disabled, [BLOAT, GONE]);
+        assert!(res.packages_failed.is_empty(), "{:?}", res.packages_failed);
+        assert!(
+            res.summary.starts_with("Disabled 2 packages (0 failed)."),
+            "{}",
+            res.summary
+        );
+        assert!(
+            res.summary
+                .contains("1 of them weren't installed when the snapshot was saved"),
+            "{}",
+            res.summary
+        );
+        assert!(disabled_any(&log, GONE));
+        assert!(
+            !log.lock().unwrap().iter().any(|c| c.contains("uninstall")),
+            "a restore must never uninstall"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_never_disable_app_the_snapshot_did_not_have_is_refused() {
+        const PROTECTED: &str = "com.android.systemui";
+        assert!(crate::engine::is_never_disable(PROTECTED));
+        let mock = restore_tv(&[SETTINGS, PROTECTED], &[], &[SETTINGS], "");
+        let log = mock.shell_log();
+        let mut snap = snapshot(None, &[]);
+        snap.absent_packages = vec![PROTECTED.into()];
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+            .await
+            .unwrap();
+        assert!(res.packages_disabled.is_empty());
+        assert_eq!(
+            res.packages_failed,
+            [format!("{PROTECTED} (refused: brick risk)")]
+        );
+        assert!(!disabled_any(&log, PROTECTED));
     }
 
     fn disabled_any(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>, pkg: &str) -> bool {
@@ -1261,6 +1359,7 @@ mod tests {
     ) -> super::SnapshotApplyPlan {
         super::SnapshotApplyPlan {
             packages_to_disable: vec![],
+            packages_absent_in_snapshot: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: to_set.map(str::to_string),

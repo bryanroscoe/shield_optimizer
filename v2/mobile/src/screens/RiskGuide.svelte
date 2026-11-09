@@ -21,12 +21,12 @@
     {
       label: "Disable",
       icon: "block",
-      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it.",
+      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it. Suggested for apps that came with the TV or were sideloaded, which the store can't give back.",
     },
     {
       label: "Uninstall",
       icon: "delete",
-      desc: "Removes the app for the TV's current user. A preinstalled system app still sits in the read-only system image, so this frees little or no storage — it just takes the app away.",
+      desc: "Removes the app for the TV's current user. Suggested only for apps you installed from the Play Store: you can reinstall them there, and it frees their storage. A preinstalled system app still sits in the read-only system image, so uninstalling it frees little or no storage.",
     },
   ];
 </script>

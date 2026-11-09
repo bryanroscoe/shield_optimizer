@@ -51,18 +51,19 @@ pub async fn prepare_optimize_impl(
 
     let adb = state.adb_snapshot().await;
     // One round-trip: the mobile transport serializes concurrent shells behind
-    // a single connection, so three separate reads would cost three Wi-Fi RTTs
+    // a single connection, so four separate reads would cost four Wi-Fi RTTs
     // for no concurrency.
     let cmd = checked_batch_command(&[
         super::LIST_PACKAGES,
         super::LIST_DISABLED_PACKAGES,
         "dumpsys meminfo",
+        super::LIST_THIRD_PARTY_PACKAGES,
     ]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = parse_checked_batch(&out.stdout, 3, &[0, 1])?;
+    let sections = parse_checked_batch(&out.stdout, 4, &[0, 1])?;
 
     let installed_set: HashSet<String> = parse_installed_packages_output(&sections[0])
         .into_iter()
@@ -75,6 +76,14 @@ pub async fn prepare_optimize_impl(
         .into_iter()
         .collect();
     let memory = parse_total_pss_by_process(&sections[2]);
+    // Optional: a failed or empty read leaves every install source unknown,
+    // which suggests Disable.
+    let user_installed: Option<HashSet<String>> = Some(
+        parse_installed_packages_output(&sections[3])
+            .into_iter()
+            .collect::<HashSet<String>>(),
+    )
+    .filter(|set| !set.is_empty());
 
     let plan = compute_plan(
         &apps,
@@ -83,6 +92,7 @@ pub async fn prepare_optimize_impl(
             installed_packages: &installed_set,
             disabled_packages: &disabled_set,
             memory_map: &memory,
+            user_installed_packages: user_installed.as_ref(),
         },
     );
     Ok(plan)
@@ -148,7 +158,7 @@ mod tests {
     #[tokio::test]
     async fn restore_refuses_a_failed_disabled_read_even_when_memory_succeeds() {
         let status = crate::adb::batch::BATCH_STATUS;
-        let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\nmemory\n{status}0\n");
+        let output = format!("package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\nmemory\n{status}0\n{BATCH_SEPARATOR}\n{status}0\n");
         let state = crate::commands::test_support::state_with(
             MockAdb::default().on_shell(BATCH_SEPARATOR, &output),
         );
@@ -211,6 +221,7 @@ mod tests {
                 "package:com.example.bloat\npackage:com.android.systemui",
                 "",
                 "",
+                "",
             ]),
         );
         let log = mock.shell_log();
@@ -255,6 +266,71 @@ mod tests {
         // Same user as App List and every package action (#233).
         assert!(calls[0].contains("(pm list packages --user 0)"));
         assert!(calls[0].contains("(pm list packages -d --user 0)"));
+        assert!(calls[0].contains("(pm list packages -3 --user 0)"));
+    }
+
+    fn store_review(pkg: &str) -> AppEntry {
+        AppEntry {
+            method: ActionMethod::Disable,
+            default_optimize: false,
+            play_store: true,
+            review: true,
+            ..bloat(pkg)
+        }
+    }
+
+    async fn review_plan(third_party_section: &str, third_party_status: i32) -> OptimizePlan {
+        let bundle = AppListBundle {
+            common: vec![
+                store_review("com.store.mine"),
+                store_review("com.store.shipped"),
+            ],
+            shield: vec![],
+            googletv: vec![],
+        };
+        let status = crate::adb::batch::BATCH_STATUS;
+        let output = format!(
+            "{}\n{BATCH_SEPARATOR}\n{third_party_section}\n{status}{third_party_status}\n",
+            batched(&["package:com.store.mine\npackage:com.store.shipped", "", "",])
+        );
+        let state = AppState::new(
+            Arc::new(MockAdb::default().on_shell(BATCH_SEPARATOR, &output)),
+            bundle,
+            std::env::temp_dir(),
+        )
+        .with_entitlement(crate::license::Entitlement::Pro);
+        prepare_optimize_impl(&state, "serial", DeviceType::Shield, OptimizeMode::Optimize)
+            .await
+            .expect("plan")
+    }
+
+    fn row<'a>(plan: &'a OptimizePlan, pkg: &str) -> &'a crate::engine::OptimizePlanItem {
+        plan.items.iter().find(|i| i.entry.package == pkg).unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_review_row_uninstalls_only_a_store_app_the_user_installed() {
+        use crate::engine::InstallSource;
+        let plan = review_plan("package:com.store.mine", 0).await;
+        let mine = row(&plan, "com.store.mine");
+        assert_eq!(mine.install_source, InstallSource::User);
+        assert_eq!(mine.action, OptimizeAction::Uninstall);
+        let shipped = row(&plan, "com.store.shipped");
+        assert_eq!(shipped.install_source, InstallSource::Preinstalled);
+        assert_eq!(shipped.action, OptimizeAction::Disable);
+    }
+
+    #[tokio::test]
+    async fn an_unread_install_source_claims_nothing_and_suggests_disable() {
+        use crate::engine::InstallSource;
+        for (section, status) in [("", 1), ("", 0)] {
+            let plan = review_plan(section, status).await;
+            for pkg in ["com.store.mine", "com.store.shipped"] {
+                let item = row(&plan, pkg);
+                assert_eq!(item.install_source, InstallSource::Unknown, "{pkg}");
+                assert_eq!(item.action, OptimizeAction::Disable, "{pkg}");
+            }
+        }
     }
 
     #[tokio::test]
@@ -267,7 +343,7 @@ mod tests {
             shield: vec![],
             googletv: vec![],
         };
-        let mock = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""]));
+        let mock = MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", "", ""]));
         let state = AppState::new(Arc::new(mock), bundle, std::env::temp_dir())
             .with_entitlement(crate::license::Entitlement::Pro);
 

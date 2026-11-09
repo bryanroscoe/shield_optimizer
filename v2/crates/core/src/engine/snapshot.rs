@@ -11,10 +11,11 @@ use thiserror::Error;
 
 use super::detection::DeviceType;
 use super::launcher::{plan_home_safe_disables, LauncherCatalog};
+use super::types::{AppEntry, RiskTier};
 
 /// Current snapshot schema version. Bump when the structure changes; the
 /// reader will refuse future versions explicitly.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// Setting keys we track in a snapshot — matches v1's `$Script:SnapshotSettingKeys`.
 pub fn tracked_setting_keys() -> &'static [(&'static str, &'static str)] {
@@ -56,6 +57,14 @@ pub struct Snapshot {
     pub settings: BTreeMap<String, String>,
     #[serde(default)]
     pub absent_settings: Vec<String>,
+    /// Catalog apps that weren't installed for user 0 when this was saved —
+    /// uninstalled, or never there; the TV can't say which. Only apps a
+    /// restore may turn off: Safe or Medium risk, and not ones the catalog
+    /// says belong on the TV (`default_restore`). A restore disables any of
+    /// these it finds installed and never uninstalls. Schema v4+; older
+    /// snapshots load with none.
+    #[serde(default)]
+    pub absent_packages: Vec<String>,
 }
 
 /// Errors that arise from snapshot parsing / application.
@@ -93,7 +102,21 @@ impl Snapshot {
             // Older captures omitted both absent and unreadable settings. Neither
             // omission authorizes deleting a value on the target device.
             snapshot.absent_settings.clear();
-            snapshot.schema_version = SCHEMA_VERSION;
+        }
+        if schema < 4 {
+            // Older captures never recorded which apps were missing, so none
+            // may be turned off on their account.
+            snapshot.absent_packages.clear();
+        }
+        snapshot.schema_version = SCHEMA_VERSION;
+        if snapshot
+            .absent_packages
+            .iter()
+            .any(|pkg| snapshot.disabled_packages.contains(pkg))
+        {
+            return Err(SnapshotError::Malformed(
+                "package cannot be both disabled and absent".into(),
+            ));
         }
         if snapshot
             .absent_settings
@@ -112,12 +135,37 @@ impl Snapshot {
     }
 }
 
+/// The catalog apps a snapshot records as absent: not installed for user 0,
+/// and ones a restore may turn off (Safe or Medium risk, not `default_restore`).
+/// `installed` must come from a successful, non-empty read.
+pub fn absent_catalog_packages(catalog: &[AppEntry], installed: &[String]) -> Vec<String> {
+    let installed: std::collections::HashSet<&str> = installed.iter().map(String::as_str).collect();
+    let mut absent: Vec<String> = catalog
+        .iter()
+        .filter(|entry| {
+            !entry.default_restore
+                && matches!(entry.risk, RiskTier::Safe | RiskTier::Medium)
+                && !installed.contains(entry.package.as_str())
+        })
+        .map(|entry| entry.package.clone())
+        .collect();
+    absent.sort();
+    absent.dedup();
+    absent
+}
+
 /// What the engine plans to do when applying a snapshot — computed before any
 /// ADB calls are made. The host layer executes these against the ADB driver.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotApplyPlan {
     /// Packages to be `pm disable-user`d (currently installed and enabled).
+    /// Includes the snapshot's absent apps that are installed here.
     pub packages_to_disable: Vec<String>,
+    /// Which of `packages_to_disable` the snapshot recorded as not installed,
+    /// so the preview can say why they go off. A restore disables these; it
+    /// never uninstalls.
+    #[serde(default)]
+    pub packages_absent_in_snapshot: Vec<String>,
     /// Packages already in the disabled state — no-op, but counted.
     pub packages_already_disabled: Vec<String>,
     /// Packages on the snapshot list but not present on the target device.
@@ -216,6 +264,19 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
             to_disable.push(pkg.clone());
         }
     }
+    // An app the snapshot didn't have that this TV runs goes off, the
+    // reversible way. One already off or not here needs nothing.
+    let absent_to_disable: Vec<String> = snap
+        .absent_packages
+        .iter()
+        .filter(|pkg| {
+            installed_set.contains(pkg.as_str())
+                && !disabled_set.contains(pkg.as_str())
+                && !to_disable.contains(pkg)
+        })
+        .cloned()
+        .collect();
+    to_disable.extend(absent_to_disable.iter().cloned());
 
     let cross_device_warning = if snap.device_type != inputs.target_device_type {
         Some(format!(
@@ -278,6 +339,11 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         inputs.current_launcher,
         inputs.launchers,
     );
+    let packages_absent_in_snapshot = to_disable
+        .iter()
+        .filter(|pkg| absent_to_disable.contains(pkg))
+        .cloned()
+        .collect();
     let packages_kept = kept
         .into_iter()
         .map(|(package, reason)| KeptPackage {
@@ -288,6 +354,7 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
 
     SnapshotApplyPlan {
         packages_to_disable: to_disable,
+        packages_absent_in_snapshot,
         packages_already_disabled: already_disabled,
         packages_not_installed: not_installed,
         launcher_to_set,
@@ -326,6 +393,7 @@ mod tests {
             current_launcher: Some("com.spocky.projengmenu".to_string()),
             settings,
             absent_settings: Vec::new(),
+            absent_packages: vec!["com.gone".into()],
         }
     }
 
@@ -336,6 +404,107 @@ mod tests {
         let parsed = Snapshot::from_json(&json).unwrap();
         assert_eq!(parsed.device_name, snap.device_name);
         assert_eq!(parsed.disabled_packages, snap.disabled_packages);
+        assert_eq!(parsed.absent_packages, ["com.gone"]);
+        assert_eq!(parsed.schema_version, 4);
+    }
+
+    #[test]
+    fn older_snapshots_load_with_no_absent_packages() {
+        for version in [1, 2, 3] {
+            let mut snap = sample_snapshot();
+            snap.schema_version = version;
+            // Even a pre-v4 file that somehow carries the field records
+            // nothing on its account.
+            let with_field = Snapshot::from_json(&snap.to_json().unwrap()).unwrap();
+            assert!(with_field.absent_packages.is_empty(), "v{version}");
+            assert_eq!(with_field.schema_version, SCHEMA_VERSION);
+            let mut json = serde_json::to_value(&snap).unwrap();
+            json.as_object_mut().unwrap().remove("absent_packages");
+            let migrated = Snapshot::from_json(&json.to_string()).unwrap();
+            assert!(migrated.absent_packages.is_empty(), "v{version}");
+            assert_eq!(migrated.disabled_packages, snap.disabled_packages);
+        }
+    }
+
+    fn entry(pkg: &str, risk: RiskTier, default_restore: bool) -> AppEntry {
+        AppEntry {
+            package: pkg.into(),
+            name: pkg.into(),
+            method: super::super::types::ActionMethod::Disable,
+            risk,
+            optimize_description: String::new(),
+            restore_description: String::new(),
+            default_optimize: false,
+            default_restore,
+            play_store: true,
+            defunct: false,
+            review: true,
+            reviewed_at: None,
+            sources: Vec::new(),
+            device_scope: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn only_missing_catalog_apps_a_restore_may_turn_off_are_recorded() {
+        let catalog = [
+            entry("com.safe.gone", RiskTier::Safe, false),
+            entry("com.medium.gone", RiskTier::Medium, false),
+            entry("com.safe.here", RiskTier::Safe, false),
+            entry("com.high.gone", RiskTier::High, false),
+            entry("com.advanced.gone", RiskTier::Advanced, false),
+            entry("com.belongs.gone", RiskTier::Safe, true),
+            entry("com.safe.gone", RiskTier::Safe, false),
+        ];
+        let installed = ["com.safe.here".to_string(), "com.not.catalog".to_string()];
+        assert_eq!(
+            absent_catalog_packages(&catalog, &installed),
+            ["com.medium.gone", "com.safe.gone"]
+        );
+    }
+
+    #[test]
+    fn rejects_a_package_both_disabled_and_absent() {
+        let mut snap = sample_snapshot();
+        snap.absent_packages.push("com.foo".into());
+        assert!(matches!(
+            Snapshot::from_json(&snap.to_json().unwrap()),
+            Err(SnapshotError::Malformed(_))
+        ));
+    }
+
+    #[test]
+    fn absent_apps_installed_here_are_disabled_and_named() {
+        let mut snap = sample_snapshot();
+        snap.absent_packages = vec![
+            "com.gone.here".into(),
+            "com.gone.off".into(),
+            "com.gone.running".into(),
+        ];
+        let installed = vec![
+            "com.foo".into(),
+            "com.gone.off".into(),
+            "com.gone.running".into(),
+        ];
+        let disabled = vec!["com.gone.off".into()];
+        let no_settings = BTreeMap::new();
+        let plan = compute_apply_plan(
+            &snap,
+            &ApplyPlanInputs {
+                target_device_type: DeviceType::Shield,
+                currently_disabled: &disabled,
+                currently_installed: &installed,
+                current_settings: &no_settings,
+                current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
+            },
+        );
+        assert_eq!(plan.packages_to_disable, ["com.foo", "com.gone.running"]);
+        assert_eq!(plan.packages_absent_in_snapshot, ["com.gone.running"]);
+        // Already off, or not on this TV either: nothing to do, nothing listed.
+        assert_eq!(plan.packages_already_disabled, Vec::<String>::new());
+        assert_eq!(plan.packages_not_installed, ["com.bar", "com.missing"]);
     }
 
     #[test]
@@ -466,7 +635,7 @@ mod tests {
             err,
             SnapshotError::UnsupportedSchema {
                 found: 0,
-                supported: 3
+                supported: 4
             }
         ));
     }
@@ -488,7 +657,7 @@ mod tests {
         match err {
             SnapshotError::UnsupportedSchema {
                 found: 999,
-                supported: 3,
+                supported: 4,
             } => {}
             other => panic!("wrong error: {other:?}"),
         }

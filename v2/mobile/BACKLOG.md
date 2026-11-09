@@ -112,6 +112,10 @@ go-ahead; don't infer permission from a phone being powered on.
    restore on a second phone, refund, promo code), and later a server verifier/RTDN. Bounded Free
    undo per [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md) is not built, so copy
    promises only free app re-enable and emergency recovery.
+11. **Disable-vs-Uninstall help on Apps and Optimize.** The suggestion rule (Uninstall only for a
+   store app the user installed) and the snapshot's absent apps match desktop as of 2026-11-09,
+   but the explanation lives only in More › Risk guide. Desktop has a "?" beside its App List and
+   Optimize filters; the phone has no equivalent on those screens yet.
 
 ## P2 — release readiness
 

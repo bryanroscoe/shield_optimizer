@@ -236,6 +236,10 @@ export const api = {
     invoke<string>("get_app_op", { serial, package: pkg, op }),
   listOtherPackages: (serial: string, deviceType: DeviceType) =>
     invoke<OtherPackage[]>("list_other_packages", { serial, deviceType }),
+  /// What this TV's user installed (`pm list packages -3`). Decides whether a
+  /// review row suggests Uninstall; a failure leaves every source unknown.
+  userInstalledPackages: (serial: string) =>
+    invoke<string[]>("user_installed_packages", { serial }),
   /// Every installed package, catalogued ones included. Used to confirm that a
   /// process name from a memory report really is an installed package before
   /// the catalog's verdict is applied to it.

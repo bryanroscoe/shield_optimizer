@@ -330,6 +330,15 @@
       ]
     },
     {
+      "command": "user_installed_packages",
+      "api": "userInstalledPackages",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/apps.rs",
+      "callers": [
+        "src/screens/Apps.svelte"
+      ]
+    },
+    {
       "command": "list_installed_packages",
       "api": "listInstalledPackages",
       "gate": "Free",

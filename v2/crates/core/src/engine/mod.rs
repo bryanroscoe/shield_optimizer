@@ -43,6 +43,6 @@ pub use safety::{
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
 pub use support::{classify_support, parse_support_rules, SupportInfo, SupportRules, SupportTier};
 pub use types::{
-    ActionMethod, AppEntry, Device, DeviceProperties, DeviceStatus, OptimizeAction, OptimizeMode,
-    OptimizePlanItem, RiskTier, SkipReason,
+    ActionMethod, AppEntry, Device, DeviceProperties, DeviceStatus, InstallSource, OptimizeAction,
+    OptimizeMode, OptimizePlanItem, RiskTier, SkipReason,
 };

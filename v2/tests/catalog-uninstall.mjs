@@ -29,7 +29,7 @@ try {
   await page.evaluate(() => {
     const original = window.__TAURI_INTERNALS__.invoke;
     const fixture = (id, overrides = {}) => ({ package: `test.fixture.${id}`, name: `Fixture ${id}`, method: 'disable', play_store: true, risk: 'safe', default_optimize: true, default_restore: false, optimize_description: 'Synthetic optional app; removing it loses its functionality.', ...overrides });
-    const entries = [fixture('disable'), fixture('review', { review: true, default_optimize: false, risk: 'medium' }), fixture('keep', { default_optimize: false }), fixture('disabled'), fixture('primary', { method: 'uninstall' }), fixture('reviewprimary', { method: 'uninstall', default_optimize: false, review: true }), fixture('defunctsource', { package: 'org.fdroid.fdroid', play_store: false, defunct: true }), fixture('defunct', { play_store: false, defunct: true }), fixture('nostore', { play_store: false }), fixture('missing'), fixture('unreadable'), fixture('protected'), fixture('unavailable'), fixture('long', { name: 'Fixture long optional streaming application with a deliberately long descriptive name' }), fixture('sideload', { package: 'org.smarttube.stable', play_store: false }), fixture('system', { risk: 'high', default_restore: true }), fixture('shipped', { risk: 'medium', default_restore: true }), fixture('advanced', { risk: 'advanced' })];
+    const entries = [fixture('disable'), fixture('review', { review: true, default_optimize: false, risk: 'medium' }), fixture('keep', { default_optimize: false }), fixture('disabled'), fixture('primary', { method: 'uninstall' }), fixture('reviewprimary', { method: 'uninstall', default_optimize: false, review: true }), fixture('reviewshipped', { method: 'uninstall', default_optimize: false, review: true }), fixture('defunctsource', { package: 'org.fdroid.fdroid', play_store: false, defunct: true }), fixture('defunct', { play_store: false, defunct: true }), fixture('nostore', { play_store: false }), fixture('missing'), fixture('unreadable'), fixture('protected'), fixture('unavailable'), fixture('long', { name: 'Fixture long optional streaming application with a deliberately long descriptive name' }), fixture('sideload', { package: 'org.smarttube.stable', play_store: false }), fixture('system', { risk: 'high', default_restore: true }), fixture('shipped', { risk: 'medium', default_restore: true }), fixture('advanced', { risk: 'advanced' })];
     window.__UNINSTALL_TEST__ = { entries, calls: [], mode: 'normal', reads: 0 };
     window.__TAURI_INTERNALS__.invoke = async (command, args) => {
       const t = window.__UNINSTALL_TEST__; t.calls.push({ command, args });
@@ -46,6 +46,8 @@ try {
         const kind = args.package.endsWith('.protected') || t.mode === 'safety-after' && t.reads > 1 ? 'never_disable' : args.package.endsWith('.review') ? 'caution' : 'safe';
         return { kind, reason: 'Synthetic consequence: app functionality is removed.', source: 'reviewed_catalog' };
       }
+      // Installed by the TV's user: Uninstall is suggested only for these.
+      if (command === 'user_installed_packages') return ['test.fixture.reviewprimary'];
       if (command === 'list_other_packages') return [{ package: 'test.other.app', name: 'Fixture other app', enabled: true, system: false }];
       if (['disable_package', 'enable_package', 'uninstall_package', 'reinstall_existing', 'backup_apk'].includes(command)) throw new Error('Synthetic test blocks all device writes');
       return original(command, args);
@@ -62,6 +64,9 @@ try {
   assert.equal(await uninstall('primary').count(), 1, 'primary action must not duplicate');
   assert.equal(await row('reviewprimary').getByRole('button', { name: 'Review: uninstall if unused', exact: true }).count(), 1);
   assert.equal(await uninstall('reviewprimary').count(), 0, 'review primary must not duplicate');
+  // The same store app preinstalled: Disable is suggested, Uninstall still offered.
+  assert.equal(await row('reviewshipped').getByRole('button', { name: 'Review: disable if unused', exact: true }).count(), 1);
+  assert.equal(await uninstall('reviewshipped').count(), 1, 'a preinstalled store app still offers Uninstall');
   await row('primary').getByRole('button', { name: 'Keep', exact: true }).click();
   await row('primary').locator('[data-rec=Kept]').waitFor();
   assert.equal(await uninstall('primary').count(), 0, 'preserve kept primary suppression');

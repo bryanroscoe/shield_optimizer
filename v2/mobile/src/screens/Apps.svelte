@@ -5,7 +5,7 @@
   import { session } from "../lib/session.svelte";
   import { recordUnknownDiagnostics } from "../lib/unknownDiagnostics";
   import { isBlocked, safetyLabel, tierOf, verdictOf, verdictSummary, type SafetyStatus } from "../lib/safety";
-  import { canOfferUninstall, recommendation, uninstallNote, type PackageState, type Recommendation } from "../lib/recommendation";
+  import { canOfferUninstall, installSource, recommendation, uninstallNote, type PackageState, type Recommendation } from "../lib/recommendation";
   import { isReportablePackage, type AppReportState } from "../lib/app-report";
   import {
     idleMeasurements,
@@ -88,6 +88,8 @@
   let othersError = $state("");
   let catalog = $state<AppEntry[]>([]);
   let catalogStates = $state<Record<string, PackageState>>({});
+  /// `pm list packages -3`; null when unread, which suggests Disable.
+  let userInstalled = $state<ReadonlySet<string> | null>(null);
   let catalogSafety = $state<Record<string, SafetyStatus>>({});
   let catalogError = $state("");
   /// Some recognised apps' states were not read: a warning, not a failure.
@@ -191,8 +193,15 @@
     const entries = await api.appListForDevice(deviceType);
     if (!Array.isArray(entries)) throw new Error("The recognised-app list is unavailable.");
     const packages = entries.map((entry) => entry.package);
-    const raw = packages.length > 0 ? await api.packageStates(serial, packages) : {};
-    return { entries, states: validatedStates(packages, raw) };
+    const [raw, thirdParty] = await Promise.all([
+      packages.length > 0 ? api.packageStates(serial, packages) : {},
+      api.userInstalledPackages(serial).catch(() => null),
+    ]);
+    return {
+      entries,
+      states: validatedStates(packages, raw),
+      userInstalled: Array.isArray(thirdParty) ? new Set(thirdParty) : null,
+    };
   }
 
   // Keep stale rows visible while refreshing, but make them inert until a
@@ -238,6 +247,7 @@
       if (catalogResult.status === "fulfilled") {
         catalog = catalogResult.value.entries;
         catalogStates = catalogResult.value.states;
+        userInstalled = catalogResult.value.userInstalled;
         const unread = catalog.length - Object.keys(catalogStates).length;
         catalogError = "";
         catalogNote =
@@ -247,6 +257,7 @@
       } else {
         catalog = [];
         catalogStates = {};
+        userInstalled = null;
         catalogNote = "";
         catalogError = String(catalogResult.reason);
       }
@@ -420,7 +431,12 @@
 
   function rowRecommendation(app: AppItem): Recommendation | null {
     if (!app.entry) return null;
-    const rec = recommendation(app.entry, app.state, catalogSafety[app.package]);
+    const rec = recommendation(
+      app.entry,
+      app.state,
+      catalogSafety[app.package],
+      installSource(app.package, userInstalled),
+    );
     // "No change needed" and "unavailable" on every row would drown out the
     // rows that do have a suggestion; the verdict chip already says the rest.
     // "Protected" is already the verdict chip.
@@ -1080,6 +1096,7 @@
 
   <AppDetailSheet
     app={sheetApp}
+    installSource={sheetApp ? installSource(sheetApp.package, userInstalled) : "unknown"}
     memoryMb={sheetApp ? (memoryMap[sheetApp.package] ?? null) : null}
     usage={sheetApp ? (usageMap[sheetApp.package] ?? null) : null}
     storage={sheetApp ? (storageMap[sheetApp.package] ?? null) : null}

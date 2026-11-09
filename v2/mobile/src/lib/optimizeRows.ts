@@ -58,7 +58,9 @@ export function isPlanRecommended(
   const action = naturalAction(item);
   if (mode === "restore") return action === "enable" && item.entry.default_restore;
   if (action !== "disable" && action !== "uninstall") return false;
-  return recommendation(item.entry, planRowState(item), safety).kind === "act";
+  return (
+    recommendation(item.entry, planRowState(item), safety, item.install_source ?? "unknown").kind === "act"
+  );
 }
 
 /// A "remove if unused" row whose safety is resolved and not protected —

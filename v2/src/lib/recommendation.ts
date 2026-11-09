@@ -6,12 +6,13 @@
 //
 // Pure: catalog entry, on-device state and safety verdict in, suggestion out.
 
-import type { AppEntry } from "$lib/types";
+import type { AppEntry, InstallSource } from "$lib/types";
 import { isBlocked, type SafetyStatus } from "$lib/safety";
 import sideloadCatalog from "$lib/sideload-catalog.json";
 
 export type PackageState = "enabled" | "disabled" | "missing";
 export type RemovalMethod = "disable" | "uninstall";
+export type { InstallSource };
 
 export type Recommendation =
   | { kind: "done"; label: string }
@@ -69,6 +70,22 @@ export function canOfferStoreUninstall(a: AppEntry): boolean {
   return a.play_store && !a.defunct && !a.default_restore && (a.risk === "safe" || a.risk === "medium");
 }
 
+/// The install source from `pm list packages -3`. A failed or empty read is
+/// unknown, never "preinstalled".
+export function installSource(pkg: string, userInstalled: ReadonlySet<string> | null): InstallSource {
+  if (!userInstalled || userInstalled.size === 0) return "unknown";
+  return userInstalled.has(pkg) ? "user" : "preinstalled";
+}
+
+/// The removal a "remove if unused" row suggests — mirrors the engine's
+/// `AppEntry::suggested_method`. Uninstall only for an ordinary store app
+/// this TV's user installed: the Play Store gives it back and it frees
+/// storage. Preinstalled, sideloaded or unknown: the reversible Disable.
+/// Uninstall can still be *offered* (`canOfferUninstall`), just not suggested.
+export function suggestedMethod(a: AppEntry, source: InstallSource): RemovalMethod {
+  return source === "user" && canOfferStoreUninstall(a) ? "uninstall" : "disable";
+}
+
 export function reviewLabel(method: RemovalMethod): string {
   return method === "uninstall" ? "Review: uninstall if unused" : "Review: disable if unused";
 }
@@ -77,10 +94,12 @@ export function reviewLabel(method: RemovalMethod): string {
 /// `act` = recommended by default. `review` = worth removing if you don't use
 /// it, never a default. `restore` = gone, and worth bringing back.
 /// `done` / `keep` = nothing to do. `unavailable` = we can't say yet.
+/// `source` only changes which removal a review row suggests.
 export function recommendation(
   a: AppEntry,
   state: PackageState | null,
   safety: SafetyStatus | undefined,
+  source: InstallSource = "unknown",
 ): Recommendation {
   if (state === null) return { kind: "unavailable", label: "State unavailable" };
   if (state === "missing") {
@@ -93,9 +112,10 @@ export function recommendation(
   const method = effectiveMethod(a);
   if (safety?.status !== "ready") return { kind: "unavailable", label: "Safety unavailable" };
   if (isBlocked(safety.verdict)) return { kind: "done", label: "Protected" };
+  const review = suggestedMethod(a, source);
   if (safety.verdict.kind === "unknown") {
     return state === "enabled"
-      ? { kind: "review", label: reviewLabel(method), action: method }
+      ? { kind: "review", label: reviewLabel(review), action: review }
       : { kind: "keep", label: NO_CHANGE_LABEL };
   }
   if (a.default_optimize) {
@@ -107,7 +127,7 @@ export function recommendation(
     return { kind: "act", label: "Uninstall", action: "uninstall" };
   }
   if (a.review && state === "enabled") {
-    return { kind: "review", label: reviewLabel(method), action: method };
+    return { kind: "review", label: reviewLabel(review), action: review };
   }
   return { kind: "keep", label: NO_CHANGE_LABEL };
 }
