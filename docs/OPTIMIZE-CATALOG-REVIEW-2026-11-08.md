@@ -11,12 +11,17 @@ audit sets it on every entry for an app a person installs or uses by choice, and
 leaves it off only for bloat nobody chooses: OEM promos, preinstalled services
 and defunct apps. Nothing else in an entry changed: `risk`, `method`,
 `default_optimize`, `default_restore`, descriptions and the do-not-disable rules
-are as they were. Each changed entry has `reviewed_at: 2026-11-08` and a
-`sources` note pointing here. Desktop and Android read the same lists.
+are as they were. Each changed entry has a `sources` note pointing here. Its
+`reviewed_at` keeps its earlier date: this audit changed the review flag only and
+did not re-review any safety rating. Desktop and Android read the same lists.
 
-The loader test `safe_apps_outside_the_default_bloat_are_review` keeps it that
-way: a Safe entry that isn't default bloat must be `review`, unless it is named
-as a preinstalled component.
+Two loader tests keep it that way. `chosen_apps_outside_the_default_bloat_are_review`
+requires `review` on every Safe, Medium or Advanced entry that isn't default bloat,
+unless the entry is named in `PREINSTALLED_NOT_REVIEW`: the Safe and Medium rows
+of the preinstalled table below. High is for components the TV needs and isn't
+covered. `preinstalled_exceptions_exist_and_are_not_review` fails when a name on
+that list is no longer in any app list, or has become review, default bloat or
+defunct.
 
 ## Set to review (36)
 
@@ -79,29 +84,29 @@ Funimation, Stadia, Stadia (Android TV), Quibi, HBO Now (legacy).
 
 **Preinstalled components and services nobody installs:**
 
-| Package | Why left off |
-| --- | --- |
-| `com.android.printspooler` | Android print plumbing |
-| `com.android.gallery3d` | Stock photo viewer that ships with Android |
-| `com.google.android.tv.remote.service` | Google's remote and keyboard service |
-| `com.android.providers.tv` | Live Channels system provider |
-| `com.android.dreams.basic` | Built-in screensaver |
-| `com.google.android.katniss` | Google Assistant |
-| `com.google.android.apps.mediashell` | Chromecast built-in |
-| `com.google.android.tts` | Text-to-speech engine |
-| `com.google.android.play.games` | Preinstalled Google Play Games |
-| `com.google.android.tungsten.setupwraith` | Setup and Home component |
-| `com.google.android.backdrop` | Preinstalled Ambient Mode screensaver |
-| `com.google.android.tvrecommendations` | Home recommendations service |
-| `com.nvidia.osc` | Nvidia on-screen controls |
-| `com.nvidia.shieldtech.hooks` | Nvidia system hooks |
-| `com.nvidia.nvgamecast` | Preinstalled Nvidia GameStream |
-| `com.nvidia.ota` | Nvidia system updater |
-| `com.google.android.speech.pumpkin` | Speech services |
-| `com.google.android.tvlauncher` | Stock launcher |
-| `com.google.android.tungsten.overscan` | Overscan calibrator |
-| `com.droidlogic.launcher.provider` | Launcher provider |
-| `com.google.android.apps.tv.launcherx` | Google TV Home |
+| Package | Risk | Why left off |
+| --- | --- | --- |
+| `com.android.printspooler` | Safe | Android print plumbing |
+| `com.android.gallery3d` | Safe | Stock photo viewer that ships with Android |
+| `com.google.android.tv.remote.service` | Medium | Google's remote and keyboard service |
+| `com.android.providers.tv` | High | Live Channels system provider |
+| `com.android.dreams.basic` | Medium | Built-in screensaver |
+| `com.google.android.katniss` | High | Google Assistant |
+| `com.google.android.apps.mediashell` | High | Chromecast built-in |
+| `com.google.android.tts` | High | Text-to-speech engine |
+| `com.google.android.play.games` | Medium | Preinstalled Google Play Games |
+| `com.google.android.tungsten.setupwraith` | High | Setup and Home component |
+| `com.google.android.backdrop` | Medium | Preinstalled Ambient Mode screensaver |
+| `com.google.android.tvrecommendations` | High | Home recommendations service |
+| `com.nvidia.osc` | Medium | Nvidia on-screen controls |
+| `com.nvidia.shieldtech.hooks` | Medium | Nvidia system hooks |
+| `com.nvidia.nvgamecast` | Medium | Preinstalled Nvidia GameStream |
+| `com.nvidia.ota` | High | Nvidia system updater |
+| `com.google.android.speech.pumpkin` | High | Speech services |
+| `com.google.android.tvlauncher` | High | Stock launcher |
+| `com.google.android.tungsten.overscan` | Medium | Overscan calibrator |
+| `com.droidlogic.launcher.provider` | Medium | Launcher provider |
+| `com.google.android.apps.tv.launcherx` | High | Google TV Home |
 
 Two to note. `com.google.android.backdrop` (Ambient Mode) is preinstalled, so it
 stays off even though `com.google.android.apps.tv.dreamx` (Google TV Ambient
@@ -113,6 +118,8 @@ Optimize lists, so there was nothing to mark.
 
 A review row starts at Keep, shows "Review: disable if unused" (or "uninstall")
 with its last-used date, and gets no "Recommended" label. Desktop Optimize no
-longer has "Select all safe", so each one is armed by hand. Android's
+longer has "Select all safe", so each one is armed by hand. Restore mode has
+"Re-enable all disabled", which arms Enable on every disabled catalog app:
+turning apps back on is the safe direction. Android's
 "Select all" only appears on the Recommended tab, which holds default bloat and
 never a review app, and on Restore's re-enable list.

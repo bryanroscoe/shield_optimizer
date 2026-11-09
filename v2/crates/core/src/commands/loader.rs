@@ -905,25 +905,75 @@ mod tests {
         }
     }
 
+    /// Components that ship with the TV and that nobody installs, so they are
+    /// neither default bloat nor "remove only if unused". Each one is listed in
+    /// docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md with its reason.
+    const PREINSTALLED_NOT_REVIEW: &[&str] = &[
+        "com.android.printspooler",
+        "com.android.gallery3d",
+        "com.android.dreams.basic",
+        "com.google.android.tv.remote.service",
+        "com.google.android.play.games",
+        "com.google.android.backdrop",
+        "com.nvidia.osc",
+        "com.nvidia.shieldtech.hooks",
+        "com.nvidia.nvgamecast",
+        "com.google.android.tungsten.overscan",
+        "com.droidlogic.launcher.provider",
+    ];
+
     #[test]
-    fn safe_apps_outside_the_default_bloat_are_review() {
-        // A Safe entry that is not default bloat is an app someone installed or
-        // uses by choice, so it must read "remove only if unused". Preinstalled
-        // components nobody chooses are the named exceptions.
-        const PREINSTALLED: &[&str] = &["com.android.printspooler", "com.android.gallery3d"];
+    fn chosen_apps_outside_the_default_bloat_are_review() {
+        // A Safe, Medium or Advanced entry that is not default bloat is an app
+        // someone installed or uses by choice (Surfshark is Medium, Plex Media
+        // Server is Advanced), so it must read "remove only if unused". High is
+        // for components the TV needs, which are never a person's choice.
+        use crate::engine::types::RiskTier;
         let bundle = load_embedded_app_lists().expect("parse");
-        for list in [&bundle.common, &bundle.shield, &bundle.googletv] {
-            for e in list {
-                if e.risk == crate::engine::types::RiskTier::Safe
+        for (list, entries) in named_lists(&bundle) {
+            for e in entries {
+                if matches!(e.risk, RiskTier::Safe | RiskTier::Medium | RiskTier::Advanced)
                     && !e.default_optimize
-                    && !PREINSTALLED.contains(&e.package.as_str())
+                    && !PREINSTALLED_NOT_REVIEW.contains(&e.package.as_str())
                 {
                     assert!(
                         e.review,
-                        "{} is Safe, not default bloat and not preinstalled, so it needs review: true",
-                        e.package
+                        "{} in {list}.json is {:?}, not default bloat and not a listed preinstalled component, so it needs review: true",
+                        e.package, e.risk
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn preinstalled_exceptions_exist_and_are_not_review() {
+        // The exception list must not outlive its entries, and an exception that
+        // has since become review or default bloat no longer needs to be one.
+        let bundle = load_embedded_app_lists().expect("parse");
+        let all: Vec<&crate::engine::AppEntry> = named_lists(&bundle)
+            .into_iter()
+            .flat_map(|(_, entries)| entries.iter())
+            .collect();
+        for pkg in PREINSTALLED_NOT_REVIEW {
+            let matches: Vec<_> = all.iter().filter(|e| e.package == *pkg).collect();
+            assert!(
+                !matches.is_empty(),
+                "{pkg} is listed in PREINSTALLED_NOT_REVIEW but is in no app list; remove it"
+            );
+            for e in matches {
+                assert!(
+                    !e.review,
+                    "{pkg} is review: true, so it is not a preinstalled exception; remove it from PREINSTALLED_NOT_REVIEW"
+                );
+                assert!(
+                    !e.default_optimize,
+                    "{pkg} is default bloat, which the rule already skips; remove it from PREINSTALLED_NOT_REVIEW"
+                );
+                assert!(
+                    !e.defunct,
+                    "{pkg} is defunct, which is not a preinstalled component; remove it from PREINSTALLED_NOT_REVIEW"
+                );
             }
         }
     }
