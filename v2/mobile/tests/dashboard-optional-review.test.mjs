@@ -300,7 +300,7 @@ test("optional choices survive tabs and confirmation names every actual action",
   for (const name of ["Recommended One", "Optional Disable", "Optional Uninstall"]) {
     assert.equal(text.split(name).length - 1, 1, name);
   }
-  assert.match(text, /Reinstall works only while its APK remains on the TV/);
+  assert.match(text, /Restore can't bring it back\. Get it back from the Play Store\./);
   assert.match(text, /animation scales are set to 0.5×/);
   await page.getByRole("button", { name: "Cancel", exact: true }).click();
   assert.equal(
@@ -434,4 +434,110 @@ test("the confirm summary names the Safe verdict rather than calling it Caution"
   // Each app sits under its own tier with its verb: "Safe to remove: Disable …".
   assert.match(text, /Safe to remove: Disable Safe Default — Reviewed for Android TV/);
   assert.doesNotMatch(text, /Caution/);
+});
+
+test("Optimize has no Select all; Keep all clears every selection", async (t) => {
+  const one = item("Bloat One", { defaultOptimize: true });
+  const two = item("Bloat Two", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [one, two] } },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("2 selected", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("button", { name: /^Select all/ }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Re-enable all disabled", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Keep all", exact: true }).click();
+  await page.getByText("0 selected", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "Keep all", exact: true }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), true);
+});
+
+test("Restore's Re-enable all disabled selects every disabled curated app", async (t) => {
+  const defaultRestore = item("Default Restore", { defaultRestore: true, action: { kind: "enable" } });
+  const otherRestore = item("Other Restore", { action: { kind: "enable" } });
+  const page = await createPage(t, {
+    plans: {
+      optimize: { mode: "optimize", items: [] },
+      restore: { mode: "restore", items: [defaultRestore, otherRestore] },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  // Only the recommended one starts selected, as on desktop.
+  await page.getByText("1 selected", { exact: false }).waitFor();
+  await page.getByRole("button", { name: "Re-enable all disabled", exact: true }).click();
+  await page.getByText("2 selected", { exact: false }).waitFor();
+  await page.getByRole("button", { name: /Apply restore/ }).click();
+  const dialog = page.getByRole("heading", { name: "Re-enable 2 apps?" }).locator("..");
+  assert.match(await dialog.innerText(), /Re-enable Default Restore, Other Restore\./);
+});
+
+test("a row set to Uninstall says how the app comes back, and only while it is set", async (t) => {
+  const uninstall = item("Store App", { defaultOptimize: true, method: "uninstall" });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [uninstall] } },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("1 selected", { exact: false }).waitFor();
+  const line = page.locator(".row-uninstall");
+  assert.equal(await line.innerText(), "Get it back from the Play Store");
+  await page.getByRole("button", { name: "Toggle Store App", exact: true }).click();
+  await line.waitFor({ state: "detached" });
+});
+
+test("after a run changes the TV, Optimize offers to save a snapshot", async (t) => {
+  const one = item("Bloat One", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [one] } },
+  });
+  await page.evaluate(() => {
+    window.handlers.save_snapshot = (args) => ({
+      path: "/snap/1.json", filename: "1.json", saved_at: "2026-11-08T00:00:00Z", label: args.label ?? null,
+      device_name: args.deviceName, device_serial: args.serial, device_type: "shield",
+      disabled_count: 1, settings_count: 3, launcher: null,
+    });
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("1 selected", { exact: false }).waitFor();
+  const offer = page.getByRole("button", { name: /Save this setup as a snapshot/ });
+  assert.equal(await offer.count(), 0, "no offer before a run");
+  await page.getByRole("button", { name: /Apply optimization/ }).click();
+  await page.locator(".dialog-card").getByRole("button", { name: "Apply", exact: true }).click();
+  await offer.waitFor();
+  await offer.click();
+  await page.getByRole("status").filter({ hasText: "Snapshots screen" }).waitFor();
+  assert.match(await page.locator(".snapshot-result").innerText(), /Saved "After Optimize" with 1 disabled app\./);
+  assert.equal(await page.getByRole("button", { name: /Snapshot saved/ }).isDisabled(), true);
+  const saves = await page.evaluate(() => window.calls.filter((c) => c.command === "save_snapshot").map((c) => c.args));
+  assert.deepEqual(saves, [{ serial: "A:5555", deviceName: "Living Room", label: "After Optimize" }]);
+  // Switching to Restore drops the offer.
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page.getByRole("button", { name: "All curated", exact: true }).waitFor();
+  assert.equal(await page.getByRole("button", { name: /snapshot/i }).count(), 0);
+});
+
+test("Apply and the mode switch wait while a snapshot is saving", async (t) => {
+  const one = item("Bloat One", { defaultOptimize: true });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [one] } },
+  });
+  await page.evaluate(() => {
+    window.handlers.save_snapshot = () => new Promise((resolve) => { window.finishSave = resolve; });
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("1 selected", { exact: false }).waitFor();
+  await page.getByRole("button", { name: /Apply optimization/ }).click();
+  await page.locator(".dialog-card").getByRole("button", { name: "Apply", exact: true }).click();
+  await page.getByRole("button", { name: /Save this setup as a snapshot/ }).click();
+  await page.waitForFunction(() => !!window.finishSave);
+  assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
+  await page.evaluate(() => window.finishSave({
+    path: "/snap/1.json", filename: "1.json", saved_at: "2026-11-08T00:00:00Z", label: "After Optimize",
+    device_name: "Living Room", device_serial: "A:5555", device_type: "shield",
+    disabled_count: 1, settings_count: 3, launcher: null,
+  }));
+  await page.locator(".snapshot-result").waitFor();
+  assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), false);
+  assert.equal(await page.getByRole("button", { name: "Restore", exact: true }).isDisabled(), false);
 });
