@@ -18,8 +18,10 @@ export async function startViteServer() {
   const server = await createServer({
     root: fileURLToPath(new URL("../../", import.meta.url)),
     logLevel: "silent",
-    // The browser can finish Vite's initial crawl before its Svelte scan finds
-    // these imports, triggering a cold-cache reload in the first evaluation.
+    // Vite's dependency scan fails on src/screens/More.svelte (its "<!--" /
+    // "-->" string literals break the scanner's comment stripping), so deps
+    // are only found lazily and a late one reloads the page mid-test. List
+    // every bare package import from src/ here.
     optimizeDeps: {
       include: ["@tauri-apps/api/app", "@tauri-apps/api/core", "@tauri-apps/api/event"],
     },
