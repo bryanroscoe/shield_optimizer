@@ -176,7 +176,7 @@
 
 <HelpDetails label="Snapshot help">
   <p class="muted">
-    A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
+    A snapshot records which apps are disabled, which known apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds turned on; it never uninstalls.
     Restore to the same device, or to another
     one to copy its setup. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
   </p>

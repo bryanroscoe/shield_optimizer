@@ -8,12 +8,14 @@
 <div class="removal-help">
   <HelpTip label="Disable or uninstall">
     <p>
-      <strong>Uninstall</strong> is suggested for apps you installed from the Play Store. You can
-      reinstall them there any time, and uninstalling frees their storage.
+      <strong>Uninstall</strong> is suggested for Play Store apps that were added to this TV rather
+      than built in, such as ones you installed. You can get them back from the Play Store any time,
+      and uninstalling frees their storage.
     </p>
     <p>
       <strong>Disable</strong> is suggested for apps that came with the TV or were sideloaded. It is
-      fully reversible, and those apps can't be downloaded again from the store.
+      fully reversible. A built-in app stays in the TV's system storage either way, and a sideloaded
+      app can't be downloaded again from the store.
     </p>
     <p>
       Snapshots record both: the apps you disabled, and known apps that weren't on the TV. Restoring

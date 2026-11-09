@@ -167,6 +167,7 @@ async fn plan_for(
         .await
         .ok()
         .and_then(|r| r.package);
+    let catalog = state.app_lists.for_device(device.device_type);
     let plan = compute_apply_plan(
         snap,
         &ApplyPlanInputs {
@@ -177,6 +178,7 @@ async fn plan_for(
             current_launcher: current_launcher.as_deref(),
             home_handlers: reads.home_handlers.as_deref(),
             launchers: launchers(),
+            catalog: &catalog,
         },
     );
     Ok((plan, reads.home_handlers))
@@ -686,13 +688,15 @@ async fn apply_snapshot_impl(
         settings_deleted.len(),
         settings_failed.len()
     );
-    let absent_disabled = packages_disabled
+    let absent_disabled: Vec<&str> = packages_disabled
         .iter()
         .filter(|pkg| plan.packages_absent_in_snapshot.contains(pkg))
-        .count();
-    if absent_disabled > 0 {
+        .map(String::as_str)
+        .collect();
+    if !absent_disabled.is_empty() {
         summary.push_str(&format!(
-            " {absent_disabled} of them weren't installed when the snapshot was saved, so they were disabled, not uninstalled."
+            " Not installed in the snapshot, so disabled (a restore never uninstalls): {}.",
+            absent_disabled.join(", ")
         ));
     }
     if !kept.is_empty() {
@@ -1249,6 +1253,56 @@ mod tests {
         }
     }
 
+    /// A TV whose catalog lists `packages` as Safe review apps a restore may
+    /// turn off when the snapshot didn't have them.
+    fn catalog_state(mock: MockAdb, packages: &[&str]) -> crate::commands::AppState {
+        use crate::engine::{ActionMethod, AppEntry, AppListBundle, RiskTier};
+        let common = packages
+            .iter()
+            .map(|pkg| AppEntry {
+                package: pkg.to_string(),
+                name: pkg.to_string(),
+                method: ActionMethod::Disable,
+                risk: RiskTier::Safe,
+                optimize_description: String::new(),
+                restore_description: String::new(),
+                default_optimize: false,
+                default_restore: false,
+                play_store: true,
+                defunct: false,
+                review: true,
+                reviewed_at: None,
+                sources: Vec::new(),
+                device_scope: Vec::new(),
+            })
+            .collect();
+        crate::commands::AppState::new(
+            std::sync::Arc::new(mock),
+            AppListBundle {
+                common,
+                shield: Vec::new(),
+                googletv: Vec::new(),
+            },
+            std::env::temp_dir(),
+        )
+        .with_entitlement(crate::license::Entitlement::Pro)
+    }
+
+    #[tokio::test]
+    async fn a_restore_skips_an_absent_app_the_catalog_no_longer_lets_it_turn_off() {
+        const GONE: &str = "com.example.gone";
+        let mock = restore_tv(&[SETTINGS, GONE], &[], &[SETTINGS], "");
+        let log = mock.shell_log();
+        let mut snap = snapshot(None, &[]);
+        snap.absent_packages = vec![GONE.into()];
+        // Empty catalog: the snapshot's list alone is not enough.
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+            .await
+            .unwrap();
+        assert!(res.packages_disabled.is_empty());
+        assert!(!disabled_any(&log, GONE));
+    }
+
     #[tokio::test]
     async fn a_restore_disables_an_app_the_snapshot_did_not_have_and_never_uninstalls_it() {
         const GONE: &str = "com.example.gone";
@@ -1256,7 +1310,7 @@ mod tests {
         let log = mock.shell_log();
         let mut snap = snapshot(None, &[BLOAT]);
         snap.absent_packages = vec![GONE.into(), "com.example.missing".into()];
-        let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+        let res = apply_snapshot_impl(&catalog_state(mock, &[GONE]), "serial", &snap)
             .await
             .unwrap();
         assert_eq!(res.packages_disabled, [BLOAT, GONE]);
@@ -1267,8 +1321,9 @@ mod tests {
             res.summary
         );
         assert!(
-            res.summary
-                .contains("1 of them weren't installed when the snapshot was saved"),
+            res.summary.contains(&format!(
+                "Not installed in the snapshot, so disabled (a restore never uninstalls): {GONE}."
+            )),
             "{}",
             res.summary
         );
@@ -1287,7 +1342,7 @@ mod tests {
         let log = mock.shell_log();
         let mut snap = snapshot(None, &[]);
         snap.absent_packages = vec![PROTECTED.into()];
-        let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+        let res = apply_snapshot_impl(&catalog_state(mock, &[PROTECTED]), "serial", &snap)
             .await
             .unwrap();
         assert!(res.packages_disabled.is_empty());

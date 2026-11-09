@@ -135,17 +135,21 @@ impl Snapshot {
     }
 }
 
+/// A catalog app a restore may turn off because the snapshot didn't have it:
+/// Safe or Medium risk, and not one the catalog says belongs on the TV.
+fn restore_may_disable_absent(entry: &AppEntry) -> bool {
+    !entry.default_restore && matches!(entry.risk, RiskTier::Safe | RiskTier::Medium)
+}
+
 /// The catalog apps a snapshot records as absent: not installed for user 0,
-/// and ones a restore may turn off (Safe or Medium risk, not `default_restore`).
-/// `installed` must come from a successful, non-empty read.
+/// and ones a restore may turn off. `installed` must come from a successful,
+/// non-empty read.
 pub fn absent_catalog_packages(catalog: &[AppEntry], installed: &[String]) -> Vec<String> {
     let installed: std::collections::HashSet<&str> = installed.iter().map(String::as_str).collect();
     let mut absent: Vec<String> = catalog
         .iter()
         .filter(|entry| {
-            !entry.default_restore
-                && matches!(entry.risk, RiskTier::Safe | RiskTier::Medium)
-                && !installed.contains(entry.package.as_str())
+            restore_may_disable_absent(entry) && !installed.contains(entry.package.as_str())
         })
         .map(|entry| entry.package.clone())
         .collect();
@@ -234,6 +238,9 @@ pub struct ApplyPlanInputs<'a> {
     pub home_handlers: Option<&'a [String]>,
     /// The launcher catalog, which says which packages may be Home apps.
     pub launchers: &'a LauncherCatalog,
+    /// The target's app catalog. A snapshot's absent app is turned off only
+    /// while this still lists it as one a restore may turn off.
+    pub catalog: &'a [AppEntry],
 }
 
 /// Compute the plan for applying `snap` to a device in `inputs`' state.
@@ -265,17 +272,24 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         }
     }
     // An app the snapshot didn't have that this TV runs goes off, the
-    // reversible way. One already off or not here needs nothing.
-    let absent_to_disable: Vec<String> = snap
-        .absent_packages
-        .iter()
-        .filter(|pkg| {
-            installed_set.contains(pkg.as_str())
-                && !disabled_set.contains(pkg.as_str())
-                && !to_disable.contains(pkg)
-        })
-        .cloned()
-        .collect();
+    // reversible way. One already off or not here needs nothing. The target's
+    // catalog is checked again: the snapshot may be older than the catalog,
+    // from another device type, or edited by hand.
+    let mut absent_to_disable: Vec<String> = Vec::new();
+    for pkg in &snap.absent_packages {
+        let still_allowed = inputs
+            .catalog
+            .iter()
+            .any(|entry| &entry.package == pkg && restore_may_disable_absent(entry));
+        if still_allowed
+            && installed_set.contains(pkg.as_str())
+            && !disabled_set.contains(pkg.as_str())
+            && !to_disable.contains(pkg)
+            && !absent_to_disable.contains(pkg)
+        {
+            absent_to_disable.push(pkg.clone());
+        }
+    }
     to_disable.extend(absent_to_disable.iter().cloned());
 
     let cross_device_warning = if snap.device_type != inputs.target_device_type {
@@ -480,14 +494,31 @@ mod tests {
             "com.gone.here".into(),
             "com.gone.off".into(),
             "com.gone.running".into(),
-        ];
-        let installed = vec![
-            "com.foo".into(),
-            "com.gone.off".into(),
             "com.gone.running".into(),
+            "com.now.high".into(),
+            "com.now.belongs".into(),
+            "com.not.catalog".into(),
         ];
+        let installed: Vec<String> = [
+            "com.foo",
+            "com.gone.off",
+            "com.gone.running",
+            "com.now.high",
+            "com.now.belongs",
+            "com.not.catalog",
+        ]
+        .map(String::from)
+        .to_vec();
         let disabled = vec!["com.gone.off".into()];
         let no_settings = BTreeMap::new();
+        // Today's catalog: two entries a restore may no longer turn off.
+        let catalog = [
+            entry("com.gone.here", RiskTier::Safe, false),
+            entry("com.gone.off", RiskTier::Safe, false),
+            entry("com.gone.running", RiskTier::Medium, false),
+            entry("com.now.high", RiskTier::High, false),
+            entry("com.now.belongs", RiskTier::Safe, true),
+        ];
         let plan = compute_apply_plan(
             &snap,
             &ApplyPlanInputs {
@@ -498,8 +529,10 @@ mod tests {
                 current_launcher: None,
                 home_handlers: None,
                 launchers: &LauncherCatalog::default(),
+                catalog: &catalog,
             },
         );
+        // Once, even though the file lists it twice.
         assert_eq!(plan.packages_to_disable, ["com.foo", "com.gone.running"]);
         assert_eq!(plan.packages_absent_in_snapshot, ["com.gone.running"]);
         // Already off, or not on this TV either: nothing to do, nothing listed.
@@ -558,6 +591,7 @@ mod tests {
                 current_launcher: None,
                 home_handlers: None,
                 launchers: &LauncherCatalog::default(),
+                catalog: &[],
             },
         );
         assert_eq!(plan.settings_to_delete, [absent_key]);
@@ -574,6 +608,7 @@ mod tests {
                 current_launcher: None,
                 home_handlers: None,
                 launchers: &LauncherCatalog::default(),
+                catalog: &[],
             },
         );
         assert!(unchanged.settings_to_delete.is_empty());
@@ -603,6 +638,7 @@ mod tests {
                     current_launcher: None,
                     home_handlers: None,
                     launchers: &LauncherCatalog::default(),
+                    catalog: &[],
                 },
             );
             assert!(plan.settings_to_delete.is_empty());
@@ -694,6 +730,7 @@ mod tests {
             current_launcher: None,
             home_handlers: None,
             launchers: &LauncherCatalog::default(),
+            catalog: &[],
         };
         let plan = compute_apply_plan(&snap, &inputs);
         assert_eq!(plan.packages_to_disable, vec!["com.foo"]);
@@ -727,6 +764,7 @@ mod tests {
                 current_launcher: None,
                 home_handlers: None,
                 launchers: &LauncherCatalog::default(),
+                catalog: &[],
             },
         );
         assert!(plan.settings_to_write.is_empty());
@@ -747,6 +785,7 @@ mod tests {
                 current_launcher: None,
                 home_handlers: None,
                 launchers: &LauncherCatalog::default(),
+                catalog: &[],
             },
         );
         assert_eq!(plan.settings_to_write.len(), 1);
@@ -767,6 +806,7 @@ mod tests {
             current_launcher: None,
             home_handlers: None,
             launchers: &LauncherCatalog::default(),
+            catalog: &[],
         };
         let plan = compute_apply_plan(&snap, &inputs);
         assert!(plan.cross_device_warning.is_some());
@@ -793,6 +833,7 @@ mod tests {
             current_launcher,
             home_handlers: None,
             launchers: &NO_LAUNCHERS,
+            catalog: &[],
         }
     }
 
@@ -901,6 +942,7 @@ mod tests {
                 &ApplyPlanInputs {
                     home_handlers,
                     launchers: &launchers,
+                    catalog: &[],
                     ..launcher_inputs(&installed, &settings, Some(stock))
                 },
             );

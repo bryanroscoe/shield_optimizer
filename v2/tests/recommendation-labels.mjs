@@ -85,7 +85,7 @@ async function checkRemovalHelp(page, root, where) {
   await page.keyboard.press("Enter");
   await panel.waitFor({ state: "visible" });
   const text = await panel.innerText();
-  assert.match(text, /Uninstall is suggested for apps you installed from the Play Store/);
+  assert.match(text, /Uninstall is suggested for Play Store apps that were added to this TV/);
   assert.match(text, /Disable is suggested for apps that came with the TV or were sideloaded/);
   assert.match(text, /Snapshots record both/);
   await page.keyboard.press("Escape");

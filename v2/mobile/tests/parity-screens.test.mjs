@@ -35,6 +35,7 @@ const item = (name, options = {}) => ({
   entry: entry(name, options),
   action: options.action ?? { kind: options.method === "uninstall" ? "uninstall" : "disable" },
   memory_mb: options.memoryMb ?? null,
+  install_source: options.installSource,
 });
 
 async function createPage(t, options = {}) {
@@ -176,7 +177,7 @@ test("an Optimize row prints the catalog sentence once when the safety reason al
 
 test("Safe to remove and review chips stay on one line at 384px", async (t) => {
   const safe = item("A Long Application Name That Wraps", { defaultOptimize: true, memoryMb: 512 });
-  const review = item("Reviewed Player", { review: true, method: "uninstall" });
+  const review = item("Reviewed Player", { review: true, method: "uninstall", installSource: "user" });
   const page = await createPage(t, {
     plans: { optimize: { mode: "optimize", items: [safe, review] } },
     safety: {

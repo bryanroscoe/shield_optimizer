@@ -3574,7 +3574,7 @@
       </div>
       <HelpDetails label="Snapshot contents">
         <p class="muted small snap-explainer">
-          A snapshot records which apps are disabled, your Home app and a set of display, audio, HDMI-CEC and screensaver settings.
+          A snapshot records which apps are disabled, which known apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds turned on; it never uninstalls.
         </p>
       </HelpDetails>
       <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
