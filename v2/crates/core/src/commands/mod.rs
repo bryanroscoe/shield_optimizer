@@ -22,6 +22,7 @@ pub mod snapshot;
 pub mod state;
 pub mod telemetry;
 pub mod tuning;
+mod verification;
 
 pub use license::license_info;
 pub use state::AppState;
@@ -79,6 +80,7 @@ pub mod test_support {
         /// Stdout plus an explicit exit code — a command that answered and
         /// still exited nonzero, like `pm has-feature` saying "false".
         Code(String, i32),
+        Output(AdbOutput),
         Err(String),
     }
 
@@ -146,6 +148,11 @@ pub mod test_support {
         pub fn on_shell_exit(mut self, needle: &str, stdout: &str, exit_code: i32) -> Self {
             self.shell_rules
                 .push(Rule::single(needle, Reply::Code(stdout.into(), exit_code)));
+            self
+        }
+        pub fn on_shell_output(mut self, needle: &str, output: AdbOutput) -> Self {
+            self.shell_rules
+                .push(Rule::single(needle, Reply::Output(output)));
             self
         }
         /// Make matching `shell` calls fail with a typed `AdbError` carrying
@@ -238,6 +245,7 @@ pub mod test_support {
                     .fetch_add(1, Ordering::Relaxed)
                     .min(rule.replies.len() - 1);
                 return match &rule.replies[idx] {
+                    Reply::Output(out) => Ok(out.clone()),
                     Reply::Ok(out) => ok(out.clone()),
                     Reply::Code(out, code) => Ok(AdbOutput {
                         stdout: out.clone(),
@@ -288,6 +296,7 @@ pub mod test_support {
                 .find(|(s, rule)| s == serial && command.contains(rule.needle.as_str()));
             if let Some((_, rule)) = for_serial {
                 return match &rule.replies[0] {
+                    Reply::Output(out) => Ok(out.clone()),
                     Reply::Ok(out) => ok(out.clone()),
                     Reply::Code(out, code) => Ok(AdbOutput {
                         stdout: out.clone(),
