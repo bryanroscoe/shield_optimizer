@@ -81,6 +81,13 @@ try {
         await health.getByRole('button', { name: 'Refresh', exact: true }).click();
         await tile.locator('.stat-foot').getByText('Emergency thermal status', { exact: true }).waitFor();
         assert.equal(await tile.locator('.stat-big.danger').count(), 1);
+        // A sensor reporting throttling is not hidden behind a calm device status.
+        await page.evaluate(() => {
+          window.parityHealth = { thermal_status: 0, temperature_reading: { celsius: 78, source: 'thermalservice_current', sensor_name: 'CPU', sensor_type: 'CPU', status: 4, throttling_c: null, shutdown_c: null } };
+        });
+        await health.getByRole('button', { name: 'Refresh', exact: true }).click();
+        await tile.locator('.stat-foot').getByText('Sensor: Critical thermal status', { exact: true }).waitFor();
+        assert.equal(await tile.locator('.stat-big.danger').count(), 1);
         await page.evaluate(() => { window.parityHealth = { temperature_c: 95, temperature_reading: null, thermal_status: null }; });
         await health.getByRole('button', { name: 'Refresh', exact: true }).click();
         await tile.locator('.stat-foot').getByText('Thermal status not reported', { exact: true }).waitFor();
@@ -108,12 +115,14 @@ try {
       await caret.click();
       const stop = page.getByRole('button', { name: 'Force stop', exact: true }).first();
       await stop.waitFor();
+      await page.waitForFunction(() => !document.body.innerText.includes('Reading…'));
+      const measuredBefore = (await calls(page, 'app_memory_map')).length;
       await stop.click();
       await page.getByText(/^Stopped .+\.$/).first().waitFor();
       const stopped = await calls(page, 'force_stop');
       assert.equal(stopped.length, 1);
       assert.ok(stopped[0].args.package, 'force stop names the package');
-      await page.waitForFunction(() => window.parityCalls.some(c => c.command === 'app_memory_map'));
+      await page.waitForFunction(count => window.parityCalls.filter(c => c.command === 'app_memory_map').length > count, measuredBefore);
       await pause(1500);
       await shot('app-force-stop');
       await context.close();
@@ -125,6 +134,9 @@ try {
   const page = await context.newPage();
   await page.goto(url, { waitUntil: 'networkidle' });
   await page.getByText('Living Room Box', { exact: false }).first().click();
+  // The device type arrives with the profile; wait for it before asserting absence.
+  await page.getByRole('heading', { name: 'Living Room Box' }).waitFor();
+  await page.getByText('Unknown', { exact: true }).first().waitFor();
   await page.getByRole('tab', { name: 'Remote', exact: true }).click();
   await page.locator('#tabpanel-remote').getByRole('button', { name: 'Back', exact: true }).waitFor();
   assert.equal(await page.getByRole('button', { name: 'Find remote' }).count(), 0, 'Find remote is Shield-only');
