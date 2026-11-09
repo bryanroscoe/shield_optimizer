@@ -63,7 +63,14 @@ function billingStatus() {
     offer:
       demoBilling === "unavailable"
         ? null
-        : { formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
+        : { product_id: "atvopt_pro", formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
+    support_offers:
+      demoBilling === "unavailable"
+        ? []
+        : [
+            { product_id: "atvopt_pro_support_1", formatted_price: "$9.99", title: "ATV Optimizer Pro, supporter", name: "ATV Optimizer Pro, supporter", description: "" },
+            { product_id: "atvopt_pro_support_2", formatted_price: "$19.99", title: "ATV Optimizer Pro, big supporter", name: "ATV Optimizer Pro, big supporter", description: "" },
+          ],
     ack_pending: false,
     product_id: "atvopt_pro",
   };

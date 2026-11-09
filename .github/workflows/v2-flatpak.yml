@@ -1,0 +1,111 @@
+# ATV Optimizer (v2) Flatpak: builds the app from source inside the GNOME
+# runtime with flatpak-builder, offline, exactly as Flathub would. Runs on PRs
+# that touch the packaging or a lockfile, and from v2-release.yml on every tag,
+# which attaches the bundle to the GitHub release.
+
+name: v2 Flatpak
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, closed]
+    paths:
+      - 'v2/flatpak/**'
+      - 'v2/Cargo.lock'
+      - 'v2/package-lock.json'
+      - 'v2/src-tauri/tauri.conf.json'
+      - '.github/workflows/v2-flatpak.yml'
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      upload-tag:
+        description: Release tag to attach the bundle to.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ inputs.upload-tag || '' }}-${{ (github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci' && github.run_id || 'ci' }}
+  cancel-in-progress: true
+
+jobs:
+  sources:
+    if: >-
+      github.event_name != 'pull_request' ||
+      (github.event.pull_request.state == 'open' &&
+       !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+       ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+        github.event.label.name == 'skip-ci'))
+    name: Generate sources and validate metadata
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate desktop file and AppStream metadata
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y desktop-file-utils appstream
+          desktop-file-validate v2/flatpak/io.github.bryanroscoe.ATVOptimizer.desktop
+          appstreamcli validate --no-net --explain v2/flatpak/io.github.bryanroscoe.ATVOptimizer.metainfo.xml
+
+      - name: Metainfo lists the version being built
+        run: |
+          version=$(python3 -c "import json; print(json.load(open('v2/src-tauri/tauri.conf.json'))['version'])")
+          grep -q "<release version=\"$version\"" v2/flatpak/io.github.bryanroscoe.ATVOptimizer.metainfo.xml || {
+            echo "::error::v2/flatpak metainfo has no <release version=\"$version\">. release.sh adds it; add it by hand for a manual bump."
+            exit 1
+          }
+
+      - name: Generate offline sources
+        run: v2/flatpak/generate-sources.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak-generated-sources
+          path: v2/flatpak/generated-sources/
+          retention-days: 7
+
+  build:
+    needs: sources
+    name: Build Flatpak bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v5
+        with:
+          name: flatpak-generated-sources
+          path: v2/flatpak/generated-sources
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: v2/flatpak/io.github.bryanroscoe.ATVOptimizer.yml
+          bundle: atv-optimizer.flatpak
+          artifact-name: atv-optimizer-flatpak
+          cache-key: flatpak-builder-${{ hashFiles('v2/Cargo.lock', 'v2/package-lock.json', 'v2/flatpak/*.yml') }}
+
+  upload:
+    needs: build
+    if: inputs.upload-tag != ''
+    name: Attach bundle to the release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: atv-optimizer-flatpak
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.upload-tag }}
+        run: |
+          version="${TAG#v2-}"
+          asset="ATV.Optimizer_${version}_x86_64.flatpak"
+          mv atv-optimizer.flatpak "$asset"
+          gh release upload "$TAG" "$asset" --clobber --repo "$GITHUB_REPOSITORY"

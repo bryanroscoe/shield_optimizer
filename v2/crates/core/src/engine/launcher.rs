@@ -227,6 +227,135 @@ pub fn is_last_enabled_home_handler(
     target_is_enabled && remaining == 0
 }
 
+/// Why a bulk disable (a snapshot restore) leaves a Home app on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HomeKeepReason {
+    /// Disabling it would leave no enabled launcher.
+    OnlyHomeApp,
+    /// The Home-app list couldn't be read, so no disable of a Home app can be
+    /// proven to leave one.
+    HomeAppsUnreadable,
+    /// The stock launcher it is paired with stays on, and the two go off
+    /// together or not at all (#157, #158).
+    PairedStockKept,
+}
+
+impl HomeKeepReason {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::OnlyHomeApp => "only Home app",
+            Self::HomeAppsUnreadable => "Home apps unreadable",
+            Self::PairedStockKept => "its stock launcher stays on",
+        }
+    }
+}
+
+/// Whether `pkg` may be a Home app. Without a readable handler list only the
+/// catalog's launchers and setup helpers and the current Home count, so an
+/// unreadable list never blocks unrelated apps.
+pub fn may_be_home_handler(
+    pkg: &str,
+    enabled_handlers: Option<&[String]>,
+    current_home: Option<&str>,
+    catalog: &LauncherCatalog,
+) -> bool {
+    catalog.contains(pkg)
+        || catalog.is_transient_home_holder(pkg)
+        || current_home == Some(pkg)
+        || enabled_handlers.is_some_and(|h| h.iter().any(|x| x == pkg))
+}
+
+/// Why disabling `pkg` must be refused so the TV keeps a Home screen, or
+/// `None` when it may go. `enabled_handlers` is what the HOME query listed;
+/// `None` or an empty list means it couldn't be read, which refuses every
+/// Home candidate. `kept` names the packages this run already left on.
+pub fn home_keep_reason(
+    pkg: &str,
+    enabled_handlers: Option<&[String]>,
+    current_home: Option<&str>,
+    kept: &[String],
+    catalog: &LauncherCatalog,
+) -> Option<HomeKeepReason> {
+    if !may_be_home_handler(pkg, enabled_handlers, current_home, catalog) {
+        return None;
+    }
+    let paired_stock_kept = catalog.is_transient_home_holder(pkg)
+        && catalog.stock.iter().any(|stock| {
+            stock.disable_with.iter().any(|h| h == pkg) && kept.contains(&stock.package)
+        });
+    if paired_stock_kept {
+        return Some(HomeKeepReason::PairedStockKept);
+    }
+    match enabled_handlers {
+        Some(handlers) if !handlers.is_empty() => {
+            is_last_enabled_home_handler(pkg, handlers, catalog)
+                .then_some(HomeKeepReason::OnlyHomeApp)
+        }
+        _ => Some(HomeKeepReason::HomeAppsUnreadable),
+    }
+}
+
+/// The order a bulk disable runs in: unrelated apps, then other Home apps,
+/// then stock launchers, then setup helpers after the stock launcher they
+/// follow. Stock goes last among launchers so that when only one Home app can
+/// stay, it is the one the TV shipped with. Stable within each group.
+pub fn order_for_home_safety(
+    pkgs: &[String],
+    enabled_handlers: Option<&[String]>,
+    current_home: Option<&str>,
+    catalog: &LauncherCatalog,
+) -> Vec<String> {
+    let rank = |p: &str| {
+        if catalog.is_transient_home_holder(p) {
+            3
+        } else if catalog.is_stock(p) {
+            2
+        } else if may_be_home_handler(p, enabled_handlers, current_home, catalog) {
+            1
+        } else {
+            0
+        }
+    };
+    let mut out = pkgs.to_vec();
+    out.sort_by_key(|p| rank(p));
+    out
+}
+
+/// Split a bulk disable into the packages to run, in run order, and the Home
+/// apps to keep on. Each allowed disable leaves the handler list before the
+/// next decision, as it would on the device.
+pub fn plan_home_safe_disables(
+    pkgs: &[String],
+    enabled_handlers: Option<&[String]>,
+    current_home: Option<&str>,
+    catalog: &LauncherCatalog,
+) -> (Vec<String>, Vec<(String, HomeKeepReason)>) {
+    let mut remaining = enabled_handlers
+        .filter(|h| !h.is_empty())
+        .map(<[String]>::to_vec);
+    let mut run = Vec::new();
+    let mut kept: Vec<(String, HomeKeepReason)> = Vec::new();
+    for pkg in order_for_home_safety(pkgs, enabled_handlers, current_home, catalog) {
+        let kept_names: Vec<String> = kept.iter().map(|(p, _)| p.clone()).collect();
+        match home_keep_reason(
+            &pkg,
+            remaining.as_deref(),
+            current_home,
+            &kept_names,
+            catalog,
+        ) {
+            Some(reason) => kept.push((pkg, reason)),
+            None => {
+                if let Some(handlers) = remaining.as_mut() {
+                    handlers.retain(|h| h != &pkg);
+                }
+                run.push(pkg);
+            }
+        }
+    }
+    (run, kept)
+}
+
 /// Which package holds Home, and how sure the reading is.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct HomeReading {
@@ -697,6 +826,95 @@ mod tests {
             &cat
         ));
         assert!(is_last_enabled_home_handler(WRAITH, &pkgs(&[WRAITH]), &cat));
+    }
+
+    #[test]
+    fn a_bulk_disable_keeps_stock_and_its_helper_when_no_other_launcher_is_enabled() {
+        // A snapshot from a TV whose Home was Projectivy, applied where
+        // Projectivy isn't installed: stock is the only real Home app left.
+        let cat = google_tv_catalog();
+        let handlers = pkgs(&[GTV_HOME, WRAITH, "com.android.tv.settings"]);
+        let (run, kept) = plan_home_safe_disables(
+            &pkgs(&[WRAITH, GTV_HOME, "com.example.bloat"]),
+            Some(&handlers),
+            Some(GTV_HOME),
+            &cat,
+        );
+        assert_eq!(run, pkgs(&["com.example.bloat"]));
+        assert_eq!(
+            kept,
+            vec![
+                (GTV_HOME.to_string(), HomeKeepReason::OnlyHomeApp),
+                (WRAITH.to_string(), HomeKeepReason::PairedStockKept),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_bulk_disable_runs_stock_after_other_launchers_and_helpers_last() {
+        let cat = google_tv_catalog();
+        let handlers = pkgs(&[MONET, GTV_HOME, WRAITH, "com.spocky.projengmenu"]);
+        let (run, kept) = plan_home_safe_disables(
+            &pkgs(&[
+                WRAITH,
+                GTV_HOME,
+                "com.spocky.projengmenu",
+                "com.example.bloat",
+            ]),
+            Some(&handlers),
+            Some(GTV_HOME),
+            &cat,
+        );
+        assert_eq!(
+            run,
+            pkgs(&[
+                "com.example.bloat",
+                "com.spocky.projengmenu",
+                GTV_HOME,
+                WRAITH
+            ])
+        );
+        assert!(kept.is_empty(), "{kept:?}");
+
+        // Two launchers, one Home slot: stock is the one that stays.
+        let handlers = pkgs(&[GTV_HOME, "com.spocky.projengmenu"]);
+        let (run, kept) = plan_home_safe_disables(
+            &pkgs(&[GTV_HOME, "com.spocky.projengmenu"]),
+            Some(&handlers),
+            None,
+            &cat,
+        );
+        assert_eq!(run, pkgs(&["com.spocky.projengmenu"]));
+        assert_eq!(
+            kept,
+            vec![(GTV_HOME.to_string(), HomeKeepReason::OnlyHomeApp)]
+        );
+    }
+
+    #[test]
+    fn an_unreadable_home_list_keeps_every_home_candidate_and_nothing_else() {
+        let cat = google_tv_catalog();
+        for unreadable in [None, Some(&[][..])] {
+            let (run, kept) = plan_home_safe_disables(
+                &pkgs(&[
+                    "com.example.bloat",
+                    GTV_HOME,
+                    "com.spocky.projengmenu",
+                    "com.example.homeapp",
+                ]),
+                unreadable,
+                Some("com.example.homeapp"),
+                &cat,
+            );
+            assert_eq!(run, pkgs(&["com.example.bloat"]));
+            assert_eq!(
+                kept.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+                ["com.spocky.projengmenu", "com.example.homeapp", GTV_HOME]
+            );
+            assert!(kept
+                .iter()
+                .all(|(_, r)| *r == HomeKeepReason::HomeAppsUnreadable));
+        }
     }
 
     #[test]

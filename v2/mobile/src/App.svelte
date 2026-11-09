@@ -76,7 +76,9 @@
     });
     const hasEvents = "__TAURI_EVENT_PLUGIN_INTERNALS__" in window;
     if (hasEvents) listen("support-tiers-updated", () => {
-      if (session.connectedDevice) void session.refreshDevices().catch(() => {});
+      // Only a live connection has a profile to re-read; a lost one must keep
+      // its last profile for the banner and the network-return redial.
+      if (session.isConnected) void session.refreshDevices().catch(() => {});
     })
       .then((stop) => (unmounted ? stop() : (stopTierWatch = stop)))
       .catch(() => {});
@@ -113,13 +115,14 @@
   });
 </script>
 
+<!-- One stack so the report notice and the connection banner never cover
+     each other. Onboarding shows the notice in its own page flow instead, so
+     nothing floats over the buttons that get the user connected. -->
 {#if router.current !== "onboarding" && router.current !== "addtv"}
-  <ConnectionBanner onSwitch={() => navigate("devices")} />
-{/if}
-<!-- Waits until the user is past onboarding and the saved-TV picker, so
-     it never sits over the buttons that get them connected. -->
-{#if router.current !== "onboarding" && router.current !== "addtv"}
-  <TelemetryNotice onOpenSettings={() => navigate("more")} />
+  <div class="bottom-stack">
+    <TelemetryNotice onOpenSettings={() => navigate("more")} />
+    <ConnectionBanner onSwitch={() => navigate("devices")} />
+  </div>
 {/if}
 {#if session.identityNote}
   <Toast message={session.identityNote} type="info" />
@@ -163,3 +166,17 @@
 {:else if router.current === "backups"}
   <Backups {back} />
 {/if}
+
+<style>
+  .bottom-stack {
+    position: fixed;
+    /* Same column as the screens, which cap at --content-max on tablets. */
+    left: max(16px, calc((100% - var(--content-max)) / 2));
+    right: max(16px, calc((100% - var(--content-max)) / 2));
+    bottom: calc(env(safe-area-inset-bottom) + 88px);
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+</style>

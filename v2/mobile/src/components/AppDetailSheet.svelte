@@ -402,7 +402,7 @@
             disabled={busy || !stateKnown || disableBlocked}
             onclick={() => requestToggle(app)}
           >
-            {app.state === "disabled" ? "Enable" : "Disable"}
+            {#if app.state === "disabled"}Enable{:else}Disable{#if !session.isPro}<span class="pro-badge">PRO</span>{/if}{/if}
           </button>
           {#if offerUninstall}
             <button class="act-btn wide danger" disabled={busy || uninstallBlocked} onclick={() => requestUninstall(app)}>

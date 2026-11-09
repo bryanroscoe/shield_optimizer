@@ -51,6 +51,22 @@ pub trait ADBMessageTransport: ADBTransport + Clone + Send + 'static {
     /// messages themselves enforce it on every later read and write.
     fn apply_connection_info(&mut self, _info: &ConnectionInfo) {}
 
+    /// How many client certificates [`Self::upgrade_connection`] can choose
+    /// from.
+    fn tls_identity_count(&self) -> usize {
+        1
+    }
+
+    /// Present certificate `index` on the next upgrade, or `None` to choose
+    /// from the device's hints.
+    fn present_tls_identity(&mut self, _index: Option<usize>) {}
+
+    /// The certificate the last upgrade presented, and whether the device's
+    /// hints named it. `None` until a device asked for one.
+    fn presented_tls_identity(&self) -> Option<(usize, bool)> {
+        None
+    }
+
     /// Largest payload this side may send. A transport that does not record
     /// the negotiated limit stays within what every adbd accepts.
     fn max_payload(&self) -> usize {

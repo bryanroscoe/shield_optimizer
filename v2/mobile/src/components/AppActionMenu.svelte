@@ -43,7 +43,7 @@
             item.run();
           }}
         >
-          <span class="msr">{item.icon}</span>{item.label}
+          <span class="msr">{item.icon}</span>{item.label}{#if item.pro}<span class="pro-badge">PRO</span>{/if}
         </button>
       {/each}
     </div>
@@ -128,6 +128,15 @@
   .menu-item.danger,
   .menu-item.danger .msr {
     color: var(--danger);
+  }
+  .pro-badge {
+    margin-left: -6px;
+    font-size: 9px;
+    font-weight: 700;
+    background: var(--accent);
+    color: var(--accent-ink);
+    padding: 2px 5px;
+    border-radius: 5px;
   }
   @keyframes sheetUp {
     from {

@@ -458,6 +458,11 @@ test("stock takeover dialog locks scrolling, traps focus and Escape cancels with
     await page.waitForTimeout(700);
   }
   await page.keyboard.press("Shift+Tab");
+  // With the actions pinned, overflowing text is its own Tab stop just before them.
+  if (await page.evaluate(() => document.activeElement?.hasAttribute("data-modal-scroll-stop"))) {
+    assert.equal(await dialog.locator(".dialog-body").evaluate(el => document.activeElement === el), true);
+    await page.keyboard.press("Shift+Tab");
+  }
   assert.equal(await dialog.getByRole("button", { name: "Cancel", exact: true }).evaluate(el => document.activeElement === el), true);
   assert.equal(await dialog.getAttribute("aria-modal"), "true");
   const visible = await dialog.getByRole("button", { name: "Cancel", exact: true }).evaluate(el => {
@@ -568,4 +573,107 @@ test('ordinary stock row keeps its launcher disable command', async t => {
   await page.getByRole('dialog', { name: 'Disable Google TV Home?', exact: true }).getByRole('button', { name: 'Disable', exact: true }).click();
   await page.waitForFunction(() => calls.some(c => c.command === 'disable_launcher'));
   assert.equal(await count(page, 'disable_setup_helper'), 0);
+});
+
+test("a stock takeover offered by a not-ok switch opens after the re-read, and its confirm switches", async (t) => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY, { entry: { name: "Projectivy" } })], current: STOCK });
+  await page.evaluate(() => {
+    window.handlers.set_default_launcher = ({ allowStockDisable }) => allowStockDisable
+      ? { ok: true, strategy: "disable_stock_takeover", current_launcher: "com.spocky.projengmenu", last_error: null, stock_takeover_available: false }
+      : { ok: false, strategy: null, current_launcher: null, last_error: null, stock_takeover_available: true };
+    // Hold the follow-up re-read so a confirm could race it.
+    window.handlers.list_launchers = () => new Promise((resolve) => { window.finishReread = () => resolve(structuredClone(window.launchers)); });
+  });
+  await page.locator(".launcher-row", { hasText: "Projectivy" }).getByRole("button", { name: /Set default/ }).click();
+  await page.waitForFunction(() => !!window.finishReread);
+  const confirm = page.getByRole("button", { name: "Disable stock & switch" });
+  assert.equal(await confirm.count(), 0, "the dialog waits for the re-read");
+  await page.evaluate(() => { delete window.handlers.list_launchers; window.finishReread(); });
+  await confirm.click();
+  await page.waitForFunction(() => window.calls.filter((c) => c.command === "set_default_launcher").length === 2);
+  const args = await page.evaluate(() => window.calls.filter((c) => c.command === "set_default_launcher").map((c) => c.args.allowStockDisable));
+  assert.deepEqual(args, [false, true]);
+  await page.getByText(/Projectivy is now the default launcher/).waitFor();
+});
+
+test("stock Disable is off with a reason while the current Home app can't be read", async (t) => {
+  const page = await open(t, { launchers: [stock(true), row(PROJECTIVY, { entry: { name: "Projectivy" } })], current: STOCK });
+  await page.evaluate(() => { window.handlers.current_launcher = () => { throw "resolver timed out"; }; });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByText("Couldn't read the current launcher").waitFor();
+  const stockRow = page.locator(".launcher-row", { hasText: "Google TV Home" });
+  const disable = stockRow.getByRole("button", { name: "Disable", exact: true });
+  assert.equal(await disable.isDisabled(), true);
+  await stockRow.getByText(/Disable is off until the TV reports its current Home app/).waitFor();
+  assert.match(await disable.evaluate((b) => document.getElementById(b.getAttribute("aria-describedby"))?.textContent ?? ""), /current Home app/);
+  assert.equal(await count(page, "disable_launcher"), 0);
+
+  await page.evaluate(() => { delete window.handlers.current_launcher; window.current = "com.spocky.projengmenu"; });
+  await page.locator(".active-card").getByRole("button", { name: "Retry" }).click();
+  await page.locator(".launcher-row.active", { hasText: "Projectivy" }).waitFor();
+  assert.equal(await disable.isDisabled(), false);
+  assert.equal(await stockRow.getByText(/Disable is off/).count(), 0);
+});
+
+test("every launcher with a source_url offers its source page, left-aligned when it wraps", async (t) => {
+  const page = await open(t, {
+    launchers: [
+      row(STOCK, { stock: true, entry: { name: "Google TV Home", source_url: "https://play.google.com/store/apps/details?id=com.google.android.apps.tv.launcherx" } }),
+      row(PROJECTIVY, { entry: { name: "Projectivy", source_url: "https://www.projectivy.app/download" } }),
+      row(FLAUNCHER, { installed: false, enabled: false, entry: { name: "FLauncher", source_url: "https://gitlab.com/flauncher/flauncher" } }),
+    ],
+    current: STOCK,
+  });
+  await page.getByRole("button", { name: "Source site for Google TV Home (play.google.com)" }).waitFor();
+  await page.getByRole("button", { name: "Source site for FLauncher (gitlab.com)" }).waitFor();
+  await page.getByRole("button", { name: "Source site for Projectivy (projectivy.app)" }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "plugin:opener|open_url"));
+  assert.deepEqual(await page.evaluate(() => window.calls.find((c) => c.command === "plugin:opener|open_url").args), { url: "https://www.projectivy.app/download" });
+
+  await page.setViewportSize({ width: 320, height: 812 });
+  const link = page.getByRole("button", { name: "Source site for Google TV Home (play.google.com)" });
+  const geometry = await link.evaluate((button) => {
+    const icon = button.querySelector(".msr").getBoundingClientRect();
+    const text = button.querySelector(".src-text").getBoundingClientRect();
+    const body = button.closest(".l-body").getBoundingClientRect();
+    return { align: getComputedStyle(button).textAlign, iconLeft: icon.left, bodyLeft: body.left, iconTop: icon.top, textTop: text.top, textLeft: text.left };
+  });
+  assert.equal(geometry.align, "left");
+  assert.ok(Math.abs(geometry.iconLeft - geometry.bodyLeft) < 1, "icon starts at the row's text edge");
+  assert.ok(Math.abs(geometry.iconTop - geometry.textTop) < 4, "icon sits on the first line");
+  assert.ok(geometry.textLeft > geometry.iconLeft);
+});
+
+test("the no-Home-screen warning stays visible; routine launcher notes are in help", async (t) => {
+  const page = await open(t, { launchers: [stock(true)], current: STOCK });
+  const warning = page.getByText(/leaves the TV with no\s+home screen/);
+  await warning.waitFor();
+  assert.equal(await warning.evaluate((el) => !!el.closest("details")), false);
+  const routine = page.getByText(/Changing the launcher is reversible/);
+  assert.equal(await routine.isVisible(), false);
+  const summary = page.getByRole("button", { name: "About changing launchers", exact: true });
+  await summary.focus();
+  await page.keyboard.press("Enter");
+  await routine.waitFor();
+  assert.match(await routine.innerText(), /never re-enables or reinstalls anything/);
+});
+
+test("stock takeover dialog keeps its three choices on screen while its text scrolls", async (t) => {
+  const page = await open(t, { launchers: [stock(true), wraith(true)], current: PROJECTIVY });
+  await page.getByRole("button", { name: /Advanced: set another app as Home/ }).click();
+  await page.getByRole("button", { name: "Choose an app" }).click();
+  await page.getByRole("button", { name: /Choose Projectivy/ }).click();
+  await page.setViewportSize({ width: 275, height: 380 });
+  await page.getByRole("button", { name: /Disable stock launcher/ }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Confirm disabling the stock launcher" });
+  await dialog.waitFor();
+  for (const name of ["Save snapshot first", "Disable stock launcher", "Cancel"]) {
+    const visible = await dialog.getByRole("button", { name, exact: true }).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return r.top >= 0 && r.bottom <= innerHeight;
+    });
+    assert.equal(visible, true, name);
+  }
+  assert.equal(await dialog.locator(".dialog-body").evaluate((el) => el.scrollHeight > el.clientHeight), true);
+  assert.equal(await count(page, "disable_stock_launcher"), 0);
 });

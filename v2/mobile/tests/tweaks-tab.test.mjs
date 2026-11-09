@@ -671,3 +671,56 @@ for (const [width, scale] of [[320, 1], [384, 1], [320, 2], [384, 2]]) test(`sca
     await row.screenshot({ path: `${dir}/after-${width}-${scale * 100}-simulated.png` });
   }
 });
+
+test("manual audio formats are themed checkbox rows with the box leading", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.evaluate(() => Object.assign(tweaks, { encoded_surround_output: "3", encoded_surround_output_enabled_formats: "5,7" }));
+  await page.getByRole("button", { name: "Re-read settings" }).click();
+  const group = page.getByRole("group", { name: "Manual audio formats" });
+  await group.waitFor();
+  const rows = await group.locator("label").evaluateAll((labels) => labels.map((label) => {
+    const box = label.querySelector("input").getBoundingClientRect();
+    const text = label.querySelector(".format-label").getBoundingClientRect();
+    const style = getComputedStyle(label.querySelector("input"));
+    return { height: label.getBoundingClientRect().height, boxW: box.width, boxH: box.height, leading: box.right <= text.left, accent: style.accentColor };
+  }));
+  assert.equal(rows.length, 7);
+  for (const row of rows) {
+    assert.ok(row.height >= 44 && row.height <= 56, `row height ${row.height}`);
+    assert.equal(row.boxW, 20);
+    assert.equal(row.boxH, 20);
+    assert.equal(row.leading, true);
+    assert.notEqual(row.accent, "auto");
+  }
+  assert.equal(await group.getByRole("checkbox", { name: "DTS", exact: true }).isChecked(), true);
+  await group.getByRole("checkbox", { name: "DTS-HD", exact: true }).check();
+  await page.waitForFunction(() => calls.some((c) => c.command === "write_setting" && c.args.key === "encoded_surround_output_enabled_formats"));
+  const write = (await writes(page, "write_setting")).find((args) => args.key === "encoded_surround_output_enabled_formats");
+  assert.equal(write.value, "5,7,8");
+});
+
+test("display scaling, screensaver and cached-process help match desktop's visible/help split", async (t) => {
+  const page = await open(t, "tweaks", { pro: true });
+  await page.evaluate(() => Object.assign(tweaks, { cached_process_limit: 32, background_process_limit: "2" }));
+  await page.getByRole("button", { name: "Re-read settings" }).click();
+  const reset = page.getByText("Restarting the TV does not undo this; use Reset.", { exact: true });
+  await reset.waitFor();
+  assert.equal(await reset.evaluate((el) => !!el.closest("details")), false);
+  for (const [summary, routine] of [
+    ["About display scaling", /The resolution Android draws its menus at/],
+    ["About cached processes", /not a count of running apps/],
+    ["About screensavers", /Restore previous also brings\s+back a custom screensaver/],
+  ]) {
+    const text = page.getByText(routine);
+    assert.equal(await text.isVisible(), false, summary);
+    const toggle = page.getByRole("button", { name: summary, exact: true });
+    await toggle.scrollIntoViewIfNeeded();
+    await toggle.click();
+    await page.getByRole("dialog", { name: summary }).getByText(routine).waitFor();
+    await page.getByRole("button", { name: "Done", exact: true }).click();
+    await page.getByRole("dialog").waitFor({ state: "detached" });
+  }
+  const legacy = page.getByText(/Removing this deletes only the stored value; it does not set the reported cap\./);
+  assert.equal(await legacy.evaluate((el) => !!el.closest("details")), false);
+  await page.getByText("Previous is what was set when Tweaks first read this TV.", { exact: true }).waitFor();
+});

@@ -14,6 +14,8 @@
 //! e2e_server profile-from-session <session.jsonl> <out-dir> [--name NAME] [--serial KEY]
 //! ```
 
+mod offline;
+
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -45,10 +47,12 @@ fn intercepted(cmd: &str) -> Option<Value> {
             "url": "https://github.com/bryanroscoe/shield_optimizer/releases",
             "current_notes": null,
         }),
+        "update_channel" => json!("self"),
         "install_adb" => {
             json!({"ok": true, "path": "/simulated/platform-tools/adb", "message": "Simulated install."})
         }
         "open_log_dir" => Value::Null,
+        "local_address_for" => json!("192.0.2.254"),
         "local_network_access" => json!({"status": "not_applicable"}),
         "open_local_network_settings" => Value::Null,
         _ => return None,
@@ -291,6 +295,13 @@ impl Server {
     }
 
     async fn invoke(self: &Arc<Self>, cmd: String, args: Value) -> Value {
+        if !offline::allowed(&cmd) {
+            self.invokes
+                .lock()
+                .unwrap()
+                .push(json!({"cmd": cmd, "offline_denied": true}));
+            return json!({"ok": false, "error": "Command was not approved for offline E2E dispatch."});
+        }
         if let Some(v) = intercepted(&cmd) {
             self.invokes
                 .lock()
@@ -421,6 +432,14 @@ impl Server {
                 }
                 Ok(json!(true))
             }
+            ("GET", "/control/offline-policy") => Ok(json!({
+                "driver": "SimulatedAdb",
+                "fixture_subnet": offline::FIXTURE_SUBNET,
+                "fixture_sweep_installed": atv_optimizer_lib::adb::scan::SWEEP_OVERRIDE.read().map(|s| s.is_some()).unwrap_or(false),
+                "command_allowlist_enforced": true,
+                "host_intercepts": ["check_for_update", "install_adb", "open_log_dir", "local_address_for", "local_network_access", "open_local_network_settings"],
+                "hardware_acceptance_not_run": ["real LAN/multicast discovery", "AUTH/STLS and identity onboarding", "physical helper/key-release cleanup", "packaged platform acceptance"]
+            })),
             ("GET", "/control/log") => {
                 let since: u64 = query
                     .split('&')
@@ -576,7 +595,7 @@ fn main() {
     let _ = std::fs::remove_dir_all(&data_dir);
     std::fs::create_dir_all(&data_dir).expect("create data dir");
     // The scan's port sweep is answered from the simulated LAN (192.0.2.x).
-    std::env::set_var("ATV_OPTIMIZER_SUBNET", "192.0.2");
+    std::env::set_var("ATV_OPTIMIZER_SUBNET", offline::FIXTURE_SUBNET);
     let log_control = diagnostics::init_logging(&data_dir);
 
     let sim = SimulatedAdb::empty();
@@ -597,12 +616,14 @@ fn main() {
     let app_lists = loader::load_embedded_app_lists().expect("embedded app lists");
     let state = AppState::new(Arc::new(sim.clone()), app_lists, data_dir.clone())
         .with_entitlement(Entitlement::Pro)
-        .with_known_names(loader::load_known_names());
+        .with_known_names(loader::load_known_names())
+        .with_telemetry(atv_optimizer_core::telemetry::Telemetry::disabled());
 
     let app = mock_builder()
         .manage(state)
         .manage(log_control)
         .manage(atv_optimizer_lib::commands::quit::AdbQuitControl::default())
+        .manage(atv_optimizer_lib::commands::adb_engine::AdbEngineControl::simulated())
         .invoke_handler(atv_optimizer_lib::invoke_handler())
         .build(mock_context(noop_assets()))
         .expect("build mock app");

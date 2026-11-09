@@ -46,6 +46,7 @@ export const CRITERIA = {
 export const EXPLAINED_CODES: ReadonlySet<string> = new Set([
   "adb_missing",
   "app_quitting",
+  "mdns_unavailable",
   "connection_lost",
   "not_connected",
   "device_unauthorized",

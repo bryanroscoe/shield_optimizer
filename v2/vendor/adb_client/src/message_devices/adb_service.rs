@@ -81,6 +81,32 @@ fn service_kind(destination: &[u8]) -> String {
     String::from_utf8_lossy(&destination[..end]).into_owned()
 }
 
+/// How an OPEN failed. Only a CLSE in reply proves the device never started
+/// the service; after any other failure (a lost or malformed reply, a
+/// timeout, a cancelled socket) the OPEN may have reached the device and the
+/// service may be running.
+#[derive(Debug)]
+pub(crate) enum OpenFailure {
+    /// The device answered the OPEN with CLSE.
+    Refused(RustADBError),
+    /// Anything else; whether the service started is unknown.
+    Failed(RustADBError),
+}
+
+impl OpenFailure {
+    pub(crate) fn into_error(self) -> RustADBError {
+        match self {
+            Self::Refused(error) | Self::Failed(error) => error,
+        }
+    }
+}
+
+impl From<RustADBError> for OpenFailure {
+    fn from(error: RustADBError) -> Self {
+        Self::Failed(error)
+    }
+}
+
 /// Open the device service `destination` as stream `local_id`. Packets for
 /// other streams that arrive first are skipped (bounded). A CLSE in reply is
 /// the device refusing the service and leaves the connection healthy.
@@ -90,15 +116,29 @@ pub(crate) fn open_stream<T: ADBMessageTransport>(
     local_id: u32,
     timeout: Duration,
 ) -> Result<ADBSession<T>> {
+    open_stream_classified(transport, destination, local_id, timeout)
+        .map_err(OpenFailure::into_error)
+}
+
+/// [`open_stream`], telling an explicit refusal apart from an outcome that
+/// is unknown, for callers that must never replay a service that may have
+/// started.
+pub(crate) fn open_stream_classified<T: ADBMessageTransport>(
+    transport: &mut T,
+    destination: &[u8],
+    local_id: u32,
+    timeout: Duration,
+) -> std::result::Result<ADBSession<T>, OpenFailure> {
     if destination.is_empty() {
-        return Err(RustADBError::ADBRequestFailed(
-            "ADB service must be non-empty".to_string(),
-        ));
+        return Err(
+            RustADBError::ADBRequestFailed("ADB service must be non-empty".to_string()).into(),
+        );
     }
     if local_id == 0 {
         return Err(RustADBError::ADBRequestFailed(
             "ADB service local id must not be zero".to_string(),
-        ));
+        )
+        .into());
     }
 
     // AOSP retains the trailing NUL for compatibility with older adbd builds
@@ -119,10 +159,9 @@ pub(crate) fn open_stream<T: ADBMessageTransport>(
         }
         skipped += 1;
         if skipped > MAX_FOREIGN_MESSAGES {
-            return Err(too_many_foreign(&format!(
-                "opening {:?}",
-                service_kind(destination)
-            )));
+            return Err(
+                too_many_foreign(&format!("opening {:?}", service_kind(destination))).into(),
+            );
         }
         answer_foreign(transport, &candidate, timeout)?;
     };
@@ -135,15 +174,16 @@ pub(crate) fn open_stream<T: ADBMessageTransport>(
         MessageCommand::Okay => Err(RustADBError::ProtocolError(format!(
             "OKAY for {:?} carried no remote id",
             service_kind(destination)
-        ))),
-        MessageCommand::Clse => Err(RustADBError::ADBRequestFailed(format!(
-            "the device refused to open {:?}",
-            service_kind(destination)
+        ))
+        .into()),
+        MessageCommand::Clse => Err(OpenFailure::Refused(RustADBError::ADBRequestFailed(
+            format!("the device refused to open {:?}", service_kind(destination)),
         ))),
         other => Err(RustADBError::ProtocolError(format!(
             "{other} in reply to OPEN {:?}",
             service_kind(destination)
-        ))),
+        ))
+        .into()),
     }
 }
 
@@ -184,6 +224,11 @@ pub(crate) struct ADBService<T: ADBMessageTransport> {
     /// more OKAYs than bytes is a broken peer rather than flow control.
     bytes_written: u64,
     okays_received: u64,
+    /// Most received bytes held unread. A peer that keeps writing while we
+    /// wait to send more cannot grow this past the caller's bound.
+    pending_limit: Option<usize>,
+    /// [`Self::write_final`] sent the last WRTE without waiting for its OKAY.
+    final_written: bool,
 }
 
 impl<T: ADBMessageTransport> ADBService<T> {
@@ -201,7 +246,69 @@ impl<T: ADBMessageTransport> ADBService<T> {
             write_timeout,
             bytes_written: 0,
             okays_received: 0,
+            pending_limit: None,
+            final_written: false,
         }
+    }
+
+    /// Refuse to hold more than `limit` received bytes unread. Exceeding it
+    /// is [`RustADBError::ADBRequestFailed`] ("output limit"), before the
+    /// WRTE that would cross it is acknowledged.
+    pub(crate) fn with_pending_limit(mut self, limit: usize) -> Self {
+        self.pending_limit = Some(limit);
+        self
+    }
+
+    /// Change how long each read waits for a packet. Writes keep their bound.
+    pub(crate) fn set_read_timeout(&mut self, timeout: Duration) -> std::io::Result<()> {
+        if timeout.is_zero() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "read timeout must be positive",
+            ));
+        }
+        self.read_timeout = timeout;
+        Ok(())
+    }
+
+    /// Take up to `limit` received bytes that have not been read yet.
+    pub(crate) fn take_pending(&mut self, limit: usize) -> Vec<u8> {
+        let count = self.pending.len().min(limit);
+        self.pending.drain(..count).collect()
+    }
+
+    /// The device sent CLSE for this stream.
+    pub(crate) const fn peer_closed(&self) -> bool {
+        self.peer_closed
+    }
+
+    /// Payload bytes sent in WRTEs on this stream so far, acknowledged or not.
+    pub(crate) const fn bytes_sent(&self) -> u64 {
+        self.bytes_written
+    }
+
+    /// Send `payload` as this stream's last WRTE without waiting for its
+    /// OKAY. A device that answers and closes straight after the last byte
+    /// (a package manager reporting its result) is then read as an answer
+    /// rather than a failed write. The OKAY, if it comes, is skipped like any
+    /// spare. Further writes are refused.
+    pub(crate) fn write_final(&mut self, payload: &[u8]) -> std::io::Result<()> {
+        if self.closed || self.final_written {
+            return Err(Error::new(
+                ErrorKind::BrokenPipe,
+                "ADB service is closed to further writes",
+            ));
+        }
+        if payload.is_empty() || payload.len() > self.max_write() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                "a final ADB write must be non-empty and fit one packet",
+            ));
+        }
+        self.send(MessageCommand::Write, payload)?;
+        self.bytes_written += payload.len() as u64;
+        self.final_written = true;
+        Ok(())
     }
 
     fn protocol_error(message: impl Into<String>) -> Error {
@@ -307,6 +414,13 @@ impl<T: ADBMessageTransport> ADBService<T> {
     }
 
     fn acknowledge_payload(&mut self, message: ADBTransportMessage) -> std::io::Result<()> {
+        if let Some(limit) = self.pending_limit
+            && self.pending.len().saturating_add(message.payload().len()) > limit
+        {
+            return Err(Error::other(RustADBError::ADBRequestFailed(format!(
+                "ADB service output limit reached ({limit} unread bytes)"
+            ))));
+        }
         self.send(MessageCommand::Okay, &[])?;
         self.pending.extend(message.into_payload());
         Ok(())
@@ -445,6 +559,12 @@ impl<T: ADBMessageTransport> Write for ADBService<T> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if self.closed {
             return Err(Error::new(ErrorKind::BrokenPipe, "ADB service is closed"));
+        }
+        if self.final_written {
+            return Err(Error::new(
+                ErrorKind::BrokenPipe,
+                "ADB service is closed to further writes",
+            ));
         }
         if buf.is_empty() {
             return Ok(0);
@@ -1017,5 +1137,130 @@ mod tests {
             .is_err()
         );
         assert!(transport.state.lock().unwrap().outgoing.is_empty());
+    }
+
+    #[test]
+    fn only_a_clse_reply_classifies_an_open_as_refused() {
+        let mut transport = FakeTransport::default();
+        transport.queue(MessageCommand::Clse, 0, 7, &[]);
+        let refused =
+            open_stream_classified(&mut transport, b"shell,v2,raw:x", 7, Duration::from_secs(1));
+        assert!(
+            matches!(
+                refused,
+                Err(OpenFailure::Refused(RustADBError::ADBRequestFailed(_)))
+            ),
+            "{refused:?}"
+        );
+
+        // A malformed reply or none at all leaves the outcome unknown.
+        let mut transport = FakeTransport::default();
+        transport.queue(MessageCommand::Write, 9, 7, b"early");
+        let malformed = open_stream_classified(&mut transport, b"tcp:1", 7, Duration::from_secs(1));
+        assert!(
+            matches!(malformed, Err(OpenFailure::Failed(_))),
+            "{malformed:?}"
+        );
+        let mut transport = FakeTransport::default();
+        let lost = open_stream_classified(&mut transport, b"tcp:1", 7, Duration::from_secs(1));
+        assert!(matches!(lost, Err(OpenFailure::Failed(_))), "{lost:?}");
+    }
+
+    #[test]
+    fn refused_open_diagnostics_never_carry_the_command() {
+        let mut transport = FakeTransport::default();
+        transport.queue(MessageCommand::Clse, 0, 7, &[]);
+        let error = open_stream(
+            &mut transport,
+            b"shell,v2,raw:private command marker",
+            7,
+            Duration::from_secs(1),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("shell,v2,raw"), "{error}");
+        assert!(!error.contains("private command marker"), "{error}");
+    }
+
+    #[test]
+    fn service_read_policy_changes_only_the_read_budget() {
+        let transport = FakeTransport::default();
+        let mut stream = service(&transport);
+        assert!(stream.set_read_timeout(Duration::ZERO).is_err());
+        stream.set_read_timeout(Duration::from_secs(2)).unwrap();
+        assert_eq!(stream.read_timeout, Duration::from_secs(2));
+        assert_eq!(stream.write_timeout, Duration::from_millis(456));
+        let mut byte = [0u8; 1];
+        assert!(stream.read(&mut byte).is_err());
+        assert_eq!(
+            transport.state.lock().unwrap().read_timeouts,
+            [Duration::from_secs(2)]
+        );
+    }
+
+    #[test]
+    fn a_final_write_does_not_wait_for_its_okay_and_ends_writing() {
+        let transport = FakeTransport::default();
+        let mut stream = service(&transport);
+        stream.write_final(b"last").unwrap();
+        assert_message(
+            &transport.take_outgoing(),
+            MessageCommand::Write,
+            7,
+            9,
+            b"last",
+        );
+        assert!(transport.state.lock().unwrap().read_timeouts.is_empty());
+        assert_eq!(
+            stream.write(b"more").unwrap_err().kind(),
+            ErrorKind::BrokenPipe
+        );
+        assert!(stream.write_final(b"again").is_err());
+        // Its OKAY, then the answer: the OKAY is skipped like any spare.
+        transport.queue(MessageCommand::Okay, 9, 7, &[]);
+        transport.queue(MessageCommand::Write, 9, 7, b"Success\n");
+        transport.queue(MessageCommand::Clse, 9, 7, &[]);
+        assert_eq!(stream.read_text_to_close(64).unwrap(), "Success\n");
+        assert!(stream.peer_closed());
+    }
+
+    #[test]
+    fn a_final_write_must_fit_one_packet() {
+        let transport = FakeTransport::with_max_payload(4);
+        let mut stream = service(&transport);
+        assert!(stream.write_final(b"").is_err());
+        assert!(stream.write_final(b"12345").is_err());
+        assert!(transport.state.lock().unwrap().outgoing.is_empty());
+        stream.write_final(b"1234").unwrap();
+    }
+
+    #[test]
+    fn the_pending_limit_refuses_output_before_acknowledging_it() {
+        let transport = FakeTransport::default();
+        let mut stream = service(&transport).with_pending_limit(8);
+        transport.queue(MessageCommand::Write, 9, 7, b"12345");
+        transport.queue(MessageCommand::Write, 9, 7, b"6789");
+        // Output that arrives while a write waits for its OKAY is buffered,
+        // and the second WRTE would hold 9 bytes.
+        let error = stream.write(b"input").unwrap_err();
+        let error = adb_error(error);
+        assert!(
+            matches!(&error, RustADBError::ADBRequestFailed(m) if m.contains("output limit")),
+            "{error:?}"
+        );
+        let state = transport.state.lock().unwrap();
+        let acknowledgements = state
+            .outgoing
+            .iter()
+            .filter(|message| message.header().command() == MessageCommand::Okay)
+            .count();
+        assert_eq!(
+            acknowledgements, 1,
+            "the WRTE over the limit was acknowledged"
+        );
+        drop(state);
+        assert_eq!(stream.take_pending(3), b"123");
+        assert_eq!(stream.take_pending(100), b"45");
+        assert!(!stream.has_pending());
     }
 }

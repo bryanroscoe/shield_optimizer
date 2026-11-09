@@ -54,6 +54,7 @@ export const ACTION_COMMANDS: Readonly<Record<string, TelemetryAction>> = {
 const QUIET_COMMANDS = new Set([
   "adb_status",
   "check_for_update",
+  "update_channel",
   "local_address_for",
   "probe_paired_connect",
   "resource_sample",
@@ -66,6 +67,9 @@ const QUIET_COMMANDS = new Set([
   "send_key",
   "send_text",
   "log_ui_event",
+  // Polled every 2 seconds while platform-tools waits for Allow; a failed
+  // read is simply tried again.
+  "transport_state",
   // Send logs fails on its own (offline, the daily limit) and says so; a
   // report about it would only repeat that.
   "upload_diagnostics",
@@ -210,8 +214,11 @@ export interface TelemetrySettings {
   notice_seen: boolean;
   /// The random install id reports carry, so a user can quote it and the
   /// developer can find their reports. `null` while reports are off or the
-  /// build has no endpoint.
+  /// build has no endpoint. A test build shows the id its log uploads carry.
   support_id: string | null;
+  /// The commit of a test build, whose automatic reports are always off.
+  /// Absent in a release build.
+  test_build?: string | null;
 }
 
 /// What `upload_diagnostics` returns: the user pressed "Send logs".

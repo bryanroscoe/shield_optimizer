@@ -57,6 +57,9 @@
   let appVersion = $state<string | null>(null);
   const currentVersion = $derived(appVersion ?? update?.current ?? null);
   let pendingUpdate = $state<Update | null>(null);
+  /// Inside a Flatpak, /app is read-only and Flatpak delivers new versions, so
+  /// the in-app updater never runs and update notices point there instead.
+  let viaFlatpak = $state(false);
   let updateBusy = $state(false);
   let updateInstalled = $state(false);
   let updateProgress = $state("");
@@ -154,6 +157,15 @@
     checking = true;
     checkMessage = "";
     try {
+      if (viaFlatpak) {
+        const u = await api.checkForUpdate();
+        update = u;
+        checkMessage =
+          u.update_available && u.latest
+            ? `v${u.latest} is out. Run flatpak update, or install the new .flatpak from the Releases page if you downloaded this one.`
+            : "No update found. You have the latest version.";
+        return;
+      }
       const [available] = await Promise.all([
         check(),
         api
@@ -196,6 +208,9 @@
     get rollingOutVersion() {
       return update && rollingOut ? update.latest : null;
     },
+    get updatesViaFlatpak() {
+      return viaFlatpak;
+    },
     get checking() {
       return checking;
     },
@@ -232,7 +247,15 @@
       })
       .catch(() => {});
 
-    checkForUpdate();
+    api
+      .updateChannel()
+      .then((channel) => {
+        viaFlatpak = channel === "flatpak";
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!viaFlatpak) checkForUpdate();
+      });
     return stopLocalNetworkWatch;
   });
 
@@ -507,10 +530,12 @@
         <!-- Not a button: there is nothing useful to click yet. -->
         <span
           class="update-badge rolling"
-          data-tip="The in-app updater will offer it within a few minutes"
+          data-tip={viaFlatpak
+            ? "Run flatpak update, or download the new .flatpak from Releases"
+            : "The in-app updater will offer it within a few minutes"}
           data-tip-side="bottom"
         >
-          v{update.latest} rolling out
+          {viaFlatpak ? `v${update.latest} available` : `v${update.latest} rolling out`}
         </span>
       {/if}
     </div>
@@ -695,14 +720,16 @@
       <input
         type="checkbox"
         checked={telemetry?.enabled ?? false}
-        disabled={!telemetry?.available}
+        disabled={!telemetry?.available || !!telemetry?.test_build}
         onchange={toggleTelemetry}
       />
       {TOGGLE_LABEL}
     </label>
-    <p class="bug-path muted">
+    <p class="bug-path muted" data-bug-reports-note>
       {#if telemetry && !telemetry.available}
         This build doesn't send reports.
+      {:else if telemetry?.test_build}
+        Test build {telemetry.test_build}: anonymous usage reports are always off.
       {:else}
         Make, model and Android version of your TVs, which actions worked or failed, and error
         messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
@@ -716,7 +743,11 @@
         <button class="bug-inline" onclick={copySupportId}>
           <Icon name="content_copy" size={14} /> {supportCopied ? "Copied" : "Copy ID"}
         </button>
-        <span class="muted">Quote it in the issue so the developer can find your reports.</span>
+        <span class="muted">
+          {telemetry?.test_build
+            ? "Quote it in the issue so the developer can find the logs you send."
+            : "Quote it in the issue so the developer can find your reports."}
+        </span>
       {:else}
         <span class="muted">
           {telemetry?.available === false

@@ -177,9 +177,11 @@ pub struct AppEntry {
     #[serde(default)]
     pub defunct: bool,
     /// Surface this app for the user to review and remove *if they don't use it*
-    /// (streaming services, etc.) — distinct from auto-remove bloat (`default_
-    /// optimize`) and apps you keep. The Optimize wizard shows these as
-    /// candidates with a usage signal but defaults them to Skip.
+    /// — any app people install or use by choice (streaming services, media
+    /// players, game streaming, screensavers, file and ADB tools, VPNs, …) —
+    /// distinct from auto-remove bloat (`default_optimize`) and apps you keep.
+    /// The Optimize wizard shows these as candidates with a usage signal but
+    /// defaults them to Skip, and nothing arms them in bulk.
     #[serde(default)]
     pub review: bool,
     /// When a person last reviewed this entry's classification, `YYYY-MM-DD`.

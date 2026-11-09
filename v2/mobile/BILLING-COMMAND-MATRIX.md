@@ -21,7 +21,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
 | `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
-| `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte` |
+| `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
 | `dismiss_telemetry_notice` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/TelemetryNotice.svelte` |
 | `telemetry_action` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts` |
 | `telemetry_error` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts`, `src/main.ts` |
@@ -31,7 +31,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `health_report` | Free | `../crates/core/src/commands/health.rs` | `src/lib/session.svelte.ts` |
 | `media_report` | Free | `../crates/core/src/commands/health.rs` | `src/screens/Diagnostics.svelte` |
 | `resource_sample` | Free | `../crates/core/src/commands/health.rs` | `src/screens/Diagnostics.svelte` |
-| `app_list_for_device` | Free | `../crates/core/src/commands/health.rs` | `src/lib/session.svelte.ts`, `src/screens/Apps.svelte` |
+| `app_list_for_device` | Free | `../crates/core/src/commands/health.rs` | `src/lib/session.svelte.ts`, `src/screens/Apps.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Tweaks.svelte` |
 | `report_all` | Free | `../crates/core/src/commands/health.rs` | No direct API caller |
 | `list_launchers` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
 | `current_launcher` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
@@ -50,7 +50,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `app_storage_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |
 | `app_apk_size` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppDetailSheet.svelte` |
 | `app_usage_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |
-| `safety_info` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Optimize.svelte` |
+| `safety_info` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Optimize.svelte`, `src/components/AppDetailSheet.svelte` |
 | `process_safety_info` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Diagnostics.svelte` |
 | `trim_caches` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Dashboard.svelte` |
 | `disable_package` | CuratedDebloat | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte`, `src/screens/Optimize.svelte`, `src/screens/Tweaks.svelte` |
@@ -62,6 +62,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `set_app_op` | AppPermissionWrite | `../crates/core/src/commands/apps.rs` | No direct API caller |
 | `get_app_op` | Free | `../crates/core/src/commands/apps.rs` | No direct API caller |
 | `open_play_store` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte`, `src/screens/Launcher.svelte` |
+| `remote_open` | Free | `../crates/core/src/commands/input.rs` | No mobile API wrapper or direct caller |
+| `remote_close` | Free | `../crates/core/src/commands/input.rs` | No mobile API wrapper or direct caller |
 | `send_text` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `send_key` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `open_settings` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
@@ -90,7 +92,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `delete_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `find_files` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `delete_path` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
-| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Launcher.svelte` |
+| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte` |
 
 ## UI and recovery findings
 

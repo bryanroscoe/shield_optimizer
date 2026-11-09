@@ -44,47 +44,54 @@ async function open(t, screen, width = 360, scale = 1) {
   return page;
 }
 
-for (const [width, scale] of [[360, 1], [320, 2]]) test(`tap and keyboard help stays local and wraps at ${width}px / ${scale * 100}% text`, async t => {
+for (const [width, scale] of [[360, 1], [320, 2]]) test(`help opens in a bottom sheet by tap and keyboard, at ${width}px / ${scale * 100}% text`, async t => {
   const page = await open(t, "tweaks", width, scale);
-  const details = page.locator("details.help-disclosure").filter({ has: page.locator("summary", { hasText: "About System Hooks" }) });
-  const summary = details.locator("summary");
-  await summary.waitFor();
-  assert.equal(await details.getAttribute("open"), null);
-  assert.ok((await summary.boundingBox()).height >= 44);
-  const info = details.locator(".t-note");
-  assert.equal(await info.isVisible(), false);
+  const trigger = page.getByRole("button", { name: "About System Hooks", exact: true });
+  await trigger.waitFor();
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+  assert.equal(await trigger.getAttribute("aria-haspopup"), "dialog");
+  assert.ok((await trigger.boundingBox()).height >= 44);
+  const sheet = page.getByRole("dialog", { name: "About System Hooks" });
+  const info = sheet.getByText(/Turning the hooks off can fix/);
+  assert.equal(await sheet.count(), 0, "help is on demand, not in the screen");
+  const before = await page.evaluate(() => document.documentElement.scrollHeight);
   for (let i = 0; i < 3; i++) {
-    await summary.tap(); assert.equal(await info.isVisible(), true);
-    await summary.tap(); assert.equal(await info.isVisible(), false);
+    await trigger.tap(); await info.waitFor();
+    assert.equal(await trigger.getAttribute("aria-expanded"), "true");
+    if (i % 2) await page.touchscreen.tap(width / 2, 60); // above the sheet
+    else await sheet.getByRole("button", { name: "Done", exact: true }).tap();
+    await sheet.waitFor({ state: "detached" });
   }
-  await summary.focus(); await page.keyboard.press("Space");
-  assert.equal(await info.isVisible(), true);
-  assert.equal(await info.evaluate(el => parseFloat(getComputedStyle(el).fontSize)), 13 * scale);
-  assert.equal(await summary.evaluate(el => el === document.activeElement), true);
-  assert.equal(await summary.evaluate(el => getComputedStyle(el).outlineStyle), "solid");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollHeight), before, "opening help never grows the screen");
+  await trigger.focus(); await page.keyboard.press("Space");
+  await info.waitFor();
+  await sheet.evaluate(el => Promise.all(el.getAnimations().map(a => a.finished)));
+  assert.equal(await info.evaluate(el => parseFloat(getComputedStyle(el).fontSize)), 14 * scale);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  const box = await sheet.boundingBox();
+  assert.ok(box.x >= 0 && box.x + box.width <= width + 0.5, "sheet fits the width");
+  if (evidence) await page.screenshot({ path: `${evidence}/tweaks-help-${width}-${scale * 100}-simulated.png` });
+  await page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "detached" });
+  assert.equal(await trigger.evaluate(el => el === document.activeElement), true, "focus returns to the help link");
+  assert.equal(await trigger.evaluate(el => getComputedStyle(el).outlineStyle), "solid");
   // Risk and permission consequences stay beside the action rather than inside Help.
   const micRisk = page.getByText(/Off revokes Google's microphone permission/);
   await micRisk.scrollIntoViewIfNeeded(); assert.equal(await micRisk.isVisible(), true);
-  assert.equal(await micRisk.evaluate(el => !!el.closest("details")), false);
+  assert.equal(await micRisk.evaluate(el => !!el.closest("details, [role=dialog]")), false);
   const audioRisk = page.getByText(/Manual overrides can cause silence/);
   assert.equal(await audioRisk.isVisible(), true);
-  assert.equal(await audioRisk.evaluate(el => !!el.closest("details")), false);
+  assert.equal(await audioRisk.evaluate(el => !!el.closest("details, [role=dialog]")), false);
   const longPressRisk = page.getByText("Shorter reacts sooner but makes accidental long presses more likely.", { exact: true });
   await longPressRisk.scrollIntoViewIfNeeded();
   assert.equal(await longPressRisk.isVisible(), true);
-  assert.equal(await longPressRisk.evaluate(el => !!el.closest("details")), false);
-  assert.equal(await page.getByText("About long presses", { exact: true }).evaluate(el => el.parentElement.open), false);
-  if (evidence) {
-    await summary.scrollIntoViewIfNeeded();
-    await page.screenshot({ path: `${evidence}/tweaks-help-${width}-${scale * 100}-simulated.png` });
-  }
-  await summary.focus(); await page.keyboard.press("Enter"); assert.equal(await info.isVisible(), false);
+  assert.equal(await longPressRisk.evaluate(el => !!el.closest("details, [role=dialog]")), false);
+  assert.equal(await page.getByRole("button", { name: "About long presses", exact: true }).getAttribute("aria-expanded"), "false");
   await page.goBack();
   await page.locator(".device-name").waitFor();
   await page.evaluate(() => router.navigate("tweaks"));
   await page.getByRole("heading", { name: "Tweaks", exact: true }).waitFor();
-  assert.equal(await page.getByText("About System Hooks", { exact: true }).evaluate(el => el.parentElement.open), false);
+  assert.equal(await page.getByRole("dialog").count(), 0);
   if (evidence) {
     const video = page.video(); await page.context().close();
     await video.saveAs(`${evidence}/mobile-help-${width}-${scale * 100}-simulated.webm`);
@@ -93,9 +100,11 @@ for (const [width, scale] of [[360, 1], [320, 2]]) test(`tap and keyboard help s
 
 test("app descriptions remain available on tap while row safety stays visible", async t => {
   const page = await open(t, "apps");
-  const help = page.getByText("Using the app list", { exact: true });
-  await help.tap(); await page.getByText(/Tap for descriptions, consequences and safety details/).waitFor();
-  await help.tap();
+  await page.getByRole("button", { name: "Using the app list", exact: true }).tap();
+  const help = page.getByRole("dialog", { name: "Using the app list" });
+  await help.getByText(/Tap for descriptions, consequences and safety details/).waitFor();
+  await help.getByRole("button", { name: "Done", exact: true }).tap();
+  await help.waitFor({ state: "detached" });
   const row = page.locator('.app-row[data-package="com.google.android.videos"]');
   await row.waitFor();
   assert.equal(await row.locator(".app-desc").count(), 0);
@@ -110,11 +119,10 @@ test("app descriptions remain available on tap while row safety stays visible", 
 test("playback uncertainty remains visible and optional measurement context does not sample", async t => {
   const page = await open(t, "diagnostics");
   await page.getByText("Advertised configuration, not a playback test.", { exact: true }).waitFor();
-  const summary = page.getByText("How samples are measured", { exact: true });
-  const details = summary.locator("..");
-  assert.equal(await details.getAttribute("open"), null);
-  await summary.tap();
-  await page.getByText(/VPN traffic can also appear/).waitFor();
+  const trigger = page.getByRole("button", { name: "How samples are measured", exact: true });
+  assert.equal(await page.getByText(/VPN traffic can also appear/).count(), 0);
+  await trigger.tap();
+  await page.getByRole("dialog", { name: "How samples are measured" }).getByText(/VPN traffic can also appear/).waitFor();
   assert.equal(await page.getByText("No network counters available.", { exact: true }).count(), 0);
   assert.deepEqual(await page.evaluate(() => helpCalls.filter(command => ["resource_sample", "media_report"].includes(command))), []);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);

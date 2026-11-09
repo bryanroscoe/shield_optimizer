@@ -1,8 +1,17 @@
 Copyright (c) 2026 Bryan Roscoe. All rights reserved.
 
-The source code in this repository is published for transparency and review.
-No license to use, copy, modify, or distribute this software, in whole or in
-part, is granted without the prior written permission of the copyright holder.
+ATV Optimizer is free of charge. The source code in this repository is published
+for transparency and review.
+
+You may install and use the official builds of ATV Optimizer published by the
+copyright holder.
+
+Flathub (flathub.org) may build this software from this repository's source code
+and distribute the resulting, unmodified packages to end users free of charge.
+This permission is granted to Flathub only.
+
+No one else may copy, modify, or distribute this software, in whole or in part,
+without the prior written permission of the copyright holder.
 
 Third-party components included in this repository (for example, the vendored
 code under v2/vendor/ and the bundled scrcpy server) remain under their own

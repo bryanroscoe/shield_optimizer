@@ -132,6 +132,15 @@ export interface RepromptResult {
   message: string;
 }
 
+/// Built-in engine: what Request approval started. "waiting" means the TV was
+/// asked and may be showing its prompt; "device" means it already allowed
+/// this computer; "not_allowed" means it ended the request without allowing.
+export interface ApprovalResult {
+  ok: boolean;
+  status: "waiting" | "device" | "not_allowed" | "canceled";
+  message: string;
+}
+
 export interface ForgetResult {
   ok: boolean;
   /// Every adb transport key dropped for this device, the requested one first.
@@ -286,6 +295,13 @@ export interface SnapshotFile {
   launcher: string | null;
 }
 
+/// How a snapshot save the Optimize tab asked for ended. `busy` and `failed`
+/// carry a message saying why nothing was saved; `cancelled` has nothing to say.
+export interface SnapshotSaveOutcome {
+  kind: "saved" | "failed" | "cancelled" | "busy";
+  message: string;
+}
+
 export interface ActionResult {
   ok: boolean;
   message: string;
@@ -371,7 +387,31 @@ export interface CloneAppResult {
   hint: string | null;
 }
 
+export type NativeServiceKind = "legacy_adb" | "tls_pairing" | "tls_connect";
+
+export interface NativeAdvertisement {
+  service_kind: NativeServiceKind;
+  instance: string;
+  address: string;
+  port: number;
+  interface_name: string | null;
+  interface_index: number | null;
+  scope_id: number | null;
+  connect_address: string | null;
+  observed_age_ms: number;
+  cached: boolean;
+  warning: string | null;
+}
+
+export interface NativeDiscoveryReport {
+  advertisements: NativeAdvertisement[];
+  warnings: string[];
+  observation_max_age_ms: number;
+}
+
 export interface ScanResult {
+  pending?: string[];
+  details?: string[];
   subnet: string | null;
   found: string[];
   connected: string[];
@@ -381,6 +421,7 @@ export interface ScanResult {
   /// service. They need the 6-digit code from the TV before they can connect.
   needs_pairing: string[];
   message: string;
+  native_discovery?: NativeDiscoveryReport;
 }
 
 export interface FindResult {
@@ -417,11 +458,42 @@ export interface FileTransferResult {
   local_path: string | null;
 }
 
+export interface ScanConnectionProgress {
+  pending: string[];
+  failed: { address: string; message: string }[];
+  /// Request approval is waiting for the person to choose Allow on these TVs.
+  awaiting_authorization?: string[];
+  /// TVs that answered but haven't allowed this computer. Nothing was shown on them.
+  not_allowed?: string[];
+  /// Request approval is still open for these, asked or not. Each leaves only
+  /// once its outcome is recorded (listed, refused or failed).
+  requesting?: string[];
+  ready?: string[];
+}
+
+export type AdbEngine = "builtin" | "platform_tools";
+
+/// The ADB engine setting. `active` differs from `selected` only after the
+/// built-in engine could not start, which `fallback_reason` explains. Both
+/// are null only when ATV_OPTIMIZER_TRANSPORT holds an invalid value.
+export interface AdbEngineStatus {
+  selected: AdbEngine | null;
+  source: "env" | "saved" | "default";
+  active: AdbEngine | null;
+  fallback_reason: string | null;
+  builtin_available: boolean;
+}
+
 export interface AdbStatus {
+  failure?: "missing_binary" | "probe_failed" | null;
+  connections?: ScanConnectionProgress;
+  backend?: "direct" | "subprocess";
   available: boolean;
   path: string | null;
   last_probe: string | null;
 }
+
+export type UpdateChannel = "self" | "flatpak";
 
 export interface UpdateInfo {
   current: string;
@@ -465,7 +537,18 @@ export interface SnapshotApplyPlan {
   current_launcher: string | null;
   /// The snapshot's launcher when it isn't installed here, so it's skipped.
   launcher_not_installed: string | null;
+  /// The snapshot's launcher when it is installed but disabled here. A restore
+  /// never re-enables anything, so it's skipped.
+  launcher_disabled: string | null;
+  /// Listed as disabled in the snapshot but kept on so the TV keeps a Home
+  /// screen; `reason` is display-ready ("only Home app").
+  packages_kept: KeptPackage[];
   cross_device_warning: string | null;
+}
+
+export interface KeptPackage {
+  package: string;
+  reason: string;
 }
 
 export interface ApplyResult {

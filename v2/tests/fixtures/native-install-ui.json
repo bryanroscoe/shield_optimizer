@@ -1,0 +1,40 @@
+{
+  "provenance": "Rust command-layer mock results; only local path normalized. Not hardware evidence.",
+  "cases": [
+    {
+      "name": "confirmed",
+      "result": {
+        "ok": true,
+        "path": "/simulation/native-fixture.apk",
+        "message": "Success\n",
+        "hint": null
+      }
+    },
+    {
+      "name": "unconfirmed",
+      "result": {
+        "hint": null,
+        "message": "Successfully streamed bytes",
+        "ok": false,
+        "path": "/simulation/native-fixture.apk"
+      }
+    },
+    {
+      "name": "contradictory",
+      "result": {
+        "hint": "APK file is corrupt or malformed.",
+        "message": "Success\nFailure [INSTALL_FAILED_INVALID_APK]",
+        "ok": false,
+        "path": "/simulation/native-fixture.apk"
+      }
+    },
+    {
+      "name": "unknown",
+      "error": "adb install: transport error: Installation outcome unknown; verify installed apps before retrying. Commit response was lost. Success"
+    },
+    {
+      "name": "rejected",
+      "error": "adb install: transport error: APK installation rejected: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]"
+    }
+  ]
+}
