@@ -953,7 +953,16 @@ mod tests {
 
     #[tokio::test]
     async fn refund_downgrades_pro_gates_but_recovery_stays_free() {
-        let mock = MockAdb::default().on_shell("pm list packages -d", "package:com.example.one\n");
+        let mock = MockAdb::default()
+            .on_shell("pm list packages -d", "package:com.example.one\n")
+            // Recovery confirms each enable by reading it back.
+            .on_shell(
+                "pm list packages -e --user 0 com.example.one",
+                &format!(
+                    "package:com.example.one\n{}0\n",
+                    atv_optimizer_core::adb::BATCH_STATUS
+                ),
+            );
         let log = mock.shell_log();
         let state = state_with(mock);
         let c = core(Distribution::Play, false);
@@ -983,7 +992,9 @@ mod tests {
         .expect("re-enabling an app stays free");
         assert!(!enabled.message.starts_with("LOCKED:"));
         let calls = log.lock().unwrap();
-        assert!(calls.iter().any(|c| c == "pm enable com.example.one"));
+        assert!(calls
+            .iter()
+            .any(|c| c == "pm enable --user 0 com.example.one"));
         assert!(calls.iter().any(|c| c == "pm enable com.example.two"));
     }
 }

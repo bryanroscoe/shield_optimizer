@@ -357,6 +357,12 @@ fn redact_stdout_for_log(command_text: &str, stdout: &str) -> String {
     {
         return "<redacted: diskstats package sizes>".to_string();
     }
+    // A whole settings namespace (restore readback) holds the TV's name, its
+    // Bluetooth name and address, and Private DNS: withheld whole.
+    if command_text.contains("settings list") {
+        let count = stdout.lines().filter(|line| line.contains('=')).count();
+        return format!("<redacted: settings list, {count} entries>");
+    }
     if mentions_package_listing(command_text) {
         let count = stdout
             .lines()
@@ -1286,6 +1292,13 @@ mod tests {
                 "Package Names: [\"com.netflix.ninja\"]\nApp Sizes: [1]\n"
             ),
             "<redacted: diskstats package sizes>"
+        );
+        assert_eq!(
+            redact_stdout_for_log(
+                "-s 192.168.1.9:5555 shell (settings list secure) 2>/dev/null",
+                "bluetooth_address=AA:BB:CC:DD:EE:FF\nbluetooth_name=Den TV\n"
+            ),
+            "<redacted: settings list, 2 entries>"
         );
         // An unrelated command still goes through ordinary truncation.
         assert_eq!(
