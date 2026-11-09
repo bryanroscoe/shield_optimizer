@@ -418,6 +418,9 @@ jobs:
       - name: Notes seen
         working-directory: v2
         run: npm run test:notes-seen
+      - name: Back/forward keyboard shortcuts
+        working-directory: v2
+        run: npm run test:history-keys
 
       # The "rolling out" banner must agree with the backend's update check on
       # what "newer" means — including that beta.10 beats beta.9.
@@ -510,6 +513,10 @@ jobs:
       - name: Icon and control alignment
         working-directory: v2
         run: npm run test:icon-alignment
+
+      - name: Long ids and names fit their cells
+        working-directory: v2
+        run: npm run test:layout-clipping
 
       - name: Files drag and drop
         working-directory: v2

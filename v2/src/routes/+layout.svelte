@@ -8,6 +8,7 @@
   import { onMount } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
+  import { historyStep } from "$lib/history-keys";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -368,6 +369,17 @@
   }
 
   function onKeydown(e: KeyboardEvent) {
+    const target = e.target as HTMLElement | null;
+    const step = historyStep(
+      e,
+      !!target?.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])"),
+      !!document.querySelector("dialog[open], [aria-modal='true']"),
+    );
+    if (step) {
+      e.preventDefault();
+      window.history.go(step);
+      return;
+    }
     if (e.key !== "Escape") return;
     if (bugOpen) bugOpen = false;
     else if (restartPromptOpen) restartPromptOpen = false;

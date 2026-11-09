@@ -76,8 +76,8 @@
     detailOpen?: boolean;
     onToggleDetail?: () => void;
     /// How many columns the host table has, so the detail row spans all of
-    /// them. Six is the App List's shape (caret, app, verdict, RAM, last used,
-    /// actions); the Optimize wizard adds a Result column and passes seven.
+    /// them. Six is the shape both tables use (caret, app, verdict, RAM, last
+    /// used, actions).
     columns?: number;
     rowClass?: string;
     /// What the shared detail panel shows under the verdict: the page's one
@@ -179,7 +179,7 @@
        with the name rather than owning a column of its own. -->
   <td class="app-cell">
     <div class="app-name-row">
-      <span class="app-name">{name}</span>
+      <span class="app-name" title={name}>{name}</span>
       {#if pkgState}
         <StateBadge state={pkgState} />
       {:else}
@@ -382,14 +382,21 @@
     row-gap: 0.25rem;
     overflow: hidden;
   }
-  /* The name never wraps and never shrinks: it is the one thing you read to
-     decide, and `.app-cell`'s inherited `overflow-wrap: anywhere` will happily
-     break "Funimation" across two lines if the item is allowed to narrow. The
-     tags beside it wrap under it instead. */
+  /* The name is the one thing you read to decide. The tags beside it wrap
+     under it first; a name wider than the whole row wraps at its spaces onto
+     a second line, and only a name longer than two lines ends in an
+     ellipsis, with the full name in `title`. `overflow-wrap: break-word`
+     splits a word only when that word alone is wider than the row, so
+     "Funimation" is never broken just to sit beside its tags. */
   .app-name {
-    flex: none;
-    white-space: nowrap;
-    overflow-wrap: normal;
+    flex: 0 1 auto;
+    min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    overflow-wrap: break-word;
   }
   .app-desc {
     margin-top: 0.1rem;
