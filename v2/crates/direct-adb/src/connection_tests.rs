@@ -506,6 +506,176 @@ async fn native_download_publishes_only_success_and_keeps_selected_tv_connected(
     }
 }
 
+/// A legacy sync service receiving one upload. `verdict` runs once the whole
+/// file and its DONE have arrived, before the device answers. Returns the
+/// SEND header (`path,mode`) and the file's bytes.
+fn serve_push(socket: &mut TcpStream, rejected: bool, verdict: impl FnOnce()) -> (String, Vec<u8>) {
+    let (command, local, payload) = receive(socket);
+    assert_eq!(command, b"OPEN");
+    assert_eq!(payload, b"sync:\0");
+    send(socket, b"OKAY", 1, local, &[]);
+    let mut pending = Vec::new();
+    let mut header = String::new();
+    let mut data = Vec::new();
+    let mut verdict = Some(verdict);
+    loop {
+        let (command, _, payload) = receive(socket);
+        match command.as_slice() {
+            b"WRTE" => {
+                send(socket, b"OKAY", 1, local, &[]);
+                pending.extend_from_slice(&payload);
+            }
+            b"OKAY" => continue,
+            b"CLSE" => return (header, data),
+            other => panic!("unexpected {other:?} on the sync stream"),
+        }
+        while pending.len() >= 8 {
+            let id: [u8; 4] = pending[..4].try_into().unwrap();
+            let arg = u32::from_le_bytes(pending[4..8].try_into().unwrap()) as usize;
+            let size = if &id == b"DONE" { 0 } else { arg };
+            if pending.len() < 8 + size {
+                break;
+            }
+            let request: Vec<u8> = pending.drain(..8 + size).collect();
+            match &id {
+                b"SEND" => header = String::from_utf8(request[8..].to_vec()).unwrap(),
+                b"DATA" => data.extend_from_slice(&request[8..]),
+                b"DONE" => {
+                    (verdict.take().unwrap())();
+                    let mut reply = Vec::new();
+                    if rejected {
+                        reply.extend_from_slice(b"FAIL");
+                        reply.extend_from_slice(&21u32.to_le_bytes());
+                        reply.extend_from_slice(b"Read-only file system");
+                    } else {
+                        reply.extend_from_slice(b"OKAY");
+                        reply.extend_from_slice(&0u32.to_le_bytes());
+                    }
+                    send(socket, b"WRTE", 1, local, &reply);
+                    if rejected {
+                        // The client drops its dedicated connection on a
+                        // refusal; nothing more arrives.
+                        return (header, data);
+                    }
+                }
+                b"QUIT" => {
+                    send(socket, b"CLSE", 1, local, &[]);
+                    return (header, data);
+                }
+                other => panic!("unexpected sync request {other:?}"),
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn native_upload_uses_a_dedicated_connection_and_leaves_the_selected_tv_free() {
+    for rejected in [false, true] {
+        let key = fixture_key();
+        let driver = WirelessAdb::with_existing_key(key.path().into(), Leases::new());
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (uploaded_tx, uploaded) = std::sync::mpsc::channel();
+        let peer = std::thread::spawn(move || {
+            let mut selected = accept(&listener);
+            assert_eq!(receive(&mut selected).0, b"CNXN");
+            send(&mut selected, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+            serve_download_identity(&mut selected);
+            let mut transfer = accept(&listener);
+            assert_eq!(receive(&mut transfer).0, b"CNXN");
+            send(&mut transfer, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+            serve_download_identity(&mut transfer);
+            let received = serve_push(&mut transfer, rejected, || {
+                uploaded_tx.send(()).unwrap();
+                // Mid-upload, the selected session still answers its
+                // liveness probe instead of queueing behind the transfer.
+                serve_shell(&mut selected, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+            });
+            // And it still serves requests after the upload, either way.
+            serve_download_identity(&mut selected);
+            received
+        });
+        driver.begin_request(1).unwrap();
+        driver.connect("127.0.0.1", port, 1).await.unwrap();
+        let serial = format!("127.0.0.1:{port}");
+        let dir = tempfile::tempdir().unwrap();
+        let local = dir.path().join("upload.bin");
+        std::fs::write(&local, b"fixture upload").unwrap();
+        let args = [
+            "-s",
+            &serial,
+            "push",
+            local.to_str().unwrap(),
+            "/sdcard/fixture",
+        ];
+        let push = driver.raw_transfer(&args);
+        let status = async {
+            tokio::task::spawn_blocking(move || {
+                uploaded.recv_timeout(Duration::from_secs(5)).unwrap();
+            })
+            .await
+            .unwrap();
+            driver.status().await
+        };
+        let (pushed, status) = tokio::join!(push, status);
+        assert!(status.connected, "the probe ran on the selected session");
+        assert_eq!(status.serial.as_deref(), Some(serial.as_str()));
+        if rejected {
+            let error = pushed.unwrap_err().to_string();
+            assert!(error.contains("Read-only file system"), "{error}");
+        } else {
+            pushed.unwrap();
+        }
+        assert_eq!(
+            driver
+                .verified_owned_hardware_id(&serial, Duration::from_secs(2))
+                .await
+                .unwrap(),
+            "fixture-tv"
+        );
+        let (header, data) = peer.join().unwrap();
+        assert!(header.starts_with("/sdcard/fixture,"), "{header}");
+        assert_eq!(data, b"fixture upload");
+    }
+}
+
+#[tokio::test]
+async fn status_reports_a_tv_busy_with_a_command_as_connected_without_waiting_for_it() {
+    let (release_peer, peer_released) = std::sync::mpsc::channel::<()>();
+    let connected = connected_driver(move |socket, _listener| {
+        // Nothing may reach the TV while the command holds the connection.
+        let _socket = socket;
+        let _ = peer_released.recv_timeout(Duration::from_secs(10));
+    })
+    .await;
+    let conn = connected.driver.conn.clone();
+    let (held_tx, held) = std::sync::mpsc::channel();
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let command = std::thread::spawn(move || {
+        let _busy = lock_recovering(&conn);
+        held_tx.send(()).unwrap();
+        let _ = released.recv_timeout(Duration::from_secs(10));
+    });
+    held.recv_timeout(Duration::from_secs(5)).unwrap();
+    let started = std::time::Instant::now();
+    let status = connected.driver.status().await;
+    assert!(status.connected);
+    assert_eq!(status.serial.as_deref(), Some(connected.serial.as_str()));
+    assert!(
+        started.elapsed() < STATUS_BUSY_WAIT + Duration::from_secs(2),
+        "status waited {:?} for the busy connection",
+        started.elapsed()
+    );
+    assert!(
+        connected.driver.info().is_some(),
+        "a busy TV is not evicted"
+    );
+    release.send(()).unwrap();
+    command.join().unwrap();
+    release_peer.send(()).unwrap();
+    connected.peer.join().unwrap();
+}
+
 #[tokio::test]
 async fn a_peer_silent_before_auth_does_not_claim_the_user_missed_approval() {
     // This peer never sends AUTH, so no approval request is established.
