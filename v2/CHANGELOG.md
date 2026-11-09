@@ -22,6 +22,9 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: the Temperature card shows what the TV reports about its reading, as the Android app does: Android's thermal status under the figure, and behind its help button the sensor, the source and that sensor's own throttling and shutdown points. It is coloured only when the TV reports throttling or the reading passes its sensor's threshold, instead of fixed 60 °C and 76 °C bands. A temperature with no status says so.
+- Desktop: **Force stop** in an app's detail panel (App List and Optimize), as in the Android app sheet. It re-measures afterwards, so RAM reads "Not running".
+- Desktop: **Find remote** on the Remote tab for a Shield makes its remote beep. It appears only for a TV that reported itself as a Shield.
 - Desktop and Android: restoring a snapshot, Emergency Recovery and Tweaks report a package or setting as changed only once the TV reads it back that way. A write that exits with an error, or that Android accepts without applying, is listed as failed instead of done.
 - Desktop: App List offers **Uninstall** for ordinary catalog apps that are on the Play Store, not only for named sideloads, with the same protected-app checks and confirmation. High-risk system pieces (Google TV Home, Setup Wraith, the voice service), apps the TV ships with, and apps marked Kept still offer only Disable. Its tables scroll sideways at narrow widths and enlarged text, and row actions wrap instead of clipping (#325).
 - Desktop: **Optimize no longer has "Select all safe."** Most apps rated Safe to remove are ones someone here installed, so each is now armed by hand. Keep all stays. Restore mode gains **Re-enable all disabled**, which arms Enable on every disabled catalog app, since turning apps back on is the safe direction.

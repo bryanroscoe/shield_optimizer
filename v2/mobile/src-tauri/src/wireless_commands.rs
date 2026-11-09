@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::time::Duration;
 
-use atv_optimizer_core::adb::AdbOutput;
 use atv_optimizer_core::commands::{devices::ConnectResult, AppState};
 use atv_optimizer_core::engine::cast_name::lookup_target;
 use atv_optimizer_core::net::cast_display_name;
@@ -185,60 +184,12 @@ pub async fn wireless_status(
     Ok(status)
 }
 
+/// Thin wrapper so the mobile command list stays unchanged; the body lives in
+/// core so desktop rings the remote the same way.
 #[tauri::command]
 pub async fn find_remote(
-    state: State<'_, atv_optimizer_core::commands::AppState>,
+    state: State<'_, AppState>,
     serial: String,
 ) -> Result<ConnectResult, String> {
-    let adb = state.adb_snapshot().await;
-    let cmd = "am start -n com.nvidia.remotelocator/.ShieldRemoteLocatorActivity";
-    match adb.shell(&serial, cmd).await {
-        Ok(out) => Ok(classify_find_remote(out)),
-        Err(e) => {
-            tracing::warn!(serial = %serial, error = %e, "find_remote shell failed");
-            Ok(ConnectResult {
-                ok: false,
-                message: e.to_string(),
-            })
-        }
-    }
-}
-
-fn classify_find_remote(out: AdbOutput) -> ConnectResult {
-    let message = out.combined().trim().to_string();
-    let ok = out.success() && !out.shell_reported_failure();
-    ConnectResult {
-        ok,
-        message: if ok && message.is_empty() {
-            "Remote locator opened.".to_string()
-        } else if !ok && message.is_empty() {
-            format!("Remote locator failed with exit code {:?}.", out.exit_code)
-        } else {
-            message
-        },
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::classify_find_remote;
-    use atv_optimizer_core::adb::AdbOutput;
-
-    #[test]
-    fn find_remote_requires_a_successful_shell_result() {
-        let failed = classify_find_remote(AdbOutput {
-            stdout: String::new(),
-            stderr: "Error: Activity class does not exist".to_string(),
-            exit_code: Some(1),
-        });
-        assert!(!failed.ok);
-        assert!(failed.message.contains("does not exist"));
-
-        let succeeded = classify_find_remote(AdbOutput {
-            stdout: "Starting: Intent".to_string(),
-            stderr: String::new(),
-            exit_code: Some(0),
-        });
-        assert!(succeeded.ok);
-    }
+    atv_optimizer_core::commands::input::find_remote(state, serial).await
 }

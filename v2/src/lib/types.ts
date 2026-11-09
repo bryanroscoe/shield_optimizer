@@ -2,6 +2,7 @@
 // and src-tauri/src/commands/*.rs. Keep in sync.
 
 import type { SupportInfo } from "../../shared/support";
+import type { TemperatureReading } from "../../shared/health";
 import type { LocalNetworkStatus } from "./adb-errors";
 
 export type ConnectionType = "network" | "usb";
@@ -251,6 +252,10 @@ export interface HealthReport {
   ram: RamInfo;
   storage: StorageInfo;
   temperature_c: number | null;
+  /// Sensor and limits for the same reading as `temperature_c`, when reported.
+  temperature_reading?: TemperatureReading | null;
+  /// Android's device-wide thermal status (0-6), when reported.
+  thermal_status?: number | null;
   audio_device: string | null;
   top_memory: MemoryEntry[];
 }
@@ -564,6 +569,7 @@ export interface ApplyResult {
 
 export type { Safety } from "../../shared/safety";
 export type { SupportInfo, SupportTier } from "../../shared/support";
+export type { TemperatureReading } from "../../shared/health";
 export type { TelemetrySettings } from "../../shared/telemetry";
 
 export interface RecoveryFailure {

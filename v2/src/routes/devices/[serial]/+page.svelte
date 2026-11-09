@@ -1,5 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import HelpTip from "$lib/components/HelpTip.svelte";
   import { onMount, onDestroy } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -34,6 +35,7 @@
   import SupportBadge from "$lib/components/SupportBadge.svelte";
   import SupportBanner from "$lib/components/SupportBanner.svelte";
   import { destructiveWarning } from "../../../../shared/support";
+  import { metricNumber, temperatureContext } from "../../../../shared/health";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import {
     isBlocked,
@@ -557,20 +559,34 @@
     return null;
   });
 
-  /// Temperature tiers. Deliberately coarse and deliberately not device-
-  /// specific: we read a thermal zone, not the throttle point, so these are
-  /// bands for a reader rather than a claim about this TV's limit.
+  /// Temperature context from the same reads the phone uses. The figure is
+  /// coloured only by what the TV reported about it: Android's thermal status,
+  /// or the reading passing its own sensor's throttling threshold. A bare
+  /// number with neither claims nothing, so it stays uncoloured.
+  let thermal = $derived(temperatureContext(report));
+  /// The worse of the device-wide status and the selected sensor's own: a
+  /// sensor reporting throttling is never hidden behind a calm device status.
+  let worstStatus = $derived.by(() => {
+    const { deviceStatus, sensorStatus } = thermal;
+    if (deviceStatus == null) return sensorStatus;
+    if (sensorStatus == null) return deviceStatus;
+    return Math.max(deviceStatus, sensorStatus);
+  });
   let tempTone = $derived.by(() => {
-    const c = report?.temperature_c;
-    if (c == null) return null;
-    if (c >= 76) return "danger";
-    if (c > 60) return "warn";
+    if (thermal.value == null && worstStatus == null) return null;
+    if (worstStatus != null && worstStatus >= 4) return "danger";
+    if (worstStatus != null && worstStatus >= 2) return "warn";
+    if (thermal.value != null && thermal.throttle != null && thermal.value >= thermal.throttle) return "warn";
     return null;
   });
-
-  let tempWord = $derived(
-    report?.temperature_c == null ? null : tempTone === "danger" ? "hot" : tempTone === "warn" ? "warm" : "fine",
-  );
+  let tempFoot = $derived.by(() => {
+    if (thermal.value == null && thermal.status == null) return "not reported";
+    const sensorWorse =
+      thermal.sensorStatus != null && thermal.deviceStatus != null && thermal.sensorStatus > thermal.deviceStatus;
+    if (sensorWorse) return `${thermal.cached ? "Cached sensor" : "Sensor"}: ${thermal.sensorStatusLabel}`;
+    if (thermal.status != null) return thermal.statusLabel;
+    return thermal.comparison ?? thermal.statusLabel;
+  });
 
   /// Bytes/s → the largest unit that keeps the number readable.
   function formatRate(bytesPerSecond: number | null): string {
@@ -2546,26 +2562,41 @@
 
           <div class="stat-card">
             <div class="stat-head">
-              <span class="stat-title">Temperature</span>
+              <span class="stat-title">
+                <HelpTip label="Temperature">
+                  {#if thermal.value != null}
+                    <p>Highest reported temperature: <strong>{metricNumber(thermal.value)} °C</strong></p>
+                    <p>{thermal.sensor}{thermal.source ? ` · ${thermal.source}` : ""}</p>
+                    {#if thermal.cached}<p>No current sensor reading was supplied; showing a cached value.</p>{/if}
+                  {:else}
+                    <p>Temperature unavailable.</p>
+                  {/if}
+                  {#if thermal.value != null || thermal.status != null}
+                    <p>{thermal.status == null ? thermal.statusLabel : `${thermal.statusScope}: ${thermal.statusLabel}`}</p>
+                    {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
+                      <p>{thermal.cached ? "Cached sensor" : "Selected sensor"}: {thermal.sensorStatusLabel}</p>
+                    {/if}
+                    <p>{thermal.statusHelp}</p>
+                    {#if thermal.value != null && thermal.throttle != null}
+                      <p>Reported sensor threshold: <strong>{metricNumber(thermal.throttle)} °C</strong> · {thermal.comparison}</p>
+                      <p>{thermal.thresholdHelp}</p>
+                    {:else if thermal.value != null}
+                      <p>Matching sensor threshold not reported.</p>
+                    {/if}
+                    {#if thermal.shutdown != null}<p>Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
+                  {:else}
+                    <p>Sensor and thermal-status data were not supplied.</p>
+                  {/if}
+                </HelpTip>
+              </span>
             </div>
             <div class="stat-big mono" class:warn={tempTone === "warn"} class:danger={tempTone === "danger"}>
-              {#if report.temperature_c != null}
-                {report.temperature_c.toFixed(0)}<span class="stat-unit">°C</span>
+              {#if thermal.value != null}
+                {metricNumber(thermal.value)}<span class="stat-unit">°C</span>
               {:else}<span class="stat-pending">—</span>{/if}
             </div>
-            <!-- The board prints "throttles at 85 °C". We do not read the
-                 throttle point from the device, so the tiers are bands for a
-                 reader and the tooltip says the limit is not ours to quote. -->
             <div class="stat-foot mono">
-              {#if tempWord}
-                <span
-                  class="tip-wrap"
-                  data-tip="Throttling usually starts around 80–85 °C; the device does not report its own limit"
-                  data-tip-align="end"
-                >thermal zone · {tempWord}</span>
-              {:else}
-                <span>thermal zone</span>
-              {/if}
+              <span>{tempFoot}</span>
             </div>
           </div>
         </div>
@@ -3713,7 +3744,7 @@
   {/if}
   {#if visited.remote}
     <div hidden={activeTab !== "remote"}>
-      <RemoteTab {serial} active={activeTab === "remote"} />
+      <RemoteTab {serial} active={activeTab === "remote"} deviceType={device?.device_type} />
     </div>
   {/if}
   {#if visited.media}
@@ -4024,6 +4055,16 @@
   }
   .stat-title {
     font-weight: 600;
+  }
+  /* The help trigger sits on the card title; the title keeps the card's type. */
+  .stat-title :global(.help-title) {
+    font-size: inherit;
+    font-weight: inherit;
+  }
+  /* Keep the full-size target without making this card's title row taller
+     than its neighbours', so the figures stay level across the row. */
+  .stat-title :global(.help-trigger) {
+    margin-block: -0.3rem;
   }
   /* The used/total caption on RAM and Storage. It sits beside the card title
      and is sized as a value, not a footnote: the pair of numbers is the card's
