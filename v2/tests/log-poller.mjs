@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import test from "node:test";
-const source = readFileSync(new URL("../src/lib/log-poller.ts", import.meta.url), "utf8");
+const source = readFileSync(new URL("../shared/log-poller.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, {
   compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
 }).outputText;

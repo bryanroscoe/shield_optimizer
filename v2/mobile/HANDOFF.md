@@ -80,11 +80,16 @@ app sheet (Apps, Optimize, Diagnostics) shows the TV's support-tier warning befo
 offers Report this app and Research sources. A scan that finds nothing opens connection help.
 Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
+Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab
+through core `commands::logcat::read_device_logs` and the shared `v2/shared/log-poller.ts`; it never
+saves or uploads them. More › Bug report builds desktop's narrow bundle through core
+`commands::diagnostics` (with this app's `debug.log` tail), shows it for review and copies it to the
+clipboard; nothing is sent.
 
-Not on mobile yet, and why: export of saved files, phone→TV upload, install APK / sideload and the
-bug-report bundle (`collect_diagnostics`) all need Android's document picker or share sheet (SAF),
-which isn't wired. The Logs tab needs `shell_bounded`, which `WirelessAdb` doesn't implement yet.
-A patch-notes viewer is deferred.
+Not on mobile yet, and why: export of saved files, phone→TV upload and install APK / sideload all
+need Android's document picker or share sheet (SAF), which isn't wired. Desktop's Send logs upload
+(`upload_diagnostics`) is not offered on the phone (owner decision). A patch-notes viewer is
+deferred.
 
 ## 2. Transport
 
@@ -260,8 +265,9 @@ A patch-notes viewer is deferred.
   buffer, `safety.ts`), `app.css` (design tokens + offline `@font-face`).
 - `v2/mobile/src-tauri/src/` — `lib.rs` (builder + `generate_handler!`, license persistence),
   `wireless_adb.rs` (transport), `wireless_commands.rs` (`wireless_*`), `file_commands.rs`
-  (remote listing, pull, find/delete via core, APK backup/restore), `remote_lifecycle.rs` (Android
-  background grace), `scrcpy_resource.rs`.
+  (remote listing, pull, find/delete via core, APK backup/restore with core
+  `engine::install_outcome`, and the startup cleanup of interrupted pulls and manifest-less backup
+  bundles), `remote_lifecycle.rs` (Android background grace), `scrcpy_resource.rs`.
 - `v2/mobile/src-tauri/gen/android/` — the generated Android project, tracked **with hand edits**
   (icons, `AndroidManifest.xml`, `strings.xml`, `build.gradle.kts` signing config). Don't rerun
   `tauri android init`; it would overwrite them.
@@ -351,9 +357,8 @@ argument names are camelCase in TS and Tauri maps them to snake_case (`pkg` → 
    bug-bash checks, and the stability and UI checks in `BACKLOG.md` P0.
 2. Code pairing against a real adbd (`PAIRING-PLAN.md`).
 3. Fast-remote Phase 4 device gates (`FAST-REMOTE-PLAN.md`).
-4. Android SAF export/import, which also unblocks phone→TV upload; then sideload, the bug-report
-   bundle and a patch-notes viewer. Separately: the Logs tab, the connect-lock narrowing in
-   `wireless_adb.rs` and phone-side cleanup of interrupted pulls and backups.
+4. Android SAF export/import, which also unblocks phone→TV upload; then sideload and a patch-notes
+   viewer. Separately: the connect-lock narrowing in `wireless_adb.rs`.
 5. Product decisions for the owner: a free read-only Optimize plan, and the unused
    `Feature::FileManager` / `Feature::BackupClone` gates.
 6. Release: signing key and Play App Signing, a signed build, resolved Android dependency notices,

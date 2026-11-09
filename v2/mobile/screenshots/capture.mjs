@@ -40,6 +40,7 @@ const SCREENS = [
   { name: "devices", open: ["devices"] },
   { name: "files", open: ["files"] },
   { name: "backups", open: ["backups"] },
+  { name: "logs", open: ["logs"], then: readLogs },
   { name: "riskguide", open: ["riskguide"] },
   { name: "add-tv", open: ["addtv"] },
   { name: "catalog", open: ["catalog"], then: openCatalogProfile },
@@ -48,6 +49,11 @@ const SCREENS = [
 async function openFirstAppSheet(page) {
   await page.locator('.app-row[data-package="com.google.android.videos"]').click();
   await page.locator(".sheet").first().waitFor();
+}
+
+async function readLogs(page) {
+  await page.getByRole("button", { name: "Read logs", exact: true }).click();
+  await page.getByLabel("Log output").waitFor();
 }
 
 async function openCatalogProfile(page) {

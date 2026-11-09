@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
+use crate::engine::install_outcome::{decode_install_error, install_succeeded, parse_pm_paths};
 use crate::engine::is_valid_package_name;
 
 use super::AppState;
@@ -23,16 +24,6 @@ pub struct BackupApkResult {
     /// (`adb install-multiple`).
     pub split: bool,
     pub message: String,
-}
-
-/// Parse `pm path <pkg>` output: one `package:<path>` line per APK.
-fn parse_pm_path_output(stdout: &str) -> Vec<String> {
-    stdout
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("package:"))
-        .filter(|p| !p.is_empty())
-        .map(str::to_string)
-        .collect()
 }
 
 /// Pull `versionName=` out of `dumpsys package <pkg>` output.
@@ -69,7 +60,13 @@ async fn apk_paths_and_version(
         .shell(serial, &format!("pm path {package}"))
         .await
         .map_err(|e| format!("pm path: {e}"))?;
-    let remotes = parse_pm_path_output(&path_out.stdout);
+    if path_out.exit_code.is_some_and(|code| code != 0) || path_out.shell_reported_failure() {
+        return Err(format!(
+            "Could not resolve {package}: {}",
+            path_out.combined().trim()
+        ));
+    }
+    let remotes = parse_pm_paths(&path_out.stdout)?;
     if remotes.is_empty() {
         return Err(format!(
             "{package} has no APK path on the device — is it installed? ({})",
@@ -213,12 +210,12 @@ pub async fn clone_app(
             .await
             .map_err(|e| format!("adb install: {e}"))?;
         let combined = out.combined().trim().to_string();
-        let ok = combined.contains("Success");
+        let ok = install_succeeded(out.success(), &combined);
         Ok::<CloneAppResult, String>(CloneAppResult {
             hint: if ok {
                 None
             } else {
-                super::sideload::decode_install_error(&combined)
+                decode_install_error(&combined)
             },
             message: if ok {
                 format!(
@@ -242,27 +239,6 @@ pub async fn clone_app(
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-
-    #[test]
-    fn parses_single_apk_path() {
-        let out = "package:/data/app/~~abc==/com.plexapp.android-xyz==/base.apk\n";
-        assert_eq!(
-            parse_pm_path_output(out),
-            vec!["/data/app/~~abc==/com.plexapp.android-xyz==/base.apk".to_string()]
-        );
-    }
-
-    #[test]
-    fn parses_split_apk_paths() {
-        let out = "package:/data/app/x/base.apk\npackage:/data/app/x/split_config.en.apk\n";
-        assert_eq!(parse_pm_path_output(out).len(), 2);
-    }
-
-    #[test]
-    fn ignores_noise_lines() {
-        assert!(parse_pm_path_output("error: no devices\n").is_empty());
-        assert!(parse_pm_path_output("").is_empty());
-    }
 
     #[test]
     fn parses_version_name_from_dumpsys() {

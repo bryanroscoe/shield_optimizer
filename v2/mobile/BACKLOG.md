@@ -67,11 +67,12 @@ go-ahead; don't infer permission from a phone being powered on.
    [`EXPORT-DISCOVERABILITY.md`](EXPORT-DISCOVERABILITY.md); then SAF import, which also unblocks
    phone→TV upload in Files; then consider Google Drive for complete APK bundles.
 2. Install APK / sideload from the phone.
-3. The bug-report bundle (`collect_diagnostics`) with an explicit share step.
+3. ~~The bug-report bundle (`collect_diagnostics`).~~ Done 2026-11-08: More › Bug report, reviewed
+   on screen and copied to the clipboard. A share-sheet step waits on item 1; upload stays
+   desktop-only (owner decision).
 4. A patch-notes viewer (deferred).
-5. **Logs tab.** Desktop reads a bounded logcat snapshot through `AdbDriver::shell_bounded`, which
-   `WirelessAdb` doesn't implement; add it there (bounded output, same timeouts) before porting
-   the tab.
+5. ~~**Logs tab.**~~ Done 2026-11-08: More › Device logs, through core `read_device_logs`
+   (`WirelessAdb::shell_bounded`, same bounds as desktop). Not yet run on a phone.
 6. **Connect-lock narrowing** in `wireless_adb.rs` (deferred from the bug bash). A cancelled
    handshake can block the next connect for up to 30 s, because the whole handshake runs under the
    lifecycle lock. Patch idea: run the handshake outside the lock, then publish the connection
@@ -84,10 +85,9 @@ go-ahead; don't infer permission from a phone being powered on.
    keyboard; Apps rows reach the accessibility tree only after the first tap. Android 11 Shields
    can hold a stale "Allow debugging" prompt (`adbd_auth: prompt currently pending, skipping`) and
    never show the phone's; the timeout copy already advises restarting the TV.
-8. **Phone-side storage reclaim.** An interrupted pull or APK backup in `file_commands.rs` leaves
-   `.tmp*` partial files and bundle directories without a manifest. Nothing cleans them up or lists
-   them, so they take app-private space the user can't see or free. Clean them on start or on the
-   next listing, and never touch a bundle with a valid manifest.
+8. ~~**Phone-side storage reclaim.**~~ Done 2026-11-08: `file_commands::reclaim_partial_storage`
+   runs at startup, before any transfer, and removes staged `.tmp*` downloads and bundle-named
+   backup directories with no manifest file. A directory with any manifest is kept.
 9. Product decisions for the owner:
    - Let Free users see the Optimize plan read-only. Core `prepare_optimize` is Pro-gated, so the
      flagship screen is a lock card for Free users while the Dashboard already shows them the

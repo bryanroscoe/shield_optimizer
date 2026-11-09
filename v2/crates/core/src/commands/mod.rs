@@ -5,6 +5,7 @@
 
 pub mod apps;
 pub mod devices;
+pub mod diagnostics;
 pub mod files;
 pub mod health;
 pub mod home_tracking;

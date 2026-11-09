@@ -22,8 +22,12 @@
 use std::path::{Path, PathBuf};
 
 use atv_optimizer_core::adb::{parse_ls_output, AdbError, FileEntry};
-use atv_optimizer_core::commands::files::{delete_path_with, find_files_with, FindResult};
+use atv_optimizer_core::commands::files::{self, delete_path_with, find_files_with, FindResult};
 use atv_optimizer_core::commands::{apps::ActionResult, AppState};
+use atv_optimizer_core::engine::install_outcome::{
+    apk_basename, decode_install_error, install_succeeded, is_safe_apk_name, parse_pm_paths,
+};
+use atv_optimizer_core::engine::is_valid_package_name;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tauri::State;
@@ -61,22 +65,13 @@ struct BackupManifest {
     apk_files: Vec<String>,
 }
 
-/// Validate a device path for browsing/pull: absolute, no `..` traversal, no
-/// control characters (they'd corrupt the shell line even single-quoted). The
-/// same injection guards the desktop file manager uses, minus the `/sdcard`
-/// confinement so the UI can browse `/storage/emulated/0` too.
+/// Browsing and pull accept any absolute device path: the same injection
+/// guards as the desktop file manager (absolute, no `..`, no control
+/// characters) with power-user scope, so the UI can browse
+/// `/storage/emulated/0` as well as `/sdcard`. Delete stays `/sdcard`-confined
+/// through the shared `delete_path_with`.
 fn validate_device_path(path: &str) -> Result<String, String> {
-    let p = path.trim();
-    if !p.starts_with('/') {
-        return Err(format!("Path must be absolute: {p:?}"));
-    }
-    if p.split('/').any(|seg| seg == "..") {
-        return Err("Path traversal (`..`) is not allowed.".to_string());
-    }
-    if p.chars().any(|c| c.is_control()) {
-        return Err("Path contains control characters.".to_string());
-    }
-    Ok(p.to_string())
+    files::validate_device_path(path, true)
 }
 
 /// Single-quote a validated device path for the device-side shell.
@@ -84,49 +79,14 @@ fn quote_path(p: &str) -> String {
     format!("'{}'", p.replace('\'', r"'\''"))
 }
 
-/// A package name is `[A-Za-z0-9._]` — reject anything else so it can never
-/// break out of the `pm path` shell word.
+/// The shared package-name rule (`name(.name)+`, each segment starting with
+/// a letter) — it can never break out of the `pm path` shell word.
 fn validate_package(pkg: &str) -> Result<String, String> {
     let p = pkg.trim();
-    if p.is_empty()
-        || !p
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_')
-    {
+    if !is_valid_package_name(p) {
         return Err(format!("Invalid package name: {pkg:?}"));
     }
     Ok(p.to_string())
-}
-
-fn basename(path: &str) -> Option<&str> {
-    path.rsplit('/').next().filter(|s| !s.is_empty())
-}
-
-fn safe_apk_name(name: &str) -> bool {
-    !name.is_empty()
-        && name != "."
-        && name != ".."
-        && name.ends_with(".apk")
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-}
-
-fn parse_pm_paths(stdout: &str) -> Result<Vec<String>, String> {
-    let mut paths = Vec::new();
-    for raw in stdout
-        .lines()
-        .filter_map(|line| line.trim().strip_prefix("package:"))
-        .filter(|path| !path.is_empty())
-    {
-        let path = validate_device_path(raw)?;
-        let name = basename(&path).ok_or_else(|| format!("Invalid APK path: {path}"))?;
-        if !safe_apk_name(name) {
-            return Err(format!("Unsafe APK filename reported by the TV: {name:?}"));
-        }
-        paths.push(path);
-    }
-    Ok(paths)
 }
 
 fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
@@ -142,7 +102,7 @@ fn read_manifest(dir: &Path) -> Result<BackupManifest, String> {
         ));
     }
     validate_package(&manifest.package)?;
-    if manifest.apk_files.is_empty() || manifest.apk_files.iter().any(|f| !safe_apk_name(f)) {
+    if manifest.apk_files.is_empty() || manifest.apk_files.iter().any(|f| !is_safe_apk_name(f)) {
         return Err("APK backup manifest contains invalid files.".to_string());
     }
     Ok(manifest)
@@ -296,7 +256,7 @@ async fn pull_file_impl(
     remote_path: &str,
 ) -> Result<PulledFile, String> {
     let remote = validate_device_path(remote_path)?;
-    let remote_name = basename(&remote)
+    let remote_name = apk_basename(&remote)
         .ok_or_else(|| format!("Not a file path: {remote}"))?
         .to_string();
     let dir = state.data_dir.join("downloads");
@@ -387,7 +347,7 @@ pub async fn backup_apk(
     let result = async {
         let mut apk_files = Vec::with_capacity(paths.len());
         for (index, remote) in paths.iter().enumerate() {
-            let remote_name = basename(remote).expect("validated APK path has a basename");
+            let remote_name = apk_basename(remote).expect("validated APK path has a basename");
             let local_name = format!("{index:03}-{remote_name}");
             let local = dir.join(&local_name);
             let local_str = local.to_string_lossy().into_owned();
@@ -465,10 +425,13 @@ async fn restore_apk_backup_impl(
 
     let adb = state.adb_snapshot().await;
     let (ok, message) = match adb.raw_transfer(&args).await {
-        Ok(out) => (
-            out.success() && out.combined().contains("Success"),
-            out.combined().trim().to_string(),
-        ),
+        Ok(out) => {
+            let combined = out.combined();
+            (
+                install_succeeded(out.success(), &combined),
+                combined.trim().to_string(),
+            )
+        }
         // `adb install` exits nonzero with the package manager's reason.
         Err(AdbError::NonZeroExit { stderr, .. }) => (false, stderr.trim().to_string()),
         Err(e) => return Err(format!("install backup: {e}")),
@@ -483,6 +446,8 @@ async fn restore_apk_backup_impl(
             )
         } else if message.is_empty() {
             "The TV did not confirm that the backup was installed.".to_string()
+        } else if let Some(hint) = decode_install_error(&message) {
+            format!("{message}\n{hint}")
         } else {
             message
         },
@@ -593,6 +558,86 @@ pub async fn delete_path(
 ) -> Result<ActionResult, String> {
     let adb = state.adb_snapshot().await;
     delete_path_with(adb.as_ref(), &serial, &path, false).await
+}
+
+/// What [`reclaim_partial_storage`] removed.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Reclaimed {
+    pub partial_downloads: usize,
+    pub incomplete_bundles: usize,
+}
+
+/// `tempfile`'s staging name for a pull that has not been published yet.
+fn is_staged_download(name: &str) -> bool {
+    name.starts_with(".tmp")
+}
+
+/// A bundle directory name as `backup_apk` writes it:
+/// `<package>-<YYYYMMDD>T<HHMMSS><nanos>Z`.
+fn is_bundle_dir_name(name: &str) -> bool {
+    let Some((package, stamp)) = name.rsplit_once('-') else {
+        return false;
+    };
+    let Some(digits) = stamp.strip_suffix('Z') else {
+        return false;
+    };
+    let Some((date, time)) = digits.split_once('T') else {
+        return false;
+    };
+    is_valid_package_name(package)
+        && date.len() == 8
+        && time.len() >= 6
+        && date.chars().chain(time.chars()).all(|c| c.is_ascii_digit())
+}
+
+/// Free app-private space an interrupted pull or APK backup left behind:
+/// staged `.tmp*` downloads, and bundle directories that never got their
+/// manifest. Run once at startup, before any transfer can be in flight.
+///
+/// A directory that has a manifest file is kept whatever its state — a valid
+/// bundle is the user's backup, and an unreadable one is theirs to delete.
+/// Symlinks, other files and directories that don't carry the bundle naming
+/// scheme are never touched.
+pub fn reclaim_partial_storage(data_dir: &Path) -> Reclaimed {
+    let mut reclaimed = Reclaimed::default();
+    if let Ok(entries) = std::fs::read_dir(data_dir.join("downloads")) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let Ok(meta) = std::fs::symlink_metadata(entry.path()) else {
+                continue;
+            };
+            if meta.is_file() && is_staged_download(name) {
+                match std::fs::remove_file(entry.path()) {
+                    Ok(()) => reclaimed.partial_downloads += 1,
+                    Err(e) => tracing::warn!(error = %e, "could not remove a partial download"),
+                }
+            }
+        }
+    }
+    if let Ok(entries) = std::fs::read_dir(data_dir.join("backups")) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let Ok(meta) = std::fs::symlink_metadata(&path) else {
+                continue;
+            };
+            if !meta.is_dir() || !is_bundle_dir_name(name) {
+                continue;
+            }
+            // `symlink_metadata` so a dangling or linked manifest still
+            // counts as "a manifest is there" and the bundle is kept.
+            if std::fs::symlink_metadata(path.join(BACKUP_MANIFEST)).is_ok() {
+                continue;
+            }
+            match std::fs::remove_dir_all(&path) {
+                Ok(()) => reclaimed.incomplete_bundles += 1,
+                Err(e) => tracing::warn!(error = %e, "could not remove an incomplete APK backup"),
+            }
+        }
+    }
+    reclaimed
 }
 
 /// Format a file's last-modified time as ISO-8601 UTC, or empty on error.
@@ -809,7 +854,10 @@ mod tests {
         .await;
         let result = result.expect("an answer, not an error");
         assert!(!result.ok);
-        assert_eq!(result.message, "Failure [INSTALL_FAILED_VERSION_DOWNGRADE]");
+        assert!(result
+            .message
+            .starts_with("Failure [INSTALL_FAILED_VERSION_DOWNGRADE]"));
+        assert!(result.message.contains("newer"), "{}", result.message);
     }
 
     #[tokio::test]
@@ -979,5 +1027,96 @@ mod tests {
         assert!(entry.complete);
         assert_eq!(entry.apk_count, 2);
         assert_eq!(entry.size_bytes, 9);
+    }
+
+    #[test]
+    fn bundle_names_match_what_backup_apk_writes() {
+        let stamp = Utc::now().format("%Y%m%dT%H%M%S%9fZ").to_string();
+        assert!(is_bundle_dir_name(&format!("com.example.app-{stamp}")));
+        assert!(is_bundle_dir_name("com.example-20261108T120000123456789Z"));
+        assert!(!is_bundle_dir_name("com.example-1"));
+        assert!(!is_bundle_dir_name("notes"));
+        assert!(!is_bundle_dir_name("bad;pkg-20261108T120000Z"));
+    }
+
+    #[test]
+    fn reclaim_removes_partials_and_manifestless_bundles_only() {
+        let data = tempfile::tempdir().expect("data");
+        let downloads = data.path().join("downloads");
+        let backups = data.path().join("backups");
+        std::fs::create_dir_all(&downloads).unwrap();
+        std::fs::create_dir_all(&backups).unwrap();
+
+        std::fs::write(downloads.join(".tmpAbC123"), b"partial").unwrap();
+        std::fs::write(downloads.join("report.txt"), b"kept").unwrap();
+        std::fs::write(downloads.join(".bashrc"), b"kept").unwrap();
+
+        // Interrupted: APKs pulled, manifest never written.
+        let partial = backups.join("com.example-20261108T120000000000001Z");
+        std::fs::create_dir(&partial).unwrap();
+        std::fs::write(partial.join("000-base.apk"), b"apk").unwrap();
+        // Complete bundle with a valid manifest.
+        let complete = backups.join("com.example-20261108T120000000000002Z");
+        std::fs::create_dir(&complete).unwrap();
+        std::fs::write(complete.join("000-base.apk"), b"apk").unwrap();
+        let manifest = BackupManifest {
+            schema_version: BACKUP_SCHEMA_VERSION,
+            package: "com.example".to_string(),
+            saved_at: "2026-11-08T12:00:00Z".to_string(),
+            apk_files: vec!["000-base.apk".to_string()],
+        };
+        std::fs::write(
+            complete.join(BACKUP_MANIFEST),
+            serde_json::to_vec(&manifest).unwrap(),
+        )
+        .unwrap();
+        // An unreadable manifest is still the user's to delete.
+        let corrupt = backups.join("com.example-20261108T120000000000003Z");
+        std::fs::create_dir(&corrupt).unwrap();
+        std::fs::write(corrupt.join(BACKUP_MANIFEST), b"{not json").unwrap();
+        // Not our naming scheme, and a legacy base-only APK file.
+        let foreign = backups.join("keep-me");
+        std::fs::create_dir(&foreign).unwrap();
+        std::fs::write(backups.join("com.legacy.apk"), b"apk").unwrap();
+
+        let reclaimed = reclaim_partial_storage(data.path());
+        assert_eq!(
+            reclaimed,
+            Reclaimed {
+                partial_downloads: 1,
+                incomplete_bundles: 1
+            }
+        );
+        assert!(!downloads.join(".tmpAbC123").exists());
+        assert!(downloads.join("report.txt").exists());
+        assert!(downloads.join(".bashrc").exists());
+        assert!(!partial.exists());
+        assert!(complete.join("000-base.apk").exists());
+        assert!(bundle_entry(&complete).is_ok());
+        assert!(corrupt.join(BACKUP_MANIFEST).exists());
+        assert!(foreign.exists());
+        assert!(backups.join("com.legacy.apk").exists());
+
+        // Idempotent, and absent folders are not an error.
+        assert_eq!(reclaim_partial_storage(data.path()), Reclaimed::default());
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(reclaim_partial_storage(empty.path()), Reclaimed::default());
+    }
+
+    #[test]
+    fn package_names_use_the_shared_rule() {
+        assert!(validate_package("com.example.app").is_ok());
+        assert!(validate_package("com.example;id").is_err());
+        assert!(validate_package("nodots").is_err());
+        assert!(validate_package("").is_err());
+    }
+
+    #[test]
+    fn browse_paths_keep_power_user_scope_and_the_injection_guards() {
+        assert!(validate_device_path("/storage/emulated/0/Download").is_ok());
+        assert!(validate_device_path("/sdcard").is_ok());
+        assert!(validate_device_path("relative").is_err());
+        assert!(validate_device_path("/sdcard/../data").is_err());
+        assert!(validate_device_path("/sdcard/a\nb").is_err());
     }
 }
