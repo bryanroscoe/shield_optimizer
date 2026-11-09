@@ -30,7 +30,8 @@ export type Screen =
   | "catalog"
   | "files"
   | "logs"
-  | "backups";
+  | "backups"
+  | "sideload";
 
 /// Screens that live behind the bottom tab bar (top-level). Everything else
 /// (Optimize, Diagnostics, Launcher, …) is a detail screen pushed on top.

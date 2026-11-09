@@ -2,8 +2,9 @@
 
 Where every file and report the app produces actually goes, and the Android export scope.
 **Phase 1 shipped 2026-11-08:** Save a copy and Share for one explicitly selected screenshot or
-pulled file (section "Phase 1" below). It has not been run on a phone. SAF import is phase 2
-(`BACKLOG.md` P1). Nothing here is implemented beyond what the tables describe.
+pulled file (section "Phase 1" below). **Phase 2 shipped 2026-11-09:** SAF import, which powers
+Files › Upload to this folder and Install APK (section "Phase 2" below). Neither has been run on a
+phone. Nothing here is implemented beyond what the tables and those sections describe.
 
 ## Current destinations and actions
 
@@ -55,6 +56,16 @@ ContentResolver copy, FileProvider or the share sheet: those need a phone. Evide
 to Playwright `page.screenshot` are not product screenshot tests. Green runs of unrelated tests
 are not export acceptance.
 
+Import (phase 2): `tests/import-upload-install.test.mjs` stubs the import commands in the browser
+and covers upload with progress, a dismissed picker, Replace / Don't upload, a folder conflict, a
+failed file among several, an unconfirmed size, the `/sdcard`-only button, Install APK's facts,
+mismatch and unknown ABI states, a refused install with its hint, cancel and leave-screen cleanup,
+the sideload links and narrow layouts. `import_commands.rs` unit tests cover staging validation
+(foreign files, wrong sizes, symlinks, non-APKs), name sanitizing, batch cleanup, the `/sdcard`
+bound, conflicts, replace consent, size verification, the install verbs and outcomes;
+`engine::apk_abis` and `ImportCopyTest.kt` cover the ZIP directory reader and the bounded copy.
+Nothing exercises the real picker or ContentResolver.
+
 ## Copy rules for the existing flows
 
 The screenshot preview names the saved file and its private location, says it is absent from the
@@ -99,11 +110,52 @@ One explicitly selected file, both actions, no export centre:
 - **Device gates still open.** Picker on a phone, cancel, a Downloads and a Drive destination, a
   provider that refuses writes, Share to a real receiver, activity recreation during the picker.
 
-## Next: phase 2 and what stays out
+## Phase 2: import (shipped 2026-11-09, not device-verified)
 
-- **SAF import** (open-document picker → stream into a staged app-private file), which unblocks
-  phone→TV upload in Files and install APK / sideload (`BACKLOG.md` P1 #1, #2). Same rules: one
-  user-picked document, no persistent grants, no storage permission.
+The other direction, for the documents the user picks and only for the selected TV:
+
+- **Bridge.** `AdbPlugin.pickDocuments` (Kotlin, called only from Rust) opens
+  `ACTION_OPEN_DOCUMENT` (`*/*`, `EXTRA_ALLOW_MULTIPLE`) and copies each picked document into the
+  staging folder Rust created, `<cache>/imports/import-<n>/<index>.part`, under the caps Rust sends:
+  32 documents, 2 GiB each and 2 GiB together, checked against the provider's `SIZE` before
+  copying and enforced by a bounded copy (`ImportCopy.copyBounded`) for providers that don't
+  report one; free space is checked first when the size is known. A failed or over-limit copy
+  deletes what it wrote and reports why; a dismissed picker is `canceled`. No persistable grant is
+  taken and no URI is kept after its copy. A stale request is rejected by the next pick, as with
+  Save a copy. One pick at a time; it gives up after 30 minutes.
+- **Staging** (`src-tauri/src/import_commands.rs`). Only `<index>.part` regular files directly
+  in that folder, with the reported size, are accepted (symlinks refused). Each is renamed
+  `<NNN>-<safe name>`: the display name with separators and control characters replaced, no
+  leading dots, at most 180 bytes. The screen gets an opaque batch id, never a path. A batch is
+  dropped by `discard_import`, by an install (whatever its outcome), at the next pick once an hour
+  old, and at the first start of the process (`clean_at_startup`, once per process like the pull
+  reclaim). Its folder is removed when the last command using it finishes.
+- **Upload to this folder** (Files, shown only under `/sdcard`). `upload_conflicts` asks the TV
+  which names already exist (`[ -d ]` / `[ -e ]` per target); a file conflict opens Replace / Don't
+  upload, and a same-named folder is never replaced (that file is skipped and said). Then
+  `upload_imported` sends one file at a time ("Uploading 2 of 3: name…"): it re-checks the target,
+  refuses to replace without the user's yes, pushes through `WirelessAdb`'s push, and reads the size
+  back with `stat -c %s`; a short file is an error, an unreadable size is "size not confirmed by the
+  TV", and an interrupted push says the file may be incomplete. Targets go through the same
+  `/sdcard` bound as delete. Uploaded files are listed for the session with their TV path.
+- **Install APK** (More). Picks `.apk` files only (one APK or a split set). `inspect_imported_apks`
+  reads each file's ZIP central directory for `lib/<abi>/` entries (core `engine::apk_abis`, no
+  decompression) and the TV's `ro.product.cpu.abilist`; core's rule (shared with desktop's
+  `inspect_apk`) claims a mismatch only when both sides are known. The package id isn't shown: the
+  manifest is compressed binary XML, and decoding it needs the `zip` and `axmldecoder` crates
+  desktop uses, which would be new Rust dependencies (and notices) in the Android app.
+  `install_imported_apks` uses `install -r` / `install-multiple -r` through the same helper as
+  Backups restore, decides with core `install_succeeded` and adds `decode_install_error`'s hint.
+  The screen says nothing is installed until Install, and that the app doesn't know where the file
+  came from or what it does. Popular sideloads link to their pages (http/https opener).
+- **Privacy.** Import failures are on the telemetry quiet list. Nothing leaves the phone except
+  to the selected TV.
+- **Device gates still open.** Picking from Downloads and Drive, several files, a cancel, a file
+  over the cap, activity recreation during the picker, a replace and a folder conflict on a real
+  TV, a TV folder that refuses writes, a single and a split install, a downgrade refusal.
+
+## Next and what stays out
+
 - **Snapshot export** reuses this bridge mechanically, but a snapshot carries the TV's
   `device_serial`, name and package inventory, so it needs a privacy decision (and probably a
   redacted export format) first.

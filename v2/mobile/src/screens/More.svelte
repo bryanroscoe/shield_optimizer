@@ -313,7 +313,8 @@
       label: "Your TV",
       tools: [
         { screen: "devices", icon: "devices_other", title: "Devices", desc: "Switch, rename, or add a TV", pro: false },
-        { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and copy files to this phone", pro: false },
+        { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and copy files both ways", pro: false },
+        { screen: "sideload", icon: "android", title: "Install APK", desc: "Install an app file from this phone", pro: false },
         { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up and restore an app's APK", pro: false },
         { screen: "logs", icon: "receipt_long", title: "Device logs", desc: "Read a recent logcat snapshot", pro: false },
       ],

@@ -3,12 +3,13 @@
   import { onDestroy, onMount } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
-  import type { FileEntry, FindResult, PulledFile } from "../lib/types";
+  import type { FileEntry, FindResult, ImportedFile, PulledFile, UploadConflict } from "../lib/types";
   import {
     NO_MATCHES_MESSAGE,
     appFilesCatalog,
     baseName,
     canDeleteOnTv,
+    canUploadToTv,
     fileConnectionMatches,
     parentDir,
     summarizeFind,
@@ -49,6 +50,9 @@
     destroyed = true;
     ++loadGeneration;
     clearTimeout(toastTimer);
+    // Picked files waiting on the replace question are no longer needed. An upload that is
+    // running keeps its copies until its current file is sent.
+    releaseImport(heldImport);
   });
 
   // Files pulled this session, newest first, plus the set of remote paths we've
@@ -69,6 +73,19 @@
   );
   let deleting = $state(false);
   let showCatalog = $state(false);
+
+  // Upload to TV: files picked on this phone, staged in the app under an opaque batch id.
+  type Uploaded = { name: string; remote_path: string; verified: boolean };
+  let uploading = $state(false);
+  let uploadStatus = $state("");
+  let uploaded = $state<Uploaded[]>([]);
+  let uploadProblems = $state<string[]>([]);
+  // Picked files that would replace files already on the TV, waiting on the dialog.
+  let pendingReplace = $state<
+    (FileConnection & { batch: string; dir: string; files: ImportedFile[]; conflicts: UploadConflict[] }) | null
+  >(null);
+  /// The staged batch this screen still holds, so leaving the screen frees it.
+  let heldImport: string | null = null;
 
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
@@ -128,8 +145,131 @@
     appBusy = "";
     pendingDelete = null;
     deleting = false;
+    if (pendingReplace) {
+      releaseImport(pendingReplace.batch);
+      pendingReplace = null;
+      uploading = false;
+    }
+    uploadStatus = "";
+    uploaded = [];
+    uploadProblems = [];
     void load(ROOT);
   });
+
+  function releaseImport(batch: string | null) {
+    if (!batch) return;
+    if (heldImport === batch) heldImport = null;
+    api.discardImport(batch).catch(() => {});
+  }
+
+  async function startUpload() {
+    const dir = loadedPath;
+    if (uploading || busyName || deleting || !session.isConnected || !canUploadToTv(dir)) return;
+    const target = { serial: session.serial, generation: session.generation };
+    uploading = true;
+    uploadProblems = [];
+    uploadStatus = "Waiting for the file picker…";
+    let batch: string | null = null;
+    try {
+      const pick = await api.importPick("upload");
+      if (pick.status === "canceled") {
+        if (current(target)) showToast("No files picked. Nothing was uploaded.", "info");
+        return;
+      }
+      batch = pick.batch;
+      heldImport = batch;
+      if (!current(target)) return;
+      uploadStatus = "Checking the TV folder…";
+      const conflicts = await api.uploadConflicts(target.serial, batch, dir);
+      if (!current(target)) return;
+      if (conflicts.some((c) => !c.is_dir)) {
+        // The dialog owns the batch now; its answer runs or drops the upload.
+        pendingReplace = { ...target, batch, dir, files: pick.files, conflicts };
+        batch = null;
+        return;
+      }
+      await sendAll(target, pick.batch, dir, pick.files, conflicts);
+    } catch (err) {
+      if (current(target)) showToast(String(err), "error");
+    } finally {
+      releaseImport(batch);
+      if (!pendingReplace) {
+        uploading = false;
+        uploadStatus = "";
+      }
+    }
+  }
+
+  async function confirmReplace() {
+    const job = pendingReplace;
+    pendingReplace = null;
+    if (!job) return;
+    try {
+      if (!current(job)) {
+        showToast("The TV changed before the upload was confirmed. Nothing was uploaded.", "error");
+        return;
+      }
+      await sendAll(job, job.batch, job.dir, job.files, job.conflicts);
+    } catch (err) {
+      if (current(job)) showToast(String(err), "error");
+    } finally {
+      releaseImport(job.batch);
+      uploading = false;
+      uploadStatus = "";
+    }
+  }
+
+  function cancelReplace() {
+    const job = pendingReplace;
+    pendingReplace = null;
+    if (!job) return;
+    releaseImport(job.batch);
+    uploading = false;
+    uploadStatus = "";
+    showToast("Nothing was uploaded. The TV's files are unchanged.", "info");
+  }
+
+  /// Send each picked file in turn. A file whose name is a folder on the TV is skipped; a file
+  /// that would replace one is sent with overwrite only because the user agreed to it.
+  async function sendAll(
+    target: FileConnection,
+    batch: string,
+    dir: string,
+    files: ImportedFile[],
+    conflicts: UploadConflict[],
+  ) {
+    const folders = new Set(conflicts.filter((c) => c.is_dir).map((c) => c.name));
+    const replace = new Set(conflicts.filter((c) => !c.is_dir).map((c) => c.name));
+    const problems = [...folders].map((name) => `A folder named ${name} is already in ${dir}, so ${name} was not uploaded.`);
+    const queue = files.map((file, index) => ({ file, index })).filter(({ file }) => !folders.has(file.name));
+    let sent = 0;
+    for (const [n, { file, index }] of queue.entries()) {
+      if (!current(target)) return;
+      uploadStatus = `Uploading ${n + 1} of ${queue.length}: ${file.name}…`;
+      try {
+        const r = await api.uploadImported(target.serial, batch, index, dir, replace.has(file.name));
+        if (!current(target)) return;
+        if (r.status === "uploaded") {
+          sent += 1;
+          uploaded = [{ name: r.name, remote_path: r.remote_path, verified: r.verified }, ...uploaded];
+        } else {
+          problems.push(`${r.name} appeared in ${dir} after the check, so it was not replaced.`);
+        }
+      } catch (err) {
+        if (!current(target)) return;
+        problems.push(String(err));
+      }
+    }
+    uploadProblems = problems;
+    if (sent > 0) await load(dir);
+    if (!current(target)) return;
+    const total = files.length;
+    if (problems.length === 0) {
+      showToast(`Uploaded ${sent === 1 ? "1 file" : `${sent} files`} to ${dir}.`, "success");
+    } else {
+      showToast(`Uploaded ${sent} of ${total}. See the details below.`, "error");
+    }
+  }
 
   function joinPath(dir: string, name: string): string {
     return dir === "/" ? `/${name}` : `${dir}/${name}`;
@@ -394,6 +534,19 @@
     {/each}
   </div>
 
+  {#if canUploadToTv(loadedPath) && !error}
+    <div class="upload-bar">
+      <button
+        class="ghost small"
+        onclick={startUpload}
+        disabled={uploading || loading || busyName !== "" || deleting || !session.isConnected}
+      >
+        <span class="msr" aria-hidden="true">upload</span>Upload to this folder
+      </button>
+      <span class="upload-status" role="status">{uploadStatus}</span>
+    </div>
+  {/if}
+
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Reading folder…</span>
@@ -466,7 +619,7 @@
     <div class="callout accent">
       <span class="msr" aria-hidden="true">info</span>
       <span class="callout-text">
-        Copies go to ATV Optimizer's private storage on this phone,
+        Copies from the TV go to ATV Optimizer's private storage on this phone,
         not the phone's public Downloads.
       </span>
     </div>
@@ -483,7 +636,39 @@
         Android doesn't tell ATV Optimizer whether that app finished. Nothing leaves the phone
         unless you choose one of them.
       </p>
+      <p>
+        Upload to this folder opens Android's file picker, for up to 32 files and 2 GiB at a time.
+        The files you pick are copied into this app, sent to the TV folder you're in under
+        /sdcard, and the app's copies are deleted afterwards. If a file with the same name is
+        already there, you're asked before it's replaced; a folder is never replaced. ATV
+        Optimizer doesn't keep access to the picked files.
+      </p>
     </HelpSheet>
+
+    {#if uploadProblems.length > 0}
+      <div class="upload-problems" role="alert">
+        {#each uploadProblems as problem, i (i)}
+          <p class="app-note warn"><span class="msr">warning</span>{problem}</p>
+        {/each}
+      </div>
+    {/if}
+
+    {#if uploaded.length > 0}
+      <span class="section-label">Uploaded this session</span>
+      <div class="dl-list">
+        {#each uploaded as u, i (`${u.remote_path}:${i}`)}
+          <div class="dl-row">
+            <span class="msr dl-icon fill">check_circle</span>
+            <div class="f-body">
+              <span class="f-name">{u.name}</span>
+              <span class="f-sub mono">
+                On the TV: {u.remote_path}{u.verified ? "" : " · size not confirmed by the TV"}
+              </span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
 
     {#if pulled.length > 0}
       <span class="section-label">Copied this session</span>
@@ -518,6 +703,26 @@
     icon="delete"
     onConfirm={confirmDelete}
     onCancel={() => (pendingDelete = null)}
+  />
+
+  <ConfirmDialog
+    open={pendingReplace !== null}
+    title="Replace files on the TV?"
+    message={pendingReplace
+      ? (() => {
+          const names = pendingReplace.conflicts.filter((c) => !c.is_dir).map((c) => c.name);
+          return names.length === 1
+            ? `"${names[0]}" is already in ${pendingReplace.dir}.`
+            : `${names.length} files are already in ${pendingReplace.dir}: ${names.join(", ")}.`;
+        })()
+      : ""}
+    warning="The TV's copies will be overwritten. This cannot be undone."
+    confirmLabel="Replace"
+    cancelLabel="Don't upload"
+    danger
+    icon="upload"
+    onConfirm={confirmReplace}
+    onCancel={cancelReplace}
   />
 
   <Toast message={toast} type={toastType} />
@@ -828,6 +1033,34 @@
     border-radius: 14px;
     background: var(--surface);
     border: 1px solid var(--line);
+  }
+  .upload-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-bottom: 12px;
+  }
+  .upload-bar .ghost {
+    flex: none;
+    gap: 6px;
+    padding: 0 14px;
+  }
+  .upload-bar .ghost .msr {
+    font-size: 18px;
+  }
+  .upload-status {
+    flex: 1 1 160px;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+  .upload-status:empty {
+    display: none;
+  }
+  .upload-problems {
+    margin-top: 12px;
   }
   .dl-icon {
     font-size: 22px;

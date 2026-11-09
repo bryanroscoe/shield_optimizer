@@ -76,6 +76,12 @@ const QUIET_COMMANDS = new Set([
   // Mobile Save a copy / Share: failures name the user's files and the folder or app they
   // picked, and are shown on screen; they are not reported.
   "export_file",
+  // Mobile import (Upload to TV, Install APK): the same, for the files the user picked.
+  "import_pick",
+  "upload_conflicts",
+  "upload_imported",
+  "inspect_imported_apks",
+  "install_imported_apks",
 ]);
 
 /// Codes that are expected states, not failures worth reporting.

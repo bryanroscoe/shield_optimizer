@@ -95,7 +95,13 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `find_files` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `delete_path` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `export_file` | Free | `src-tauri/src/export_commands.rs` | `src/components/ExportActions.svelte` |
-| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte` |
+| `import_pick` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte`, `src/screens/Sideload.svelte` |
+| `discard_import` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte`, `src/screens/Sideload.svelte` |
+| `upload_conflicts` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte` |
+| `upload_imported` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte` |
+| `inspect_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
+| `install_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
+| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte`, `src/screens/Sideload.svelte` |
 
 ## UI and recovery findings
 
@@ -105,6 +111,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 - Optimize restore still requires Pro to prepare the plan; snapshots list/delete/apply are Pro-gated. Snapshot apply can disable packages and change settings, so it cannot be made Free as arbitrary undo.
 - Settings, permission and Home before-value restore remain gated or incomplete. A bounded journal/undo mechanism needs separate review. This slice creates no persistent journal and does not make arbitrary writes free.
 - FileManager/BackupClone enum labels do not imply enforcement: mobile file/backup handlers currently have no Pro prerequisite. No gate changes are proposed here.
+- Import (2026-11-09) is Free: `import_pick`, `discard_import`, Upload to TV (`upload_conflicts`, `upload_imported`) and Install APK (`inspect_imported_apks`, `install_imported_apks`). This follows the rule above (file transfer and APK restore are Free on mobile) and desktop, whose `install_apk` and file push have no Pro gate. Installing an APK is not a curated disable action, so the do-not-disable list doesn't apply; it is also not a safety claim, and the screen says the app doesn't vouch for the file. Upload stays `/sdcard`-confined like delete.
 - Remote basic input, file paths, package names, safety checks and connection-generation fencing remain independent safety boundaries.
 - The entitlement preview is isolated and unused by session/backend authorization. The real Play adapter (`tauri-plugin-atv-billing`) only reports what Play returned; `billing_commands.rs` verifies the signed purchase before Pro, and a purchase callback alone never grants it. There is no verification server.
 - Play-sourced Pro and license-key Pro are separate sources feeding the same `require_pro` gate. A refund or revocation removes only the Play source; every Free row above stays Free (`refund_downgrades_pro_gates_but_recovery_stays_free`).

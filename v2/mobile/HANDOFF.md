@@ -86,6 +86,17 @@ Save a copy and Share (2026-11-08) export one screenshot (Dashboard preview) or 
 `src-tauri/src/export_commands.rs` confines the source to `screenshots/` and `downloads/`, and the
 atv-adb Kotlin plugin runs the system UI. The FileProvider now maps only `cache/exports/`. Not yet
 run on a phone (`EXPORT-DISCOVERABILITY.md`).
+Import (2026-11-09) is the other direction: Files › Upload to this folder and More › Install APK
+open Android's open-document picker (`AdbPlugin.pickDocuments`), which copies the picked files into
+`cache/imports/import-<n>/` (32 files, 2 GiB). `src-tauri/src/import_commands.rs` names and checks
+the copies, hands the screen an opaque batch id, pushes one file at a time into the `/sdcard` folder
+being browsed (asks before replacing a file, never replaces a folder, checks the size on the TV),
+and installs an APK set with `install -r` / `install-multiple -r` through the helper Backups restore
+uses, judged by core `install_outcome`. Install APK shows the native-code ABIs (read from the ZIP
+directory by core `engine::apk_abis`, which desktop's `inspect_apk` rule now shares) against the
+TV's, and links to the shared popular-sideloads list. It can't show the package id: that needs the
+binary manifest decoder desktop uses, a new Rust dependency on the phone. Free. Not yet run on a
+phone.
 Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab
@@ -94,9 +105,9 @@ saves or uploads them. More › Bug report builds desktop's narrow bundle throug
 `commands::diagnostics` (with this app's `debug.log` tail), shows it for review and copies it to the
 clipboard; nothing is sent.
 
-Not on mobile yet, and why: phone→TV upload and install APK / sideload need SAF *import* (an
-open-document picker), which isn't wired; export of APK bundles and snapshots needs its own format
-and privacy decisions. Desktop's Send logs upload
+Not on mobile yet, and why: export of APK bundles and snapshots needs its own format and privacy
+decisions; Install APK can't read an APK's package id or say whether it is already installed (see
+above). Desktop's Send logs upload
 (`upload_diagnostics`) is not offered on the phone (owner decision). A patch-notes viewer is
 deferred.
 
@@ -368,8 +379,9 @@ argument names are camelCase in TS and Tauri maps them to snake_case (`pkg` → 
    bug-bash checks, and the stability and UI checks in `BACKLOG.md` P0.
 2. Code pairing against a real adbd (`PAIRING-PLAN.md`).
 3. Fast-remote Phase 4 device gates (`FAST-REMOTE-PLAN.md`).
-4. Android SAF import (export phase 1 shipped 2026-11-08), which unblocks phone→TV upload; then
-   sideload and a patch-notes viewer. Separately: the connect-lock narrowing in `wireless_adb.rs`.
+4. ~~Android SAF import, phone→TV upload and sideload~~ (2026-11-09; device gates in
+   `BACKLOG.md` P1 #1). Then a patch-notes viewer. Separately: the connect-lock narrowing in
+   `wireless_adb.rs`.
 5. Product decisions for the owner: a free read-only Optimize plan, and the unused
    `Feature::FileManager` / `Feature::BackupClone` gates.
 6. Release: signing key and Play App Signing, a signed build, resolved Android dependency notices,

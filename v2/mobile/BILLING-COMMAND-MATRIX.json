@@ -777,6 +777,62 @@
       ]
     },
     {
+      "command": "import_pick",
+      "api": "importPick",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte",
+        "src/screens/Sideload.svelte"
+      ]
+    },
+    {
+      "command": "discard_import",
+      "api": "discardImport",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte",
+        "src/screens/Sideload.svelte"
+      ]
+    },
+    {
+      "command": "upload_conflicts",
+      "api": "uploadConflicts",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "upload_imported",
+      "api": "uploadImported",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
+      "command": "inspect_imported_apks",
+      "api": "inspectImportedApks",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Sideload.svelte"
+      ]
+    },
+    {
+      "command": "install_imported_apks",
+      "api": "installImportedApks",
+      "gate": "Free",
+      "backend": "src-tauri/src/import_commands.rs",
+      "callers": [
+        "src/screens/Sideload.svelte"
+      ]
+    },
+    {
       "command": "plugin:opener|open_url",
       "api": "openUrl",
       "gate": "Free",
@@ -785,7 +841,8 @@
         "src/components/AppReportSheet.svelte",
         "src/screens/Catalog.svelte",
         "src/screens/Launcher.svelte",
-        "src/screens/More.svelte"
+        "src/screens/More.svelte",
+        "src/screens/Sideload.svelte"
       ]
     },
     {

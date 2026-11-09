@@ -41,6 +41,9 @@ const SCREENS = [
   { name: "screenshot", then: openScreenshot },
   { name: "files", open: ["files"] },
   { name: "files-copied", open: ["files"], then: copyFile },
+  { name: "files-upload", open: ["files"], then: uploadFile },
+  { name: "sideload", open: ["sideload"] },
+  { name: "sideload-ready", open: ["sideload"], then: pickApk },
   { name: "backups", open: ["backups"] },
   { name: "logs", open: ["logs"], then: readLogs },
   { name: "riskguide", open: ["riskguide"] },
@@ -64,6 +67,18 @@ async function copyFile(page) {
   // Let the copy toast clear so the row's Save a copy / Share buttons are in the frame.
   await page.locator(".dl-list").scrollIntoViewIfNeeded();
   await page.waitForTimeout(4000);
+}
+
+async function uploadFile(page) {
+  await page.getByRole("button", { name: "Upload to this folder" }).click();
+  await page.getByText("Uploaded this session", { exact: true }).waitFor();
+  await page.locator(".dl-list").scrollIntoViewIfNeeded();
+  await page.waitForTimeout(4000);
+}
+
+async function pickApk(page) {
+  await page.getByRole("button", { name: "Pick APK files" }).click();
+  await page.getByText(/Ready to install/).waitFor();
 }
 
 async function readLogs(page) {
