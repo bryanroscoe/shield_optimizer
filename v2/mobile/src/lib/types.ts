@@ -475,6 +475,9 @@ export interface BackupEntry {
   complete: boolean;
   /// ISO-8601 (UTC) of the backup file's last-modified time.
   saved_at: string;
+  /// Why a bundle folder can't be read (no or corrupt manifest, older naming).
+  /// It can be deleted but never restored.
+  unreadable?: string | null;
 }
 
 // ---- Saved-TV persistence (mobile-only, localStorage) ----

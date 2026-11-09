@@ -3284,7 +3284,9 @@
                       class="small-action subtle change-keep"
                       onclick={() => toggleKept(a.package)}
                       data-tip="Undo keeping this app"
+                      aria-describedby={`undo-keep-${a.package}`}
                     >Change</button>
+                    <span id={`undo-keep-${a.package}`} hidden>Undo keeping {a.name ?? a.package}</span>
                   {:else if rec.kind === "act"}
                     <button
                       class="small-action recommended"
@@ -3989,15 +3991,6 @@
     font-family: var(--sans);
     font-size: 0.68rem;
     white-space: nowrap;
-  }
-  /* Only on hover: an undo does not need to advertise itself on every
-     decided row. */
-  .change-keep {
-    opacity: 0;
-  }
-  tr:hover .change-keep,
-  .change-keep:focus-visible {
-    opacity: 1;
   }
   .tabs button.far {
     margin-left: auto;

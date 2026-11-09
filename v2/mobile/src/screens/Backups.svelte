@@ -461,6 +461,9 @@
             <span class="b-sub mono">
               This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)} · {b.apk_count} APK{b.apk_count === 1 ? "" : "s"}
             </span>
+            {#if b.unreadable}
+              <span class="b-sub">Can't be restored ({b.unreadable}). Delete it to free the space.</span>
+            {/if}
           </div>
           <div class="b-actions">
             {#if b.complete}
@@ -475,6 +478,8 @@
                   <span class="msr">restore</span>Restore
                 {/if}
               </button>
+            {:else if b.unreadable}
+              <span class="legacy-badge" title={b.unreadable}>Unreadable</span>
             {:else}
               <span class="legacy-badge" title="This older backup may be missing split APKs">Base only</span>
             {/if}

@@ -315,6 +315,7 @@
         { screen: "devices", icon: "devices_other", title: "Devices", desc: "Switch, rename, or add a TV", pro: false },
         { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and copy files to this phone", pro: false },
         { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up and restore an app's APK", pro: false },
+        { screen: "logs", icon: "receipt_long", title: "Device logs", desc: "Read a recent logcat snapshot", pro: false },
       ],
     },
     {
@@ -450,6 +451,52 @@
       showToast("Debug log copied.", "success");
     } catch {
       showToast("Couldn't copy to clipboard.", "error");
+    }
+  }
+
+  // Bug report — the same narrow bundle desktop builds, reviewed on screen
+  // before anything reaches the clipboard. Nothing is sent.
+  let bugReport = $state("");
+  let bugBusy = $state(false);
+  let bugError = $state("");
+  let bugRequest = 0;
+
+  async function prepareBugReport() {
+    if (bugBusy) return;
+    const request = ++bugRequest;
+    bugBusy = true;
+    bugError = "";
+    bugReport = "";
+    try {
+      const text = await api.collectDiagnostics(session.isConnected && session.serial ? session.serial : null);
+      if (request === bugRequest) bugReport = text;
+    } catch (e) {
+      if (request === bugRequest) bugError = String(e);
+    } finally {
+      if (request === bugRequest) bugBusy = false;
+    }
+  }
+
+  // A report describes the TV it was built for; a switch, reconnect or lost
+  // link drops it (and any read still in flight) rather than offering a
+  // stale one for copying.
+  let bugConnection = `${session.serial}:${session.generation}:${session.isConnected}`;
+  $effect(() => {
+    const key = `${session.serial}:${session.generation}:${session.isConnected}`;
+    if (key === bugConnection) return;
+    bugConnection = key;
+    ++bugRequest;
+    bugReport = "";
+    bugError = "";
+    bugBusy = false;
+  });
+
+  async function copyBugReport() {
+    try {
+      await navigator.clipboard.writeText(bugReport);
+      showToast("Bug report copied.", "success");
+    } catch {
+      showToast("Couldn't copy to clipboard. Select the text and copy it instead.", "error");
     }
   }
 
@@ -810,6 +857,40 @@
           <button class="ghost-btn" onclick={copySupportId}>Copy Support ID</button>
           <p class="card-desc">Include this ID in a privacy or deletion request. Save it before turning reports off; turning them back on creates a new ID.</p>
         {/if}
+      {/if}
+    </div>
+
+    <!-- Bug report -->
+    <div class="more-card">
+      <span class="card-label">Bug report</span>
+      <p class="card-desc">
+        Includes app and phone versions, the connected TV's address, model, build and serial number, its
+        Home apps, your Support ID, and the last 200 lines of this app's log. Review it before sharing.
+        Copy puts it on your clipboard; nothing is sent.
+      </p>
+      <HelpSheet title="About bug reports">
+        <p class="card-desc">
+          Paste the report into a GitHub issue or an email to the developer. It doesn't include the TV's
+          installed-app list, its device logs or your license key. The app log lines are not redacted:
+          they can name TVs, their addresses and apps you acted on. Without a connected TV the report
+          has no TV section.
+        </p>
+      </HelpSheet>
+      <div class="log-toolbar">
+        <button class="ghost-btn compact" onclick={prepareBugReport} disabled={bugBusy}>
+          <span class="msr" class:blink={bugBusy}>{bugReport ? "refresh" : "bug_report"}</span>{bugReport ? "Refresh report" : "Review bug report"}
+        </button>
+        {#if bugReport}
+          <button class="ghost-btn compact" onclick={copyBugReport}>
+            <span class="msr">content_copy</span>Copy bug report
+          </button>
+        {/if}
+      </div>
+      {#if bugError}
+        <p class="log-error mono" role="alert">{bugError}</p>
+      {/if}
+      {#if bugReport}
+        <pre class="log-view mono" aria-label="Bug report">{bugReport}</pre>
       {/if}
     </div>
 

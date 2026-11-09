@@ -37,6 +37,13 @@ export class LogPoller<T> {
     this.publish();
   }
 
+  /** Stop, and forget the last snapshot and error: the context it belonged to is gone. An in-flight read still reports busy until it settles, then its result is dropped. */
+  reset() {
+    this.state.value = null;
+    this.state.error = null;
+    this.stop();
+  }
+
   dispose() {
     this.destroyed = true;
     this.stop();

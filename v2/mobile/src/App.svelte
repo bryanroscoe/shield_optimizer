@@ -22,6 +22,7 @@
   import Devices from "./screens/Devices.svelte";
   import RiskGuide from "./screens/RiskGuide.svelte";
   import Files from "./screens/Files.svelte";
+  import Logs from "./screens/Logs.svelte";
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
   import Toast from "./components/Toast.svelte";
@@ -163,6 +164,8 @@
   {/await}
 {:else if router.current === "files"}
   <Files {back} />
+{:else if router.current === "logs"}
+  <Logs {back} />
 {:else if router.current === "backups"}
   <Backups {back} />
 {/if}

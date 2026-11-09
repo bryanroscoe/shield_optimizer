@@ -10,6 +10,9 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 use tauri::State;
 
+use crate::engine::install_outcome::{
+    decode_install_error, install_succeeded, parse_pm_paths, pm_path_failed,
+};
 use crate::engine::is_valid_package_name;
 
 use super::AppState;
@@ -23,16 +26,6 @@ pub struct BackupApkResult {
     /// (`adb install-multiple`).
     pub split: bool,
     pub message: String,
-}
-
-/// Parse `pm path <pkg>` output: one `package:<path>` line per APK.
-fn parse_pm_path_output(stdout: &str) -> Vec<String> {
-    stdout
-        .lines()
-        .filter_map(|l| l.trim().strip_prefix("package:"))
-        .filter(|p| !p.is_empty())
-        .map(str::to_string)
-        .collect()
 }
 
 /// Pull `versionName=` out of `dumpsys package <pkg>` output.
@@ -69,7 +62,13 @@ async fn apk_paths_and_version(
         .shell(serial, &format!("pm path {package}"))
         .await
         .map_err(|e| format!("pm path: {e}"))?;
-    let remotes = parse_pm_path_output(&path_out.stdout);
+    if pm_path_failed(path_out.exit_code, &path_out.stdout, &path_out.stderr) {
+        return Err(format!(
+            "Could not resolve {package}: {}",
+            path_out.combined().trim()
+        ));
+    }
+    let remotes = parse_pm_paths(&path_out.stdout)?;
     if remotes.is_empty() {
         return Err(format!(
             "{package} has no APK path on the device — is it installed? ({})",
@@ -213,12 +212,12 @@ pub async fn clone_app(
             .await
             .map_err(|e| format!("adb install: {e}"))?;
         let combined = out.combined().trim().to_string();
-        let ok = combined.contains("Success");
+        let ok = install_succeeded(out.success(), &combined);
         Ok::<CloneAppResult, String>(CloneAppResult {
             hint: if ok {
                 None
             } else {
-                super::sideload::decode_install_error(&combined)
+                decode_install_error(&combined)
             },
             message: if ok {
                 format!(
@@ -243,25 +242,43 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
 
-    #[test]
-    fn parses_single_apk_path() {
-        let out = "package:/data/app/~~abc==/com.plexapp.android-xyz==/base.apk\n";
-        assert_eq!(
-            parse_pm_path_output(out),
-            vec!["/data/app/~~abc==/com.plexapp.android-xyz==/base.apk".to_string()]
+    #[tokio::test]
+    async fn a_package_named_like_an_error_still_resolves() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let state = state_with(
+            MockAdb::default()
+                .on_shell(
+                    "pm path",
+                    "package:/data/app/~~x==/com.example.ErrorReporter-1==/base.apk\n",
+                )
+                .on_shell("dumpsys package", "    versionName=1.0\n"),
         );
+        let adb = state.adb_snapshot().await;
+        let (paths, version) =
+            apk_paths_and_version(adb.as_ref(), "tv", "com.example.ErrorReporter")
+                .await
+                .expect("a clean answer is not a failure");
+        assert_eq!(paths.len(), 1);
+        assert_eq!(version.as_deref(), Some("1.0"));
     }
 
-    #[test]
-    fn parses_split_apk_paths() {
-        let out = "package:/data/app/x/base.apk\npackage:/data/app/x/split_config.en.apk\n";
-        assert_eq!(parse_pm_path_output(out).len(), 2);
-    }
-
-    #[test]
-    fn ignores_noise_lines() {
-        assert!(parse_pm_path_output("error: no devices\n").is_empty());
-        assert!(parse_pm_path_output("").is_empty());
+    #[tokio::test]
+    async fn an_unsafe_or_failed_pm_path_is_refused() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        for (stdout, exit) in [
+            ("package:/data/app/x/../../escape.apk\n", 0),
+            ("package:/data/app/x/base.apk\n", 1),
+            ("Error: unknown package\n", 0),
+        ] {
+            let state = state_with(MockAdb::default().on_shell_exit("pm path", stdout, exit));
+            let adb = state.adb_snapshot().await;
+            assert!(
+                apk_paths_and_version(adb.as_ref(), "tv", "com.example.app")
+                    .await
+                    .is_err(),
+                "{stdout:?} exit {exit}"
+            );
+        }
     }
 
     #[test]

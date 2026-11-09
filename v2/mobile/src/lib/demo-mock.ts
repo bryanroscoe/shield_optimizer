@@ -164,6 +164,36 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "send_text":
     case "open_settings":
       return { ok: true, message: "", transport: "channel" };
+    case "collect_diagnostics":
+      // The desktop fixture, with the phone's host facts: no adb binary, and
+      // this app's own log tail.
+      return String(sharedHandle(cmd, args))
+        .replace("- OS: macos (aarch64)", "- OS: android (aarch64)")
+        .replace(
+          /- adb path: .*\n- adb version: .*/,
+          "- Support ID: 1234-5678\n- adb path: (not applicable: built-in wireless ADB client, no adb binary)\n- adb version: (unavailable)",
+        )
+        .replace("INFO atv_optimizer_lib: adb located", "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok");
+    case "read_device_logs": {
+      const options = args.options as { package?: string | null; tag?: string | null };
+      const pid = options.package ? 4321 : 1234;
+      const tag = options.tag || "ActivityManager";
+      return {
+        package: options.package ?? null,
+        pid: options.package ? pid : null,
+        output: {
+          stdout: [
+            `11-08 12:00:01.204  ${pid}  ${pid} I ${tag}: Start proc com.google.android.youtube.tv for activity`,
+            `11-08 12:00:01.611  ${pid}  ${pid} W ${options.tag || "PackageManager"}: Package org.example.app has no signatures that match`,
+            `11-08 12:00:02.019  ${pid}  ${pid} I ${options.tag || "WindowManager"}: Display 0 configuration changed`,
+            `11-08 12:00:03.442  ${pid}  ${pid} E ${options.tag || "MediaCodec"}: Codec reported err 0xffffffed`,
+          ].join("\n") + "\n",
+          stderr: "",
+          exit_code: 0,
+          termination: "completed",
+        },
+      };
+    }
     case "read_debug_log":
       return "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok\nINFO atv_optimizer: list_devices 1 device";
     case "plugin:opener|open_url":
