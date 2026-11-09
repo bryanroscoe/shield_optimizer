@@ -145,7 +145,7 @@ test("the Apply confirmation names each app once and states shared text once", (
   assert.match(message, /animation scales are set to 0\.5×\.$/);
   // Nothing beyond each app's verb, name and reason plus a fixed preamble.
   const essential = items.reduce((n, { item: { entry: e }, verdict }) => n + e.name.length + verdict.reason.length + 14, 0);
-  assert.ok(all.length < essential + 260, `${all.length} chars for ${essential} essential`);
+  assert.ok(all.length < essential + 340, `${all.length} chars for ${essential} essential`);
 
   const restore = rows.applyConfirmation([{ item: { entry: entry("Netflix"), action: { kind: "enable" }, memory_mb: null }, verdict: null }], "restore");
   assert.deepEqual(restore, { warning: "", message: "Re-enable Netflix. Afterward, animation scales are reset to 1×." });
@@ -163,4 +163,18 @@ test("Select all stays on one line at 150% text", async (t) => {
   const box = await button.boundingBox();
   assert.ok(box.height >= 44, "keeps a 44px touch target");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+});
+
+
+test("a mixed uninstall plan never promises store recovery for discontinued apps", () => {
+  const items = [
+    { item: { entry: { ...entry("Discontinued"), defunct: true, play_store: false }, action: { kind: "uninstall" } }, verdict: { kind: "safe", reason: "Service shut down.", source: "reviewed_catalog" } },
+    { item: { entry: entry("Store app"), action: { kind: "uninstall" } }, verdict: { kind: "safe", reason: "Optional app.", source: "reviewed_catalog" } },
+  ];
+  const { warning, message } = rows.applyConfirmation(items, "optimize");
+  assert.match(warning, /Uninstall Discontinued/);
+  assert.match(warning, /Uninstall Store app/);
+  assert.match(message, /discontinued apps may be unavailable/);
+  assert.match(message, /saved APK/);
+  assert.doesNotMatch(message, /otherwise use the Play Store/i);
 });

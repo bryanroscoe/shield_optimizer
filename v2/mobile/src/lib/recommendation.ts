@@ -3,9 +3,9 @@
 // reads the same suggestion on phone and desktop.
 //
 // Pure: catalog entry, on-device state and safety verdict in, suggestion out.
-// Uninstall is only ever recommended when the store can give the app back
-// (`play_store || defunct`); otherwise it is downgraded to the reversible
-// Disable. Nothing here is ever labelled "Remove".
+// Uninstall is recommended for store apps and defunct services
+// (`play_store || defunct`); otherwise it is downgraded to reversible Disable.
+// Defunct is permission to remove, not a promise of recovery. Nothing here is ever labelled "Remove".
 
 import type { AppEntry } from "./types";
 import { isBlocked, type SafetyStatus } from "./safety";
@@ -44,15 +44,14 @@ export function sideloadSource(pkg: string): SideloadSource | null {
   return SIDELOAD_SOURCES[pkg] ?? null;
 }
 
-/// Can the user get this back from the store after uninstalling it? Mirrors
+/// Is uninstall allowed by the catalog? Defunct services need not be recoverable. Mirrors
 /// the engine's `AppEntry::reinstallable` (crates/core/src/engine/types.rs).
 export function isReinstallable(a: Pick<AppEntry, "play_store" | "defunct">): boolean {
   return a.play_store || !!a.defunct;
 }
 
 /// The method it is safe to *recommend* — mirrors the engine's `safe_method`:
-/// an uninstall you cannot undo from the store is downgraded to the
-/// reversible disable.
+/// non-store apps are downgraded to reversible disable unless defunct.
 export function effectiveMethod(a: AppEntry): RemovalMethod {
   return a.method === "uninstall" && !isReinstallable(a) ? "disable" : a.method;
 }
@@ -107,10 +106,12 @@ export function recommendation(
   return { kind: "keep", label: NO_CHANGE_LABEL };
 }
 
-/// The extra paragraph an uninstall confirm carries when the store can't give
-/// the app back. Null when it can, so store apps keep the short prompt.
-export function uninstallNote(pkg: string, entry: AppEntry | null): string | null {
-  if (entry && isReinstallable(entry)) return null;
+/// The recovery route, separate from whether uninstall is allowed.
+export function uninstallNote(pkg: string, entry: AppEntry | null): string {
+  if (entry?.play_store) return "Get it back from the Play Store.";
+  if (entry?.defunct) {
+    return "This service is discontinued and has no Play Store listing. If its APK is no longer on the TV, recovery requires a saved APK.";
+  }
   const source = sideloadSource(pkg);
   if (source) {
     return `Not on the Play Store. To get it back you would reinstall ${source.name} from ${source.url} — back up its APK first if you might want this exact version.`;

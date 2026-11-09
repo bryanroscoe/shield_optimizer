@@ -23,6 +23,13 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Unreleased Android uninstall guidance now separates removal eligibility from recovery.
+Apps and the shared Optimize/Diagnostics sheet identify discontinued apps without a Play
+Store listing, retain known store/sideload routes and avoid promising recovery in a mixed
+Optimize run. Safety gates and package actions are unchanged. The retained signed candidate
+1003 (source `5e067e23`) predates this copy fix; build and qualify a new candidate before
+claiming it is included. Browser fixtures are not physical uninstall/recovery evidence.
+
 Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
 `bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
 copyable installation Support ID while reports are on. `npm run store-assets` produces the

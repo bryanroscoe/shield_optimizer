@@ -750,7 +750,7 @@
   {:else if plan}
     <p class="mode-hint">
       {mode === "optimize"
-        ? "Disables or uninstalls curated bloat for this TV. Restore re-enables disabled items; uninstalled apps may require Reinstall or the Play Store."
+        ? "Disables or uninstalls curated bloat for this TV. Restore re-enables disabled items; uninstall can't always be undone."
         : "Re-enables curated apps that are currently disabled on this TV."}
     </p>
 

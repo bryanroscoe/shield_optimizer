@@ -667,7 +667,7 @@
         removedIdentity = null;
         await loadApps(true);
       } else {
-        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Reinstall failed. Try the Play Store.");
+        showFailure(`Couldn't reinstall ${label(app)}`, r.message || `Reinstall failed. ${uninstallNote(app.package, app.entry)}`);
       }
     } catch (e) {
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
@@ -1127,7 +1127,7 @@
     supportWarning={destructiveWarning(session.support)}
     message={removalIntent?.action === "disable"
       ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
-      : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${removalNote ? ` ${removalNote}` : ""}`}
+      : `${verdictSummary(removalIntent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV.${removalNote ? ` ${removalNote}` : ""}`}
     confirmLabel={removalIntent?.action === "disable" ? "Disable" : "Uninstall"}
     onConfirm={confirmRemoval}
     onCancel={() => {

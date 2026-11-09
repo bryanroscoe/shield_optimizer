@@ -369,7 +369,7 @@
         <span class="msr">restore</span>
         <span>
           Disable is reversible with Enable. Uninstall removes the app for this user — Reinstall
-          brings back an APK still on the TV; anything else needs the Play Store.
+          brings back an APK still on the TV. Otherwise you need an available download or saved APK; discontinued apps may be unavailable.
         </span>
       </div>
 

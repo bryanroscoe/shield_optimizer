@@ -22,8 +22,8 @@ export function planRowState(item: OptimizePlanItem): PackageState {
 }
 
 /// The action an actionable row runs, or null for a skip row. The engine
-/// already downgrades an uninstall the store can't give back; this repeats it
-/// so no plan can make an unrecoverable uninstall the action.
+/// already downgrades non-store apps unless defunct; repeat that catalog gate.
+/// Defunct services can be uninstalled even when recovery is unavailable.
 export function naturalAction(item: OptimizePlanItem): RowAction | null {
   if (item.action.kind === "skip") return null;
   if (item.action.kind === "uninstall" && !isReinstallable(item.entry)) return "disable";
@@ -146,7 +146,7 @@ export function applyConfirmation(
   const message = [
     enables.length > 0 ? `Re-enable ${enables.join(", ")}.` : "",
     uninstalls > 0
-      ? "Uninstall removes an app for this TV's user; Reinstall works only while its APK remains on the TV, otherwise use the Play Store."
+      ? "Uninstall removes an app for this TV's user; Reinstall works only while its APK remains on the TV. Otherwise, recovery needs an available download or saved APK; discontinued apps may be unavailable."
       : "",
     mode === "optimize"
       ? "Afterward, animation scales are set to 0.5×."

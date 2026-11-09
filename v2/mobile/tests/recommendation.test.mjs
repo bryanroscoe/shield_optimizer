@@ -46,7 +46,7 @@ test("the shared sideload catalog is served to the webview", async () => {
   assert.equal(json.status, 200);
 });
 
-test("uninstall is only recommended when the store can give the app back", () => {
+test("uninstall is recommended for store apps or defunct services, not unknown recovery", () => {
   assert.equal(rec.effectiveMethod(entry()), "disable");
   assert.equal(rec.effectiveMethod(entry({ play_store: true })), "uninstall");
   assert.equal(rec.effectiveMethod(entry({ defunct: true })), "uninstall");
@@ -116,4 +116,16 @@ test("an app report carries no device identifiers and is labelled mobile", () =>
   const { url, prefilled } = report.appReportIssueUrl("com.example.app", "other", "{}");
   assert.ok(prefilled);
   assert.match(url, /template=app_report\.yml/);
+});
+
+
+test("uninstall recovery distinguishes store, defunct, sideload and unknown apps", () => {
+  assert.equal(rec.uninstallNote("com.example.app", entry({ play_store: true })), "Get it back from the Play Store.");
+  const discontinued = rec.uninstallNote("com.google.android.music", entry({ defunct: true }));
+  assert.match(discontinued, /discontinued and has no Play Store listing/);
+  assert.match(discontinued, /recovery requires a saved APK/);
+  assert.doesNotMatch(discontinued, /Get it back from the Play Store/);
+  assert.equal(rec.uninstallNote("com.google.android.videos", entry({ defunct: true, play_store: true })), "Get it back from the Play Store.");
+  assert.match(rec.uninstallNote("org.smarttube.stable", entry()), /Not on the Play Store.*SmartTube.*https:/);
+  assert.match(rec.uninstallNote("com.example.unknown", null), /can't confirm.*Play Store.*APK/);
 });

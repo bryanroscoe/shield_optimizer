@@ -304,7 +304,7 @@
         changed(t);
         closeSelection();
       } else {
-        onToast(r.message || "Reinstall failed. Try the Play Store.", "error");
+        onToast(r.message || `Reinstall failed. ${uninstallNote(a.package, a.entry)}`, "error");
       }
     });
   }
@@ -409,7 +409,7 @@
   supportWarning={destructiveWarning(session.support)}
   message={intent?.action === "disable"
     ? `${verdictSummary(intent.verdict)} Disable is reversible with Enable.`
-    : `${verdictSummary(intent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV; otherwise use the Play Store.${note ? ` ${note}` : ""}`}
+    : `${verdictSummary(intent?.verdict)} Uninstall removes the app for this TV's current user. Reinstall works only while its APK remains on the TV.${note ? ` ${note}` : ""}`}
   confirmLabel={intent?.action === "disable" ? "Disable" : "Uninstall"}
   onConfirm={confirmRemoval}
   onCancel={() => (intent = null)}
