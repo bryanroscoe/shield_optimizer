@@ -15,7 +15,7 @@
   style="display:block;border-radius:{size * 0.23}px"
 >
   <rect width="120" height="120" rx="28" fill="#C9F24E" />
-  <g transform="translate(0 9)">
+  <g transform="translate(0 7)">
     <g fill="#0B0D10">
       <rect x="18" y="22" width="84" height="58" rx="14" />
       <path d="M34 80 L26 91 L33 91 L41 80 Z" />
