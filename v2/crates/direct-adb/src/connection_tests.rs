@@ -1463,12 +1463,7 @@ async fn queued_upload_refuses_new_generation_at_the_same_endpoint_before_identi
     ));
     {
         use std::future::Future;
-        struct Noop;
-        impl std::task::Wake for Noop {
-            fn wake(self: Arc<Self>) {}
-        }
-        let waker = std::task::Waker::from(Arc::new(Noop));
-        let mut context = std::task::Context::from_waker(&waker);
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
         let mut guard = lock_recovering(&connected.driver.conn);
         // Polling reaches spawn_blocking only AFTER atomically capturing generation 1.
         // Holding conn makes the worker wait, so replacement ordering is deterministic.
