@@ -66,6 +66,24 @@ function simulateDesktop({ tauri, recorded }) {
 
 async function sourceUsesNoBrowserDialogs() {
   const offenders = [];
+  // Bare calls, and calls through window / globalThis / self in any spacing.
+  function browserDialogCalls(code) {
+    const found = [];
+    for (const m of code.matchAll(/(?<![\w$])(confirm|prompt|alert)\s*\(/g)) {
+      const before = code.slice(0, m.index).trimEnd();
+      if (!before.endsWith(".")) {
+        if (!/\bfunction\s*$/.test(before)) found.push(m[0]);
+      } else if (/(?<![\w$.])(window|globalThis|self)$/.test(before.slice(0, -1).trimEnd())) {
+        found.push(m[0]);
+      }
+    }
+    return found;
+  }
+  assert.deepEqual(
+    ["confirm(", "window .confirm (", "globalThis.prompt(", "self.alert(", "api.confirm(", "confirmAction(", "x(confirm(1))"].map((c) => browserDialogCalls(c).length),
+    [1, 1, 1, 1, 0, 0, 1],
+    "the source scan recognises every spelling",
+  );
   async function walk(dir) {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
@@ -75,12 +93,13 @@ async function sourceUsesNoBrowserDialogs() {
         lines.forEach((line, i) => {
           const code = line.trim();
           if (code.startsWith("//") || code.startsWith("*")) return;
-          if (/(^|[^\w.$])(window\.)?(confirm|prompt|alert)\(/.test(code)) offenders.push(`${path}:${i + 1}: ${line.trim()}`);
+          if (browserDialogCalls(code).length) offenders.push(`${path}:${i + 1}: ${code}`);
         });
       }
     }
   }
   await walk(join(root, "src"));
+  await walk(join(root, "shared"));
   assert.deepEqual(offenders, [], "use confirmAction() from $lib/confirm, not the browser's dialogs");
 }
 
@@ -176,7 +195,14 @@ try {
     assert.ok(await nameField.evaluate((el) => el === document.activeElement), "the name field has focus");
     await nameDialog.getByRole("button", { name: "Cancel" }).click();
     await nameDialog.waitFor({ state: "detached" });
-    assert.ok(await save.evaluate((el) => el === document.activeElement), "focus returns to Save snapshot");
+    await save.evaluate((el) => new Promise((resolve, reject) => {
+      const start = Date.now();
+      (function check() {
+        if (el === document.activeElement) resolve();
+        else if (Date.now() - start > 2000) reject(new Error("focus didn't return to Save snapshot"));
+        else requestAnimationFrame(check);
+      })();
+    }));
     await save.click();
     await nameField.fill("Kept by Escape?");
     await page.keyboard.press("Escape");
@@ -212,6 +238,10 @@ try {
 
     await page.getByRole("button", { name: "Disable stock launcher" }).click();
     await stockConfirm.getByRole("button", { name: "Save snapshot first" }).click();
+    assert.ok(
+      await page.getByRole("button", { name: "Saving snapshot…" }).isDisabled(),
+      "the takeover can't be started again while the snapshot is named and saved",
+    );
     await nameField.fill("Before stock takeover");
     await nameDialog.getByRole("button", { name: "Save snapshot", exact: true }).click();
     await page.waitForFunction(() => window.__DIALOG_TEST__.calls.some((c) => c.cmd === "disable_stock_launcher"));
@@ -219,6 +249,8 @@ try {
       window.__DIALOG_TEST__.calls.filter((c) => ["save_snapshot", "disable_stock_launcher"].includes(c.cmd)).map((c) => c.args.label ?? c.cmd),
     );
     assert.deepEqual(order.slice(-2), ["Before stock takeover", "disable_stock_launcher"], "the snapshot is saved before stock is disabled");
+    // Focus lands on the Launcher tab once its confirm is gone.
+    await page.waitForFunction(() => document.activeElement?.id === "tabpanel-launcher", null, { timeout: 3000 });
 
     assert.deepEqual(await calls("window.confirm"), [], "the plugin's async window.confirm is never used");
     assert.deepEqual(await calls("window.prompt"), [], "prompt() is never used");

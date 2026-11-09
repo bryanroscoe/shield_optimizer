@@ -250,7 +250,7 @@
   let homePickerErr = $state<string | null>(null);
   let homePickerChoice = $state("");
   let homePickerActivity = $state("");
-  let homePickerBusy = $state<"set" | "stock" | null>(null);
+  let homePickerBusy = $state<"set" | "save" | "stock" | null>(null);
   let homePickerMessage = $state("");
   let homePickerOk = $state(false);
   let stockConfirmOpen = $state(false);
@@ -405,7 +405,11 @@
   let snapshotDeleteErr = $state<string | null>(null);
   let saveBusy = $state(false);
   /// The open "Save snapshot" name dialog, waiting for a name or Cancel.
-  let snapshotNameRequest = $state<{ resolve: (label: string | null) => void; returnFocus: HTMLElement | null } | null>(null);
+  let snapshotNameRequest = $state<{
+    resolve: (label: string | null) => void;
+    returnFocus: HTMLElement | null;
+    returnPanel: HTMLElement | null;
+  } | null>(null);
   let saveResult = $state<string>("");
   let previewPath = $state<string | null>(null);
   let preview = $state<SnapshotApplyPlan | null>(null);
@@ -1482,15 +1486,22 @@
   }
 
   async function disableStockFromPicker(saveFirst: boolean) {
+    if (homePickerBusy !== null) return;
     launcherSetResult = null;
     const pkg = homePickerChoice;
     if (!pkg) return;
+    const context = capturePageContext();
     stockConfirmOpen = false;
     if (saveFirst) {
-      // Read this save's own outcome: a cancelled prompt leaves an earlier
-      // save's "Saved" message in place.
+      // Hold the picker while naming and saving, so the takeover can't be
+      // started a second time from the confirm it just closed.
+      homePickerBusy = "save";
+      // Read this save's own outcome: a cancelled name dialog leaves an
+      // earlier save's "Saved" message in place.
       const saved = await saveSnapshot();
+      if (!pageContextIsCurrent(context)) return;
       if (saved.kind !== "saved") {
+        homePickerBusy = null;
         homePickerOk = false;
         homePickerMessage = "The snapshot wasn't saved, so the stock launcher was left alone.";
         return;
@@ -1502,7 +1513,7 @@
       const wraithNote = takeoverTurnsOffSetupHelper
         ? " Google TV's setup helper (Setup Wraith) was turned off too."
         : "";
-      const r = await api.disableStockLauncher(serial, pkg);
+      const r = await api.disableStockLauncher(context.serial, pkg);
       homePickerOk = r.ok;
       homePickerMessage = r.ok
         ? `The stock launcher is disabled and ${pkg} is Home.${wraithNote} Re-enable stock from the list above any time.`
@@ -1651,12 +1662,15 @@
       : `Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`;
     const tierWarning = destructiveWarning(device?.support);
     if (launcherActionBusy !== null) return;
-    if (!(await confirmAction(tierWarning ? `${question}\n\n${tierWarning}` : question)) || launcherActionBusy !== null) return;
+    const context = capturePageContext();
+    if (!(await confirmAction(tierWarning ? `${question}\n\n${tierWarning}` : question))
+      || launcherActionBusy !== null
+      || !pageContextIsCurrent(context)) return;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
     launcherProgress = "Disabling this launcher";
     try {
-      const r = await api.disableLauncher(serial, pkg);
+      const r = await api.disableLauncher(context.serial, pkg);
       if (r.ok) {
         launcherProgress = "Refreshing the launcher list";
         await loadLauncher();
@@ -1809,8 +1823,12 @@
 
   function askSnapshotName(): Promise<string | null> {
     return new Promise((resolve) => {
-      const active = document.activeElement;
-      snapshotNameRequest = { resolve, returnFocus: active instanceof HTMLElement ? active : null };
+      const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      snapshotNameRequest = {
+        resolve,
+        returnFocus: active,
+        returnPanel: active?.closest<HTMLElement>('[role="tabpanel"]') ?? null,
+      };
     });
   }
 
@@ -1819,9 +1837,13 @@
     if (!request) return;
     snapshotNameRequest = null;
     request.resolve(label);
-    void tick().then(() => {
-      if (request.returnFocus?.isConnected) request.returnFocus.focus();
-    });
+    // The opener can be disabled while the save runs ("Saving…", "Snapshot
+    // saved") or gone (the launcher confirm closes); land on its tab instead.
+    const { returnFocus: opener, returnPanel: panel } = request;
+    void tick().then(() => requestAnimationFrame(() => {
+      if (opener?.isConnected && !opener.matches(":disabled")) opener.focus();
+      else if (panel?.isConnected) panel.focus();
+    }));
   }
 
   async function previewSnapshot(path: string) {
@@ -1926,12 +1948,15 @@
 
   async function runRecovery() {
     if (recoveryBusy) return;
-    if (!(await confirmAction("Re-enable every disabled package on this device? This is the panic button — use it if something went wrong.")) || recoveryBusy) return;
+    const context = capturePageContext();
+    if (!(await confirmAction("Re-enable every disabled package on this device? This is the panic button — use it if something went wrong."))
+      || recoveryBusy
+      || !pageContextIsCurrent(context)) return;
     recoveryBusy = true;
     recoveryResult = null;
     recoveryErr = null;
     try {
-      recoveryResult = await api.panicRecovery(serial);
+      recoveryResult = await api.panicRecovery(context.serial);
     } catch (e) {
       recoveryErr = String(e);
     } finally {
@@ -1943,12 +1968,15 @@
   async function rebootDevice(mode: RebootMode) {
     const label = mode === "normal" ? "" : ` into ${mode}`;
     if (rebootBusy) return;
-    if (!(await confirmAction(`Reboot the device${label}? You will lose ADB connection briefly.`)) || rebootBusy) return;
+    const context = capturePageContext();
+    if (!(await confirmAction(`Reboot the device${label}? You will lose ADB connection briefly.`))
+      || rebootBusy
+      || !pageContextIsCurrent(context)) return;
     rebootMenuOpen = false;
     rebootBusy = true;
     headerActionMsg = "";
     try {
-      const r = await api.rebootDevice(serial, mode);
+      const r = await api.rebootDevice(context.serial, mode);
       headerActionMsg = r.message;
     } catch (e) {
       headerActionMsg = String(e);
@@ -2002,14 +2030,17 @@
   }
 
   async function disconnectAndLeave() {
+    if (disconnectBusy) return;
+    const context = capturePageContext();
     if (device?.connection === "usb") {
-      if (disconnectBusy) return;
-      if (!(await confirmAction("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?")) || disconnectBusy) return;
+      if (!(await confirmAction("This is a USB device — disconnect will only forget it from the ADB server until you replug. Continue?"))
+        || disconnectBusy
+        || !pageContextIsCurrent(context)) return;
     }
     disconnectBusy = true;
     headerActionMsg = "";
     try {
-      const r = await api.disconnectDevice(serial);
+      const r = await api.disconnectDevice(context.serial);
       if (r.ok) {
         pageEpoch++;
         mutationRequest++;
@@ -3060,7 +3091,7 @@
                       : pickedStock
                         ? "Pick the app that should take over, not the stock launcher"
                         : "Set the app as Home first. This stays off until it's Home, or until Android says the stock launcher is what's in the way."}
-                >{homePickerBusy === "stock" ? "Disabling…" : "Disable stock launcher"}</button>
+                >{homePickerBusy === "stock" ? "Disabling…" : homePickerBusy === "save" ? "Saving snapshot…" : "Disable stock launcher"}</button>
               </div>
               {#if stockConfirmOpen}
                 <div class="callout callout-warn home-picker-confirm" role="alertdialog" aria-label="Confirm disabling the stock launcher">
