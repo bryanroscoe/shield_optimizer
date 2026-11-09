@@ -140,6 +140,10 @@ export const api = {
   // ---- Apps ----
   listOtherPackages: (serial: string, deviceType: DeviceType) =>
     call<OtherPackage[]>("list_other_packages", { serial, deviceType }),
+  /// What this TV's user installed (`pm list packages -3`). Decides whether a
+  /// review row suggests Uninstall; a failure leaves every source unknown.
+  userInstalledPackages: (serial: string) =>
+    call<string[]>("user_installed_packages", { serial }),
   listInstalledPackages: (serial: string) =>
     call<OtherPackage[]>("list_installed_packages", { serial }),
   disablePackage: (serial: string, pkg: string) =>

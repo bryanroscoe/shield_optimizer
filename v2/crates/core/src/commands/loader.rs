@@ -746,6 +746,7 @@ mod tests {
                         installed_packages: installed,
                         disabled_packages: disabled,
                         memory_map: &memory,
+                        user_installed_packages: None,
                     },
                 );
                 for record in &reviewed {

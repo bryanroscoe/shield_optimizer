@@ -47,6 +47,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `take_screenshot` | Free | `../crates/core/src/commands/screenshot.rs` | `src/screens/Dashboard.svelte` |
 | `package_states` | Free | `../crates/core/src/commands/apps.rs` | `src/lib/session.svelte.ts`, `src/screens/Apps.svelte`, `src/screens/Tweaks.svelte` |
 | `list_other_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Apps.svelte` |
+| `user_installed_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Apps.svelte` |
 | `list_installed_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Backups.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Launcher.svelte` |
 | `app_memory_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |
 | `app_storage_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |

@@ -76,4 +76,6 @@ fixtures and a synthetic Shield identity; no TV, phone or removal is involved.
 Historical full-mobile results are not final-head local evidence. No native
 package/build, hardware/UI control or model/firmware claim. Exactly one reviewer
 checks source and final static delta; that is not formal GitHub approval.
-This recurring run authorizes no merge, deployment or release.
+Bryan subsequently overrode the original no-merge batch prompt on 2026-11-09:
+finish the normal reviewed, green merge and verify main CI. Deployment and
+release remain outside this task.

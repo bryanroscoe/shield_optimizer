@@ -631,6 +631,40 @@ const DISABLED = new Set([
   "com.android.providers.tv",
 ]);
 const MISSING = new Set(["com.disney.disneyplus", "com.wolf.firelauncher"]);
+// `pm list packages -3`: what the demo TV's owner installed. Netflix and
+// YouTube came with the Shield, so their review rows suggest Disable; these
+// store apps suggest Uninstall.
+const USER_INSTALLED = new Set([
+  "com.plexapp.android",
+  "com.spotify.tv.android",
+  "tv.twitch.android.app",
+  "com.hulu.livingroomplus",
+  "com.wbd.stream",
+  "com.crunchyroll.crunchyroid",
+  "com.apple.atve.androidtv.appletv",
+  "com.spocky.projengmenu",
+  "me.efesser.flauncher",
+  "com.teamsmart.videomanager.tv",
+  "ca.devmesh.overseerrtv",
+  "org.fdroid.fdroid",
+]);
+
+function demoInstallSource(pkg: string): "user" | "preinstalled" | "unknown" {
+  if (MISSING.has(pkg)) return "unknown";
+  return USER_INSTALLED.has(pkg) ? "user" : "preinstalled";
+}
+
+// The engine's planner, by hand: the Android demo imports this file, so it
+// can't pull in recommendation.ts and its `$lib` imports. A review row
+// follows `suggested_method`; a default row keeps `safe_method`.
+function demoPlanMethod(entry: AppEntry): "disable" | "uninstall" {
+  if (entry.review && !entry.default_optimize) {
+    const ordinaryStore =
+      entry.play_store && !entry.defunct && !entry.default_restore && (entry.risk === "safe" || entry.risk === "medium");
+    return ordinaryStore && demoInstallSource(entry.package) === "user" ? "uninstall" : "disable";
+  }
+  return entry.method === "uninstall" && !(entry.play_store || entry.defunct) ? "disable" : entry.method;
+}
 
 function packageStates(packages: string[]): Record<string, "enabled" | "disabled" | "missing"> {
   const out: Record<string, "enabled" | "disabled" | "missing"> = {};
@@ -680,14 +714,19 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
             ? { kind: "skip", reason: "not_installed" }
             : state === "disabled"
               ? { kind: "skip", reason: "already_disabled" }
-              : entry.method === "uninstall"
+              : demoPlanMethod(entry) === "uninstall"
                 ? { kind: "uninstall" }
                 : { kind: "disable" };
       } else {
         action =
           state === "disabled" ? { kind: "enable" } : { kind: "skip", reason: "already_enabled" };
       }
-      return { entry, action, memory_mb: memoryByPkg[entry.package] ?? null };
+      return {
+        entry,
+        action,
+        memory_mb: memoryByPkg[entry.package] ?? null,
+        install_source: demoInstallSource(entry.package),
+      };
     });
   return { mode, items };
 }
@@ -873,6 +912,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return apps;
     case "package_states":
       return packageStates((args.packages as string[]) ?? []);
+    case "user_installed_packages":
+      return [...USER_INSTALLED];
     case "app_permission_state":
       return "granted";
     // Every installed package, catalog entries included. The Health tab uses
@@ -888,7 +929,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           enabled: true,
           name: a.name,
         })),
-        { package: "com.netflix.ninja", system: false, enabled: true, name: "Netflix" },
+        { package: "com.netflix.ninja", system: true, enabled: true, name: "Netflix" },
         { package: "com.plexapp.android", system: false, enabled: true, name: "Plex" },
         // The installed launchers from `launchers` above, so the Launcher tab's
         // Advanced picker can offer them (tests/launcher-rows.mjs).
@@ -1164,7 +1205,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           "com.android.printspooler",
           "com.google.android.videos",
           "com.google.android.music",
+          "tv.twitch.android.app",
         ],
+        // Installed since the snapshot was saved: a restore turns it off.
+        packages_absent_in_snapshot: ["tv.twitch.android.app"],
         packages_already_disabled: ["com.amazon.amazonvideo.livingroom", "com.facebook.katana"],
         packages_not_installed: ["com.disney.disneyplus", "com.quibi.qlient"],
         launcher_to_set: snap.launcher && snap.launcher !== homeNow ? snap.launcher : null,

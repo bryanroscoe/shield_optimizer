@@ -5,6 +5,7 @@
   import { confirmAction } from "$lib/confirm";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import RemovalHelp from "$lib/components/RemovalHelp.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
   import type {
@@ -30,7 +31,7 @@
     isReinstallable,
     recommendation,
     reviewLabel,
-    effectiveMethod,
+    suggestedMethod,
     uninstallNote,
     uninstallOutcome,
   } from "$lib/recommendation";
@@ -263,7 +264,12 @@
       if (keptPackages.has(item.entry.package)) return "skip";
       // The same suggestion the App List and Health show, so the three
       // screens cannot disagree about what we recommend for one app.
-      const rec = recommendation(item.entry, rowState(item), safetyByPackage[item.entry.package]);
+      const rec = recommendation(
+        item.entry,
+        rowState(item),
+        safetyByPackage[item.entry.package],
+        item.install_source ?? "unknown",
+      );
       return rec.kind === "act" ? rec.action : "skip";
     }
     return item.entry.default_restore ? natural : "skip";
@@ -756,6 +762,9 @@
         <input type="checkbox" bind:checked={optimizeHideNotInstalled} />
         Hide not installed
       </label>
+      {#if optimizeMode === "optimize"}
+        <RemovalHelp />
+      {/if}
     </div>
 
     <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to focus the overflow region to scroll the table.) -->
@@ -873,7 +882,7 @@
                   <span
                     class="review-pill mono"
                     data-tip="Check the last-used column — act only if nobody here uses it"
-                  >{reviewLabel(effectiveMethod(item.entry))}</span>
+                  >{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
                 {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
                   <div class="muted small review-hint">Reload the plan to retry safety.</div>
                 {/if}

@@ -5,7 +5,7 @@
   import { session } from "../lib/session.svelte";
   import { router, type Screen } from "../lib/router.svelte";
   import { isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
-  import { effectiveMethod, reviewLabel, uninstallOutcome } from "../lib/recommendation";
+  import { reviewLabel, suggestedMethod, uninstallOutcome } from "../lib/recommendation";
   import {
     applyConfirmation,
     isPlanRecommended,
@@ -19,6 +19,7 @@
   } from "../lib/optimizeRows";
   import type {
     ActionResult,
+    InstallSource,
     OptimizeMode,
     OptimizePlan,
     OptimizePlanItem,
@@ -46,10 +47,12 @@
 
   let searchQuery = $state("");
   let sheetApp = $state<AppItem | null>(null);
+  let sheetSource = $state<InstallSource>("unknown");
 
   function openSheet(item: OptimizePlanItem) {
     if (applying) return;
     sheetApp = planItemApp(item);
+    sheetSource = item.install_source ?? "unknown";
   }
 
   let loading = $state(true);
@@ -964,7 +967,7 @@
                   <span class="tier-chip pending">Safety unavailable</span>
                 {/if}
                 {#if mode === "optimize" && isReviewRow(item, statusOf(item))}
-                  <span class="tier-chip review">{reviewLabel(effectiveMethod(item.entry))}</span>
+                  <span class="tier-chip review">{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
                 {/if}
                 <span class="mono meta-text">
                   {actionLabel(item)}{item.memory_mb != null
@@ -1074,6 +1077,7 @@
 
   <AppSheetHost
     app={sheetApp}
+    installSource={sheetSource}
     {navigate}
     onClose={() => (sheetApp = null)}
     onChanged={() => void loadPlan(mode)}
