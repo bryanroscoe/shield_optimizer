@@ -304,7 +304,7 @@
         changed(t);
         closeSelection();
       } else {
-        onToast(r.message || "Reinstall failed. Try the Play Store.", "error");
+        onToast(r.message || `Reinstall failed. ${uninstallNote(a.package, a.entry)}`, "error");
       }
     });
   }
