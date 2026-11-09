@@ -12,7 +12,8 @@
 //! the TV connection at once instead of on its next heartbeat. It also carries the app's
 //! one-file export bridge (`save_copy` through the create-document picker, `share_file`
 //! through the share sheet), which the app's `export_file` command calls after confining the
-//! source path.
+//! source path, and the open-document import (`pick_documents`), which copies picked files into
+//! a staging folder the app's import commands create and clean up.
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -23,7 +24,9 @@ mod error;
 mod models;
 
 pub use error::{Error, Result};
-pub use models::{DiscoveredAdbDevice, NetworkChange, SaveCopyResponse};
+pub use models::{
+    DiscoveredAdbDevice, NetworkChange, PickDocumentsResponse, PickedDocument, SaveCopyResponse,
+};
 
 /// App event emitted (Android only) when the phone's default network is lost or
 /// replaced, or loses an address. Payload: [`NetworkChange`].

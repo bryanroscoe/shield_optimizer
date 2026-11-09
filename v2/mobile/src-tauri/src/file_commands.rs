@@ -7,8 +7,9 @@
 //! - **pull** streams a device file into the app's own scoped storage
 //!   (`data_dir/downloads` or `data_dir/backups`) — no Android SAF needed for
 //!   app-private writes.
-//! - **push** would need a SAF document picker to reach a user-chosen source
-//!   file; that is a documented follow-up and not implemented here.
+//! - **push** reads a file the user picked with Android's open-document picker
+//!   and staged in the app's cache (`import_commands.rs`); it is not in this
+//!   module.
 //! - **find** and **delete** are the shared core implementations
 //!   (`commands::files`), `/sdcard`-confined exactly as on desktop. Mobile has
 //!   no power-user mode, so the system-path override is never offered.
@@ -21,7 +22,7 @@
 
 use std::path::{Path, PathBuf};
 
-use atv_optimizer_core::adb::{parse_ls_output, AdbError, FileEntry};
+use atv_optimizer_core::adb::{parse_ls_output, AdbDriver, AdbError, FileEntry};
 use atv_optimizer_core::commands::files::{self, delete_path_with, find_files_with, FindResult};
 use atv_optimizer_core::commands::{apps::ActionResult, AppState};
 use atv_optimizer_core::engine::install_outcome::{
@@ -82,7 +83,7 @@ fn validate_device_path(path: &str) -> Result<String, String> {
 }
 
 /// Single-quote a validated device path for the device-side shell.
-fn quote_path(p: &str) -> String {
+pub(crate) fn quote_path(p: &str) -> String {
     format!("'{}'", p.replace('\'', r"'\''"))
 }
 
@@ -419,31 +420,10 @@ async fn restore_apk_backup_impl(
     }
     let manifest = read_manifest(&dir)?;
     let files = bundle_files(&dir, &manifest)?;
-    let locals: Vec<String> = files
-        .iter()
-        .map(|file| file.to_string_lossy().into_owned())
-        .collect();
-    let verb = if locals.len() > 1 {
-        "install-multiple"
-    } else {
-        "install"
-    };
-    let mut args = vec!["-s", serial, verb, "-r"];
-    args.extend(locals.iter().map(String::as_str));
-
     let adb = state.adb_snapshot().await;
-    let (ok, message) = match adb.raw_transfer(&args).await {
-        Ok(out) => {
-            let combined = out.combined();
-            (
-                install_succeeded(out.success(), &combined),
-                combined.trim().to_string(),
-            )
-        }
-        // `adb install` exits nonzero with the package manager's reason.
-        Err(AdbError::NonZeroExit { stderr, .. }) => (false, stderr.trim().to_string()),
-        Err(e) => return Err(format!("install backup: {e}")),
-    };
+    let (ok, message) = install_local_apks(adb.as_ref(), serial, &files)
+        .await
+        .map_err(|e| format!("install backup: {e}"))?;
     Ok(ActionResult {
         ok,
         message: if ok {
@@ -460,6 +440,40 @@ async fn restore_apk_backup_impl(
             message
         },
     })
+}
+
+/// Install local APK files on the TV as one app: `install -r` for one file, `install-multiple -r`
+/// for a split set, the way desktop sideloads. Returns whether core's install check accepts the
+/// reply, and the reply's text. A package-manager refusal is an answer (`false`), not an error;
+/// a transport error (including an outcome the driver reports as unknown) is returned as-is.
+pub(crate) async fn install_local_apks(
+    adb: &dyn AdbDriver,
+    serial: &str,
+    files: &[PathBuf],
+) -> Result<(bool, String), AdbError> {
+    let locals: Vec<String> = files
+        .iter()
+        .map(|file| file.to_string_lossy().into_owned())
+        .collect();
+    let verb = if locals.len() > 1 {
+        "install-multiple"
+    } else {
+        "install"
+    };
+    let mut args = vec!["-s", serial, verb, "-r"];
+    args.extend(locals.iter().map(String::as_str));
+    match adb.raw_transfer(&args).await {
+        Ok(out) => {
+            let combined = out.combined();
+            Ok((
+                install_succeeded(out.success(), &combined),
+                combined.trim().to_string(),
+            ))
+        }
+        // `adb install` exits nonzero with the package manager's reason.
+        Err(AdbError::NonZeroExit { stderr, .. }) => Ok((false, stderr.trim().to_string())),
+        Err(e) => Err(e),
+    }
 }
 
 /// Resolve a delete target: path-confined to the backups root *and* a

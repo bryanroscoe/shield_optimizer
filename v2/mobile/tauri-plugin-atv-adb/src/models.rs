@@ -45,6 +45,28 @@ pub struct SaveCopyResponse {
     pub name: Option<String>,
 }
 
+/// What the Kotlin open-document picker reported: `picked` is false when the user backed out.
+/// Each file was copied, whole and under the caps sent, into the staging folder named in the
+/// request; the rest of the validation is the app's.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PickDocumentsResponse {
+    pub picked: bool,
+    #[serde(default)]
+    pub files: Vec<PickedDocument>,
+}
+
+/// One picked document's staged copy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PickedDocument {
+    /// The provider's display name; empty when it reports none. Untrusted: not a path.
+    #[serde(default)]
+    pub name: String,
+    /// Bytes copied.
+    pub size: u64,
+    /// The staged copy, inside the requested folder.
+    pub file: String,
+}
+
 // Payloads sent across the JNI bridge to the Kotlin AdbPlugin's @Commands.
 // Bridge-only, so gated off host builds where the desktop stub never sends them.
 
@@ -80,6 +102,16 @@ pub(crate) struct SaveCopyPayload<'a> {
 pub(crate) struct ShareFilePayload<'a> {
     pub path: &'a str,
     pub mime: &'a str,
+}
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct PickDocumentsPayload<'a> {
+    pub dir: &'a str,
+    pub max_files: u32,
+    pub max_file_bytes: u64,
+    pub max_total_bytes: u64,
 }
 
 #[cfg(test)]
@@ -122,6 +154,20 @@ mod tests {
         let canceled: SaveCopyResponse = serde_json::from_str(r#"{"saved":false}"#).unwrap();
         assert!(!canceled.saved);
         assert_eq!(canceled.name, None);
+    }
+
+    #[test]
+    fn pick_documents_response_reads_the_kotlin_result() {
+        let picked: PickDocumentsResponse = serde_json::from_str(
+            r#"{"picked":true,"files":[{"name":"movie.mkv","size":42,"file":"/cache/imports/x/0.part"},{"size":1,"file":"/cache/imports/x/1.part"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(picked.files.len(), 2);
+        assert_eq!(picked.files[0].name, "movie.mkv");
+        assert_eq!(picked.files[1].name, "");
+        let canceled: PickDocumentsResponse = serde_json::from_str(r#"{"picked":false}"#).unwrap();
+        assert!(!canceled.picked);
+        assert!(canceled.files.is_empty());
     }
 
     #[test]

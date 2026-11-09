@@ -11,6 +11,7 @@
 mod billing_commands;
 mod export_commands;
 mod file_commands;
+mod import_commands;
 mod play_billing;
 mod remote_lifecycle;
 mod scrcpy_resource;
@@ -228,6 +229,12 @@ pub fn run() {
             // Share copies a file into the cache; drop copies left from an earlier run.
             if let Ok(cache_dir) = app.path().app_cache_dir() {
                 export_commands::prune_at_startup(&cache_dir);
+                // Picked files staged for an upload or install that never finished.
+                if let Some(removed) = import_commands::clean_at_startup(&cache_dir) {
+                    if removed > 0 {
+                        tracing::info!(removed, "removed staged imports");
+                    }
+                }
             }
             match scrcpy_resource::materialize(&data_dir) {
                 Ok(path) => tracing::info!(path = %path.display(), "scrcpy server materialized"),
@@ -283,6 +290,7 @@ pub fn run() {
             app.manage(MobileState { wireless });
             app.manage(remote_lifecycle::RemoteLifecycle::default());
             app.manage(export_commands::ExportGate::default());
+            app.manage(import_commands::ImportStore::default());
             app.manage(billing);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -375,6 +383,12 @@ pub fn run() {
             file_commands::find_files,
             file_commands::delete_path,
             export_commands::export_file,
+            import_commands::import_pick,
+            import_commands::discard_import,
+            import_commands::upload_conflicts,
+            import_commands::upload_imported,
+            import_commands::inspect_imported_apks,
+            import_commands::install_imported_apks,
             telemetry::telemetry_settings,
             telemetry::set_telemetry_enabled,
             telemetry::dismiss_telemetry_notice,

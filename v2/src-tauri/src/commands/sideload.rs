@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use tauri::State;
 
 use super::AppState;
+use atv_optimizer_core::engine::apk_abis;
 use atv_optimizer_core::engine::install_outcome::{
     combine_streams, decode_install_error, install_succeeded,
 };
@@ -191,25 +192,13 @@ pub async fn inspect_apk(
     let adb = state.adb_snapshot().await;
     let device_abis: Vec<String> = match adb.shell(&serial, "getprop ro.product.cpu.abilist").await
     {
-        Ok(out) => out
-            .stdout
-            .trim()
-            .split(',')
-            .map(|a| a.trim().to_string())
-            .filter(|a| !a.is_empty())
-            .collect(),
+        Ok(out) => apk_abis::parse_abilist(&out.stdout),
         Err(_) => Vec::new(),
     };
 
     // Only claim a mismatch when both sides are known AND the APK actually
     // ships native code. An APK with no `lib/` runs on any ABI.
-    let abi_compatible = if abis.is_empty() {
-        Some(true)
-    } else if device_abis.is_empty() {
-        None
-    } else {
-        Some(abis.iter().any(|a| device_abis.iter().any(|d| d == a)))
-    };
+    let abi_compatible = apk_abis::abi_compatible(&abis, &device_abis);
 
     let already_installed = match &package {
         Some(pkg) => match adb.shell(&serial, &format!("pm list packages {pkg}")).await {

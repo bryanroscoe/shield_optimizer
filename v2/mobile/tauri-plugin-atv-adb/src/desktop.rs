@@ -28,4 +28,15 @@ impl<R: Runtime> Adb<R> {
     pub fn share_file(&self, _path: &str, _mime: &str) -> Result<()> {
         Err(Error::ExportUnsupported)
     }
+
+    /// Picking a document needs Android's picker; host builds have none.
+    pub fn pick_documents(
+        &self,
+        _dir: &str,
+        _max_files: u32,
+        _max_file_bytes: u64,
+        _max_total_bytes: u64,
+    ) -> Result<PickDocumentsResponse> {
+        Err(Error::ImportUnsupported)
+    }
 }
