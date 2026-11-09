@@ -1,5 +1,20 @@
 # Native desktop ADB owner test — 2026-11-02
 
+## Status at merge — 2026-11-08
+
+Built-in is the default engine, and Settings › ADB engine switches to Google platform-tools.
+- **Scans never prompt.** Scan LAN, Add by IP, reconnects and every dedicated connection sign only with trusted keys. Only Request approval shows the TV's prompt: a pop-up that waits up to 10 minutes, with the same row and pop-up under both engines.
+- **Engine switches don't prompt either.** The two engines share keys in both directions.
+- **Fast Remote** is enabled under Built-in.
+- **Test packages** can Send logs, marked as test builds. Their usage reports are always off.
+
+Hardware evidence:
+- Bryan ran the packaged macOS app on his LAN on 2026-11-08: scans, Request approval, approval and the engine switch.
+- The Android TV 14 emulator covers the rest.
+- Still unchecked on hardware: steps N1–N18 in `docs/DEVICE-TEST-SCRIPT.md` beyond those.
+
+The sections below are the dated history. Where they say platform-tools is the default, or that fast Remote is gated, this section supersedes them.
+
 ## No reprompt and fast Remote — 2026-11-06
 
 Bryan: "Ideally there is no reprompt, yes we need fast remote as well."
@@ -349,13 +364,13 @@ a read on the original connection. Upload semantics were not changed by this fix
 Native diagnostics skip host-server/session probes. Native Settings identifies the
 backend and disables platform-tools actions. Subprocess timeout/startup/I/O errors
 retain their real diagnostic and Restart instead of suggesting an ADB download.
-The subprocess shipping default, existing UI flows and privacy controls remain.
+Built-in is the shipping default (platform-tools stays selectable); existing UI flows and privacy controls remain.
 
 ## Remaining acceptance
 
 No completed physical first-time TV approval, successful TLS PIN pairing, device
 writes/upload/install, Remote, sleep/wake or packaged Windows/Linux hardware
-acceptance is claimed. Fast native Remote remains gated. Investigate the initial
+acceptance is claimed. Investigate the initial
 zero-responder sweep if it recurs; do not reset authorization keys or change OS
 security settings to conceal it. Public UI media remains explicitly simulated;
 there is no new public native download video. Owner-test readiness is distinct
