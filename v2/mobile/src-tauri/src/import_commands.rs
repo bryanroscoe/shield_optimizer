@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use atv_optimizer_core::adb::AdbError;
+use atv_optimizer_core::adb::{AdbDriver, AdbError};
 use atv_optimizer_core::commands::files::validate_sdcard_path;
 use atv_optimizer_core::commands::AppState;
 use atv_optimizer_core::engine::apk_abis;
@@ -188,6 +188,22 @@ pub fn safe_import_name(display: &str, index: usize) -> String {
     format!("{}{ext}", &cleaned[..end])
 }
 
+/// `name`, or `stem (n).ext` for the first `n` that no name in `taken` already uses.
+fn distinct_name<'a>(name: &str, taken: impl Iterator<Item = &'a str> + Clone) -> String {
+    let clash = |candidate: &str| taken.clone().any(|t| t.eq_ignore_ascii_case(candidate));
+    if !clash(name) {
+        return name.to_string();
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(i) if i > 0 => (&name[..i], &name[i..]),
+        _ => (name, ""),
+    };
+    (2..)
+        .map(|n| format!("{stem} ({n}){ext}"))
+        .find(|candidate| !clash(candidate))
+        .expect("an unused suffix exists")
+}
+
 fn is_apk_name(name: &str) -> bool {
     Path::new(name)
         .extension()
@@ -211,9 +227,14 @@ pub fn stage_picked(
         .canonicalize()
         .map_err(|e| format!("open import folder: {e}"))?;
     let mut total: u64 = 0;
-    let mut staged = Vec::with_capacity(picked.len());
+    let mut staged: Vec<StagedFile> = Vec::with_capacity(picked.len());
     for (index, document) in picked.iter().enumerate() {
-        let name = safe_import_name(&document.name, index);
+        // Two picks with one name would land on the same TV path, so later ones get ` (2)`,
+        // ` (3)`, … (compared without case, as `/sdcard` is).
+        let name = distinct_name(
+            &safe_import_name(&document.name, index),
+            staged.iter().map(|f| f.name.as_str()),
+        );
         if purpose == ImportPurpose::Apk && !is_apk_name(&name) {
             return Err(format!(
                 "{name} isn't an .apk file. Pick only .apk files to install. Nothing was imported."
@@ -418,6 +439,22 @@ pub fn remote_target(remote_dir: &str, name: &str) -> Result<String, String> {
     Ok(target)
 }
 
+const MOVED: &str = "atvopt-moved";
+
+/// The hidden name an upload is sent under before it is moved into place: `.<name>.atvopt-part`
+/// in the same folder, inside the same `/sdcard` bound.
+pub fn partial_target(remote_dir: &str, name: &str) -> Result<String, String> {
+    remote_target(remote_dir, &format!(".{name}.atvopt-part"))
+}
+
+/// Best-effort removal of an upload's partial copy. True when the TV confirmed it is gone.
+async fn remove_on_tv(adb: &dyn AdbDriver, serial: &str, path: &str) -> bool {
+    let command = format!("rm -f {} && echo {MOVED}", quote_path(path));
+    adb.shell(serial, &command)
+        .await
+        .is_ok_and(|out| out.stdout.lines().any(|l| l.trim() == MOVED))
+}
+
 /// Something already on the TV where an upload would land.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UploadConflict {
@@ -579,34 +616,73 @@ pub async fn upload_imported_impl(
         }
         _ => {}
     }
+    // Sent under a hidden name and moved into place only once complete, so an interrupted or
+    // short upload never replaces (or poses as) the file the user meant.
+    let partial = partial_target(remote_dir, &file.name)?;
     let adb = state.adb_snapshot().await;
     let local = file.path.to_string_lossy().into_owned();
-    adb.raw_transfer(&["-s", serial, "push", &local, &target])
+    if let Err(e) = adb
+        .raw_transfer(&["-s", serial, "push", &local, &partial])
         .await
-        .map_err(|e| match e {
-            AdbError::Uncertain { .. } => format!(
-                "{} may be incomplete on the TV: {e}. Check it before using it.",
-                file.name
-            ),
-            e => format!("Couldn't upload {}: {e}", file.name),
-        })?;
+    {
+        let removed = remove_on_tv(adb.as_ref(), serial, &partial).await;
+        let left = if removed {
+            "Nothing in the folder was replaced.".to_string()
+        } else {
+            format!(
+                "Nothing in the folder was replaced; an incomplete copy may be left at {partial}."
+            )
+        };
+        return Err(match e {
+            AdbError::Uncertain { .. } => {
+                format!("{} didn't finish uploading: {e}. {left}", file.name)
+            }
+            e => format!("Couldn't upload {}: {e}. {left}", file.name),
+        });
+    }
     let verified = match adb
-        .shell(serial, &format!("stat -c %s {}", quote_path(&target)))
+        .shell(serial, &format!("stat -c %s {}", quote_path(&partial)))
         .await
     {
         Ok(out) => match out.stdout.trim().parse::<u64>() {
             Ok(size) if size == file.size_bytes => true,
             Ok(size) => {
+                remove_on_tv(adb.as_ref(), serial, &partial).await;
                 return Err(format!(
-                    "{} reached the TV as {size} bytes instead of {}. Delete it on the TV and \
-                     upload it again.",
+                    "{} reached the TV as {size} bytes instead of {}, so it was removed. Nothing \
+                     in the folder was replaced. Try again.",
                     file.name, file.size_bytes
-                ))
+                ));
             }
             Err(_) => false,
         },
         Err(_) => false,
     };
+    let moved = adb
+        .shell(
+            serial,
+            &format!(
+                "mv -f {} {} && echo {MOVED}",
+                quote_path(&partial),
+                quote_path(&target)
+            ),
+        )
+        .await;
+    if !moved
+        .as_ref()
+        .is_ok_and(|out| out.stdout.lines().any(|l| l.trim() == MOVED))
+    {
+        remove_on_tv(adb.as_ref(), serial, &partial).await;
+        let reason = match moved {
+            Ok(out) => out.combined().trim().to_string(),
+            Err(e) => e.to_string(),
+        };
+        return Err(format!(
+            "{} was sent but couldn't be put in place ({reason}). Nothing in the folder was \
+             replaced.",
+            file.name
+        ));
+    }
     Ok(UploadOutcome::Uploaded {
         name: file.name.clone(),
         remote_path: target,
@@ -781,6 +857,7 @@ mod tests {
         stat: String,
         transfer: fn() -> AdbResult<AdbOutput>,
         abilist: String,
+        mv_fails: bool,
         calls: Mutex<Vec<String>>,
     }
 
@@ -791,6 +868,7 @@ mod tests {
                 stat: String::new(),
                 transfer: || output(""),
                 abilist: "arm64-v8a,armeabi-v7a,armeabi\n".into(),
+                mv_fails: false,
                 calls: Mutex::default(),
             }
         }
@@ -814,6 +892,14 @@ mod tests {
                 output(&self.existing)
             } else if command.starts_with("stat -c") {
                 output(&self.stat)
+            } else if command.starts_with("mv -f") {
+                output(if self.mv_fails {
+                    "mv: Permission denied"
+                } else {
+                    "atvopt-moved\n"
+                })
+            } else if command.starts_with("rm -f") {
+                output("atvopt-moved\n")
             } else if command == "getprop ro.product.cpu.abilist" {
                 output(&self.abilist)
             } else {
@@ -924,6 +1010,39 @@ mod tests {
         assert!(stage_picked(dir, &[empty], ImportPurpose::Apk)
             .unwrap_err()
             .contains("empty"));
+    }
+
+    #[test]
+    fn picks_with_the_same_name_get_distinct_names() {
+        let root = tempfile::tempdir().unwrap();
+        let (store, id, _) = staged(
+            root.path(),
+            ImportPurpose::Upload,
+            &[
+                ("notes.txt", b"a"),
+                ("NOTES.txt", b"b"),
+                ("notes.txt", b"c"),
+                ("README", b"d"),
+                ("readme", b"e"),
+            ],
+        );
+        let names: Vec<String> = store
+            .get(&id)
+            .unwrap()
+            .files
+            .iter()
+            .map(|f| f.name.clone())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "notes.txt",
+                "NOTES (2).txt",
+                "notes (3).txt",
+                "README",
+                "readme (2)"
+            ]
+        );
     }
 
     #[cfg(unix)]
@@ -1082,9 +1201,18 @@ mod tests {
             }
         );
         let calls = tv.calls();
-        let push = calls.iter().find(|c| c.contains(" push ")).unwrap();
-        assert!(push.starts_with("-s TV push "));
-        assert!(push.ends_with("000-clip.mp4 /sdcard/Movies/clip.mp4"));
+        let push = calls.iter().position(|c| c.contains(" push ")).unwrap();
+        assert!(calls[push].starts_with("-s TV push "));
+        assert!(calls[push].ends_with("000-clip.mp4 /sdcard/Movies/.clip.mp4.atvopt-part"));
+        // Sent under a hidden name, checked, then moved over the target.
+        assert_eq!(
+            calls[push + 1],
+            "stat -c %s '/sdcard/Movies/.clip.mp4.atvopt-part'"
+        );
+        assert_eq!(
+            calls[push + 2],
+            "mv -f '/sdcard/Movies/.clip.mp4.atvopt-part' '/sdcard/Movies/clip.mp4' && echo atvopt-moved"
+        );
     }
 
     #[tokio::test]
@@ -1132,6 +1260,10 @@ mod tests {
             .await
             .unwrap_err();
         assert!(error.contains("as 2 bytes instead of 3"), "{error}");
+        assert!(
+            error.contains("Nothing in the folder was replaced"),
+            "{error}"
+        );
 
         let mut unknown = Tv::new();
         unknown.stat = "stat: not found".into();
@@ -1158,7 +1290,25 @@ mod tests {
         let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
             .await
             .unwrap_err();
-        assert!(error.contains("may be incomplete on the TV"), "{error}");
+        assert!(error.contains("didn't finish uploading"), "{error}");
+        assert!(
+            error.contains("Nothing in the folder was replaced."),
+            "{error}"
+        );
+
+        let mut stuck = Tv::new();
+        stuck.stat = "3".into();
+        stuck.mv_fails = true;
+        let stuck = Arc::new(stuck);
+        let state = super::tests::state(stuck.clone(), root.path());
+        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
+            .await
+            .unwrap_err();
+        assert!(error.contains("couldn't be put in place"), "{error}");
+        assert!(stuck
+            .calls()
+            .iter()
+            .any(|c| c == "rm -f '/sdcard/.a.txt.atvopt-part' && echo atvopt-moved"));
 
         let state = super::tests::state(Arc::new(Tv::new()), root.path());
         assert_eq!(

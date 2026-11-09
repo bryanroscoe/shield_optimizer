@@ -236,6 +236,28 @@ test("leaving Install APK frees picked files that weren't installed", async t =>
   assert.deepEqual(await called(page, "discard_import"), [{ batch: "import-apk" }]);
 });
 
+test("an install result is dropped when the TV changes, never relabeled", async t => {
+  const page = await open(t, "sideload");
+  await page.getByRole("button", { name: "Pick APK files" }).click();
+  await page.locator(".staged").getByRole("button", { name: "Install" }).click();
+  await page.locator(".result").getByText("Installed on Synthetic TV.").waitFor();
+  await page.evaluate(async () => { const { session } = await import("/src/lib/session.svelte.ts"); await session.connect("MOCK", 5555); });
+  await page.locator(".result").waitFor({ state: "detached" });
+  assert.equal(await page.getByText(/Installed on/).count(), 0);
+});
+
+test("while an upload runs the folder can't be left or deleted from", async t => {
+  const page = await open(t, "files");
+  await page.evaluate(() => { mock.uploadHold = new Promise(resolve => { window.releaseUpload = resolve; }); });
+  await uploadButton(page).click();
+  await page.getByRole("status").filter({ hasText: "Uploading 1 of 2" }).waitFor();
+  assert.equal(await page.locator(".file-row").filter({ hasText: "Movies" }).isDisabled(), true);
+  assert.equal(await page.getByRole("button", { name: "Delete old.txt from the TV" }).isDisabled(), true);
+  await page.evaluate(() => releaseUpload());
+  await page.getByText("Uploaded 2 files to /sdcard.").waitFor();
+  assert.equal(await page.locator(".file-row").filter({ hasText: "Movies" }).isEnabled(), true);
+});
+
 test("popular sideloads open their official pages in the browser", async t => {
   const page = await open(t, "sideload");
   await page.getByRole("button", { name: "Open the official download page for SmartTube" }).click();

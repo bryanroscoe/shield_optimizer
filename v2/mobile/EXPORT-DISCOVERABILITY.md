@@ -134,10 +134,15 @@ The other direction, for the documents the user picks and only for the selected 
   which names already exist (`[ -d ]` / `[ -e ]` per target); a file conflict opens Replace / Don't
   upload, and a same-named folder is never replaced (that file is skipped and said). Then
   `upload_imported` sends one file at a time ("Uploading 2 of 3: name…"): it re-checks the target,
-  refuses to replace without the user's yes, pushes through `WirelessAdb`'s push, and reads the size
-  back with `stat -c %s`; a short file is an error, an unreadable size is "size not confirmed by the
-  TV", and an interrupted push says the file may be incomplete. Targets go through the same
-  `/sdcard` bound as delete. Uploaded files are listed for the session with their TV path.
+  refuses to replace without the user's yes, and pushes through `WirelessAdb`'s push under a
+  hidden name (`.<name>.atvopt-part` in the same folder). It reads that copy's size back with
+  `stat -c %s` and only then moves it over the target (`mv -f`), so an interrupted, short or
+  unplaceable upload is removed and never replaces or poses as the user's file; an unreadable size
+  is "size not confirmed by the TV". The push has the transport's 15-minute deadline, which a
+  2 GiB file on slow Wi-Fi can exceed. Targets go through the same `/sdcard` bound as delete. Two
+  picked files with one name (compared without case) get ` (2)`, ` (3)` suffixes. Uploaded files
+  are listed for the session with their TV path, and the folder can't be left or deleted from
+  while an upload runs.
 - **Install APK** (More). Picks `.apk` files only (one APK or a split set). `inspect_imported_apks`
   reads each file's ZIP central directory for `lib/<abi>/` entries (core `engine::apk_abis`, no
   decompression) and the TV's `ro.product.cpu.abilist`; core's rule (shared with desktop's

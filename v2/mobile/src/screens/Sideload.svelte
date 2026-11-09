@@ -26,7 +26,9 @@
 
   let phase = $state<"idle" | "picking" | "reading" | "installing">("idle");
   let staged = $state<Staged | null>(null);
-  let result = $state<InstallApkResult | null>(null);
+  /// The install's answer, with the TV it was for: a later TV switch must not relabel it.
+  let result = $state<(InstallApkResult & { tv: string }) | null>(null);
+  let installingOn = $state("");
   let notice = $state("");
   let noticeError = $state(false);
   let linkError = $state("");
@@ -58,6 +60,7 @@
     const key = `${session.serial}:${session.generation}:${session.isConnected}`;
     if (key === watched) return;
     watched = key;
+    result = null;
     if (staged) {
       release(staged.batch);
       staged = null;
@@ -118,13 +121,16 @@
     }
     staged = null;
     phase = "installing";
+    installingOn = session.deviceLabel;
     say("");
     // The backend uses the batch up whatever happens.
     if (held === target.batch) held = null;
     try {
       const reply = await api.installImportedApks(target.serial, target.batch);
       if (destroyed) return;
-      result = reply;
+      // A switch while installing already cleared the screen; the answer belongs to the old TV.
+      if (current(target)) result = { ...reply, tv: installingOn };
+      else say(`The TV changed during the install. Check ${installingOn}'s apps to see whether it finished.`, true);
     } catch (e) {
       if (!destroyed) say(String(e), true);
     } finally {
@@ -188,7 +194,7 @@
     {#if !session.isConnected}
       <span class="status" role="status">Connect a TV to install an app on it.</span>
     {:else if phase === "installing"}
-      <span class="status live" role="status"><span class="pdot blink"></span>Installing on {session.deviceLabel}…</span>
+      <span class="status live" role="status"><span class="pdot blink"></span>Installing on {installingOn}…</span>
     {:else}
       <span class="status" class:bad={noticeError} role="status">{notice}</span>
     {/if}
@@ -200,7 +206,7 @@
     <div class="sl-card staged" class:mismatch={verdict === "mismatch"}>
       <span class="card-label">Ready to install · {plural(inspection.files.length, "file")}</span>
       <ul class="apk-list">
-        {#each inspection.files as file (file.name)}
+        {#each inspection.files as file, i (i)}
           <li>
             <span class="msr apk-icon" aria-hidden="true">android</span>
             <span class="apk-name">{file.name}</span>
@@ -246,7 +252,7 @@
     <div class="sl-card result" class:ok={result.ok} class:bad={!result.ok} role="status">
       <span class="result-head">
         <span class="msr fill" aria-hidden="true">{result.ok ? "check_circle" : "error"}</span>
-        {result.ok ? `Installed on ${session.deviceLabel}.` : installFailureSummary(result.message)}
+        {result.ok ? `Installed on ${result.tv}.` : installFailureSummary(result.message)}
       </span>
       {#if result.hint}<p class="card-desc">{result.hint}</p>{/if}
       {#if !result.ok && result.message}<pre class="reply mono">{result.message}</pre>{/if}

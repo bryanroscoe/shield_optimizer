@@ -261,7 +261,7 @@
       }
     }
     uploadProblems = problems;
-    if (sent > 0) await load(dir);
+    if (sent > 0 && loadedPath === dir) await load(dir);
     if (!current(target)) return;
     const total = files.length;
     if (problems.length === 0) {
@@ -276,6 +276,7 @@
   }
 
   function openDir(name: string) {
+    if (uploading) return;
     void load(joinPath(loadedPath, name));
   }
 
@@ -288,6 +289,7 @@
   }
 
   function goTo(p: string) {
+    if (uploading) return;
     const target = p || "/";
     if (target === path) return;
     void load(target);
@@ -359,7 +361,7 @@
 
   function askDelete(remote: string, isDir: boolean) {
     const serial = session.serial;
-    if (!serial || !session.isConnected || deleting || !canDeleteOnTv(remote)) return;
+    if (!serial || !session.isConnected || deleting || uploading || !canDeleteOnTv(remote)) return;
     pendingDelete = { serial, generation: session.generation, path: remote, name: baseName(remote), isDir };
   }
 
@@ -505,7 +507,7 @@
                       </button>
                       <button
                         class="ghost small"
-                        disabled={appBusy !== ""}
+                        disabled={appBusy !== "" || uploading}
                         onclick={() => void load(parentDir(hit))}
                       >
                         <span class="msr">folder_open</span>Open folder
@@ -567,7 +569,7 @@
           {@const deletable = canDeleteOnTv(remote)}
           <div class="row-wrap">
             {#if e.is_dir}
-              <button class="file-row" onclick={() => openDir(e.name)}>
+              <button class="file-row" disabled={uploading} onclick={() => openDir(e.name)}>
                 <span class="msr f-icon dir">{iconFor(e)}</span>
                 <div class="f-body">
                   <span class="f-name">{e.name}</span>
@@ -605,7 +607,7 @@
               <button
                 class="iconbtn row-delete"
                 aria-label={`Delete ${e.name} from the TV`}
-                disabled={busyName !== "" || deleting}
+                disabled={busyName !== "" || deleting || uploading}
                 onclick={() => askDelete(remote, e.is_dir)}
               >
                 <span class="msr">delete</span>
