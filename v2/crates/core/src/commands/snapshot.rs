@@ -23,6 +23,7 @@ use super::launcher::{
     set_default_launcher_core, Progress, HOME_HANDLER_QUERY,
 };
 use super::loader::launchers;
+use super::verification::Unconfirmed;
 use super::{
     is_valid_setting_key, quote_shell_arg, AppState, LIST_DISABLED_PACKAGES, LIST_PACKAGES,
 };
@@ -425,6 +426,9 @@ struct DisableOutcome {
     /// For each disabled stock launcher with a paired setup helper, the Home
     /// apps read just before it went off.
     inventories: Vec<(String, Vec<String>)>,
+    /// Disables Android accepted whose result could not be read back. Listed
+    /// as failed, but they may have landed.
+    unconfirmed: Vec<String>,
 }
 
 /// Execute the disable portion of an apply-plan, in the plan's order.
@@ -471,8 +475,23 @@ async fn disable_from_plan(
         }
         let cmd = format!("pm disable-user --user 0 {pkg}");
         match adb.shell(serial, &cmd).await {
-            Ok(result) if result.success() && !result.shell_reported_failure() => {
-                out.disabled.push(pkg.clone());
+            Ok(result) if super::verification::succeeded(&result) => {
+                // A clean write is not proof: read the state back for user 0.
+                match super::verification::verify_package(adb, serial, pkg, false).await {
+                    Ok(()) => out.disabled.push(pkg.clone()),
+                    Err(Unconfirmed::Differs) => {
+                        out.failed
+                            .push(format!("{pkg} ({})", Unconfirmed::Differs.message()));
+                        continue;
+                    }
+                    // It may have gone off. Not claimed, but the Home
+                    // follow-ups below still run as if it had.
+                    Err(Unconfirmed::Unreadable) => {
+                        out.failed
+                            .push(format!("{pkg} ({})", Unconfirmed::Unreadable.message()));
+                        out.unconfirmed.push(pkg.clone());
+                    }
+                }
                 if let Some(inventory) = inventory {
                     if !catalog.disable_with_for(pkg).is_empty() {
                         out.inventories.push((pkg.clone(), inventory));
@@ -483,6 +502,15 @@ async fn disable_from_plan(
         }
     }
     out
+}
+
+/// A later, more specific result for an unconfirmed disable replaces its
+/// "could not be read back" entry rather than listing the package twice.
+fn drop_unconfirmed_entry(failed: &mut Vec<String>, unconfirmed: &[String], pkg: &str) {
+    if unconfirmed.iter().any(|p| p == pkg) {
+        let entry = format!("{pkg} ({})", Unconfirmed::Unreadable.message());
+        failed.retain(|f| f != &entry);
+    }
 }
 
 /// Set Home for a restore. No stock takeover here: a snapshot that had stock
@@ -566,7 +594,11 @@ async fn apply_snapshot_impl(
     // An enabled stock launcher overrides the polite setters (Shield, Google
     // TV), so with it now off they can finish the switch.
     if let Some(launcher) = &plan.launcher_to_set {
-        if !launcher_set && packages_disabled.iter().any(|p| catalog.is_stock(p)) {
+        let stock_may_be_off = packages_disabled
+            .iter()
+            .chain(&outcome.unconfirmed)
+            .any(|p| catalog.is_stock(p));
+        if !launcher_set && stock_may_be_off {
             (launcher_set, launcher_message) = switch_launcher(state, serial, launcher).await;
         }
     }
@@ -590,6 +622,7 @@ async fn apply_snapshot_impl(
             Outcome::Untouched | Outcome::Disabled { .. } => {}
             Outcome::RolledBack { reason } => {
                 packages_disabled.retain(|p| p != stock);
+                drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
             Outcome::LeftOn => {
@@ -604,6 +637,7 @@ async fn apply_snapshot_impl(
                     let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
                     let restored = matches!(&restore, Ok(out) if out.success() && !out.shell_reported_failure());
                     packages_disabled.retain(|p| p != stock);
+                    drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                     packages_failed.push(if restored {
                         format!("{stock} (turned back on: no other launcher took Home)")
                     } else {
@@ -700,14 +734,28 @@ async fn apply_settings_from_plan(
             None => format!("settings delete {ns} {key}"),
         };
         match adb.shell(serial, &command).await {
-            Ok(out) if !out.shell_reported_failure() => {
+            Ok(out) if super::verification::succeeded(&out) => {
+                if let Err(e) = super::verification::verify_setting(
+                    adb,
+                    serial,
+                    ns,
+                    key,
+                    value.map(String::as_str),
+                )
+                .await
+                {
+                    settings_failed.push(format!("{k}: {}", e.message()));
+                    continue;
+                }
                 if value.is_some() {
                     settings_written.push(k.clone());
                 } else {
                     settings_deleted.push(k.clone());
                 }
             }
-            Ok(out) => settings_failed.push(format!("{k}: {}", out.combined().trim())),
+            Ok(out) => {
+                settings_failed.push(format!("{k}: {}", super::verification::failure_text(&out)))
+            }
             Err(e) => settings_failed.push(format!("{k}: {e}")),
         }
     }
@@ -994,6 +1042,7 @@ mod tests {
             ],
         };
         let mock = MockAdb::default()
+            .on_shell("settings list global", &batched(&["empty="]))
             .on_shell_failure("settings delete global denied", "Error: permission denied");
         let log = mock.shell_log();
         let (written, deleted, failed) = apply_settings_from_plan(&mock, "serial", &plan).await;
@@ -1001,14 +1050,55 @@ mod tests {
         assert_eq!(deleted, ["global.unset"]);
         assert_eq!(failed.len(), 2);
         let calls = log.lock().unwrap();
+        let readback = crate::adb::checked_batch_command(&["settings list global"]);
         assert_eq!(
             *calls,
             [
                 "settings put global empty ''",
+                readback.as_str(),
                 "settings delete global unset",
+                readback.as_str(),
                 "settings delete global denied"
             ]
         );
+    }
+
+    fn settings_plan(write: (&str, &str)) -> super::SnapshotApplyPlan {
+        super::SnapshotApplyPlan {
+            packages_to_disable: vec![],
+            packages_already_disabled: vec![],
+            packages_not_installed: vec![],
+            launcher_to_set: None,
+            current_launcher: None,
+            launcher_not_installed: None,
+            launcher_disabled: None,
+            packages_kept: vec![],
+            cross_device_warning: None,
+            settings_already_set: vec![],
+            current_values: Default::default(),
+            settings_to_write: [(write.0.to_string(), write.1.to_string())].into(),
+            settings_to_delete: vec![],
+        }
+    }
+
+    #[tokio::test]
+    async fn a_setting_write_that_fails_or_reads_back_different_is_not_restored() {
+        let plan = settings_plan(("secure.screensaver_enabled", "1"));
+        for mock in [
+            MockAdb::default().on_shell_exit("settings put", "", 1),
+            MockAdb::default()
+                .on_shell("settings list secure", &batched(&["screensaver_enabled=0"])),
+            MockAdb::default().on_shell("settings list secure", "screensaver_enabled=1"),
+        ] {
+            let (written, deleted, failed) = apply_settings_from_plan(&mock, "TV", &plan).await;
+            assert!(written.is_empty() && deleted.is_empty());
+            assert_eq!(failed.len(), 1, "{failed:?}");
+        }
+        let confirmed = MockAdb::default()
+            .on_shell("settings list secure", &batched(&["screensaver_enabled=1"]));
+        let (written, _, failed) = apply_settings_from_plan(&confirmed, "TV", &plan).await;
+        assert_eq!(written, ["secure.screensaver_enabled"]);
+        assert!(failed.is_empty());
     }
 
     const STOCK: &str = "com.google.android.tvlauncher";
@@ -1035,6 +1125,18 @@ mod tests {
         home: &[&str],
         fresh_home: &str,
     ) -> MockAdb {
+        // Readback after each disable: confirm whatever was asked.
+        let readback = batched(&[&package_list(installed)]);
+        restore_tv_with_readback(installed, disabled, home, fresh_home, &readback)
+    }
+
+    fn restore_tv_with_readback(
+        installed: &[&str],
+        disabled: &[&str],
+        home: &[&str],
+        fresh_home: &str,
+        readback: &str,
+    ) -> MockAdb {
         MockAdb::default()
             .on_raw("devices", "serial\tdevice\n")
             // Before "settings get": the profile batch also reads a setting.
@@ -1052,6 +1154,7 @@ mod tests {
                 &batched(&vec!["null"; super::tracked_setting_keys().len()]),
             )
             .on_shell("query-activities", fresh_home)
+            .on_shell("(pm list packages -d --user 0 ", readback)
     }
 
     fn snapshot(launcher: Option<&str>, disabled: &[&str]) -> Snapshot {
@@ -1245,7 +1348,11 @@ mod tests {
     async fn disable_from_plan_records_invalid_name_without_aborting() {
         // A snapshot file might contain a malformed or injected package name.
         // The invalid entry must go to packages_failed; valid ones still run.
-        let mock = MockAdb::default(); // empty stdout = pm success for all calls
+        // Empty stdout = pm success; the readback confirms both valid ones.
+        let mock = MockAdb::default().on_shell(
+            "(pm list packages -d --user 0 ",
+            &batched(&[&package_list(&["com.valid.package", "com.another.valid"])]),
+        );
         let pkgs = vec![
             "com.valid.package".to_string(),
             "evil; reboot".to_string(),
@@ -1267,7 +1374,14 @@ mod tests {
         // exits 0 — that package must land in packages_failed, the others must
         // still succeed.
         let mock = MockAdb::default()
-            .on_shell_failure("com.fails.pkg", "Failure [not installed for user 0]");
+            .on_shell_failure(
+                "pm disable-user --user 0 com.fails.pkg",
+                "Failure [not installed for user 0]",
+            )
+            .on_shell(
+                "(pm list packages -d --user 0 ",
+                &batched(&[&package_list(&["com.ok.one", "com.ok.two"])]),
+            );
         let pkgs = vec![
             "com.ok.one".to_string(),
             "com.fails.pkg".to_string(),
@@ -1276,5 +1390,61 @@ mod tests {
         let out = disable_from_plan(&mock, "serial", &pkgs, no_home()).await;
         assert_eq!(out.disabled, ["com.ok.one", "com.ok.two"]);
         assert_eq!(out.failed, ["com.fails.pkg"]);
+    }
+
+    #[tokio::test]
+    async fn a_disable_that_exits_nonzero_or_is_not_confirmed_is_a_failure() {
+        for mock in [
+            MockAdb::default().on_shell_exit("pm disable-user", "", 1),
+            // The write looked clean, but user 0 still has it enabled.
+            MockAdb::default().on_shell("(pm list packages -d --user 0 ", &batched(&[""])),
+            // A readback that never completed proves nothing.
+            MockAdb::default().on_shell(
+                "(pm list packages -d --user 0 ",
+                "package:com.example.app\n",
+            ),
+        ] {
+            let out = disable_from_plan(&mock, "TV", &["com.example.app".into()], no_home()).await;
+            assert!(out.disabled.is_empty());
+            assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_stock_disable_is_not_claimed_but_the_switch_still_finishes() {
+        // The stock disable may have landed even though its readback was cut
+        // off, so the launcher switch that needs stock off still runs.
+        let stock_home = format!("{STOCK}/.MainActivity");
+        let mock = restore_tv_with_readback(
+            &[STOCK, PROJECTIVY, SETTINGS],
+            &[],
+            &[STOCK, PROJECTIVY, SETTINGS],
+            &home_list(&[STOCK, PROJECTIVY, SETTINGS]),
+            &format!("package:{STOCK}\n"),
+        )
+        .on_shell_seq(
+            "resolve-activity",
+            &[
+                &stock_home,
+                &stock_home,
+                &stock_home,
+                &format!("{PROJECTIVY}/.Main"),
+            ],
+        );
+        let res = apply_snapshot_impl(
+            &state_with(mock),
+            "serial",
+            &snapshot(Some(PROJECTIVY), &[STOCK]),
+        )
+        .await
+        .unwrap();
+        assert!(res.packages_disabled.is_empty());
+        assert_eq!(res.packages_failed.len(), 1, "{:?}", res.packages_failed);
+        assert!(
+            res.packages_failed[0].contains("could not be read back"),
+            "{:?}",
+            res.packages_failed
+        );
+        assert!(res.launcher_set, "{:?}", res.launcher_message);
     }
 }
