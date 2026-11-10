@@ -240,5 +240,21 @@
       "Keep it if anyone relies on its weather warnings",
       "does not cancel a premium subscription"
     ]
+  },
+  {
+    "package": "com.spotify.music",
+    "name": "Spotify (music app)",
+    "consequence_fragments": [
+      "offline listening and Spotify Connect control",
+      "does not cancel Premium"
+    ]
+  },
+  {
+    "package": "com.fgl27.twitch",
+    "name": "SmartTV Client for Twitch",
+    "consequence_fragments": [
+      "streams, chat, live notifications and home-channel updates",
+      "links targeting it stop working"
+    ]
   }
 ]

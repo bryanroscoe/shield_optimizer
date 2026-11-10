@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-09",
+  "updated_at": "2026-11-10",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1073,6 +1073,72 @@
       "independent_review": "Both agents independently researched same exact ID and agree. Read-only reviewer; no hardware proof.",
       "reconsider_after": "2026-12-09",
       "keep_conflicts": "AFTDEC012E: not disabled yet, owner's choice; Omni AFTTIFF43: first owner keeps, 75-inch owner disables by choice. Preserve Fire OS6/7/8 and Android7.1/9/11 context; not model certification."
+    },
+    "com.spotify.music": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-10",
+      "reason": "Disabling stops music, podcast and audiobook playback, offline listening and Spotify Connect control through this app. Keep it if anyone uses it. Disabling does not cancel Premium. Conditional recovery: Re-enables this Spotify app if still installed. Does not restore deleted downloads, app settings or account access. Reinstalling requires downloading offline music and podcasts again.",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.spotify.music",
+        "https://support.spotify.com/us/article/reinstall-spotify/",
+        "https://support.spotify.com/us/article/cancel-premium/",
+        "https://support.spotify.com/us/article/spotify-connect/"
+      ],
+      "source_observations": [
+        {
+          "profile": "anker-nebula-mars-3-air",
+          "upstream_context": {
+            "tv": "Anker Nebula Mars 3 Air projector D2325 (Nebula_Mars_2_V2, taihang, MediaTek m7332), Portugal",
+            "os": "Google TV 14",
+            "brand": "Anker Nebula",
+            "notes": "First Mars 3 Air list: Google telemetry/ad services and partner attribution, both retail demos, AirPlay receiver, Spotify, Max, Google TV movies off by choice; setupwraith must go (Google TV 14 resolves Home to its RecoveryActivity while it is enabled) with launcherx + partner rows; Assistant re-enabled by the firmware at every boot and kept (mic button), Ambient re-enabled on request, the gear button is GlobalKeyManager-mapped to launcherx by a static overlay no shell command can disable, so Settings is the launcher's gear menu; key-filtering services break volume hold-repeat; phone casting still worked after setupwraith went off (on other units it fails with \"Untrusted device\", see docs/TROUBLESHOOTING.md); projector picture/focus/remote/BT/HDMI/USB/Dolby services kept"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-mars-3-air/debloat.txt#L74",
+          "form": "active_disable"
+        }
+      ],
+      "original_profile_counts": {
+        "active_profiles": 1,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "scope": "Optional Caution, Disable suggestion, review=true, both defaults=false and initial Keep. Existing origin-gated main planner may offer Uninstall for verified user-installed store apps; no new override or bulk default. No model/firmware/platform certification.",
+      "independent_review": "Both agents independently researched exact identity, purposes, dependencies and recovery; agree acceptance. No hardware proof."
+    },
+    "com.fgl27.twitch": {
+      "status": "accepted_optional_caution",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-10",
+      "reason": "Disabling stops this unofficial Twitch client's streams, chat, live notifications and home-channel updates; links targeting it stop working. Keep it if anyone uses it. Conditional recovery: Re-enables this client if still installed. Does not restore deleted settings, sign-in or home-channel state. System WebView is required. Play and GitHub APK variants cannot replace one another.",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.fgl27.twitch",
+        "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/README.md",
+        "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/build.gradle",
+        "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/AndroidManifest.xml",
+        "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/java/com/fgl27/twitch/BootBroadcastReceiver.java",
+        "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/java/com/fgl27/twitch/channels/SyncChannelJobService.java"
+      ],
+      "source_observations": [
+        {
+          "profile": "artel-cvte-mt5863",
+          "upstream_context": {
+            "tv": "Artel smart TV (CVTE TP.MT5510S.PB782, cvt_mt5863_eu, SMART_TV), Uzbekistan",
+            "os": "Android 7.0",
+            "brand": "Artel",
+            "notes": "Seven preinstalled apps, TalkBack and voice services; no Developer options, ADB comes from the full CVTE factory menu; do not disable com.talents.huanclientauth; Live TV is com.cvte.tv.androidsetting/.TvSettingActivity"
+          },
+          "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/artel-cvte-mt5863/debloat.txt#L37",
+          "form": "active_disable"
+        }
+      ],
+      "original_profile_counts": {
+        "active_profiles": 1,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "scope": "Optional Caution, Disable suggestion, review=true, both defaults=false and initial Keep. Existing origin-gated main planner may offer Uninstall for verified user-installed store apps; no new override or bulk default. No model/firmware/platform certification.",
+      "independent_review": "Both agents independently researched exact identity, purposes, dependencies and recovery; agree acceptance. No hardware proof."
     }
   }
 }
