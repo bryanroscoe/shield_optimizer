@@ -2196,5 +2196,49 @@
       "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-xbr-55x850c/debloat.txt#L79",
       "Source-based optional functional review: docs/OPTIMIZE-CATALOG-REVIEW-2026-11-09.md. No model/firmware/platform certification, guaranteed weather alerts, performance or physical removal/recovery claim."
     ]
+  },
+  {
+    "package": "com.spotify.music",
+    "name": "Spotify (music app)",
+    "optimize_description": "Disabling stops music, podcast and audiobook playback, offline listening and Spotify Connect control through this app. Keep it if anyone uses it. Disabling does not cancel Premium.",
+    "restore_description": "Re-enables this Spotify app if still installed. Does not restore deleted downloads, app settings or account access. Reinstalling requires downloading offline music and podcasts again.",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.spotify.music",
+      "https://support.spotify.com/us/article/reinstall-spotify/",
+      "https://support.spotify.com/us/article/cancel-premium/",
+      "https://support.spotify.com/us/article/spotify-connect/",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-mars-3-air/debloat.txt#L74",
+      "Source-based optional functional review: docs/OPTIMIZE-CATALOG-REVIEW-2026-11-10.md. Exact installed ID only; no model/firmware/platform, performance or physical removal/recovery claim."
+    ],
+    "method": "disable",
+    "risk": "medium",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-10"
+  },
+  {
+    "package": "com.fgl27.twitch",
+    "name": "SmartTV Client for Twitch",
+    "optimize_description": "Disabling stops this unofficial Twitch client's streams, chat, live notifications and home-channel updates; links targeting it stop working. Keep it if anyone uses it.",
+    "restore_description": "Re-enables this client if still installed. Does not restore deleted settings, sign-in or home-channel state. System WebView is required. Play and GitHub APK variants cannot replace one another.",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.fgl27.twitch",
+      "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/README.md",
+      "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/build.gradle",
+      "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/AndroidManifest.xml",
+      "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/java/com/fgl27/twitch/BootBroadcastReceiver.java",
+      "https://github.com/fgl27/SmartTwitchTV/blob/7ca7b76249b4c2a6b2f44932641f49894410c99a/apk/app/src/main/java/com/fgl27/twitch/channels/SyncChannelJobService.java",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/artel-cvte-mt5863/debloat.txt#L37",
+      "Source-based optional functional review: docs/OPTIMIZE-CATALOG-REVIEW-2026-11-10.md. Exact installed ID only; no model/firmware/platform, performance or physical removal/recovery claim."
+    ],
+    "method": "disable",
+    "risk": "medium",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-10"
   }
 ]

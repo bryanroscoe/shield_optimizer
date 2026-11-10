@@ -92,8 +92,11 @@ newly accepted entry as the focus; the tests still check every fixture entry.
 Commit and push completed work, attach actual evidence and maintain accurate PR
 scope. Routine PR wording needs no user approval. Preserve all upstream MIT
 notices, original observations and the app's proprietary license. Do not edit
-PR284's approved data-only wording. No merge, deployment, release, credential
-change, spending or hardware acceptance is authorized by this recurring job.
+PR284's approved data-only wording. Bryan explicitly updated the recurring job
+on 2026-11-09 to authorize normal merging after independent review and successful
+substantive CI, followed by main-push CI verification. Do not stop at an open
+green PR or request routine merge approval. Deployment, release, credential
+changes, spending and hardware acceptance remain outside this recurring job.
 
 Report candidates assessed, entries accepted, held reasons, both review scopes,
 exact commit, actual validation state and the next unreviewed batch. Do not claim
