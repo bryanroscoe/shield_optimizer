@@ -316,8 +316,8 @@ export const api = {
   discardImport: (batch: string) => call<void>("discard_import", { batch }),
   uploadConflicts: (serial: string, batch: string, remoteDir: string) =>
     call<UploadConflict[]>("upload_conflicts", { serial, batch, remoteDir }),
-  uploadImported: (serial: string, batch: string, index: number, remoteDir: string, overwrite: boolean) =>
-    call<UploadOutcome>("upload_imported", { serial, batch, index, remoteDir, overwrite }),
+  uploadImported: (serial: string, expectedHardwareId: string, batch: string, index: number, remoteDir: string, overwrite: boolean) =>
+    call<UploadOutcome>("upload_imported", { serial, expectedHardwareId, batch, index, remoteDir, overwrite }),
   inspectImportedApks: (serial: string, batch: string) =>
     call<ApkSetInspection>("inspect_imported_apks", { serial, batch }),
   installImportedApks: (serial: string, batch: string) =>

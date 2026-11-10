@@ -11,6 +11,7 @@ pub mod remote_lifecycle;
 #[cfg(any(test, feature = "test-support"))]
 pub mod sim;
 pub mod storage;
+pub mod upload;
 
 pub use batch::{batch_command, split_batch, BATCH_SEPARATOR};
 pub use batch::{checked_batch_command, parse_checked_batch, BATCH_STATUS};

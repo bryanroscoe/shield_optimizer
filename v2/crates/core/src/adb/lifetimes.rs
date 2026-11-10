@@ -244,6 +244,27 @@ impl AdbDriver for LeasedAdb {
         self.inner.raw_transfer(args).await
     }
 
+    async fn upload_file(
+        &self,
+        serial: &str,
+        expected_hardware_id: &str,
+        local: &Path,
+        target: &str,
+        expected_size: u64,
+        overwrite: bool,
+    ) -> AdbResult<super::upload::UploadResult> {
+        self.inner
+            .upload_file(
+                serial,
+                expected_hardware_id,
+                local,
+                target,
+                expected_size,
+                overwrite,
+            )
+            .await
+    }
+
     async fn pull_limited(
         &self,
         serial: &str,
@@ -332,6 +353,18 @@ impl AdbDriver for ClosedAdb {
     }
 
     async fn raw_transfer(&self, _: &[&str]) -> AdbResult<AdbOutput> {
+        Err(AdbError::ShuttingDown)
+    }
+
+    async fn upload_file(
+        &self,
+        _: &str,
+        _: &str,
+        _: &Path,
+        _: &str,
+        _: u64,
+        _: bool,
+    ) -> AdbResult<super::upload::UploadResult> {
         Err(AdbError::ShuttingDown)
     }
 
@@ -544,6 +577,22 @@ mod tests {
             self.note("raw_transfer");
             Ok(empty())
         }
+        async fn upload_file(
+            &self,
+            serial: &str,
+            hardware: &str,
+            local: &Path,
+            target: &str,
+            size: u64,
+            overwrite: bool,
+        ) -> AdbResult<super::super::upload::UploadResult> {
+            self.note("upload_file");
+            assert_eq!(
+                (serial, hardware, local, target, size, overwrite),
+                ("s", "hardware", Path::new("x"), "r", 1, true)
+            );
+            Ok(super::super::upload::UploadResult::Exists)
+        }
         async fn pull_limited(&self, _: &str, _: &str, _: &Path, _: u64) -> AdbResult<()> {
             self.note("pull_limited");
             Ok(())
@@ -599,6 +648,13 @@ mod tests {
         let _ = driver.cancel_approval("s").await;
         let _ = driver.raw(&[]).await;
         let _ = driver.raw_transfer(&[]).await;
+        assert_eq!(
+            driver
+                .upload_file("s", "hardware", path, "r", 1, true)
+                .await
+                .unwrap(),
+            super::super::upload::UploadResult::Exists
+        );
         let _ = driver.pull_limited("s", "r", path, 1).await;
         let _ = driver.shell("s", "c").await;
         let _ = driver.shell_bounded("s", "c").await;
@@ -627,6 +683,7 @@ mod tests {
                 "cancel_approval",
                 "raw",
                 "raw_transfer",
+                "upload_file",
                 "pull_limited",
                 "shell",
                 "shell_bounded",
@@ -684,6 +741,12 @@ mod tests {
             Err(AdbError::ShuttingDown)
         ));
         assert!(matches!(
+            closed
+                .upload_file("s", "hardware", path, "r", 1, true)
+                .await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert!(matches!(
             closed.pull_limited("s", "r", path, 1).await,
             Err(AdbError::ShuttingDown)
         ));
@@ -707,5 +770,112 @@ mod tests {
             closed.spawn(&[]).await,
             Err(AdbError::ShuttingDown)
         ));
+    }
+    #[tokio::test]
+    async fn upload_through_app_state_preserves_arguments_result_and_admission_lease() {
+        use super::super::upload::UploadResult;
+        struct UploadDriver {
+            leases: Arc<Leases>,
+            entered: Notify,
+            finish: Notify,
+            calls: std::sync::atomic::AtomicUsize,
+        }
+        #[async_trait]
+        impl AdbDriver for UploadDriver {
+            fn operation_leases(&self) -> Option<Arc<Leases>> {
+                Some(self.leases.clone())
+            }
+            async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
+                panic!("must use upload_file")
+            }
+            async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
+                panic!("must use upload_file")
+            }
+            async fn upload_file(
+                &self,
+                serial: &str,
+                hardware: &str,
+                local: &Path,
+                target: &str,
+                size: u64,
+                overwrite: bool,
+            ) -> AdbResult<UploadResult> {
+                assert_eq!(
+                    (serial, hardware, local, target, size, overwrite),
+                    (
+                        "original-endpoint",
+                        "original-hardware",
+                        Path::new("staged-local"),
+                        "/sdcard/movie",
+                        42,
+                        false
+                    )
+                );
+                self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                assert_eq!(
+                    self.leases.active(),
+                    1,
+                    "snapshot lease covers the whole upload"
+                );
+                self.entered.notify_one();
+                self.finish.notified().await;
+                Ok(UploadResult::Uploaded { verified: true })
+            }
+        }
+        let driver = Arc::new(UploadDriver {
+            leases: Leases::new(),
+            entered: Notify::new(),
+            finish: Notify::new(),
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        });
+        let root = tempfile::tempdir().unwrap();
+        let state =
+            crate::commands::AppState::new(driver.clone(), Default::default(), root.path().into());
+        let snapshot = state.adb_snapshot().await;
+        assert_eq!(driver.leases.active(), 1);
+        let operation = snapshot.clone();
+        let worker = tokio::spawn(async move {
+            operation
+                .upload_file(
+                    "original-endpoint",
+                    "original-hardware",
+                    Path::new("staged-local"),
+                    "/sdcard/movie",
+                    42,
+                    false,
+                )
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(2), driver.entered.notified())
+            .await
+            .unwrap();
+        driver.leases.close();
+        let closed = state.adb_snapshot().await;
+        assert!(matches!(
+            closed
+                .upload_file(
+                    "other",
+                    "other",
+                    Path::new("other"),
+                    "/sdcard/other",
+                    1,
+                    true
+                )
+                .await,
+            Err(AdbError::ShuttingDown)
+        ));
+        assert_eq!(driver.calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        drop(snapshot);
+        assert_eq!(
+            driver.leases.active(),
+            1,
+            "in-flight clone retains admission after close"
+        );
+        driver.finish.notify_one();
+        assert_eq!(
+            worker.await.unwrap().unwrap(),
+            UploadResult::Uploaded { verified: true }
+        );
+        assert_eq!(driver.leases.active(), 0);
     }
 }

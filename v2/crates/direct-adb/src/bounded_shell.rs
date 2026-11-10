@@ -143,6 +143,7 @@ mod tests {
         let missing = temp.path().join("never-created");
         let driver = WirelessAdb::with_existing_key(missing.clone(), operations.clone());
         *super::super::lock_recovering(&driver.identity) = Some(super::super::Identity {
+            request_id: 1,
             serial: "127.0.0.1:1".into(),
             host: "127.0.0.1".into(),
             port: 1,

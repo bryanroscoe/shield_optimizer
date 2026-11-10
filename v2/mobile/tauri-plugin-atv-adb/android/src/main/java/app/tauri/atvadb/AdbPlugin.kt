@@ -68,10 +68,8 @@ internal class PickDocumentsArgs {
 class AdbPlugin(private val activity: Activity) : Plugin(activity) {
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
   private val service by lazy { AdbService(activity.applicationContext) }
-  // The request the open create-document picker belongs to. Rust allows one export at a time,
-  // but gives up on a picker that never answers (e.g. the activity was recreated); the next save
-  // then rejects that stale request so its waiting Rust thread is released.
-  @Volatile private var pendingSave: Pair<Invoke, SaveCopyArgs>? = null
+  // Retain ownership through the picker and provider IO. Rust timeouts do not cancel either.
+  private val pendingSave = SaveOwnership<Invoke, SaveCopyArgs>()
   // The same for the open-document picker.
   @Volatile private var pendingPick: Pair<Invoke, PickDocumentsArgs>? = null
 
@@ -116,44 +114,48 @@ class AdbPlugin(private val activity: Activity) : Plugin(activity) {
         type = args.mime
         putExtra(Intent.EXTRA_TITLE, args.name)
       }
-      pendingSave?.first?.reject("Replaced by a newer save.")
-      pendingSave = Pair(invoke, args)
+      if (!pendingSave.begin(invoke, args)) {
+        invoke.reject("Another save is still pending.")
+        return
+      }
       startActivityForResult(invoke, intent, "saveCopyResult")
     } catch (error: Throwable) {
-      pendingSave = null
+      pendingSave.finish(invoke)
       invoke.reject(error.message ?: error.javaClass.simpleName)
     }
   }
 
   @ActivityCallback
   fun saveCopyResult(invoke: Invoke, result: ActivityResult) {
-    val pending = pendingSave
-    if (pending == null || pending.first !== invoke) {
-      invoke.reject("The save request was lost. Try again.")
-      return
-    }
-    pendingSave = null
-    val args = pending.second
+    // Ignore stale/duplicate callbacks. Rejecting the same invoke twice could prematurely
+    // release the Rust worker while the first callback is still writing the document.
+    val args = pendingSave.claim(invoke) ?: return
     val target = result.data?.data
     if (result.resultCode != Activity.RESULT_OK || target == null) {
+      pendingSave.finish(invoke)
       invoke.resolve(JSObject().put("saved", false))
       return
     }
     scope.launch {
       val resolver = activity.contentResolver
-      try {
+      val response = try {
         val output = resolver.openOutputStream(target, "w")
           ?: throw IOException("the chosen location can't be written")
         output.use { out -> FileInputStream(File(args.path)).use { it.copyTo(out) } }
-        invoke.resolve(JSObject().put("saved", true).put("name", displayName(target)))
+        JSObject().put("saved", true).put("name", displayName(target))
       } catch (error: Throwable) {
-        // Don't leave a partial document behind under the name the user chose.
-        try {
+        // Providers may refuse deletion or throw. Never promise that cleanup succeeded.
+        val removed = try {
           DocumentsContract.deleteDocument(resolver, target)
         } catch (ignored: Throwable) {
+          false
         }
-        invoke.reject("Couldn't save the copy: ${error.message ?: error.javaClass.simpleName}")
+        pendingSave.finish(invoke)
+        invoke.reject(saveFailureMessage(error.message ?: error.javaClass.simpleName, removed))
+        return@launch
       }
+      pendingSave.finish(invoke)
+      invoke.resolve(response)
     }
   }
 

@@ -304,6 +304,22 @@ pub trait AdbDriver: Send + Sync {
         self.raw(args).await
     }
 
+    /// Upload through one verified, dedicated connection for staging, transfer, commit and
+    /// cleanup. Drivers without this guarantee must fail closed.
+    async fn upload_file(
+        &self,
+        _serial: &str,
+        _expected_hardware_id: &str,
+        _local: &std::path::Path,
+        _target: &str,
+        _expected_size: u64,
+        _overwrite: bool,
+    ) -> AdbResult<super::upload::UploadResult> {
+        Err(AdbError::Unsupported {
+            operation: "upload_file",
+        })
+    }
+
     /// Download with a limit enforced while streaming, not after allocation.
     async fn pull_limited(
         &self,
