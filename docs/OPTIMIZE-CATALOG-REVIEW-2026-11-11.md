@@ -84,3 +84,13 @@ Third-party repository URIs remain unchanged. The helper's temporary-file tests
 cover Jammy-style lists, Noble deb822, security repositories, unrelated sources,
 missing files and repeated execution. No local host APT configuration is changed.
 Actual replacement-head CI and exact-merge main CI must still succeed.
+
+The replacement run also could not resolve `archive.ubuntu.com` on Linux; no
+native/e2e tests started. The helper now probes the required release, updates,
+backports and security InRelease URLs before changing sources: official
+archive/security first, then the [kernel.org Ubuntu mirror](https://mirrors.edge.kernel.org/ubuntu/).
+Each HTTPS probe uses curl's ten-second total deadline and a fifteen-second
+subprocess ceiling. No reachable complete mirror means failure, not skipped
+validation. A PGP header is a reachability check only; APT still verifies the
+Ubuntu signatures and expiration with the existing keyring. The same reviewer
+checks this addition; main and PR CI remain separate evidence requirements.

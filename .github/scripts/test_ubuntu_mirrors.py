@@ -27,6 +27,28 @@ class UbuntuMirrorsTests(unittest.TestCase):
             self.assertEqual(third_party.read_bytes(), third_before)
             self.assertEqual(mirrors.configure(root), 0)
 
+    def test_fallback_requires_every_suite_and_preserves_signing(self):
+        seen = []
+        def probe(url):
+            seen.append(url)
+            return url.startswith(mirrors.FALLBACK)
+        self.assertEqual(mirrors.select_mirrors('jammy', probe), (mirrors.FALLBACK, mirrors.FALLBACK))
+        self.assertIn(mirrors.FALLBACK + '/dists/jammy-security/InRelease', seen)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'sources.list'
+            source.write_text('deb [signed-by=/ubuntu.gpg] https://archive.ubuntu.com/ubuntu jammy-updates main\ndeb [signed-by=/ubuntu.gpg] https://security.ubuntu.com/ubuntu jammy-security main\n')
+            self.assertEqual(mirrors.configure(root, mirrors.FALLBACK, mirrors.FALLBACK), 1)
+            self.assertEqual(source.read_text(), f'deb [signed-by=/ubuntu.gpg] {mirrors.FALLBACK} jammy-updates main\ndeb [signed-by=/ubuntu.gpg] {mirrors.FALLBACK} jammy-security main\n')
+            self.assertEqual(mirrors.configure(root, mirrors.FALLBACK, mirrors.FALLBACK), 0)
+
+    def test_no_mirror_with_all_suites_fails_closed(self):
+        with self.assertRaises(RuntimeError):
+            mirrors.select_mirrors('noble', lambda url: '-security/' not in url)
+        with self.assertRaises(RuntimeError):
+            mirrors.select_mirrors('unknown', lambda url: True)
+        self.assertEqual(mirrors.select_mirrors('noble', lambda url: True), (mirrors.ARCHIVE, mirrors.SECURITY))
+
     def test_absent_sources_and_unrelated_uri_are_not_changed(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
