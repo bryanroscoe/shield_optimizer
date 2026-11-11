@@ -2,7 +2,8 @@
 //   - a bad drop explains itself (role=alert) in every state, not only on the
 //     empty drop box;
 //   - a drag over the tab highlights it in every state;
-//   - a successful install re-reads install state, so the row reads INSTALLED.
+//   - a successful install re-reads install state, so the row reads INSTALLED;
+//   - with a list longer than the window, the drop label stays on screen.
 // Tauri's drag-drop stream is stood in for at the module level, as in
 // files-drop.mjs.
 //
@@ -62,7 +63,16 @@ async function main() {
         const original = bridge.invoke.bind(bridge);
         bridge.invoke = async (command, args = {}) => {
           if (command === "list_apks_in_folder") {
-            return [{ path: `${folder}/player.apk`, name: "player.apk", size_bytes: 2048, package: pkg }];
+            // Long enough that the pane runs past the bottom of the window.
+            return [
+              { path: `${folder}/player.apk`, name: "player.apk", size_bytes: 2048, package: pkg },
+              ...Array.from({ length: 30 }, (_, i) => ({
+                path: `${folder}/fixture-${i}.apk`,
+                name: `fixture-${i}.apk`,
+                size_bytes: 4096,
+                package: `org.fixture.extra${i}`,
+              })),
+            ];
           }
           if (command === "package_states" && args.packages?.includes(pkg)) {
             return { [pkg]: installed ? "enabled" : "missing" };
@@ -100,6 +110,24 @@ async function main() {
     await row.getByRole("button", { name: "Install", exact: true }).click();
     await row.locator(".tag.installed").waitFor();
     await row.getByRole("button", { name: "Reinstall", exact: true }).waitFor();
+
+    // A drag over a pane taller than the window keeps its label on screen,
+    // at the top of the list and scrolled to its bottom alike.
+    for (const where of ["top", "bottom"]) {
+      await page.evaluate((w) => window.scrollTo(0, w === "top" ? 0 : document.documentElement.scrollHeight), where);
+      await fire(page, { type: "enter", paths: ["/Users/me/player.apk"], position: at });
+      const label = panel.locator(".drop-overlay .drop-label");
+      await label.waitFor();
+      const fits = await label.evaluate((el) => {
+        const r = el.getBoundingClientRect();
+        const overlay = el.parentElement.getBoundingClientRect();
+        return { inView: r.top >= 0 && r.bottom <= window.innerHeight, taller: overlay.height > window.innerHeight };
+      });
+      assert.ok(fits.taller, "the pane is taller than the window");
+      assert.ok(fits.inView, `the drop label is visible with the page scrolled to the ${where}`);
+      await fire(page, { type: "leave" });
+      await panel.locator(".drop-overlay").waitFor({ state: "detached" });
+    }
 
     console.log("Sideload drop states passed: with a watch folder saved, a drag highlights the tab, a bad drop shows an alert, and an install re-reads state.");
   } finally {

@@ -282,7 +282,7 @@
     <div class="sideload-main">
   {#if dragging && (savedFolder || discoveredFolder || staged || staging)}
     <div class="drop-overlay" role="status">
-      <Icon name="upload" size={20} /> Drop to review
+      <span class="drop-label"><Icon name="upload" size={20} /> Drop to review</span>
     </div>
   {/if}
   {#if staging}
@@ -522,14 +522,26 @@
     inset: 0;
     z-index: 2;
     display: flex;
+    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 0.5rem;
     border: 2px dashed var(--accent);
     border-radius: var(--radius-lg);
     background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
     color: var(--fg-primary);
     font-weight: 500;
+  }
+  /* Centred in the pane, but held inside the visible band of the window: a
+     long Discovered APKs list makes the pane taller than the window, and a
+     plain centred label would sit below the fold while dragging. */
+  .drop-label {
+    position: sticky;
+    top: 35vh;
+    bottom: 35vh;
+    margin-block: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
   }
   .rail-label {
     margin: 1rem 0 0.5rem;
