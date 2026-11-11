@@ -1571,7 +1571,7 @@ fn quote_device_name(name: &str) -> Result<String, String> {
             "Unsupported character {bad:?} — device names are limited to plain ASCII here."
         ));
     }
-    Ok(format!("'{}'", name.replace('\'', r"'\''")))
+    Ok(super::quote_shell_arg(name))
 }
 
 /// `rename_device` — `settings put global device_name '<name>'`, the same
