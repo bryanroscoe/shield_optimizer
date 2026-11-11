@@ -25,11 +25,17 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-04)
+### What is in flight right now (2026-11-11)
 
 `v2-2.5.0` (2026-11-04) is the latest desktop release. It completed the rename to ATV Optimizer
 (identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
 device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
+
+**Unreleased on `main`:** PR #268 (merged 2026-11-09) made built-in Rust ADB the default desktop
+engine, with Settings › ADB › ADB engine switching to Google platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md));
+the release that ships it waits for `docs/DEVICE-TEST-SCRIPT.md` N1–N18. Snapshot schema is 4
+(#353), which 2.5.0 and earlier refuse. The full list is `v2/CHANGELOG.md`'s `## Unreleased`.
+
 Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
@@ -54,8 +60,10 @@ Shipped in 2.5.0 or live on the server side:
 Play submission path: the developer account is personal and new, so Google requires a closed test
 with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi
 supporters first). Build and console steps: [`v2/mobile/RELEASE.md`](v2/mobile/RELEASE.md) and
-[`v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md`](v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md). Nothing in the
-mobile app has been verified on a real Play account or device yet.
+[`v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md`](v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md). Play `0.1.1`
+was installed from Google Play on a Pixel 10 Pro on 2026-11-05 and its startup and LAN discovery
+passed; phone-to-TV authorization, connected features and Play billing purchases are still
+unverified (`v2/mobile/HANDOFF.md`).
 
 Still open and not code work: #122 is closed on the fix and needs a Google TV reporter to confirm
 it on 2.4.1; #123 needs Glance's package id from its reporter; #93 and #105 need a real phone and
@@ -144,7 +152,7 @@ It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated be
 - **New screen/tab** → add a visit + capture step in `screenshots/capture.mjs`.
 - **New `invoke` command that loads on a screen** → add a fixture case in `src/lib/demo-mock.ts`, or that screen renders empty.
 
-The phone app has its own capture: `cd v2/mobile && npm run screenshots` writes every mobile screen to `v2/mobile/screenshots/frames/` (gitignored), then rebuilds the committed `gallery.gif` and one-page `contact-sheet.png` shown in the root and mobile READMEs. The `refresh-screenshots` release job regenerates them too once the mobile app is on the default branch. It runs against `v2/mobile/src/lib/demo-mock.ts` (`VITE_DEMO=1`), which answers shared commands from the desktop fixtures and only adds the mobile-only ones. A new mobile screen needs an entry in `SCREENS` in `v2/mobile/screenshots/capture.mjs`.
+The phone app has its own capture: `cd v2/mobile && npm run screenshots` writes every mobile screen to `v2/mobile/screenshots/frames/` (gitignored), then rebuilds the committed `gallery.gif` and one-page `contact-sheet.png` shown in the root and mobile READMEs. The `refresh-screenshots` release job regenerates them too. It runs against `v2/mobile/src/lib/demo-mock.ts` (`VITE_DEMO=1`), which answers shared commands from the desktop fixtures and only adds the mobile-only ones. A new mobile screen needs an entry in `SCREENS` in `v2/mobile/screenshots/capture.mjs`.
 
 The release workflow also regenerates the gallery on every `v2-*` tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
 
