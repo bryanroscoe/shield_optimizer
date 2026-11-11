@@ -6,6 +6,9 @@ import { ADMIN, call, post } from "./helpers";
 
 const auth = { authorization: `Bearer ${ADMIN}` };
 const TODAY = "2026-11-01";
+// The repo file is checked against the real date: every tier PR sets `updated`
+// to the day it was made.
+const REPO_TODAY = new Date().toISOString().slice(0, 10);
 
 function doc(rules: unknown[], updated = "2026-10-31"): Record<string, unknown> {
   return { schema: 1, updated, rules };
@@ -14,8 +17,7 @@ const rule = (match: Record<string, unknown>, tier = "beta", note = "n") => ({ m
 
 describe("the repo's device-support.json", () => {
   it("passes the ship check", () => {
-    // The real date: every tier PR sets `updated` to the day it was made.
-    const res = checkTierFile(repoFile, { today: new Date().toISOString().slice(0, 10) });
+    const res = checkTierFile(repoFile, { today: REPO_TODAY });
     expect(res.errors).toEqual([]);
     expect(res.doc).not.toBeNull();
   });
@@ -118,7 +120,7 @@ describe("checkTierFile", () => {
 });
 
 describe("classify mirrors the apps (engine/support.rs)", () => {
-  const rules = (checkTierFile(repoFile, { today: TODAY }).doc as TierDoc).rules;
+  const rules = (checkTierFile(repoFile, { today: REPO_TODAY }).doc as TierDoc).rules;
   const props = (manufacturer: string, brand: string, model: string, device: string) => ({ manufacturer, brand, model, device });
 
   it("classifies the same fixtures the Rust tests use", () => {
