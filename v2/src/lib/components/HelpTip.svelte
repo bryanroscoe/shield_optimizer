@@ -131,6 +131,7 @@
 <style>
   .help-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.92rem; font-weight: 550; }
   .help-title.inline { display: inline-flex; gap: 0.35rem; font-size: inherit; font-weight: inherit; vertical-align: middle; }
+  .help-title.inline > span { white-space: nowrap; }
   .help-title.inline .help-trigger { margin-block: -0.35rem; text-transform: none; letter-spacing: normal; }
   label { cursor: pointer; }
   .help-trigger { flex: 0 0 1.65rem; width: 1.65rem; height: 1.65rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; background: transparent; color: var(--fg-secondary); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
