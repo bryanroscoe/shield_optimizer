@@ -5,15 +5,21 @@
 # .github/workflows/v2-release.yml takes it from there to produce installers.
 #
 # Usage:
-#   ./release.sh                  patch:  v2-0.1.0    -> v2-0.1.1
-#   ./release.sh --minor          minor:  v2-0.1.5    -> v2-0.2.0
-#   ./release.sh --major          major:  v2-0.9.0    -> v2-1.0.0
-#   ./release.sh --beta           beta:   v2-0.1.0    -> v2-0.1.0-beta (or beta.N)
-#   ./release.sh --rc             rc:     v2-0.1.0    -> v2-0.1.0-rc (or -rc.N)
+#   ./release.sh                  patch:  v2-0.1.0        -> v2-0.1.1
+#   ./release.sh --minor          minor:  v2-0.1.5        -> v2-0.2.0
+#   ./release.sh --major          major:  v2-0.9.0        -> v2-1.0.0
+#   ./release.sh --beta           beta:   v2-0.1.0        -> v2-0.1.1-beta.1
+#   ./release.sh --minor --beta           v2-0.1.5        -> v2-0.2.0-beta.1
 #   ./release.sh --set 0.2.0      explicit: any value, e.g. 0.2.0-preview
 #
-# Combine bump kind with a pre-release flag if needed:
-#   ./release.sh --minor --beta   v2-0.1.5 -> v2-0.2.0-beta
+# From a pre-release, with no bump flag, the base version is kept:
+#   ./release.sh --beta           v2-0.2.0-beta.1 -> v2-0.2.0-beta.2
+#   ./release.sh --rc             v2-0.2.0-beta.2 -> v2-0.2.0-rc.1
+#   ./release.sh                  v2-0.2.0-rc.1   -> v2-0.2.0 (promote to stable)
+# An explicit --patch/--minor/--major bumps from the base instead.
+# The arithmetic and the MSI version encoding live in scripts/release_version.py
+# (tested by scripts/test_release_scripts.py); it refuses any version Windows
+# would not see as an upgrade.
 #
 # Pre-release tags are auto-flagged as GitHub prereleases by the workflow's
 # regex (matches -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?).
@@ -31,7 +37,7 @@ METAINFO="flatpak/io.github.bryanroscoe.ATVOptimizer.metainfo.xml"
 
 # --- Parse flags -------------------------------------------------------------
 
-BUMP="patch"
+BUMP=""
 PRE=""
 EXPLICIT=""
 
@@ -55,17 +61,18 @@ confirm() {
 
 usage() {
   cat <<EOF
-Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha] [--set X.Y.Z] [--yes]
-  bump kind:    --patch (default) | --minor | --major
+Usage: $0 [--major|--minor|--patch] [--beta|--rc|--alpha|--preview] [--set X.Y.Z] [--yes]
+  bump kind:    --patch (default from a stable version) | --minor | --major
   pre-release:  --beta | --rc | --alpha | --preview
   explicit:     --set X.Y.Z[-tag]   (overrides bump kind, used verbatim)
   --yes, -y:    auto-confirm every gate (non-interactive / CI use)
 
 Examples:
-  $0                       # 0.1.0 -> 0.1.1
+  $0                       # 0.1.0 -> 0.1.1;  0.2.0-rc.1 -> 0.2.0
   $0 --minor               # 0.1.5 -> 0.2.0
-  $0 --beta                # 0.1.0 -> 0.1.0-beta (or .N if -beta already exists)
-  $0 --minor --beta        # 0.1.5 -> 0.2.0-beta
+  $0 --beta                # 0.1.0 -> 0.1.1-beta.1;  0.2.0-beta.1 -> 0.2.0-beta.2
+  $0 --rc                  # 0.2.0-beta.2 -> 0.2.0-rc.1
+  $0 --minor --beta        # 0.1.5 -> 0.2.0-beta.1
   $0 --set 0.3.0-preview   # exact value, tagged as v2-0.3.0-preview
 EOF
   exit 1
@@ -110,34 +117,17 @@ echo "Current version: $CURRENT"
 if [[ -n "$EXPLICIT" ]]; then
   NEW="$EXPLICIT"
 else
-  # Strip any existing prerelease suffix when bumping.
-  BASE="${CURRENT%%-*}"
-  IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
-
-  case "$BUMP" in
-    major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
-    minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-    patch) PATCH=$((PATCH + 1)) ;;
-  esac
-
-  NEW="$MAJOR.$MINOR.$PATCH"
-
-  if [[ -n "$PRE" ]]; then
-    # If the existing version already has the same pre-release marker,
-    # increment its trailing number. Otherwise start a fresh -PRE.
-    if [[ "$CURRENT" =~ ^${MAJOR}\.${MINOR}\.${PATCH}-${PRE}([.-]?([0-9]+))?$ ]]; then
-      n="${BASH_REMATCH[2]:-1}"
-      n=$((n + 1))
-      NEW="$NEW-$PRE.$n"
-    else
-      NEW="$NEW-$PRE"
-    fi
-  fi
+  NEW=$(python3 scripts/release_version.py next "$CURRENT" ${BUMP:+--bump "$BUMP"} ${PRE:+--pre "$PRE"})
 fi
+
+# Fails on anything the MSI version can't encode (unknown pre-release type,
+# pre-release number over 299, patch over 64), before anything is written.
+WIX_VERSION=$(python3 scripts/release_version.py wix "$NEW")
 
 TAG="v2-$NEW"
 echo "New version:     $NEW"
 echo "Tag:             $TAG"
+echo "MSI version:     $WIX_VERSION"
 
 if git rev-parse "$TAG" >/dev/null 2>&1; then
   echo "Tag $TAG already exists. Aborting." >&2
@@ -148,7 +138,7 @@ confirm "Bump + tag? (y/N)" || { echo "Aborted."; exit 1; }
 
 # --- Patch the version into all three files ---------------------------------
 
-NEW="$NEW" TAURI_CONF="$TAURI_CONF" CARGO_TOML="$CARGO_TOML" \
+NEW="$NEW" WIX_VERSION="$WIX_VERSION" TAURI_CONF="$TAURI_CONF" CARGO_TOML="$CARGO_TOML" \
 CORE_CARGO_TOML="$CORE_CARGO_TOML" CARGO_LOCK="$CARGO_LOCK" \
 PACKAGE_JSON="$PACKAGE_JSON" METAINFO="$METAINFO" python3 - <<'PY'
 import os
@@ -156,39 +146,9 @@ import json, re, pathlib
 
 new = os.environ["NEW"]
 
-# Compute an MSI-compliant version. Two WiX constraints drive this:
-#   1. Pre-release identifiers must be numeric-only (so `0.1.0-beta.1` is
-#      invalid as-is for MSI).
-#   2. Windows Installer IGNORES the 4th version field for upgrade detection —
-#      it compares only major.minor.build (each <= 65535). A scheme that only
-#      varied the 4th field made every pre-release read as the same version,
-#      so Windows refused in-place upgrades ("uninstall the existing version
-#      first"). Homebrew/Linux are unaffected and keep the human version.
-#
-# So we encode (patch, pre-release type, pre-release number) into the 3rd
-# (build) field, which IS compared, guaranteeing each release strictly
-# increases in the correct semver order (alpha < beta < rc < stable):
-#   build3 = patch*1000 + typeBase + n
-# where typeBase bands keep the ordering (alpha 0, beta 300, rc 600, stable
-# 999) and n (0-99) is the trailing number within a type. Examples:
-#   0.1.0-beta.3 -> 0.1.303     0.1.0-rc.1 -> 0.1.601     0.1.0 -> 0.1.999
-#   0.1.1-beta.1 -> 0.1.1301    1.0.0      -> 1.0.999
-# Caps patch at 64 (64*1000+999 < 65535). Bare `-beta` (no number) -> n=1.
-m = re.match(r'^(\d+)\.(\d+)\.(\d+)(?:-([A-Za-z0-9.\-]+))?$', new)
-assert m, f"version {new!r} does not match major.minor.patch[-pre]"
-major, minor, patch_s, pre = m.groups()
-patch = int(patch_s)
-assert patch <= 64, "patch > 64 overflows the MSI 3rd-field encoding"
-if pre:
-    type_match = re.match(r'^([A-Za-z]+)', pre)
-    ptype = type_match.group(1).lower() if type_match else ""
-    type_base = {"alpha": 0, "preview": 0, "pre": 0, "beta": 300, "rc": 600}.get(ptype, 300)
-    tail = re.search(r'(\d+)$', pre)
-    n = min(int(tail.group(1)), 99) if tail else 1
-    build3 = patch * 1000 + type_base + n
-else:
-    build3 = patch * 1000 + 999  # stable sentinel — outranks every pre-release
-wix_version = f"{major}.{minor}.{build3}"
+# MSI version from scripts/release_version.py (see its docstring for the
+# encoding); computed and validated before the confirmation prompt.
+wix_version = os.environ["WIX_VERSION"]
 
 # tauri.conf.json
 p = pathlib.Path(os.environ["TAURI_CONF"])
