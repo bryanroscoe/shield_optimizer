@@ -2,7 +2,7 @@
 // or a script the v2 Tests workflow never calls, passes locally and silently
 // stops guarding anything. Helpers live under tests/lib/, not beside tests.
 // Tests that start Vite must take their port and working directory from
-// tests/lib/free-port.mjs (see there for why).
+// tests/lib/free-port.mjs (see there for why) and never pass a literal port.
 
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
@@ -23,8 +23,20 @@ for (const file of files) {
     problems.push(`tests/${file} is not run by any package.json script`);
   }
   const source = readFileSync(join(TESTS, file), "utf8");
-  if (/from ["']vite["']|import\(["']vite["']\)/.test(source) && !source.includes("./lib/free-port.mjs")) {
-    problems.push(`tests/${file} starts Vite without tests/lib/free-port.mjs`);
+  if (/from ["']vite["']|import\(["']vite["']\)/.test(source)) {
+    if (!source.includes("./lib/free-port.mjs")) {
+      problems.push(`tests/${file} starts Vite without tests/lib/free-port.mjs`);
+    }
+    // Importing the helper is not enough: a literal port in the server
+    // options (0 included, which Vite reads as 5173) still collides.
+    for (const server of source.matchAll(/\bserver\s*:\s*\{[^{}]*\}/g)) {
+      const port = /\bport\s*:\s*([^,}\s]+)/.exec(server[0]);
+      if (!port) {
+        problems.push(`tests/${file} starts Vite without a port from freePort()`);
+      } else if (/^\d+$/.test(port[1])) {
+        problems.push(`tests/${file} starts Vite on fixed port ${port[1]}; use freePort()`);
+      }
+    }
   }
 }
 

@@ -10,19 +10,30 @@
 # All artifacts land on a GitHub Release for the tag.
 #
 # Pre-releases: a tag with any suffix after X.Y.Z (v2-2.6.0-beta.1) becomes a
-# GitHub prerelease and stops there. The app has a single update channel, the
+# GitHub prerelease. The app has a single update channel, the
 # v2/updater/latest.json endpoint in tauri.conf.json, so merge-updater and
 # bump-tap run only for stable tags; otherwise every stable install and the
-# Homebrew cask would be moved onto the beta.
+# Homebrew cask would be moved onto the beta. The Flatpak bundle is still
+# attached to the prerelease, and refresh-screenshots still regenerates the
+# gallery from it.
 #
 # Manual dispatch rebuilds and republishes an EXISTING v2-* tag: the run fails
 # unless the tag exists, and every job builds that tag's commit, never the
 # branch the run was started from.
 #
-# The updater manifest is never moved backwards: merge-updater runs one at a
-# time (concurrency group v2-release) and skips the commit unless the new
-# version is newer than the one on the default branch (v2/scripts/version-newer.mjs,
-# the app's own comparison).
+# Neither the updater manifest nor the cask is ever moved backwards:
+# merge-updater (concurrency group v2-release) and bump-tap (v2-release-tap)
+# each run one at a time and refuse a version strictly older than the one
+# already live (v2/scripts/version-newer.mjs --or-equal, the app's own
+# comparison). An equal version is published as usual: re-dispatching the
+# current tag re-signs every asset, and the manifest must carry the new
+# signatures or every installed copy rejects the update.
+#
+# GitHub keeps at most one PENDING job per concurrency group: a newer pending
+# run replaces (cancels) an older pending one. With three overlapping releases
+# the middle one's merge-updater or bump-tap can be cancelled that way; re-run
+# that job if its version should still be published (the gate above makes a
+# late re-run of an older version harmless).
 #
 # Third-party actions in jobs that hold signing keys are pinned to a commit
 # SHA (version in the trailing comment). Bump them deliberately.
@@ -350,6 +361,8 @@ jobs:
   # bryanroscoe/homebrew-shield-optimizer with contents:write. If the secret
   # is missing, this job is skipped (not failed) so the rest of the release
   # still ships. Stable tags only: the cask is what `brew upgrade` installs.
+  # A version strictly older than the cask's current one is refused, so two
+  # close tags finishing out of order cannot downgrade it.
   bump-tap:
     needs: [notes, build]
     name: Bump Homebrew tap
@@ -371,6 +384,24 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # Only the version gate is needed from this repo.
+      - name: Checkout version gate
+        if: steps.secret.outputs.skip == 'false'
+        uses: actions/checkout@v5
+        with:
+          ref: refs/tags/${{ needs.notes.outputs.tag }}
+          path: gate
+          sparse-checkout: |
+            v2/scripts/version-newer.mjs
+            v2/src/lib/version.ts
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node
+        if: steps.secret.outputs.skip == 'false'
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
       - name: Checkout tap
         if: steps.secret.outputs.skip == 'false'
         uses: actions/checkout@v5
@@ -390,6 +421,18 @@ jobs:
           version="${TAG#v2-}"
           dmg_url="https://github.com/${{ github.repository }}/releases/download/${TAG}/ATV.Optimizer_${version}_universal.dmg"
 
+          # The cask was renamed from shield-optimizer; the tap's
+          # cask_renames.json moves existing installs over.
+          [[ -f Casks/atv-optimizer.rb ]] || { echo "Casks/atv-optimizer.rb missing: merge the tap's rename PR first"; exit 1; }
+
+          # Two close tags can finish out of order; the older one must not
+          # downgrade `brew upgrade`. An equal version still goes through.
+          current=$(sed -nE 's/^[[:space:]]*version "([^"]+)".*/\1/p' Casks/atv-optimizer.rb | head -n1)
+          if [[ -n "$current" ]] && ! node "$GITHUB_WORKSPACE/gate/v2/scripts/version-newer.mjs" --or-equal "$version" "$current"; then
+            echo "::warning::$TAG ($version) is older than the cask's current version ($current); not bumping it."
+            exit 0
+          fi
+
           echo "Fetching $dmg_url to compute SHA256…"
           # The release upload may take a beat to surface; retry briefly.
           for attempt in 1 2 3 4 5; do
@@ -403,9 +446,6 @@ jobs:
           sha=$(sha256sum /tmp/sho.dmg | awk '{print $1}')
           echo "SHA256: $sha"
 
-          # The cask was renamed from shield-optimizer; the tap's
-          # cask_renames.json moves existing installs over.
-          [[ -f Casks/atv-optimizer.rb ]] || { echo "Casks/atv-optimizer.rb missing: merge the tap's rename PR first"; exit 1; }
           python3 - <<PY
           import pathlib, re
           p = pathlib.Path("Casks/atv-optimizer.rb")
@@ -445,7 +485,7 @@ jobs:
   # into the single latest.json release asset, so the asset already lists every
   # platform. Committing it makes the raw.githubusercontent endpoint in
   # tauri.conf.json resolve. Stable tags only (it is the one update channel),
-  # one run at a time, and never to a version that is not newer.
+  # one run at a time, and never to a version older than the live one.
   merge-updater:
     needs: [notes, build]
     name: Publish updater manifest
@@ -486,12 +526,13 @@ jobs:
           [[ -f /tmp/latest.json ]] || { echo "latest.json not found on release $TAG"; exit 1; }
 
           # Two close tags can finish out of order; the older one must not
-          # roll every installed copy back.
+          # roll every installed copy back. An equal version (a re-dispatched
+          # tag, re-signed) is verified and published as usual.
           candidate=$(jq -r '.version' /tmp/latest.json)
           current=""
           [[ -f v2/updater/latest.json ]] && current=$(jq -r '.version // empty' v2/updater/latest.json)
-          if [[ -n "$current" ]] && ! node v2/scripts/version-newer.mjs "$candidate" "$current"; then
-            echo "::warning::$TAG's manifest ($candidate) is not newer than the published one ($current); not publishing it."
+          if [[ -n "$current" ]] && ! node v2/scripts/version-newer.mjs --or-equal "$candidate" "$current"; then
+            echo "::warning::$TAG's manifest ($candidate) is older than the published one ($current); not publishing it."
             echo "publish=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi

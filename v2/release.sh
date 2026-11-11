@@ -1,6 +1,7 @@
 #!/bin/bash
 # Cut a v2 release. Bumps the version atomically across the release metadata files that
-# carry it (tauri.conf.json, Cargo.toml, Cargo.lock, package.json), tags the commit
+# carry it (tauri.conf.json, both Cargo.toml files, Cargo.lock, package.json, the
+# Flatpak metainfo), tags the commit
 # `v2-VERSION`, and pushes — the GitHub Actions workflow at
 # .github/workflows/v2-release.yml takes it from there to produce installers.
 #
