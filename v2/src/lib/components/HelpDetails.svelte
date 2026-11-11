@@ -1,19 +1,26 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { onMount, type Snippet } from "svelte";
 
   let { label, children, open = $bindable(false) }: { label: string; children: Snippet; open?: boolean } = $props();
 
   let details: HTMLDetailsElement;
 
+  // A native listener on the element, not the window (nor Svelte's delegated
+  // `onkeydown`, which runs at the root), so an enclosing dialog's Escape
+  // handler sees it already handled and stays open.
   function closeOnEscape(event: KeyboardEvent) {
     if (event.key !== "Escape" || !details?.open || !details.contains(document.activeElement)) return;
+    event.preventDefault();
     event.stopPropagation();
     details.open = false;
     details.querySelector("summary")?.focus();
   }
-</script>
 
-<svelte:window onkeydown={closeOnEscape} />
+  onMount(() => {
+    details.addEventListener("keydown", closeOnEscape);
+    return () => details.removeEventListener("keydown", closeOnEscape);
+  });
+</script>
 
 <details class="help-details" bind:this={details} bind:open>
   <summary>{label}</summary>

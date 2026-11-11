@@ -9,6 +9,8 @@
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { historyStep } from "$lib/history-keys";
+  import { dialogFocus } from "$lib/dialog-focus";
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { getVersion } from "@tauri-apps/api/app";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { check, type Update } from "@tauri-apps/plugin-updater";
@@ -610,7 +612,13 @@
 
 {#if notesOpen && pendingUpdate}
   <div class="notes-backdrop" role="presentation" onclick={() => (notesOpen = false)}></div>
-  <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notes-title">
+  <div
+    class="notes-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="notes-title"
+    use:dialogFocus={{ onClose: () => (notesOpen = false) }}
+  >
     <h2 id="notes-title">What's new in v{pendingVersion}</h2>
     {#if currentVersion}
       <p class="notes-current muted">You're on v{currentVersion}.</p>
@@ -636,7 +644,13 @@
   </div>
 {:else if historyOpen}
   <div class="notes-backdrop" role="presentation" onclick={closeHistory}></div>
-  <div class="notes-dialog" role="dialog" aria-modal="true" aria-labelledby="notes-title">
+  <div
+    class="notes-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="notes-title"
+    use:dialogFocus={{ onClose: closeHistory }}
+  >
     {#if arrived}
       <h2 id="notes-title">Updated to v{currentVersion}</h2>
       <p class="notes-current muted">Here's what changed.</p>
@@ -681,7 +695,13 @@
 
 {#if restartPromptOpen}
   <div class="notes-backdrop" role="presentation" onclick={() => (restartPromptOpen = false)}></div>
-  <div class="notes-dialog restart-dialog" role="dialog" aria-modal="true" aria-labelledby="restart-title">
+  <div
+    class="notes-dialog restart-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="restart-title"
+    use:dialogFocus={{ onClose: () => (restartPromptOpen = false) }}
+  >
     <h2 id="restart-title">Update installed</h2>
     {#if restartFailed}
       <p class="notes-current" role="alert">
@@ -710,7 +730,13 @@
 
 {#if bugOpen}
   <div class="notes-backdrop" role="presentation" onclick={() => (bugOpen = false)}></div>
-  <div class="notes-dialog bug-dialog" role="dialog" aria-modal="true" aria-labelledby="bug-title">
+  <div
+    class="notes-dialog bug-dialog"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="bug-title"
+    use:dialogFocus={{ onClose: () => (bugOpen = false) }}
+  >
     <h2 id="bug-title">Report a bug</h2>
     <p class="notes-current muted">
       This report is never sent on its own. Open GitHub issue fills the text below into a new
@@ -737,18 +763,21 @@
       />
       {TOGGLE_LABEL}
     </label>
-    <p class="bug-path muted" data-bug-reports-note>
-      {#if telemetry && !telemetry.available}
-        This build doesn't send reports.
-      {:else if telemetry?.test_build}
+    {#if telemetry && !telemetry.available}
+      <p class="bug-path muted" data-bug-reports-note>This build doesn't send reports.</p>
+    {:else if telemetry?.test_build}
+      <p class="bug-path muted" data-bug-reports-note>
         Test build {telemetry.test_build}: anonymous usage reports are always off.
-      {:else}
-        Make, model and Android version of your TVs, which actions worked or failed, and error
-        messages with addresses, names and file paths removed. Never serial numbers, IP addresses,
-        TV names or your app list. Turning this off stops sending at once and discards anything
-        not yet sent.
-      {/if}
-    </p>
+      </p>
+    {:else}
+      <!-- The same disclosure Settings gives next to the same switch. -->
+      <div class="bug-reports-help" data-bug-reports-note>
+        <HelpDetails label="What reports contain">
+          <p>{NOTICE_TEXT}</p>
+          <p>Turning this off stops sending at once and discards anything not yet sent.</p>
+        </HelpDetails>
+      </div>
+    {/if}
     <div class="bug-support">
       {#if supportId}
         <span>Support ID <code class="mono">{supportId}</code></span>
@@ -947,6 +976,9 @@
   .bug-toggle input {
     accent-color: var(--accent-strong);
     cursor: pointer;
+  }
+  .bug-reports-help :global(.help-details) {
+    margin: 0;
   }
   .bug-path {
     margin: 0;
