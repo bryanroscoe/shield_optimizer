@@ -310,7 +310,7 @@
       <span class="card-label">Save current setup</span>
       <p class="card-desc">Records this TV's disabled apps, Home app and tracked settings.</p>
       <div class="create-row">
-        <input class="label-input" bind:value={label} placeholder="Label (optional)" onkeydown={(e) => e.key === "Enter" && save()} />
+        <input class="label-input" aria-label="Snapshot label (optional)" bind:value={label} placeholder="Label (optional)" onkeydown={(e) => e.key === "Enter" && save()} />
         <button class="primary small-inline" disabled={saving} onclick={save}>
           {#if saving}<span class="pdot blink"></span>{:else}<span class="msr">add_circle</span>{/if}Save
         </button>

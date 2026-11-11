@@ -675,6 +675,7 @@
             type="text"
             bind:value={licenseKey}
             placeholder="ATVOPT-…"
+            aria-label="License key"
             class="license-input mono"
             autocapitalize="characters"
             autocorrect="off"

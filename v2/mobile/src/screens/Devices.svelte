@@ -213,7 +213,7 @@
           <div class="active-icon"><span class="msr">{iconFor(session.connectedDevice.device_type)}</span></div>
           <div class="active-body">
             {#if renaming}
-              <input class="rename-input" bind:value={renameValue} onkeydown={(e) => e.key === "Enter" && saveRename()} />
+              <input class="rename-input" aria-label="TV name" bind:value={renameValue} onkeydown={(e) => e.key === "Enter" && saveRename()} />
             {:else}
               <span class="active-name">{session.deviceLabel}</span>
             {/if}
