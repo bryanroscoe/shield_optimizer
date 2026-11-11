@@ -64,7 +64,11 @@
     "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
     "test:support-tiers-ui": "node tests/support-tiers-ui.mjs",
     "test:settings-screen": "node tests/settings-screen.mjs",
-    "test:local-network-notice": "node tests/local-network-notice.mjs"
+    "test:local-network-notice": "node tests/local-network-notice.mjs",
+    "test:remote-outcome": "node tests/remote-outcome.mjs",
+    "test:launcher-protection-message": "node tests/launcher-protection-message.mjs",
+    "test:release-version-gate": "node tests/release-version-gate.mjs",
+    "test:release-scripts": "python3 -m unittest discover -s scripts -p 'test_*.py'"
   },
   "license": "UNLICENSED",
   "dependencies": {
