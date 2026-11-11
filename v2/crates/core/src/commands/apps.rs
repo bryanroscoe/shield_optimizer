@@ -372,6 +372,8 @@ pub async fn app_memory_map_impl(
     Ok(map)
 }
 
+const USAGE_ROWS_ONLY: &str = "dumpsys usagestats | grep appLaunchCount=";
+
 /// `app_usage_map` — package → last-used + launch count, from a single
 /// `dumpsys usagestats`. Powers the "Review / remove if unused" signal: an app
 /// never opened (or not in months) is a strong candidate to disable/uninstall.
@@ -388,6 +390,18 @@ pub async fn app_usage_map_impl(
     serial: &str,
 ) -> Result<HashMap<String, AppUsage>, String> {
     let adb = state.adb_snapshot().await;
+    // The full report is mostly event history and can pass the mobile
+    // transport's output cap, which fails the call. Only the per-package rows
+    // are parsed, and each sits on one line, so the TV filters them first.
+    // A filter that fails or finds nothing falls back to the full report.
+    if let Ok(out) = adb.shell(serial, USAGE_ROWS_ONLY).await {
+        if out.success() {
+            let map = parse_usage_stats(&out.stdout);
+            if !map.is_empty() {
+                return Ok(map);
+            }
+        }
+    }
     let out = adb
         .shell(serial, "dumpsys usagestats")
         .await
@@ -1865,6 +1879,33 @@ mod tests {
             .await
             .expect_err("an unreadable report must not say nothing was used");
         assert!(err.contains("usagestats"), "unhelpful error: {err}");
+    }
+
+    #[tokio::test]
+    async fn usage_rows_are_filtered_on_the_tv_and_fall_back_to_the_full_report() {
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let row =
+            "package=com.netflix.ninja lastTimeUsed=\"2026-06-01 09:00:00\" appLaunchCount=5\n";
+        let mock = MockAdb::default().on_shell("grep appLaunchCount=", row);
+        let log = mock.shell_log();
+        let map = app_usage_map_impl(&state_with(mock), "serial")
+            .await
+            .unwrap();
+        assert_eq!(map["com.netflix.ninja"].launch_count, 5);
+        assert_eq!(log.lock().unwrap().len(), 1);
+
+        // No grep on this build: the full report is read instead.
+        for narrowed in [
+            MockAdb::default().on_shell_exit("grep appLaunchCount=", "sh: grep: not found\n", 127),
+            MockAdb::default().on_shell_err("grep appLaunchCount=", "output too large"),
+        ] {
+            let mock = narrowed.on_shell("dumpsys usagestats", row);
+            let map = app_usage_map_impl(&state_with(mock), "serial")
+                .await
+                .unwrap();
+            assert_eq!(map["com.netflix.ninja"].launch_count, 5);
+        }
     }
 
     #[tokio::test]
