@@ -166,7 +166,7 @@ Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_ver
 | `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }`. |
 | `400` | Bad JSON or shape, `unsupported_app` (anything but `desktop`), `bad_text`, `text_too_large`. |
 | `413` / `415` | Body too large / not `application/json`. |
-| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (200) or `GLOBAL_DAILY_UPLOAD_BYTES` (2 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
+| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (200) or `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
 | `503` | D1 unavailable. |
 
 `OPTIONS` returns `204` but never sends `Access-Control-Allow-Origin`. Both apps post from native
@@ -293,11 +293,28 @@ What runs against production on its own:
 Both skip with a notice if the secret or variable is missing.
 
 **Not yet deployed (2026-11-11):** the storage budget (`GLOBAL_DAILY_EVENT_BYTES`,
-`STORAGE_BUDGET_BYTES`, the lower upload caps and the cron's oldest-first trim) and the `400` for a
+`STORAGE_BUDGET_BYTES`, `STORAGE_TRIM_MAX_ROW_WRITES`, the lower upload caps and the cron's
+oldest-first trim) and the `400` for a
 malformed support id are on `main` but reach production only with an owner-approved
 `npx wrangler deploy` (see Redeploy below). No migration is needed: the new caps are rows in the
 existing `rate_daily` table and the trim uses existing tables. Until then production keeps the old
 caps, which can fill the 500 MB database. After deploying, delete this note.
+
+Before deploying, check that `GLOBAL_DAILY_EVENT_BYTES` (1.5 MiB/day) clears real traffic with
+room to spare; once it is live, events over it are refused with `429 global_daily_cap` for the rest
+of the UTC day. This read-only query (`sql/event-volume.sql`) lists the last 14 days' event counts,
+their average stored size and each day's total as the cap counts it (string bytes plus 256 per
+row):
+
+```sh
+npx wrangler d1 execute telemetry --remote --file sql/event-volume.sql
+```
+
+Size the cap from the busiest day's `day_bytes`: keep the cap at least three times that. If the
+busiest day is already over about 0.5 MiB, raise `GLOBAL_DAILY_EVENT_BYTES` in `wrangler.toml`
+before deploying (and check that `GLOBAL_DAILY_EVENTS` × `avg_bytes` is not far below the new
+cap, or the count cap binds first), then redo the "Storage budget" arithmetic below: raw events
+are kept 90 days, so each extra MiB/day is about 94 MB at the worst case.
 
 ### Redeploy
 
@@ -437,9 +454,10 @@ Abuse protection:
   per day. The byte cap admits at most about 4,800 events a day (each costs at least ~330
   bytes), about 62,000 of the 100,000 free writes, and the count cap bounds it at 91,000 if the
   byte cap is ever raised; uploads add at most about 1,200 more (200 a day at about six writes
-  each). Raise them only together with a paid plan.
+  each), and the storage trim at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000) a day, for about
+  83,000 in the worst case. Raise them only together with a paid plan.
 - Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (200) and
-  `GLOBAL_DAILY_UPLOAD_BYTES` (2 MiB, eight full-size uploads) per UTC day, counted in
+  `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB, 24 full-size uploads) per UTC day, counted in
   `rate_daily` under `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap
   is read first, so one person retrying can't spend everyone's budget.
 
@@ -455,32 +473,52 @@ write quota.
 
 Production is on the Workers Free plan, where one D1 database stops accepting writes at 500 MB.
 After that every ingest, upload and support-tier sync answers `503` until rows are deleted. The
-caps keep the worst case, a flood of made-up install ids every day, well under it. Each event costs
+caps bound the worst case, a flood of made-up install ids every day, and the storage budget below
+holds what they leave over. Each event costs
 its stored string bytes plus 256 for the row and its index entries (`eventBytes` in
 `src/ingest.ts`):
 
 | Data | Worst case |
 | --- | --- |
 | Raw events: 1.5 MiB/day × 90 days (`RAW_RETENTION_DAYS`) | 1,572,864 × 90 ≈ 142 MB |
-| Uploads: 2 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 2,097,152 × 30 ≈ 63 MB |
+| Uploads: 6 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 6,291,456 × 30 ≈ 189 MB |
 | Upload rows: 200/day × 30 days × ~400 bytes | ≈ 2.4 MB |
 | `rate_daily`: 3 days × ~7,000 keys × ~100 bytes | ≈ 2.1 MB |
-| **Total data** | **≈ 210 MB** |
+| **Total data** | **≈ 335 MB** |
 
 (Log excerpts are counted in the raw events' 90 days though they are cleared after 30, so this
-overstates.) SQLite pages are not packed full, so the file runs larger than the data: at a
-generous 1.4× this is about 295 MB of the 500 MB.
+overstates.) That is more than the 300 MB storage budget, so under a sustained worst-case flood the
+budget, not the caps, sets the size: the trim below keeps the estimate at or under 300 MB by
+deleting the oldest Send logs uploads first. SQLite pages are not packed full, so the file runs
+larger than the data: at a generous 1.4× the budget is about 420 MB of the 500 MB.
+
+The upload byte cap is deliberately larger than the events': a few made-up install ids can spend
+it and lock "Send logs" out for everyone until the next UTC midnight, so it buys 24 full-size
+uploads a day rather than 8, and the budget trim is the backstop for the space.
 
 The aggregate tables are kept forever and are not capped by bytes. Normal use upserts the same few
 device rows, but a flood of made-up device names adds up to about three rows per event, so they
 are the one thing that can grow without limit. The cron therefore also enforces
-`STORAGE_BUDGET_BYTES` (300 MB of estimated data, about 420 MB of file at 1.4×): when the estimate
-passes it, it frees space oldest first, down to 80% of the budget, in this order: Send logs uploads,
-log excerpts, raw events, then the oldest days of `agg_error_daily`, `agg_device_daily` and
-`agg_device_installs`. The support-tier list is never touched. The estimate reads every row once a
-day (well inside the 5 million daily row reads at current volumes); the trim adds at most a dozen
-queries. Between two cron runs the caps add at most ~3.5 MiB of raw data plus aggregate rows, far
-less than the 80 MB of headroom.
+`STORAGE_BUDGET_BYTES` (300 MB of estimated data): when the estimate passes it, it frees space
+oldest first, towards 80% of the budget, in this order: Send logs uploads, log excerpts, raw
+events, then the oldest days of `agg_error_daily`, `agg_device_daily` and `agg_device_installs`.
+The support-tier list is never touched.
+
+The trim must not cause the outage it prevents, so its cost is bounded in rows, not statements:
+
+- **Reads.** The estimate reads every stored row once per cron run, about 0.5 to 2 million rows
+  in the worst case above, of the 5 million a day. Each tier then reads at most as many of its
+  oldest rows as it may delete.
+- **Writes.** D1 counts every row and index entry a statement changes. Deleting an upload or a raw
+  event costs three row writes (the row and its two index entries), clearing an excerpt or
+  deleting an aggregate row one. One run spends at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000), in
+  capped oldest-first batches (`… WHERE rowid IN (SELECT rowid … ORDER BY received_at LIMIT n)`),
+  leaving room for the ingest caps' ~63,000 inside the 100,000 a day.
+- **Convergence.** A run that reaches the cap stops and the next day's run carries on while the
+  estimate is still over the budget, so a large overshoot is worked off over several days. 20,000
+  writes free about 6,600 uploads, 2 MB of raw events or 4 MB of aggregate rows a day, more than a
+  worst-case day adds of each, so the trim keeps up with a sustained flood. Between two runs the
+  caps add at most ~7.5 MiB of raw data plus aggregate rows, inside the 80 MB of headroom.
 
 On a paid plan (10 GB per database) the caps and the budget can be raised together; keep the
 budget under the plan's per-database limit divided by about 1.4.

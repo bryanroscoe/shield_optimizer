@@ -15,7 +15,12 @@ beforeEach(async () => {
   );
 });
 
-const withBudget = (budget: number): Env => ({ DB: env.DB, STORAGE_BUDGET_BYTES: String(budget) }) as Env;
+const withBudget = (budget: number, maxRowWrites?: number): Env =>
+  ({
+    DB: env.DB,
+    STORAGE_BUDGET_BYTES: String(budget),
+    ...(maxRowWrites ? { STORAGE_TRIM_MAX_ROW_WRITES: String(maxRowWrites) } : {}),
+  }) as Env;
 // A budget whose 80% target sits `excess` bytes under the current estimate.
 const budgetFreeing = (estimate: number, excess: number) => Math.ceil((estimate - excess) / 0.8);
 
@@ -98,6 +103,61 @@ describe("storage budget", () => {
     expect(r.after).toBe(0);
     expect(await count("SELECT COUNT(*) AS n FROM agg_device_daily")).toBe(0);
     expect(await count("SELECT COUNT(*) AS n FROM support_tier_rules")).toBe(tiers);
+  });
+
+  // Twenty 10 KB uploads, one per day, oldest first.
+  async function seedUploads(): Promise<void> {
+    const install = "5f0c2b1e-8d3a-4c6b-9e2f-0000000b0d9e";
+    await env.DB.batch(
+      Array.from({ length: 20 }, (_, i) => {
+        const at = `2000-01-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`;
+        return env.DB.prepare(
+          `INSERT INTO diag_uploads (received_at, client_ts, install_id, app, app_version, os, bytes, body)
+           VALUES (?1, ?1, ?2, 'desktop', '2.5.0', 'linux', 10000, ?3)`,
+        ).bind(at, install, String(i).padStart(2, "0").repeat(5_000));
+      }),
+    );
+  }
+
+  it("writes at most STORAGE_TRIM_MAX_ROW_WRITES rows per run, index entries included", async () => {
+    await seedUploads();
+    const estimate = await estimateStorageBytes(env);
+    // Freeing everything would take 20 deletes x 3 writes; the cap allows 9 writes, so 3 uploads.
+    const r = await enforceStorageBudget(withBudget(1, 9));
+    expect(r).toMatchObject({ trimmed: ["uploads"], rowWrites: 9, capped: true });
+    expect(r.after).toBe(estimate - 3 * (10_000 + EVENT_ROW_OVERHEAD));
+    expect(r.after).toBe(await estimateStorageBytes(env));
+    const left = (await env.DB.prepare("SELECT received_at FROM diag_uploads ORDER BY received_at").all<{ received_at: string }>())
+      .results;
+    expect(left).toHaveLength(17);
+    expect(left[0]?.received_at).toBe("2000-01-04T00:00:00.000Z");
+  });
+
+  it("converges over several runs, oldest first, and stops once under the target", async () => {
+    await seedUploads();
+    // Budget just under 14 uploads' worth, so its 80% target means 11 uploads.
+    // Each run may free 3; a capped run resumes the next day while still over budget.
+    const perUpload = 10_000 + EVENT_ROW_OVERHEAD;
+    const budget = 14 * perUpload - 1;
+    const runs: Array<{ rowWrites: number; capped: boolean }> = [];
+    for (let i = 0; i < 5; i++) {
+      const r = await enforceStorageBudget(withBudget(budget, 9));
+      runs.push({ rowWrites: r.rowWrites, capped: r.capped });
+      expect(r.after).toBe(await estimateStorageBytes(env));
+    }
+    expect(runs).toEqual([
+      { rowWrites: 9, capped: true },
+      { rowWrites: 9, capped: true },
+      { rowWrites: 9, capped: false },
+      { rowWrites: 0, capped: false },
+      { rowWrites: 0, capped: false },
+    ]);
+    expect(await estimateStorageBytes(env)).toBeLessThanOrEqual(Math.floor(budget * 0.8));
+    const left = (await env.DB.prepare("SELECT MIN(received_at) AS first, COUNT(*) AS n FROM diag_uploads").first<{
+      first: string;
+      n: number;
+    }>())!;
+    expect(left).toEqual({ first: "2000-01-10T00:00:00.000Z", n: 11 });
   });
 
   it("runs from the daily cron", async () => {

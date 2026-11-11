@@ -264,15 +264,25 @@ export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
 
 // The storage budget. A Workers Free D1 database stops taking writes at 500 MB,
 // after which every ingest, upload and tier sync answers 503. The daily caps
-// keep the worst case well under that (README "Storage budget"), but the
-// aggregate tables are kept forever and a flood of made-up device names grows
-// them without limit. So when the estimated stored bytes pass
-// STORAGE_BUDGET_BYTES, the cron frees space, oldest first, down to 80% of it:
-// Send logs uploads, then log excerpts, then raw events, and only then the
-// oldest aggregate days. Sizes are estimates (string bytes plus a per-row
-// allowance), not the database file size, which SQLite does not shrink on
-// delete; freed pages are reused by later writes.
+// bound most of what is stored (README "Storage budget"), but the aggregate
+// tables are kept forever and a flood of made-up device names grows them
+// without limit. So when the estimated stored bytes pass STORAGE_BUDGET_BYTES,
+// the cron frees space, oldest first, towards 80% of it: Send logs uploads,
+// then log excerpts, then raw events, and only then the oldest aggregate days.
+// Sizes are estimates (string bytes plus a per-row allowance), not the database
+// file size, which SQLite does not shrink on delete; freed pages are reused by
+// later writes.
+//
+// The trim must not cause the outage it prevents: the Free plan also allows
+// only 100k rows written and 5M rows read per day, and the event caps already
+// spend most of the writes under a flood. So the estimate (a read of every
+// row) runs once per cron, and each run deletes at most
+// STORAGE_TRIM_MAX_ROW_WRITES row writes' worth (index entries included),
+// in capped oldest-first batches. A large overshoot converges over several
+// days instead of in one burst: a run that hit the cap resumes the next day
+// for as long as the estimate is still over the budget.
 export const DEFAULT_STORAGE_BUDGET_BYTES = 300_000_000;
+export const DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES = 20_000;
 const TARGET_FRACTION = 0.8;
 
 const textBytes = (cols: string[]) => `LENGTH(CAST(${cols.map((c) => `COALESCE(${c}, '')`).join(" || ")} AS BLOB))`;
@@ -287,47 +297,66 @@ const UPLOAD_SIZE_SQL = `bytes + ${EVENT_ROW_OVERHEAD}`;
 interface Tier {
   name: string;
   table: string;
-  // Rows are freed in ascending order of this column, whole values at a time.
+  // Rows are freed in ascending order of this column (ties by key).
   col: string;
+  // What identifies a row: rowid, or the primary key of a WITHOUT ROWID table.
+  key: string;
   size: string;
   filter?: string;
-  // The statement that frees rows with col <= the cutoff.
-  free: (cutoff: string) => string;
+  // Row writes per freed row: the row plus each index entry it changes.
+  writesPerRow: number;
+  // The statement that frees the rows whose key is in `keys`.
+  free: (keys: string) => string;
 }
 
-const deleteUpTo = (table: string, col: string) => (cutoff: string) => `DELETE FROM ${table} WHERE ${col} <= ${cutoff}`;
+const remove = (table: string, key: string) => (keys: string) => `DELETE FROM ${table} WHERE ${key} IN (${keys})`;
+const AGG_DAILY_PK = `(${["day", ...AGG_DIMS].join(", ")})`;
+const AGG_ERROR_PK = `(${["day", ...AGG_DIMS, "error_code"].join(", ")})`;
+const AGG_INSTALLS_PK = `(${[...AGG_DIMS, "install_id"].join(", ")})`;
 
 const TIERS: Tier[] = [
-  { name: "uploads", table: "diag_uploads", col: "received_at", size: UPLOAD_SIZE_SQL, free: deleteUpTo("diag_uploads", "received_at") },
+  // The row plus diag_uploads_install and diag_uploads_received_at.
+  { name: "uploads", table: "diag_uploads", col: "received_at", key: "rowid", size: UPLOAD_SIZE_SQL, writesPerRow: 3, free: remove("diag_uploads", "rowid") },
   {
     name: "excerpts",
     table: "events",
     col: "received_at",
+    key: "rowid",
     size: "LENGTH(CAST(log_excerpt AS BLOB))",
     filter: "log_excerpt IS NOT NULL",
-    free: (cutoff) => `UPDATE events SET log_excerpt = NULL WHERE log_excerpt IS NOT NULL AND received_at <= ${cutoff}`,
+    // log_excerpt is not indexed.
+    writesPerRow: 1,
+    free: (keys) => `UPDATE events SET log_excerpt = NULL WHERE rowid IN (${keys})`,
   },
-  { name: "events", table: "events", col: "received_at", size: EVENT_SIZE_SQL, free: deleteUpTo("events", "received_at") },
+  // The row plus events_received_at and events_install.
+  { name: "events", table: "events", col: "received_at", key: "rowid", size: EVENT_SIZE_SQL, writesPerRow: 3, free: remove("events", "rowid") },
+  // WITHOUT ROWID tables with no secondary index: one write per row.
   {
     name: "agg_error_daily",
     table: "agg_error_daily",
     col: "day",
+    key: AGG_ERROR_PK,
     size: `${AGG_ROW_OVERHEAD} + ${textBytes(["day", ...AGG_DIMS, "error_code"])}`,
-    free: deleteUpTo("agg_error_daily", "day"),
+    writesPerRow: 1,
+    free: remove("agg_error_daily", AGG_ERROR_PK),
   },
   {
     name: "agg_device_daily",
     table: "agg_device_daily",
     col: "day",
+    key: AGG_DAILY_PK,
     size: `${AGG_ROW_OVERHEAD} + ${textBytes(["day", ...AGG_DIMS, "last_seen"])}`,
-    free: deleteUpTo("agg_device_daily", "day"),
+    writesPerRow: 1,
+    free: remove("agg_device_daily", AGG_DAILY_PK),
   },
   {
     name: "agg_device_installs",
     table: "agg_device_installs",
     col: "last_seen",
+    key: AGG_INSTALLS_PK,
     size: `${AGG_ROW_OVERHEAD} + ${textBytes([...AGG_DIMS, "install_id", "first_seen", "last_seen"])}`,
-    free: deleteUpTo("agg_device_installs", "last_seen"),
+    writesPerRow: 1,
+    free: remove("agg_device_installs", AGG_INSTALLS_PK),
   },
 ];
 
@@ -346,32 +375,56 @@ export async function estimateStorageBytes(env: Env): Promise<number> {
   return row?.total ?? 0;
 }
 
+
 export interface StorageTrim {
   before: number;
+  // Estimated: `before` minus the bytes of the rows freed this run.
   after: number;
   budget: number;
   trimmed: string[];
+  rowWrites: number;
+  // The per-run write budget ran out before reaching the target; the next
+  // cron carries on.
+  capped: boolean;
 }
 
 export async function enforceStorageBudget(env: Env): Promise<StorageTrim> {
   const budget = intVar(env.STORAGE_BUDGET_BYTES, DEFAULT_STORAGE_BUDGET_BYTES);
+  const maxWrites = intVar(env.STORAGE_TRIM_MAX_ROW_WRITES, DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES);
   const before = await estimateStorageBytes(env);
-  const result: StorageTrim = { before, after: before, budget, trimmed: [] };
+  const result: StorageTrim = { before, after: before, budget, trimmed: [], rowWrites: 0, capped: false };
   if (before <= budget) return result;
   const target = Math.floor(budget * TARGET_FRACTION);
   for (const tier of TIERS) {
     const excess = result.after - target;
     if (excess <= 0) break;
-    // The smallest cutoff whose oldest-first running total covers the excess,
-    // or everything in the tier when it holds less than that.
-    const where = tier.filter ? ` WHERE ${tier.filter}` : "";
-    const cte = `WITH per AS (SELECT ${tier.col} AS k, SUM(${tier.size}) AS b FROM ${tier.table}${where} GROUP BY k),
-      run AS (SELECT k, SUM(b) OVER (ORDER BY k) AS r FROM per)`;
-    const cutoff = `COALESCE((SELECT k FROM run WHERE r >= ?1 ORDER BY k LIMIT 1), (SELECT MAX(k) FROM per))`;
-    const res = await env.DB.prepare(`${cte} ${tier.free(cutoff)}`).bind(excess).run();
-    if ((res.meta.changes ?? 0) > 0) {
-      result.trimmed.push(tier.name);
-      result.after = await estimateStorageBytes(env);
+    const rowsLeft = Math.floor((maxWrites - result.rowWrites) / tier.writesPerRow);
+    if (rowsLeft <= 0) {
+      result.capped = true;
+      break;
+    }
+    // The oldest rows, at most what the write budget allows, and of those
+    // only as many as cover the excess. The same ordering picks them for the
+    // free statement, so it frees exactly the rows counted here.
+    const keyCols = tier.key === "rowid" ? "rowid" : tier.key.slice(1, -1);
+    const oldest = (select: string) =>
+      `SELECT ${select} FROM ${tier.table}${tier.filter ? ` WHERE ${tier.filter}` : ""} ORDER BY ${tier.col}, ${keyCols} LIMIT ?1`;
+    const sizes = await env.DB.prepare(oldest(`${tier.size} AS b`)).bind(rowsLeft).all<{ b: number }>();
+    let rows = 0;
+    let freed = 0;
+    for (const { b } of sizes.results) {
+      if (freed >= excess) break;
+      rows += 1;
+      freed += b;
+    }
+    if (rows === 0) continue;
+    const res = await env.DB.prepare(tier.free(oldest(keyCols))).bind(rows).run();
+    result.rowWrites += (res.meta.changes ?? rows) * tier.writesPerRow;
+    result.after -= freed;
+    result.trimmed.push(tier.name);
+    if (freed < excess && rows === rowsLeft) {
+      result.capped = true;
+      break;
     }
   }
   return result;
