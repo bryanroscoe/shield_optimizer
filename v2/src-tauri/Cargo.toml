@@ -42,7 +42,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["process", "io-util", "time", "macros", "rt-multi-thread", "sync", "fs"] }
 
 # Error handling
-anyhow = "1"
 thiserror = "1"
 
 # Parsing
@@ -50,9 +49,6 @@ regex = "1"
 
 # Time / dates for snapshot timestamps
 chrono = { version = "0.4", features = ["serde"] }
-
-# Screenshot preview encoding (PNG bytes → data: URL)
-base64 = "0.22"
 
 # Tracing for structured logging
 tracing = "0.1"

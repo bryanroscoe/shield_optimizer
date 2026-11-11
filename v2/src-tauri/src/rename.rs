@@ -302,6 +302,7 @@ fn marked(dir: &Path) -> bool {
 fn migrate_data(old: &Path, new: &Path) -> (Outcome, PathBuf) {
     if marked(new) {
         remove_stale_temps(new);
+        remove_stale_file_temps(new, std::process::id());
         return (Outcome::AlreadyMigrated, new.to_path_buf());
     }
     if !old.is_dir() {
@@ -313,7 +314,10 @@ fn migrate_data(old: &Path, new: &Path) -> (Outcome, PathBuf) {
     }
     if exists(new) {
         return match merge_into(old, new) {
-            Ok(stats) => (Outcome::Merged(stats), new.to_path_buf()),
+            Ok(stats) => {
+                remove_stale_file_temps(new, std::process::id());
+                (Outcome::Merged(stats), new.to_path_buf())
+            }
             Err(e) => (Outcome::Failed(e.to_string()), old.to_path_buf()),
         };
     }
@@ -794,6 +798,45 @@ fn remove_stale_temps(new: &Path) {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
+}
+
+/// Per-file temps (`<name>.migrating-<pid>`) a merge into an existing folder
+/// left when it crashed. Only called once the folder is marked, when no merge
+/// into it can still be running; this process's own pid is never touched.
+fn remove_stale_file_temps(new: &Path, own_pid: u32) {
+    fn walk(dir: &Path, own: &str, depth: usize) {
+        if depth == 0 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let Ok(file_type) = entry.file_type() else {
+                continue;
+            };
+            if file_type.is_dir() {
+                walk(&entry.path(), own, depth - 1);
+                continue;
+            }
+            if !file_type.is_file() {
+                continue;
+            }
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else { continue };
+            let Some((stem, pid)) = name.rsplit_once(TEMP_SUFFIX) else {
+                continue;
+            };
+            if !stem.is_empty()
+                && !pid.is_empty()
+                && pid.bytes().all(|b| b.is_ascii_digit())
+                && pid != own
+            {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+    walk(new, &own_pid.to_string(), 8);
 }
 
 /// What happened to a macOS bundle still named for the old product.
@@ -1454,6 +1497,28 @@ mod tests {
         assert!(!l.data_new.join("partial").exists());
         assert!(l.data_new.join("snapshots/living-room.json").is_file());
         assert!(no_temps(&root.path().join("data")));
+    }
+
+    #[test]
+    fn a_crashed_merge_leaves_no_per_file_temps_behind() {
+        let root = tempfile::tempdir().unwrap();
+        let new = root.path().join("ATVOptimizer");
+        write(&new.join(MARKER), "done");
+        write(&new.join("telemetry.json.migrating-4242"), "partial");
+        write(&new.join("snapshots/a.json.migrating-77"), "partial");
+        write(&new.join("snapshots/keep.migrating-notes"), "not a temp");
+        write(&new.join("snapshots/a.json"), "real");
+        let own = new.join(format!("mine.json{TEMP_SUFFIX}{}", std::process::id()));
+        write(&own, "in progress");
+
+        let (outcome, dir) = migrate_data(&root.path().join("ShieldOptimizer"), &new);
+        assert_eq!(outcome, Outcome::AlreadyMigrated);
+        assert_eq!(dir, new);
+        assert!(!new.join("telemetry.json.migrating-4242").exists());
+        assert!(!new.join("snapshots/a.json.migrating-77").exists());
+        assert!(new.join("snapshots/keep.migrating-notes").exists());
+        assert_eq!(read(&new.join("snapshots/a.json")), "real");
+        assert!(own.exists());
     }
 
     #[test]

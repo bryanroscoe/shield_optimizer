@@ -1820,7 +1820,7 @@ mod tests {
     // no request. `cancel` cancels 10 seconds after asking. `watch` reports
     // the state each second for 90 seconds (for Deny).
     #[tokio::test(flavor = "multi_thread")]
-    #[ignore]
+    #[ignore = "live: needs a real TV and a throwaway key; see the comment above"]
     async fn live_quiet_scan_then_request_approval() {
         let (Ok(address), Ok(key)) = (
             std::env::var("ATV_OPTIMIZER_LIVE_APPROVAL_ADDR"),

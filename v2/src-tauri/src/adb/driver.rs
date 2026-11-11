@@ -127,11 +127,6 @@ impl SubprocessAdb {
         discover_adb_binary().map(Self::new)
     }
 
-    /// Alias for [`Self::discover`]: searches every location, not only PATH.
-    pub fn from_path() -> Option<Self> {
-        Self::discover()
-    }
-
     pub fn binary(&self) -> &PathBuf {
         &self.binary
     }

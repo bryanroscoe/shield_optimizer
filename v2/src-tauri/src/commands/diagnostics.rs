@@ -169,8 +169,8 @@ pub fn set_debug_logging(logs: State<'_, LogControl>, enabled: bool) -> Result<b
 
 /// `get_debug_logging` — is the file layer currently at debug?
 #[tauri::command]
-pub fn get_debug_logging(logs: State<'_, LogControl>) -> bool {
-    logs.debug.load(Ordering::Relaxed)
+pub fn get_debug_logging(logs: State<'_, LogControl>) -> Result<bool, String> {
+    Ok(logs.debug.load(Ordering::Relaxed))
 }
 
 const UI_LABEL_LIMIT: usize = 120;
@@ -209,8 +209,8 @@ pub fn log_ui_event(event: String, label: String, path: Option<String>) -> Resul
 
 /// `log_dir_path` — where the rolling log files live, for the UI to show.
 #[tauri::command]
-pub fn log_dir_path(logs: State<'_, LogControl>) -> String {
-    logs.dir().display().to_string()
+pub fn log_dir_path(logs: State<'_, LogControl>) -> Result<String, String> {
+    Ok(logs.dir().display().to_string())
 }
 
 /// `open_log_dir` — reveal the log folder in the system file manager.
