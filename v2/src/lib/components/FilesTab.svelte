@@ -196,6 +196,7 @@
   let rootEl = $state<HTMLElement | undefined>(undefined);
   let dragging = $state(false);
   let unlistenDrop: (() => void) | null = null;
+  let destroyed = false;
 
   function isShowing(): boolean {
     return !!rootEl && rootEl.closest("[hidden]") === null;
@@ -241,7 +242,7 @@
   onMount(async () => {
     try {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
         if (!isShowing()) {
           dragging = false;
           return;
@@ -257,12 +258,19 @@
         dragging = false;
         if (event.payload.paths.length > 0) void uploadDropped(event.payload.paths);
       });
+      // Destroyed while the listener was being registered: nothing would
+      // ever unlisten it, and a later drop would act for a gone device.
+      if (destroyed) unlisten();
+      else unlistenDrop = unlisten;
     } catch {
       /* not running inside the app shell — no drop target, Upload here still works */
     }
   });
 
-  onDestroy(() => unlistenDrop?.());
+  onDestroy(() => {
+    destroyed = true;
+    unlistenDrop?.();
+  });
 
   /// Board 11.8 gives each row a glyph for what the file is. Extension-based,
   /// because that is all `ls` tells us — an unrecognised extension falls back
