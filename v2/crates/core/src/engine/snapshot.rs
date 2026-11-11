@@ -36,6 +36,16 @@ pub fn tracked_setting_keys() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
+/// Whether `key` (`"<namespace>.<key>"`) is one a snapshot may write or
+/// delete. Anything else in a snapshot file is refused.
+pub fn is_tracked_setting(key: &str) -> bool {
+    key.split_once('.').is_some_and(|(ns, name)| {
+        tracked_setting_keys()
+            .iter()
+            .any(|(t_ns, t_key)| *t_ns == ns && *t_key == name)
+    })
+}
+
 /// On-disk snapshot file.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -203,6 +213,11 @@ pub struct SnapshotApplyPlan {
     /// Settings already at the snapshot's value on the device — no-op, counted
     /// so the preview doesn't overstate the work.
     pub settings_already_set: Vec<String>,
+    /// Settings the snapshot names that this app does not track. A snapshot
+    /// file can be edited or shared, so these are never written or deleted;
+    /// they are listed so a preview can say what was ignored.
+    #[serde(default)]
+    pub settings_refused: Vec<String>,
     /// The device's current value for every setting the snapshot mentions,
     /// so the preview's "Now" column shows what's there. A key missing here
     /// is unset on the device.
@@ -261,7 +276,13 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
     let mut already_disabled = Vec::new();
     let mut not_installed = Vec::new();
 
-    for pkg in &snap.disabled_packages {
+    let mut seen = std::collections::HashSet::new();
+    // A hand-edited file may list a package twice; plan it once.
+    for pkg in snap
+        .disabled_packages
+        .iter()
+        .filter(|p| seen.insert(p.as_str()))
+    {
         let s = pkg.as_str();
         if !installed_set.contains(s) {
             not_installed.push(pkg.clone());
@@ -305,8 +326,11 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
     // Only write settings whose current value differs from the snapshot.
     let mut settings_to_write = BTreeMap::new();
     let mut settings_already_set = Vec::new();
+    let mut settings_refused = Vec::new();
     for (key, value) in &snap.settings {
-        if inputs.current_settings.get(key) == Some(value) {
+        if !is_tracked_setting(key) {
+            settings_refused.push(key.clone());
+        } else if inputs.current_settings.get(key) == Some(value) {
             settings_already_set.push(key.clone());
         } else {
             settings_to_write.insert(key.clone(), value.clone());
@@ -315,7 +339,11 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
 
     let mut settings_to_delete = Vec::new();
     for key in &snap.absent_settings {
-        if inputs.current_settings.contains_key(key) {
+        if !is_tracked_setting(key) {
+            if !settings_refused.contains(key) {
+                settings_refused.push(key.clone());
+            }
+        } else if inputs.current_settings.contains_key(key) {
             settings_to_delete.push(key.clone());
         } else {
             settings_already_set.push(key.clone());
@@ -326,6 +354,7 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         .settings
         .keys()
         .chain(snap.absent_settings.iter())
+        .filter(|key| is_tracked_setting(key))
         .filter_map(|key| {
             inputs
                 .current_settings
@@ -379,6 +408,7 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         settings_to_write,
         settings_to_delete,
         settings_already_set,
+        settings_refused,
         current_values,
         cross_device_warning,
     }
@@ -643,6 +673,78 @@ mod tests {
             );
             assert!(plan.settings_to_delete.is_empty());
         }
+    }
+
+    #[test]
+    fn an_untracked_setting_in_a_snapshot_is_refused_never_written_or_deleted() {
+        for absent in [false, true] {
+            let mut snap = sample_snapshot();
+            if absent {
+                snap.absent_settings.push("global.adb_enabled".into());
+            } else {
+                snap.settings
+                    .insert("global.adb_enabled".into(), "0".into());
+            }
+            let parsed = Snapshot::from_json(&snap.to_json().unwrap()).unwrap();
+            let current = BTreeMap::from([("global.adb_enabled".into(), "1".into())]);
+            let plan = compute_apply_plan(
+                &parsed,
+                &ApplyPlanInputs {
+                    target_device_type: DeviceType::Shield,
+                    currently_disabled: &[],
+                    currently_installed: &[],
+                    current_settings: &current,
+                    current_launcher: None,
+                    home_handlers: None,
+                    launchers: &LauncherCatalog::default(),
+                    catalog: &[],
+                },
+            );
+            assert!(!plan.settings_to_write.contains_key("global.adb_enabled"));
+            assert!(!plan
+                .settings_to_delete
+                .contains(&"global.adb_enabled".into()));
+            assert!(!plan
+                .settings_already_set
+                .contains(&"global.adb_enabled".into()));
+            assert!(!plan.current_values.contains_key("global.adb_enabled"));
+            assert_eq!(plan.settings_refused, ["global.adb_enabled"]);
+            // The tracked setting in the same file still applies.
+            assert!(plan
+                .settings_to_write
+                .contains_key("global.window_animation_scale"));
+        }
+        assert!(is_tracked_setting("secure.screensaver_enabled"));
+        assert!(!is_tracked_setting("system.screensaver_enabled"));
+        assert!(!is_tracked_setting("screensaver_enabled"));
+    }
+
+    #[test]
+    fn a_package_listed_twice_is_planned_once() {
+        let mut snap = sample_snapshot();
+        snap.disabled_packages = vec![
+            "com.foo".into(),
+            "com.foo".into(),
+            "com.bar".into(),
+            "com.bar".into(),
+        ];
+        let installed = vec!["com.foo".to_string(), "com.bar".to_string()];
+        let disabled = vec!["com.bar".to_string()];
+        let plan = compute_apply_plan(
+            &snap,
+            &ApplyPlanInputs {
+                target_device_type: DeviceType::Shield,
+                currently_disabled: &disabled,
+                currently_installed: &installed,
+                current_settings: &BTreeMap::new(),
+                current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
+                catalog: &[],
+            },
+        );
+        assert_eq!(plan.packages_to_disable, ["com.foo"]);
+        assert_eq!(plan.packages_already_disabled, ["com.bar"]);
     }
 
     #[test]

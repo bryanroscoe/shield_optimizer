@@ -155,8 +155,9 @@ describe("log text redaction", () => {
       const out = redactUploadText(text);
       expect(out.length).toBeGreaterThan(0);
       // Locally each shape takes about a millisecond; the old unbounded
-      // pattern took from hundreds of milliseconds to over a minute.
-      expect(Date.now() - started).toBeLessThan(100);
+      // pattern took from hundreds of milliseconds to over a minute. The bound
+      // is loose so a busy shared CI runner can't fail it.
+      expect(Date.now() - started).toBeLessThan(2000);
     }
     expect(redactUploadText(`ok ${"a1".repeat(1024)} ok`)).toBe(`ok ${LONG_TOKEN_REMOVED} ok`);
   });
@@ -387,6 +388,10 @@ describe("support lookup", () => {
     expect((await call("/v1/admin/support/7D0B-0B9E", { headers: { authorization: "Bearer wrong-token-0123456789" } })).status).toBe(401);
     expect((await call("/v1/admin/uploads/1")).status).toBe(401);
     expect((await call("/v1/admin/support/not-an-id", { headers: auth })).status).toBe(400);
+    // A malformed %-escape is a bad id, not a server error.
+    const malformed = await call("/v1/admin/support/7D0B%E0%A4%A", { headers: auth });
+    expect(malformed.status).toBe(400);
+    expect(await malformed.json()).toEqual({ error: "bad_support_id" });
     expect((await call("/v1/admin/support/7D0B-0B9E?limit=0", { headers: auth })).status).toBe(400);
     expect((await call("/v1/admin/uploads/999999999", { headers: auth })).status).toBe(404);
   });

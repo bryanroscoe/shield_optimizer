@@ -7,6 +7,7 @@
 // written that way drops every load and the verdicts are never written.
 //
 // Nothing throws and nothing logs. Only rendering the wizard catches it.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { readFile, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -64,7 +65,7 @@ async function exercise({ browser, base }) {
   await panel.locator(".mode-box").getByRole("button", { name: "Optimize", exact: true }).click();
   await panel.locator("table.optimize-table tbody tr").first().waitFor();
   assert.deepEqual(
-    await panel.locator("table.optimize-table thead th").allInnerTexts().then((t) => t.map((x) => x.trim().toUpperCase())),
+    await panel.locator("table.optimize-table thead th").allInnerTexts().then((t) => t.map((x) => x.replace(/\s*\?\s*$/, "").trim().toUpperCase())),
     ["DETAILS", "APP", "VERDICT & SOURCE", "RAM", "LAST USED", "ACTION"],
     "a run's result shows in the Action cell, not in a trailing column that scrolls off",
   );
@@ -193,7 +194,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     const catalog = JSON.parse(await readFile(join(V2, "crates/core/data/app-lists/common.json"), "utf8"));
     const { recommendation, effectiveMethod, canOfferUninstall } = await server.ssrLoadModule("/src/lib/recommendation.ts");

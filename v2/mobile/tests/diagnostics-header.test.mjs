@@ -98,3 +98,13 @@ if (process.env.HEADER_EVIDENCE === "1") test("capture synthetic header layout a
   assert.equal(await page.evaluate(() => calls.some(c => c.command === "find_remote")), false);
   const video = page.video(); await page.close(); await video.saveAs(`${dir}/header-layout-controls-simulated.webm`);
 });
+
+test("live mode stops polling health while the connection is lost", async t => {
+  const page = await open(t);
+  await page.locator(".live-refresh-btn").click();
+  await page.evaluate(() => { window.session.liveness = "lost"; window.liveBaseline = calls.filter(c => c.command === "health_report").length; });
+  await page.waitForTimeout(3400);
+  assert.equal(await page.evaluate(() => calls.filter(c => c.command === "health_report").length - window.liveBaseline), 0);
+  await page.evaluate(() => { window.session.liveness = "live"; });
+  await page.waitForFunction(() => calls.filter(c => c.command === "health_report").length > window.liveBaseline, null, { timeout: 4000 });
+});

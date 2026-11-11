@@ -1,3 +1,4 @@
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
@@ -13,7 +14,7 @@ process.env.VITE_DEMO = "1";
 let server, browser, context;
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: "127.0.0.1", port: 0, hmr: false } });
+  server = await createServer({ root, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   context = await browser.newContext({

@@ -53,11 +53,11 @@ pub async fn check_for_update() -> Result<UpdateInfo, String> {
 /// `flatpak update`) delivers new versions, so the in-app updater must stay
 /// out of the way. `"self"` everywhere else.
 #[tauri::command]
-pub fn update_channel() -> &'static str {
-    channel_for(
+pub fn update_channel() -> Result<&'static str, String> {
+    Ok(channel_for(
         std::env::var_os("FLATPAK_ID").is_some(),
         std::path::Path::new("/.flatpak-info").exists(),
-    )
+    ))
 }
 
 fn channel_for(flatpak_id_set: bool, flatpak_info_exists: bool) -> &'static str {

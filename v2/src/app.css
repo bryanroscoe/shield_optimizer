@@ -491,6 +491,41 @@ textarea:focus-visible {
   opacity: 1;
   visibility: visible;
 }
+/* A badge that explains itself ($lib/tip): hover, click, tap or Tab opens
+   its bubble. Fixed to the viewport so a clipping row can't hide it. */
+[data-tip-focus] {
+  cursor: help;
+}
+.tip-bubble {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 16px));
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--fg-primary);
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-transform: none;
+  pointer-events: none;
+}
+.tip-bubble[hidden] {
+  display: none;
+}
+[data-tip-focus]:focus {
+  outline: none;
+}
+[data-tip-focus]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
 /* A tooltip on the last control in a row would otherwise be clipped by the
    card's edge; these flip to the right-hand side. */
 [data-tip][data-tip-align="end"]::after {

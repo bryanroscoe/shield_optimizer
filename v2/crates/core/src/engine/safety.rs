@@ -260,25 +260,21 @@ pub fn shell_command_blocked(command: &str) -> Option<(String, &'static str)> {
     })
 }
 
+// Bricking-tier: framework, system UI, settings, ADB-adjacent, package +
+// permission infrastructure, base Google services.
 fn never_disable_reason(package: &str) -> Option<&'static str> {
-    // Bricking-tier: framework, system UI, settings, ADB-adjacent, package +
-    // permission infrastructure, base Google services. Order matches what
-    // would actually go wrong first if disabled.
-    for (pkg, reason) in NEVER_DISABLE {
-        if *pkg == package {
-            return Some(reason);
-        }
-    }
-    None
+    reason_in(NEVER_DISABLE, package)
 }
 
 fn caution_reason(package: &str) -> Option<&'static str> {
-    for (pkg, reason) in CAUTION {
-        if *pkg == package {
-            return Some(reason);
-        }
-    }
-    None
+    reason_in(CAUTION, package)
+}
+
+fn reason_in(table: &[(&str, &'static str)], package: &str) -> Option<&'static str> {
+    table
+        .iter()
+        .find(|(pkg, _)| *pkg == package)
+        .map(|(_, reason)| *reason)
 }
 
 const NEVER_DISABLE: &[(&str, &str)] = &[

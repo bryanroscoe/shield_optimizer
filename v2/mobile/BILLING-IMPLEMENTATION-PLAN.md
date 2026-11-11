@@ -1,8 +1,9 @@
 # Android commerce implementation plan
 
 Status: **v1 built (on-device verification, no backend); not yet exercised against a real Play
-account or device.** See "Implemented v1" below. No product, account, credential, payment or tip
-link is configured in the repo. Sideload/dev builds keep the signed offline license key in
+account or device.** See "Implemented v1" below. The product ids (`atvopt_pro`,
+`atvopt_pro_support_1`, `atvopt_pro_support_2`) are in `src-tauri/src/play_billing.rs`; no Play
+account, credential, payment or tip link is configured in the repo. Sideload/dev builds keep the signed offline license key in
 [`LICENSING.md`](LICENSING.md). Nothing here authorizes a store submission or a real charge.
 
 ## Implemented v1 (2026-10-31)

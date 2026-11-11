@@ -523,6 +523,8 @@ export interface SnapshotApplyPlan {
   settings_to_write: Record<string, string>;
   settings_to_delete: string[];
   settings_already_set: string[];
+  /// Settings the file names that snapshots never restore; skipped, never written.
+  settings_refused?: string[];
   /// Device values for every setting the snapshot mentions; a missing key is unset.
   current_values: Record<string, string>;
   /// Home app when the plan was computed; null means the device couldn't say.

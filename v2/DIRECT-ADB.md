@@ -16,7 +16,8 @@ Local Network access is granted, and for about a second after. The scan then swe
 more after the 6-second mDNS browse instead of reporting an empty subnet; a quiet subnet
 is never swept twice. mDNS endpoints are dialled only after that browse ends. Pair PIN connects by itself when the TV names itself
 while pairing (see **Pairing** below); otherwise it asks for the separate connect port.
-The private app identity is created once on supported Unix hosts. The built-in engine
+The private app identity is created once, on macOS, Linux and Windows
+(`src-tauri/src/adb/identity.rs`; Windows storage uses current-user-owned protected ACLs). The built-in engine
 offers Google platform-tools' own key first when this computer has one, so a TV that
 already allows platform-tools connects without a new prompt (see **Keys**). No ADB key
 is imported, copied or replaced. Native mode does not expose Restart ADB or Stop ADB
@@ -206,6 +207,32 @@ for downloads, installs, shells and Remote, ever offers a key; a TV that stops a
 fails those with a message pointing at Request approval. The TV does not tell the host about
 a Deny, so a denied request waits until Cancel or its 10-minute limit. Physical acceptance is `docs/DEVICE-TEST-SCRIPT.md`
 N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`.
+
+**Deadlines and size limits** (`crates/direct-adb/src/lib.rs`, `streamed_install.rs`,
+`bound_service.rs`). Ordinary shell output is capped at 512 KiB per stream and screenshots at
+64 MiB; hitting a cap is an error, never a silent truncation. Shell and screenshots on the owned
+connection have a 30-second budget that includes queue wait (180 seconds for slow shell).
+Push, pull, limited downloads and installs have fifteen minutes, and identity-bound services a
+fifteen-minute stream lifetime. Device Logs and Expert shell use a dedicated shell-v2 stream
+with a 30-second deadline and 256 KiB kept per stream; a peer without shell v2 fails instead of
+being replayed as shell v1. Cancellation closes only the admitted socket. Local filesystem work
+cannot be interrupted, so a timed-out worker keeps its lease until it returns.
+
+**Installs and downloads** each use one dedicated connection whose hardware id must match the
+selected TV before any byte is sent. A package-manager refusal is a failure with its text; a lost
+result, or a `Success` before the last byte, is reported as uncertain and never retried.
+Downloads stage to a temporary file and publish only on success; a refused transfer keeps the
+TV connected, lost framing drops it.
+
+**Discovery** recognizes `_adb._tcp`, `_adb-tls-pairing._tcp` and `_adb-tls-connect._tcp`
+separately and keeps their exact ports. An advertisement is not a verified TV: names, addresses
+and service instances never merge rows. Cached or stale records are never dialled, numeric IPv6
+scope is kept, and unusable routes are rejected rather than guessed.
+
+**Not yet verified on hardware**, beyond Bryan's 2026-11-08 macOS run (scans, Request approval,
+engine switch; see `NATIVE-ADB-HANDOFF.md`): legacy STLS, TLS PIN
+pairing on a real TV, uploads and installs, sleep/wake and DHCP changes, and packaged Windows
+and Linux builds. Those are the remaining N1–N18 steps.
 
 ---
 

@@ -56,12 +56,13 @@ pub async fn list_launchers_impl(
         super::LIST_PACKAGES,
         super::LIST_DISABLED_PACKAGES,
         HOME_HANDLER_QUERY,
+        HARDWARE_ID_READ,
     ]);
     let out = adb
         .shell(serial, &cmd)
         .await
         .map_err(|e| format!("pm list packages: {e}"))?;
-    let sections = crate::adb::parse_checked_batch(&out.stdout, 3, &[0, 1])?;
+    let sections = crate::adb::parse_checked_batch(&out.stdout, 4, &[0, 1])?;
 
     let installed_pkgs = crate::adb::parse_installed_packages_output(&sections[0]);
     // An empty installed list must not hide every launcher's Enable path.
@@ -86,7 +87,11 @@ pub async fn list_launchers_impl(
     // Disabled handlers don't answer the HOME query — the tracker is what
     // keeps their rows (and the Enable path back) alive. Prune entries that
     // were re-enabled or uninstalled out-of-band.
-    let tracked = home_tracking::prune(&state.data_dir, serial, &disabled_pkgs).await;
+    let device = home_tracking::TrackedDevice {
+        serial,
+        hardware_id: Some(sections[3].trim()),
+    };
+    let tracked = home_tracking::prune(&state.data_dir, device, &disabled_pkgs).await;
 
     Ok(launcher_rows(
         launchers(),
@@ -140,10 +145,23 @@ pub async fn disable_launcher_impl(
     let result = crate::commands::apps::disable_package_impl(state, serial, package).await?;
 
     if result.ok && !launchers().contains(package) {
-        home_tracking::record(&state.data_dir, serial, package).await;
+        let hardware_id = match adb.shell(serial, HARDWARE_ID_READ).await {
+            Ok(out) if out.success() && !out.shell_reported_failure() => {
+                Some(out.stdout.trim().to_string())
+            }
+            _ => None,
+        };
+        let device = home_tracking::TrackedDevice {
+            serial,
+            hardware_id: hardware_id.as_deref(),
+        };
+        home_tracking::record(&state.data_dir, device, package).await;
     }
     Ok(result)
 }
+
+/// The hardware id the disabled-launcher tracker keys entries by.
+const HARDWARE_ID_READ: &str = "getprop ro.serialno";
 
 /// The enabled HOME handlers, or `None` when the device didn't answer: a
 /// failed or refused query, failure text, or an empty list. Android 8 has no
@@ -2589,6 +2607,7 @@ mod tests {
                  package:com.example.leanbackonly",
                 "package:com.spocky.projengmenu",
                 "    packageName=com.example.otherhome",
+                "",
             ]),
         );
         let log = mock.shell_log();
@@ -2688,6 +2707,7 @@ mod tests {
                  package:com.plexapp.android",
                 "",
                 "    packageName=com.google.android.tvlauncher",
+                "",
             ]),
         );
         let log = mock.shell_log();
@@ -2715,7 +2735,7 @@ mod tests {
     async fn list_launchers_degrades_when_the_home_query_is_empty() {
         let mock = MockAdb::default().on_shell(
             BATCH_SEPARATOR,
-            &batched(&["package:com.google.android.tvlauncher", "", ""]),
+            &batched(&["package:com.google.android.tvlauncher", "", "", ""]),
         );
         let state = state_with(mock);
 
@@ -2732,7 +2752,7 @@ mod tests {
     async fn list_launchers_rejects_failed_disabled_reads_before_pruning_tracking() {
         let status = crate::adb::batch::BATCH_STATUS;
         let output = format!(
-            "package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\n{status}0\n"
+            "package:com.example\n{status}0\n{BATCH_SEPARATOR}\n{status}1\n{BATCH_SEPARATOR}\n{status}0\n{BATCH_SEPARATOR}\n{status}0\n"
         );
         let state = state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &output));
         assert!(list_launchers_impl(&state, "serial").await.is_err());
@@ -2743,7 +2763,7 @@ mod tests {
         // Otherwise every launcher renders as not-installed and the Enable
         // path back disappears.
         let state =
-            state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", ""])));
+            state_with(MockAdb::default().on_shell(BATCH_SEPARATOR, &batched(&["", "", "", ""])));
         let err = match list_launchers_impl(&state, "list-launchers-empty").await {
             Ok(rows) => panic!(
                 "empty package listing must be an error, got {} rows",
@@ -3133,6 +3153,81 @@ mod tests {
     /// GitHub #122 — onn 4K Pro: setting Projectivy as default must not report
     /// a failure and roll stock back when the switch has worked. Three
     /// polling/rollback cases.
+    const PROTECTED: &str = "com.android.systemui";
+
+    fn disables(log: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.contains("pm disable"))
+            .cloned()
+            .collect()
+    }
+
+    /// The launcher paths' do-not-disable gates only see catalog stock
+    /// launchers and setup helpers. None of those may be protected, or the
+    /// gates would be all that stands between a takeover and a brick.
+    #[test]
+    fn no_catalog_stock_launcher_or_setup_helper_is_protected() {
+        let catalog = launchers();
+        for pkg in catalog
+            .stock
+            .iter()
+            .map(|e| e.package.as_str())
+            .chain(catalog.transient_home_holders.iter().map(String::as_str))
+            .chain(
+                catalog
+                    .stock
+                    .iter()
+                    .flat_map(|e| e.disable_with.iter().map(String::as_str)),
+            )
+        {
+            assert!(!crate::engine::is_never_disable(pkg), "{pkg}");
+        }
+        assert!(crate::engine::is_never_disable(PROTECTED));
+    }
+
+    #[tokio::test]
+    async fn launcher_disable_paths_never_disable_a_protected_package() {
+        // Setup-helper fix.
+        let mock = MockAdb::default().on_shell(
+            "query-activities",
+            &format!("  packageName={PROTECTED}\n  packageName=com.spocky.projengmenu\n"),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        let res = disable_setup_helper_impl(&state, "serial", PROTECTED)
+            .await
+            .unwrap();
+        assert!(!res.ok);
+
+        // Stock takeover with a protected package holding Home.
+        let mut diagnostics = Vec::new();
+        let takeover = stock_takeover(
+            &*state.adb_snapshot().await,
+            "serial",
+            "com.spocky.projengmenu",
+            PROTECTED,
+            true,
+            &Progress::Silent,
+            &mut diagnostics,
+        )
+        .await;
+        assert!(takeover.is_none());
+
+        // Stock disable when the only other Home handlers are protected.
+        let res = disable_stock_launcher_impl(
+            &state,
+            "serial",
+            "com.spocky.projengmenu",
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
+        assert!(!res.ok);
+        assert!(disables(&log).is_empty(), "{:?}", disables(&log));
+    }
+
     mod launcher_verification_122 {
         use super::*;
 

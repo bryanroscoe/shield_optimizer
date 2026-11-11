@@ -37,6 +37,12 @@
       .map((seg, i, all) => ({ label: seg, path: "/" + all.slice(0, i + 1).join("/") })),
   );
 
+  /// A child of a device folder. At the root the parent already ends in "/",
+  /// so plain interpolation would ask for "//data".
+  function joinPath(dir: string, name: string): string {
+    return dir === "/" ? `/${name}` : `${dir}/${name}`;
+  }
+
   async function loadFiles(path: string) {
     const request = ++filesRequest;
     const allowSystemPaths = powerUserPaths;
@@ -80,7 +86,7 @@
     // arrives in /sdcard/Download there too.
     filesMessage = `Copying ${name} to ${target.name}…`;
     try {
-      const r = await api.copyFileToDevice(serial, `${filesPath}/${name}`, target.serial, filesPath);
+      const r = await api.copyFileToDevice(serial, joinPath(filesPath, name), target.serial, filesPath);
       filesMessage = r.message;
       if (r.ok) fileCopyName = null;
     } catch (e) {
@@ -96,7 +102,7 @@
     filesBusy = name;
     filesMessage = "";
     try {
-      const r = await api.pullFile(serial, `${filesPath}/${name}`, folder as string, powerUserPaths);
+      const r = await api.pullFile(serial, joinPath(filesPath, name), folder as string, powerUserPaths);
       filesMessage = r.message;
     } catch (e) {
       filesMessage = String(e);
@@ -135,7 +141,7 @@
     filesBusy = entry.name;
     filesMessage = "";
     try {
-      const r = await api.deletePath(serial, `${filesPath}/${entry.name}`, powerUserPaths);
+      const r = await api.deletePath(serial, joinPath(filesPath, entry.name), powerUserPaths);
       filesMessage = r.message;
       if (r.ok) await loadFiles(filesPath);
     } catch (e) {
@@ -196,6 +202,7 @@
   let rootEl = $state<HTMLElement | undefined>(undefined);
   let dragging = $state(false);
   let unlistenDrop: (() => void) | null = null;
+  let destroyed = false;
 
   function isShowing(): boolean {
     return !!rootEl && rootEl.closest("[hidden]") === null;
@@ -241,7 +248,7 @@
   onMount(async () => {
     try {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
         if (!isShowing()) {
           dragging = false;
           return;
@@ -257,12 +264,19 @@
         dragging = false;
         if (event.payload.paths.length > 0) void uploadDropped(event.payload.paths);
       });
+      // Destroyed while the listener was being registered: nothing would
+      // ever unlisten it, and a later drop would act for a gone device.
+      if (destroyed) unlisten();
+      else unlistenDrop = unlisten;
     } catch {
       /* not running inside the app shell — no drop target, Upload here still works */
     }
   });
 
-  onDestroy(() => unlistenDrop?.());
+  onDestroy(() => {
+    destroyed = true;
+    unlistenDrop?.();
+  });
 
   /// Board 11.8 gives each row a glyph for what the file is. Extension-based,
   /// because that is all `ls` tells us — an unrecognised extension falls back
@@ -432,7 +446,7 @@
           <tr>
             <td class="file-name">
               {#if f.is_dir}
-                <button class="dir-link" onclick={() => loadFiles(`${filesPath}/${f.name}`)}>
+                <button class="dir-link" onclick={() => loadFiles(joinPath(filesPath, f.name))}>
                   <Icon name="folder" size={16} fill /> {f.name}
                 </button>
               {:else}
@@ -452,7 +466,7 @@
                 {#if f.is_dir}
                   <button
                     class="file-tool"
-                    onclick={() => loadFiles(`${filesPath}/${f.name}`)}
+                    onclick={() => loadFiles(joinPath(filesPath, f.name))}
                     title="Open {f.name}"
                     data-tip="Open folder"
                     aria-label={`Open the folder ${f.name}`}

@@ -4,6 +4,7 @@
 // stops, the dialog closing by itself once the TV allows this computer, and
 // the same flow under Google platform-tools. Set APPROVAL_DIALOG_EVIDENCE to a
 // folder to keep screenshots and a recording.
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -20,7 +21,7 @@ process.env.VITE_DEMO = '1';
 let server, browser;
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();
@@ -302,17 +303,22 @@ try {
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).waitFor();
     await context.close();
   }
+  // Page timers run on Playwright's clock, so "nothing happens" is checked
+  // over several poll intervals without waiting for them in real time.
   {
-    const { context, page } = await open(['approvalTv']);
+    const { context, page } = await open(['approvalTv'], { clock: true });
+    const count = () => page.evaluate(() => window.__calls.filter(c => c === 'transport_state').length);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
     await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
     await page.keyboard.press('Escape');
+    const waiting = await count();
+    await page.clock.runFor(5000);
+    assert.ok(await count() > waiting, 'polls while the request waits');
     await row(page).getByRole('button', { name: 'Forget' }).click();
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).waitFor();
-    await page.waitForTimeout(500);
-    const count = () => page.evaluate(() => window.__calls.filter(c => c === 'transport_state').length);
+    await page.clock.runFor(500);
     const before = await count();
-    await page.waitForTimeout(4500);
+    await page.clock.runFor(10_000);
     assert.equal(await count(), before, 'no more polling after Forget');
     await context.close();
   }
@@ -320,13 +326,16 @@ try {
   // Platform-tools: one transport read at a time, and no full list re-read
   // while nothing changed.
   {
-    const { context, page } = await open(['approvalTv', 'transportStateSlow']);
+    const { context, page } = await open(['approvalTv', 'transportStateSlow'], { clock: true });
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
     await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
     const lists = () => page.evaluate(() => window.__calls.filter(c => c === 'list_devices').length);
+    const reads = () => page.evaluate(() => window.__calls.filter(c => c === 'transport_state').length);
     const before = await lists();
-    await page.waitForTimeout(7000);
+    // Each read takes 3 s against a 2 s poll: ticks land while one is out.
+    await page.clock.runFor(9000);
     const { max } = await page.evaluate(() => window.__inflight);
+    assert.ok(await reads() >= 2, 'the slow reads did run');
     assert.equal(max, 1, 'never two transport reads at once');
     assert.equal(await lists(), before, 'no full device list while the TV still asks');
     await context.close();

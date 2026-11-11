@@ -149,7 +149,7 @@ Source: <https://github.com/Genymobile/scrcpy>
 ### adb_client — MIT (vendored with modifications)
 
 The wireless-ADB transport is `adb_client` 3.2.2 by Corentin Liaud, vendored at
-`v2/vendor/adb_client` and pinned through `[patch.crates-io]`. Shield Optimizer's changes are
+`v2/vendor/adb_client` and pinned through `[patch.crates-io]`. ATV Optimizer's changes are
 described in `v2/vendor/adb_client/SHIELD-OPTIMIZER-PATCH.md`; the crate remains MIT-licensed and
 appears in the Cargo inventory below with its upstream license text.
 

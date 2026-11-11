@@ -14,6 +14,7 @@
   import AppDetailPanel from "$lib/components/AppDetailPanel.svelte";
   import type { AppDetailInputs } from "$lib/app-details";
   import { openContextMenu } from "$lib/contextmenu";
+  import { tip } from "$lib/tip";
 
   // One catalog-app table row, shared by the App List and the Optimize wizard.
   // Dumb on purpose: data in, an `actions` snippet for the per-tab buttons —
@@ -95,7 +96,7 @@
   /// some other file would otherwise silently toggle the row under the user.
   function onRowClick(event: MouseEvent) {
     const target = event.target as Element | null;
-    if (target?.closest("button, a, input, select, textarea, label")) return;
+    if (target?.closest("button, a, input, select, textarea, label, [data-tip-focus]")) return;
     onToggleDetail?.();
   }
 
@@ -186,7 +187,7 @@
         <span class="state-unavailable">STATE UNAVAILABLE</span>
       {/if}
       {#if review}
-        <span class="tag review" data-tip="Check whether you actually use this app">REVIEW</span>
+        <span class="tag review" use:tip={{ text: "Check whether you actually use this app", row: true }}>REVIEW</span>
       {/if}
       {#if extraTag}
         <span class={`tag tag-${extraTagKind}`}>{extraTag}</span>
@@ -245,7 +246,7 @@
            opened" — usagestats ages out and resets on a wipe. -->
       <span
         class="muted dash"
-        data-tip="No usage record · Android keeps about a year of history"
+        use:tip={{ text: "No usage record · Android keeps about a year of history", row: true }}
       >—</span>
     {/if}
   </td>

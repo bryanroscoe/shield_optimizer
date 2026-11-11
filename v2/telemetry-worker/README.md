@@ -127,6 +127,9 @@ How that is enforced server-side, so a client bug cannot break it:
   code counts (`agg_error_daily`) and the install ids seen per device group
   (`agg_device_installs`, used to count distinct installs). These hold no free text.
 - Rate-limit counters are deleted after two days.
+- If stored data ever nears the database's size limit, the same cron frees space early, oldest
+  first: Send logs uploads, then log excerpts, then raw events, and only then the oldest aggregate
+  days. See [Storage budget](#storage-budget).
 - To honour a deletion request, the user can read their support ID from the app (look it up with
   `scripts/support-lookup.sh` to get the full id); delete it with
   `DELETE FROM events WHERE install_id = ?` and the same on `diag_uploads`,
@@ -146,7 +149,7 @@ The event shape is the schema 1 contract the apps implement.
 | `400` | Bad JSON, wrong envelope, more than 50 events, or no valid event at all (`{"error":"no_valid_events","rejected":{"unknown_kind":1}}`). |
 | `413` | Body over 64 KB. |
 | `415` | Not `application/json`. |
-| `429` | Daily cap reached (`install_daily_cap` or `global_daily_cap`). `Retry-After` is the seconds to the next UTC midnight. Clients should drop or hold the batch, not retry in a loop. |
+| `429` | Daily cap reached (`install_daily_cap`, or `global_daily_cap` for the global event count or stored-bytes budget). `Retry-After` is the seconds to the next UTC midnight. Clients should drop or hold the batch, not retry in a loop. |
 | `503` | D1 unavailable (`storage_unavailable`). If the batch had been admitted, its per-install quota is given back; the global count is not, so a storage outage cannot turn into unbounded writes. |
 
 Clients should treat anything other than `204` as "drop this batch". Telemetry must never block or
@@ -163,7 +166,7 @@ Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_ver
 | `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }`. |
 | `400` | Bad JSON or shape, `unsupported_app` (anything but `desktop`), `bad_text`, `text_too_large`. |
 | `413` / `415` | Body too large / not `application/json`. |
-| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (1000) or `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
+| `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (200) or `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
 | `503` | D1 unavailable. |
 
 `OPTIONS` returns `204` but never sends `Access-Control-Allow-Origin`. Both apps post from native
@@ -264,7 +267,7 @@ it does not substitute for a native app or physical TV test.
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
 | Worker | `atv-optimizer-telemetry` |
 | D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
-| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters |
+| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters; then enforce the [storage budget](#storage-budget) |
 | Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it, and so do the PR's native test packages (`v2-tests.yml`), which also set `ATVOPT_TEST_BUILD` to the merge commit they build and the PR head; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
 
@@ -288,6 +291,30 @@ What runs against production on its own:
   "Device support report" issue. See [`docs/DEVICE-SUPPORT.md`](../../docs/DEVICE-SUPPORT.md).
 
 Both skip with a notice if the secret or variable is missing.
+
+**Not yet deployed (2026-11-11):** the storage budget (`GLOBAL_DAILY_EVENT_BYTES`,
+`STORAGE_BUDGET_BYTES`, `STORAGE_TRIM_MAX_ROW_WRITES`, the lower upload caps and the cron's
+oldest-first trim) and the `400` for a
+malformed support id are on `main` but reach production only with an owner-approved
+`npx wrangler deploy` (see Redeploy below). No migration is needed: the new caps are rows in the
+existing `rate_daily` table and the trim uses existing tables. Until then production keeps the old
+caps, which can fill the 500 MB database. After deploying, delete this note.
+
+Before deploying, check that `GLOBAL_DAILY_EVENT_BYTES` (1.5 MiB/day) clears real traffic with
+room to spare; once it is live, events over it are refused with `429 global_daily_cap` for the rest
+of the UTC day. This read-only query (`sql/event-volume.sql`) lists the last 14 days' event counts,
+their average stored size and each day's total as the cap counts it (string bytes plus 256 per
+row):
+
+```sh
+npx wrangler d1 execute telemetry --remote --file sql/event-volume.sql
+```
+
+Size the cap from the busiest day's `day_bytes`: keep the cap at least three times that. If the
+busiest day is already over about 0.5 MiB, raise `GLOBAL_DAILY_EVENT_BYTES` in `wrangler.toml`
+before deploying (and check that `GLOBAL_DAILY_EVENTS` × `avg_bytes` is not far below the new
+cap, or the count cap binds first), then redo the "Storage budget" arithmetic below: raw events
+are kept 90 days, so each extra MiB/day is about 94 MB at the worst case.
 
 ### Redeploy
 
@@ -402,32 +429,37 @@ Cloudflare's free plan (check the current numbers on the
 [D1](https://developers.cloudflare.com/d1/platform/limits/) limits pages):
 
 - Workers: 100,000 requests a day, 10 ms CPU per request. A 50-event batch validates well inside that.
-- D1: 5 million rows read and 100,000 rows written a day, 5 GB storage, 50 queries per Worker call.
-  Each request runs at most six queries however many events it carries (all writes go through
-  `json_each` over one JSON parameter). Row writes per accepted event are lowest in big batches
-  (aggregates are merged per batch) and highest for a one-event error batch: about eight (two
-  quota rows, the raw row and its two index entries, three aggregate rows). A Send logs upload is
-  about five (two quota rows, the row and its two index entries). A support lookup reads through
-  the `events_install` index and runs at most 1 + 7 × 5 queries. Over the limit, D1 refuses
-  queries until the daily reset; the apps just lose that day's telemetry.
+- D1: 5 million rows read and 100,000 rows written a day, 50 queries per Worker call, and
+  **500 MB per database** (5 GB is the total across all of an account's databases, not one
+  database's limit). Each request runs at most six queries however many events it carries (all
+  writes go through `json_each` over one JSON parameter). Row writes per accepted event are lowest
+  in big batches (aggregates are merged per batch) and highest for a one-event error batch: about
+  nine (three quota rows, the raw row and its two index entries, three aggregate rows). A Send
+  logs upload is about six (three quota rows, the row and its two index entries). A support
+  lookup reads through the `events_install` index and runs at most 1 + 7 × 5 queries. Over the
+  daily limits, D1 refuses queries until the daily reset; the apps just lose that day's telemetry.
+  Over the size limit, every write fails until space is freed, which is what the storage budget
+  below prevents.
 - Cron Triggers: this Worker uses one.
 
 Abuse protection:
 
 - 64 KB body cap, enforced while reading the stream, and at most 50 events per request.
 - Per-install cap: `PER_INSTALL_DAILY_EVENTS` (500) events per install id per UTC day.
-- Global cap: `GLOBAL_DAILY_EVENTS` (7,000) events per UTC day across everyone. The write budget
-  is about eight row writes per event on arrival in the worst case (a one-event error batch) plus
-  about four for the cron's deletes (its quota row after two days, the raw row and its two index
-  entries after 90).
-  Under a sustained flood that is roughly twelve writes per event per day, so 7,000 events is
-  about 84,000 of the 100,000 free writes; uploads add at most about 6,000 more (1,000 a day at
-  about six writes each). Raise it only together with a paid plan.
-- Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (1000) and
-  `GLOBAL_DAILY_UPLOAD_BYTES` (100 MiB) per UTC day, counted in `rate_daily` under
-  `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap is read first, so
-  one person retrying can't spend everyone's budget. With 30 days' retention the byte cap bounds
-  stored log text at about 3 GiB of D1's 5 GiB, whatever the number of made-up install ids.
+- Global caps: `GLOBAL_DAILY_EVENTS` (7,000) events and `GLOBAL_DAILY_EVENT_BYTES` (1.5 MiB) of
+  stored event data per UTC day across everyone (`rate_daily` keys `*` and `event-bytes:*`). The
+  write budget is about nine row writes per event on arrival in the worst case (a one-event error
+  batch) plus about four for the cron's deletes (its quota row after two days, the raw row and its
+  two index entries after 90). Under a sustained flood that is roughly thirteen writes per event
+  per day. The byte cap admits at most about 4,800 events a day (each costs at least ~330
+  bytes), about 62,000 of the 100,000 free writes, and the count cap bounds it at 91,000 if the
+  byte cap is ever raised; uploads add at most about 1,200 more (200 a day at about six writes
+  each), and the storage trim at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000) a day, for about
+  83,000 in the worst case. Raise them only together with a paid plan.
+- Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (200) and
+  `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB, 24 full-size uploads) per UTC day, counted in
+  `rate_daily` under `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap
+  is read first, so one person retrying can't spend everyone's budget.
 
 Both caps are counters in one D1 table, `rate_daily` (a row per install id per day, plus key `*`
 for the global total). Admission and increment are a single statement: it checks every counter
@@ -436,6 +468,60 @@ D1 runs one write at a time, so concurrent requests cannot both slip under a cap
 that would cross a cap is refused whole. A refused request writes nothing, so retry loops and
 floods of made-up install ids cost row reads (5 million a day) rather than the much smaller
 write quota.
+
+### Storage budget
+
+Production is on the Workers Free plan, where one D1 database stops accepting writes at 500 MB.
+After that every ingest, upload and support-tier sync answers `503` until rows are deleted. The
+caps bound the worst case, a flood of made-up install ids every day, and the storage budget below
+holds what they leave over. Each event costs
+its stored string bytes plus 256 for the row and its index entries (`eventBytes` in
+`src/ingest.ts`):
+
+| Data | Worst case |
+| --- | --- |
+| Raw events: 1.5 MiB/day × 90 days (`RAW_RETENTION_DAYS`) | 1,572,864 × 90 ≈ 142 MB |
+| Uploads: 6 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 6,291,456 × 30 ≈ 189 MB |
+| Upload rows: 200/day × 30 days × ~400 bytes | ≈ 2.4 MB |
+| `rate_daily`: 3 days × ~7,000 keys × ~100 bytes | ≈ 2.1 MB |
+| **Total data** | **≈ 335 MB** |
+
+(Log excerpts are counted in the raw events' 90 days though they are cleared after 30, so this
+overstates.) That is more than the 300 MB storage budget, so under a sustained worst-case flood the
+budget, not the caps, sets the size: the trim below keeps the estimate at or under 300 MB by
+deleting the oldest Send logs uploads first. SQLite pages are not packed full, so the file runs
+larger than the data: at a generous 1.4× the budget is about 420 MB of the 500 MB.
+
+The upload byte cap is deliberately larger than the events': a few made-up install ids can spend
+it and lock "Send logs" out for everyone until the next UTC midnight, so it buys 24 full-size
+uploads a day rather than 8, and the budget trim is the backstop for the space.
+
+The aggregate tables are kept forever and are not capped by bytes. Normal use upserts the same few
+device rows, but a flood of made-up device names adds up to about three rows per event, so they
+are the one thing that can grow without limit. The cron therefore also enforces
+`STORAGE_BUDGET_BYTES` (300 MB of estimated data): when the estimate passes it, it frees space
+oldest first, towards 80% of the budget, in this order: Send logs uploads, log excerpts, raw
+events, then the oldest days of `agg_error_daily`, `agg_device_daily` and `agg_device_installs`.
+The support-tier list is never touched.
+
+The trim must not cause the outage it prevents, so its cost is bounded in rows, not statements:
+
+- **Reads.** The estimate reads every stored row once per cron run, about 0.5 to 2 million rows
+  in the worst case above, of the 5 million a day. Each tier then reads at most as many of its
+  oldest rows as it may delete.
+- **Writes.** D1 counts every row and index entry a statement changes. Deleting an upload or a raw
+  event costs three row writes (the row and its two index entries), clearing an excerpt or
+  deleting an aggregate row one. One run spends at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000), in
+  capped oldest-first batches (`… WHERE rowid IN (SELECT rowid … ORDER BY received_at LIMIT n)`),
+  leaving room for the ingest caps' ~63,000 inside the 100,000 a day.
+- **Convergence.** A run that reaches the cap stops and the next day's run carries on while the
+  estimate is still over the budget, so a large overshoot is worked off over several days. 20,000
+  writes free about 6,600 uploads, 2 MB of raw events or 4 MB of aggregate rows a day, more than a
+  worst-case day adds of each, so the trim keeps up with a sustained flood. Between two runs the
+  caps add at most ~7.5 MiB of raw data plus aggregate rows, inside the 80 MB of headroom.
+
+On a paid plan (10 GB per database) the caps and the budget can be raised together; keep the
+budget under the plan's per-database limit divided by about 1.4.
 
 Why D1 and not the alternatives: KV's free tier allows only 1,000 writes a day, far too few to
 count requests; the Workers Rate Limiting binding only supports 10- and 60-second windows, counts

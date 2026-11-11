@@ -31,17 +31,27 @@ pub async fn list_devices(state: State<'_, AppState>) -> Result<Vec<Device>, Str
 /// the `State<'_, T>` lifetime constraint getting in the way.
 pub async fn list_devices_impl(state: &AppState) -> Result<Vec<Device>, String> {
     Ok(renumber(collapse_duplicate_transports(
-        list_transports(state, None).await?,
+        list_transports(state, None).await?.rows,
     )))
+}
+
+/// The direct-ADB transport's prefix for a socket that died mid-call
+/// (`direct_adb::CONNECTION_LOST_PREFIX`). The mobile app turns it into its
+/// lost-connection flow, so it is never folded into a device row.
+const CONNECTION_LOST: &str = "Connection to the TV was lost";
+
+/// Every adb transport as a row, plus the property reads that failed. A
+/// failed read leaves its own row with no properties (unknown, never merged
+/// with another) rather than failing the whole list.
+struct Transports {
+    rows: Vec<Device>,
+    failures: Vec<(String, String)>,
 }
 
 /// One row per adb transport, before duplicates of one device are collapsed.
 /// `named_only` limits the Cast name lookups for unauthorized TVs to that
 /// serial; `None` looks up every one, as the device list does.
-async fn list_transports(
-    state: &AppState,
-    named_only: Option<&str>,
-) -> Result<Vec<Device>, String> {
+async fn list_transports(state: &AppState, named_only: Option<&str>) -> Result<Transports, String> {
     let adb = state.adb_snapshot().await;
     let raw = adb
         .raw(&["devices"])
@@ -57,6 +67,7 @@ async fn list_transports(
     let current = current_unauthorized(&*adb).await;
     let cast_names = unqueried_names(state, &entries, current.as_ref(), named_only).await;
     let mut out: Vec<Device> = Vec::with_capacity(entries.len());
+    let mut failures = Vec::new();
     for (idx, e) in entries.iter().enumerate() {
         let id = (idx + 1) as u32;
         // For non-authorized devices we can't query properties — we still
@@ -97,7 +108,24 @@ async fn list_transports(
                     None,
                     Some(&error),
                 );
-                return Err(error);
+                if error.contains(CONNECTION_LOST) {
+                    return Err(error);
+                }
+                tracing::warn!(serial = %e.serial, error = %error, "device list: no properties");
+                out.push(Device {
+                    id,
+                    serial: e.serial.clone(),
+                    name: e.serial.clone(),
+                    model: String::new(),
+                    device_type: DeviceType::Unknown,
+                    tv_evidence: TvEvidence::Unknown,
+                    status: e.status,
+                    connection: e.connection,
+                    properties: None,
+                    support: SupportInfo::default(),
+                });
+                failures.push((e.serial.clone(), error));
+                continue;
             }
         };
         if lacks_details(&props) {
@@ -146,7 +174,10 @@ async fn list_transports(
         out.push(device);
     }
 
-    Ok(out)
+    Ok(Transports {
+        rows: out,
+        failures,
+    })
 }
 
 /// Unauthorized endpoints the built-in engine has current evidence for: a
@@ -307,10 +338,14 @@ pub async fn device_profile(state: State<'_, AppState>, serial: String) -> Resul
 pub async fn device_profile_impl(state: &AppState, serial: &str) -> Result<Device, String> {
     // Names are display only, and another TV that doesn't answer its Cast
     // port would hold up every profile refresh, snapshot preview and apply.
-    let transports = list_transports(state, Some(serial)).await?;
-    let devices = renumber(collapse_duplicate_transports(transports.clone()));
-    resolve_profile(&transports, devices, serial)
-        .ok_or_else(|| format!("device {serial} not found"))
+    let Transports { rows, failures } = list_transports(state, Some(serial)).await?;
+    // Another TV's failed read leaves this one's profile intact; this one's
+    // own failure is still an error, not an empty profile.
+    if let Some((_, error)) = failures.into_iter().find(|(s, _)| s == serial) {
+        return Err(error);
+    }
+    let devices = renumber(collapse_duplicate_transports(rows.clone()));
+    resolve_profile(&rows, devices, serial).ok_or_else(|| format!("device {serial} not found"))
 }
 
 /// The collapsed row for `serial`, which may be a transport alias the list
@@ -1536,7 +1571,7 @@ fn quote_device_name(name: &str) -> Result<String, String> {
             "Unsupported character {bad:?} — device names are limited to plain ASCII here."
         ));
     }
-    Ok(format!("'{}'", name.replace('\'', r"'\''")))
+    Ok(super::quote_shell_arg(name))
 }
 
 /// `rename_device` — `settings put global device_name '<name>'`, the same
@@ -2454,6 +2489,53 @@ mod tests {
             ],
             "only unauthorized network rows are looked up"
         );
+    }
+
+    #[tokio::test]
+    async fn one_tv_with_an_unreadable_profile_keeps_its_own_row_and_spares_the_others() {
+        let props = batched_props(&[
+            "Living Room",
+            "NVIDIA",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "SERIAL-A",
+        ]);
+        let mock = MockAdb::default()
+            .on_raw(
+                "devices",
+                "List of devices attached\n\
+                 192.168.42.71:5555\tdevice\n\
+                 192.168.42.72:5555\tdevice\n\
+                 192.168.42.73:5555\tdevice\n",
+            )
+            .on_shell_for("192.168.42.72:5555", "settings get global device_name", "")
+            .on_shell("settings get global device_name", &props);
+        let state = state_with(mock);
+        let listed = list_devices_impl(&state).await.unwrap();
+        // .71 and .73 answer with the same hardware id and collapse; .72 said
+        // nothing, so it is unknown and stays on its own.
+        assert_eq!(listed.len(), 2, "{listed:?}");
+        let blank = listed
+            .iter()
+            .find(|d| d.serial == "192.168.42.72:5555")
+            .unwrap();
+        assert!(blank.properties.is_none());
+        assert_eq!(blank.device_type, DeviceType::Unknown);
+        assert_eq!(blank.tv_evidence, TvEvidence::Unknown);
+
+        let profile = device_profile_impl(&state, "192.168.42.71:5555")
+            .await
+            .unwrap();
+        assert_eq!(profile.name, "Living Room");
+        assert!(device_profile_impl(&state, "192.168.42.72:5555")
+            .await
+            .is_err());
     }
 
     #[tokio::test]

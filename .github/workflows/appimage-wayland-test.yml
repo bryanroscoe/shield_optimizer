@@ -20,6 +20,9 @@ on:
         required: true
         default: "v2-2.0.0-beta.12"
 
+permissions:
+  contents: read
+
 jobs:
   repro:
     runs-on: ubuntu-latest
@@ -27,14 +30,15 @@ jobs:
       - name: Download released AppImage
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
         run: |
-          gh release download "${{ inputs.tag }}" -R "$GITHUB_REPOSITORY" \
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" \
             -p '*.AppImage' -O shield.AppImage
           chmod +x shield.AppImage
           # Extract on the host (no FUSE needed) and mount the tree into the
           # container — sidesteps AppImage runtime/FUSE issues entirely.
           ./shield.AppImage --appimage-extract >/dev/null
-          ls squashfs-root/usr/lib/ | grep wayland || true
+          ls -d squashfs-root/usr/lib/*wayland* 2>/dev/null || true
 
       - name: Prepare Arch container with headless Wayland
         run: |

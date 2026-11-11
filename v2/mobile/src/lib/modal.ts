@@ -6,6 +6,19 @@ const stack: Entry[] = [];
 let unlock: (() => void) | undefined;
 let documentReturnFocus: HTMLElement | null = null;
 let revision = 0;
+// The router listens so the Android Back button closes the top modal before
+// it pops a screen (lib/router.svelte.ts).
+let stackListener: (() => void) | null = null;
+export function onModalStackChange(listener: (() => void) | null) { stackListener = listener; }
+export function hasOpenModal(): boolean { return stack.length > 0; }
+/// Back on the top modal, exactly as Escape: its own onClose decides whether
+/// it may close right now.
+export function closeTopModal(): boolean {
+  const top = stack.at(-1);
+  if (!top) return false;
+  top.options.onClose();
+  return true;
+}
 const focusable = 'button:not(:disabled), a[href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])';
 
 function controls(node: HTMLElement): HTMLElement[] {
@@ -113,6 +126,7 @@ export function modal(node: HTMLElement, options: Options) {
   }
   stack.push(entry);
   revision++;
+  stackListener?.();
   const initialFocus = requestAnimationFrame(() => {
     if (stack.at(-1) === entry && node.isConnected) focusInside(entry);
   });
@@ -159,6 +173,7 @@ export function modal(node: HTMLElement, options: Options) {
       // update. Retain the document lock/opener until that update settles.
       queueMicrotask(() => {
         if (closedAt !== revision) return;
+        stackListener?.();
         const top = stack.at(-1);
         const fallbackFocus = documentReturnFocus;
         if (!top) {

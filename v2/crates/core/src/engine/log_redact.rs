@@ -44,9 +44,7 @@ pub struct Scrub<'a> {
     pub words: &'a [&'a str],
 }
 
-fn re(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("static log pattern")
-}
+use super::telemetry::re;
 
 /// `2026-11-02T14:03:22.123456Z  INFO atv_optimizer_core::adb::driver: `
 static HEADER: LazyLock<Regex> = LazyLock::new(|| {

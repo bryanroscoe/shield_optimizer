@@ -54,7 +54,20 @@ fn persist_license(data_dir: &Path, file: &LicenseFile) -> Result<(), String> {
     std::fs::create_dir_all(data_dir).map_err(|e| format!("create license dir: {e}"))?;
     let json = serde_json::to_string(file).map_err(|e| format!("serialize license: {e}"))?;
     let path = license_path(data_dir);
-    std::fs::write(&path, json).map_err(|e| format!("persist license: {e}"))
+    write_replacing(&path, json.as_bytes()).map_err(|e| format!("persist license: {e}"))
+}
+
+/// Write through a temp file in the same folder, so a crash leaves the old
+/// file or the new one, never a truncated mix.
+pub(crate) fn write_replacing(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    let mut temp = tempfile::NamedTempFile::new_in(dir)?;
+    std::io::Write::write_all(&mut temp, bytes)?;
+    temp.as_file().sync_all()?;
+    temp.persist(path).map(|_| ()).map_err(|e| e.error)
 }
 
 /// Read the persisted entitlement at startup. Returns `Free` when there is no
@@ -437,5 +450,15 @@ mod license_tests {
             entitlement: Entitlement::Pro,
         };
         assert!(persist_license(&not_a_dir, &file).is_err());
+    }
+
+    #[test]
+    fn a_rewrite_replaces_the_file_and_leaves_no_temp() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("license.json");
+        std::fs::write(&path, "old").unwrap();
+        super::write_replacing(&path, b"new").unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"new");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 }

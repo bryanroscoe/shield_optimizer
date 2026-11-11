@@ -215,7 +215,9 @@ deferred.
   history on the device: Chromium skips entries pushed from `popstate` without a user gesture, so
   the second Back left the app. The spare-history-entry path remains only for the browser tests.
   A font or display size change must not recreate the activity (`fontScale|density` in
-  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom.
+  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom. Neither
+  must a switch to a right-to-left language (`locale|layoutDirection`): recreating the activity
+  dropped the TV session.
 - **Reconnect safety.** The session generation is reactive. Launcher, app sheets and file actions
   discard reads, picker intent, polling and continuations when the generation or liveness changes,
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
@@ -320,7 +322,7 @@ cd vendor/adb_client && cargo test --lib      # the vendored crate is outside th
 ```
 
 From `v2/mobile/`: `npm run check` (0 errors / 0 warnings), `npm run build`, `npm test` (the
-browser suite: real screens, mocked Tauri). `node --test evidence/lifecycle/reproduce.mjs` runs the
+browser suite: real screens, mocked Tauri). `node --test tests/lifecycle/reproduce.mjs` runs the
 lifecycle matrix. CI (`.github/workflows/v2-tests.yml`) runs the Rust workspace, the vendored
 tests and the mobile check/build/test. The separate `mobile-play-release.yml` smoke job builds
 the four-ABI Android artifacts and runs Kotlin JVM tests for mobile/shared input changes on

@@ -124,14 +124,37 @@ async function createPage(t, options = {}) {
   return page;
 }
 
-async function open(t, screen = "remote") {
+// `hardware` makes each fixture TV report a verified hardware id (otherwise
+// the fixtures report none, and sameness is never inferred from the address).
+async function open(t, screen = "remote", { hardware = false } = {}) {
   const page = await createPage(t, { activeHost: "A" });
-  await page.evaluate(async (screen) => {
+  await page.evaluate(async ({ screen, hardware }) => {
+    if (hardware) {
+      window.hardware = { A: "HW-A", B: "HW-B" };
+      const plain = window.device;
+      window.device = (host) => ({ ...plain(host), properties: { serial_number: window.hardware[host] } });
+    }
     await session.connect("A", 5555);
     router.reset("dashboard");
     router.navigate(screen);
-  }, screen);
+  }, { screen, hardware });
   return page;
+}
+
+// A silent redial of the current TV (what a liveness blip triggers), held
+// until `window.finishRedial()` so a test can act mid-reconnect.
+async function startRedial(page) {
+  await page.evaluate(() => {
+    window.handlers.wireless_connect = (args) =>
+      new Promise((resolve) => {
+        window.finishRedial = (ok = true) => {
+          if (ok) window.activeHost = args.host;
+          resolve(ok ? { ok: true } : { ok: false, message: "No route to host" });
+        };
+      });
+    window.redial = window.session.recoverOrMarkLost();
+  });
+  await page.waitForFunction(() => !!window.finishRedial);
 }
 
 const savedA = {
@@ -227,6 +250,83 @@ test("Tweaks is a bottom tab and Optimize is a pushed screen; Back unwinds both 
   assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
 });
 
+test("Back closes an open Dashboard dialog instead of leaving the app", async (t) => {
+  const page = await open(t, "dashboard");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await page.locator(".action-btn", { hasText: "Reboot" }).click();
+  const dialog = page.getByRole("dialog", { name: "Reboot the TV?" });
+  await dialog.waitFor();
+  // At the root, the open dialog alone is what gives Back somewhere to go.
+  await page.evaluate(() => history.back());
+  await dialog.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "reboot_device")), false);
+});
+
+async function backModals(page) {
+  await page.evaluate(async () => {
+    const { modal } = await import("/src/lib/modal.ts");
+    window.openModals = [];
+    window.refuseClose = false;
+    window.openTestModal = (name) => {
+      const node = document.createElement("div");
+      node.style.cssText = "position:fixed;inset:0";
+      node.innerHTML = `<div role="dialog" aria-label="${name}"><button>${name}</button></div>`;
+      document.body.append(node);
+      const action = modal(node, { onClose() {
+        if (window.refuseClose) return;
+        action.destroy();
+        node.remove();
+        window.openModals = window.openModals.filter((n) => n !== name);
+      } });
+      window.openModals.push(name);
+    };
+  });
+}
+const pressBack = async (page) => {
+  const before = await page.evaluate(() => window.backEvents);
+  await page.evaluate(() => history.back());
+  await page.waitForFunction((n) => window.backEvents > n, before);
+  // Let the close settle and the spare history entry come back.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+};
+
+test("Back closes stacked modals top first, then pops the screen underneath", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await backModals(page);
+  await page.evaluate(() => { openTestModal("Sheet"); openTestModal("Confirm"); });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Sheet"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), []);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+});
+
+test("Back cannot dismiss a modal mid-apply or one that refuses to close", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await backModals(page);
+  await page.evaluate(() => { openTestModal("Applying"); window.session.applyInProgress = true; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Applying"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+
+  // A modal whose own close refuses (as it would refuse Escape) stays up too.
+  await page.evaluate(() => { window.session.applyInProgress = false; window.refuseClose = true; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Applying"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+
+  await page.evaluate(() => { window.refuseClose = false; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), []);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+});
+
 test("remote queue is discarded after navigation and a TV switch", async (t) => {
   const page = await open(t);
   await page.evaluate(() => {
@@ -242,6 +342,89 @@ test("remote queue is discarded after navigation and a TV switch", async (t) => 
   await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)));
   const calls = await page.evaluate(() => window.calls.filter((c) => c.command === "send_key"));
   assert.deepEqual(calls.map((c) => c.args.serial), ["A:5555"]);
+});
+
+test("Send Text and Settings stay bound to the TV they were opened on", async (t) => {
+  const page = await open(t);
+  // Send Text opened on A closes when the session moves to B; nothing reaches B.
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await page.getByRole("textbox", { name: "Text to send" }).fill("secret");
+  await page.evaluate(() => window.session.connect("B", 5555));
+  await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
+  await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
+
+  // A Settings press queued behind a slow key on A is dropped after the switch.
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.handlers.send_key = () => new Promise((resolve) => { window.release = resolve; });
+  });
+  await page.getByRole("button", { name: "Volume up", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.evaluate(async () => {
+    await window.session.connect("B", 5555);
+    window.release({ ok: true, transport: "channel" });
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)));
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "open_settings")), false);
+
+  // Lost link: neither opens anything.
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  assert.equal(await page.getByRole("dialog", { name: "Send Text to TV" }).count(), 0);
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "open_settings")), false);
+});
+
+test("Send Text survives a silent reconnect to the same verified TV, but never sends over a dead link", async (t) => {
+  const page = await open(t, "remote", { hardware: true });
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Send Text to TV" });
+  const box = page.getByRole("textbox", { name: "Text to send" });
+  await box.fill("a long wifi passphrase");
+  const before = await page.evaluate(() => ({ generation: window.session.generation, epoch: window.session.deviceEpoch }));
+
+  // Mid-reconnect: the dialog and the text stay, and Send refuses honestly.
+  await startRedial(page);
+  assert.equal(await page.evaluate(() => window.session.isConnected), false);
+  await dialog.getByRole("button", { name: "Send Text", exact: true }).click();
+  await page.getByText(/isn't answering right now\. Nothing was sent; your text is kept/).waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
+  assert.equal(await box.inputValue(), "a long wifi passphrase");
+
+  // Back on the same TV (same hardware id): still open, still typed, and it sends.
+  await page.evaluate(async () => { window.finishRedial(true); await window.redial; });
+  const after = await page.evaluate(() => ({ generation: window.session.generation, epoch: window.session.deviceEpoch, live: window.session.isConnected }));
+  assert.notEqual(after.generation, before.generation, "the redial is a new connection");
+  assert.deepEqual({ epoch: after.epoch, live: after.live }, { epoch: before.epoch, live: true }, "but the same TV");
+  assert.equal(await dialog.count(), 1);
+  assert.equal(await box.inputValue(), "a long wifi passphrase");
+  await dialog.getByRole("button", { name: "Send Text", exact: true }).click();
+  await dialog.waitFor({ state: "detached" });
+  const sent = await page.evaluate(() => window.calls.filter((c) => c.command === "send_text").map((c) => [c.args.serial, c.args.text]));
+  assert.deepEqual(sent, [["A:5555", "a long wifi passphrase"]]);
+});
+
+test("Send Text closes when a reconnect lands on a different or unverifiable TV", async (t) => {
+  // A different hardware id answering at the same address.
+  const page = await open(t, "remote", { hardware: true });
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await page.getByRole("textbox", { name: "Text to send" }).fill("secret");
+  await startRedial(page);
+  await page.evaluate(async () => { window.hardware.A = "HW-OTHER"; window.finishRedial(true); await window.redial; });
+  await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
+  await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+
+  // A TV that reports no hardware id: the address alone proves nothing.
+  const idless = await open(t, "remote");
+  await idless.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await idless.getByRole("textbox", { name: "Text to send" }).fill("secret");
+  await startRedial(idless);
+  await idless.evaluate(async () => { window.finishRedial(true); await window.redial; });
+  await idless.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
+  for (const p of [page, idless]) {
+    assert.equal(await p.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
+  }
 });
 
 test("ordinary remote taps cannot accumulate an unlimited backlog", async (t) => {
@@ -562,13 +745,83 @@ test("canceled connect cannot update the session when its old reply arrives", as
   assert.deepEqual(result, { canceled: false, serial: "A:5555", host: "A", canceledNative: true });
 });
 
+test("Dashboard Reboot confirmed after a TV switch sends nothing, and a lost link disables it", async (t) => {
+  const page = await open(t, "dashboard");
+  const reboot = page.locator(".action-btn", { hasText: "Reboot" });
+  await reboot.click();
+  await page.evaluate(() => window.session.connect("B", 5555));
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.getByText("The TV connection changed. Nothing was sent.").waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "reboot_device")), false);
+
+  // A reply that lands after the session moved on is still reported, naming
+  // the TV it was sent to (B), and does not disconnect the new TV (A).
+  await page.evaluate(() => {
+    window.handlers.reboot_device = () => new Promise((resolve) => { window.releaseReboot = resolve; });
+  });
+  await reboot.click();
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.waitForFunction(() => !!window.releaseReboot);
+  const label = await page.evaluate(() => window.session.deviceLabel);
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.releaseReboot({ ok: true, message: "" });
+  });
+  await page.getByText(`${label}: Reboot command sent.`, { exact: true }).waitFor();
+  assert.equal(await page.getByText("Reboot command sent.", { exact: true }).count(), 0, "not worded as the current TV's");
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  assert.equal(await page.evaluate(() => window.session.serial), "A:5555");
+
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  assert.equal(await reboot.isDisabled(), true);
+});
+
+test("Dashboard Reboot confirmed across a reconnect to the same TV asks to confirm again", async (t) => {
+  const page = await open(t, "dashboard", { hardware: true });
+  await page.locator(".action-btn", { hasText: "Reboot" }).click();
+  await startRedial(page);
+  await page.evaluate(async () => { window.finishRedial(true); await window.redial; });
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.getByText("The TV reconnected, so the reboot wasn't sent. Confirm Reboot again.").waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "reboot_device")), false);
+});
+
+test("a reboot whose TV drops the socket still reports success and disconnects that TV", async (t) => {
+  const page = await open(t, "dashboard", { hardware: true });
+  await page.evaluate(() => {
+    window.handlers.reboot_device = () => new Promise((resolve) => { window.releaseReboot = resolve; });
+  });
+  await page.locator(".action-btn", { hasText: "Reboot" }).click();
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.waitForFunction(() => !!window.releaseReboot);
+  // The TV goes down: the session starts a silent redial (a new generation)
+  // that fails, before the reboot reply arrives.
+  await startRedial(page);
+  await page.evaluate(async () => { window.finishRedial(false); await window.redial; });
+  assert.equal(await page.evaluate(() => window.session.liveness), "lost");
+  // The toast is on Dashboard, which the disconnect then leaves, so record it.
+  await page.evaluate(() => {
+    window.seenText = [];
+    new MutationObserver(() => window.seenText.push(document.body.innerText)).observe(document.body, {
+      childList: true, subtree: true, characterData: true,
+    });
+    window.releaseReboot({ ok: true, message: "" });
+  });
+  await page.waitForFunction(() => window.router.current === "onboarding");
+  assert.ok(
+    await page.evaluate(() => window.seenText.some((text) => text.includes("Reboot command sent."))),
+    "the result was shown for the TV it was sent to",
+  );
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "wireless_disconnect")), true);
+});
+
 test("stale reboot completion cannot disconnect a newer session", async (t) => {
   const page = await open(t);
   const result = await page.evaluate(async () => {
-    const generation = window.session.generation;
+    const target = { serial: window.session.serial, epoch: window.session.deviceEpoch };
     await window.session.connect("B", 5555);
     window.calls = [];
-    const finished = await window.session.finishReboot(generation);
+    const finished = await window.session.finishReboot(target);
     return { finished, serial: window.session.serial,
       disconnected: window.calls.some((c) => c.command === "wireless_disconnect") };
   });

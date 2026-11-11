@@ -276,6 +276,46 @@ test("a plan with only a skipped Home app never claims the TV already matches", 
   assert.equal(await card.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
 });
 
+test("restore preview counts settings the file names that snapshots never restore, keys on demand", async (t) => {
+  const refused = ["global:adb_enabled", "secure:install_non_market_apps"];
+  const page = await open(t, "snapshots", {
+    setup: () => {
+      window.snapshots = [{
+        path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Edited file",
+        device_name: "A", device_serial: "A:5555", device_type: "shield", disabled_count: 1, settings_count: 2,
+        launcher: null,
+      }];
+      window.refused = ["global:adb_enabled", "secure:install_non_market_apps"];
+      window.handlers.preview_apply = () => ({
+        cross_device_warning: null, packages_to_disable: ["com.bloat"], packages_already_disabled: [],
+        packages_not_installed: [], launcher_to_set: null, current_launcher: "com.google.android.tvlauncher",
+        launcher_not_installed: null, packages_kept: [], settings_to_write: {}, settings_to_delete: [],
+        settings_already_set: [], settings_refused: [...window.refused], current_values: {},
+      });
+    },
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  const card = page.locator(".plan-card");
+  const line = card.getByTestId("refused-settings");
+  await line.getByText("2 settings in this file are not ones snapshots restore and will be skipped.", { exact: true }).waitFor();
+  assert.equal(await page.getByText(refused[0], { exact: true }).count(), 0, "keys stay behind help until asked");
+  await line.getByRole("button", { name: /Skipped settings/ }).click();
+  const sheet = page.getByRole("dialog", { name: "Skipped settings" });
+  for (const key of refused) await sheet.getByText(key, { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "detached" });
+  await card.waitFor();
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) {
+    await card.screenshot({ path: `${process.env.REFUSED_SETTINGS_EVIDENCE}/mobile-refused-settings.png` });
+  }
+  await card.getByRole("button", { name: "Cancel", exact: true }).click();
+
+  await page.evaluate(() => { window.refused = []; });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  await card.getByRole("button", { name: "Restore", exact: true }).waitFor();
+  assert.equal(await card.getByTestId("refused-settings").count(), 0, "nothing shows when no setting is refused");
+});
+
 // ---- Remote ----
 
 test("keyboard and accessibility activation moves the D-pad once; a tap still sends once", async (t) => {

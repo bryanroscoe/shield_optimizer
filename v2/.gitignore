@@ -40,3 +40,6 @@ screenshots/palette.png
 
 # Shell bookmark test Vite cache
 /.vite-bookmark-test/
+
+# Test evidence captures (*_EVIDENCE=1 and friends). Attach them to the PR; never commit them.
+/evidence/

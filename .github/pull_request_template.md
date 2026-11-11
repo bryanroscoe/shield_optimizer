@@ -23,6 +23,6 @@ See `CONTRIBUTING.md`.
 ### Agent evidence checklist
 
 - [ ] Observable UI/interaction changes have **both screenshots and a short video**, or a genuine non-visual reason and concrete validation evidence are provided above.
-- [ ] Screenshots and video are uploaded as GitHub attachments (`--attach`), not linked by local or repo-relative paths.
+- [ ] Screenshots and video are uploaded as GitHub attachments (`--attach`), not linked by local or repo-relative paths, and not committed to the repo.
 - [ ] Tested revision, reproduction steps and results are accurate; any captures are labeled by their actual simulation/native/device basis.
 - [ ] Screenshots, videos and logs were reviewed for private content; redactions and capture gaps are disclosed, with no fabricated evidence or claims.

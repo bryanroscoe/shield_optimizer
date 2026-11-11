@@ -190,7 +190,7 @@ fn encode_input_text(text: &str) -> Result<String, String> {
         ));
     }
     let spaced = text.replace(' ', "%s");
-    Ok(format!("'{}'", spaced.replace('\'', r"'\''")))
+    Ok(super::quote_shell_arg(&spaced))
 }
 
 async fn dispatch_remote_input<Ready, Send, Sent, Cleanup, Cleaned, Fallback, FallbackResult>(

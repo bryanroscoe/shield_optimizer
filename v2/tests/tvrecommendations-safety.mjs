@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -13,7 +14,7 @@ process.env.VITE_DEMO = '1';
 delete process.env.TAURI_DEV_HOST;
 let server, browser;
 try {
-  server = await createServer({ root: V2, server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root: V2, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();

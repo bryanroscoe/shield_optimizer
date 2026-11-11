@@ -236,15 +236,15 @@ impl Diag {
     }
 }
 
-fn re(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("static diag pattern")
-}
+use super::telemetry::re;
 
 /// Error text to a code from a fixed vocabulary, matching the codes
 /// `shared/errors.ts` shows users where the two overlap. First match wins,
 /// so the specific shapes come before the broad ones.
 static ERROR_RULES: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(|| {
     [
+        // First: its sentence also says it "can't connect to any TV".
+        (r"(?i)ADB key file is damaged", "adb_key_damaged"),
         (
             r"(?i)could not locate an adb binary|adb binary at .* is not a regular file",
             "adb_missing",
@@ -843,6 +843,7 @@ mod tests {
             ("failed to connect to tv.local:5555: nodename nor servname provided", "dns_failure"),
             ("protocol fault (couldn't read status): Connection reset by peer", "connection_reset"),
             ("device profile unavailable: ", "empty_response"),
+            ("This phone's ADB key file is damaged, so it can't connect to any TV. It was left as it was.", "adb_key_damaged"),
             ("something new", "unknown"),
         ] {
             assert_eq!(classify_error_text(text), code, "{text}");

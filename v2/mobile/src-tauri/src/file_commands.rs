@@ -329,10 +329,19 @@ pub async fn backup_apk(
     serial: String,
     package: String,
 ) -> Result<BackupEntry, String> {
-    let pkg = validate_package(&package)?;
+    backup_apk_impl(state.inner(), &serial, &package, MAX_PULL_BYTES).await
+}
+
+async fn backup_apk_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    budget: u64,
+) -> Result<BackupEntry, String> {
+    let pkg = validate_package(package)?;
     let adb = state.adb_snapshot().await;
     let out = adb
-        .shell(&serial, &format!("pm path {pkg}"))
+        .shell(serial, &format!("pm path {pkg}"))
         .await
         .map_err(|e| format!("pm path: {e}"))?;
 
@@ -355,12 +364,15 @@ pub async fn backup_apk(
 
     let result = async {
         let mut apk_files = Vec::with_capacity(paths.len());
+        let mut total = 0u64;
         for (index, remote) in paths.iter().enumerate() {
             let remote_name = apk_basename(remote).expect("validated APK path has a basename");
             let local_name = format!("{index:03}-{remote_name}");
             let local = dir.join(&local_name);
-            let local_str = local.to_string_lossy().into_owned();
-            adb.raw_transfer(&["-s", &serial, "pull", remote, &local_str])
+            // One budget for the whole set, so a bundle can never grow past
+            // MAX_PULL_BYTES of the phone's app storage.
+            let remaining = budget - total;
+            adb.pull_limited(serial, remote, &local, remaining)
                 .await
                 .map_err(|e| format!("pull {remote_name}: {e}"))?;
             let size = std::fs::metadata(&local)
@@ -369,6 +381,14 @@ pub async fn backup_apk(
             if size == 0 {
                 return Err(format!("The TV returned an empty APK: {remote_name}"));
             }
+            if size > remaining {
+                return Err(format!(
+                    "{pkg}'s APKs are over the {:.0} GiB backup limit. Nothing was kept on \
+                     this phone.",
+                    budget as f64 / BYTES_PER_GIB,
+                ));
+            }
+            total += size;
             apk_files.push(local_name);
         }
         let manifest = BackupManifest {
@@ -735,6 +755,85 @@ fn file_modified_iso(meta: &std::fs::Metadata) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct BackupDriver {
+        sizes: Vec<usize>,
+        limits: std::sync::Mutex<Vec<u64>>,
+    }
+
+    #[async_trait::async_trait]
+    impl atv_optimizer_core::adb::AdbDriver for BackupDriver {
+        async fn raw(
+            &self,
+            _: &[&str],
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+            unreachable!()
+        }
+        async fn raw_transfer(
+            &self,
+            _: &[&str],
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+            panic!("an APK backup pulls with a size limit")
+        }
+        async fn shell(
+            &self,
+            _: &str,
+            command: &str,
+        ) -> atv_optimizer_core::adb::AdbResult<atv_optimizer_core::adb::AdbOutput> {
+            assert_eq!(command, "pm path com.example.app");
+            Ok(atv_optimizer_core::adb::AdbOutput {
+                stdout: "package:/data/app/x/base.apk\npackage:/data/app/x/split_config.en.apk\n"
+                    .into(),
+                stderr: String::new(),
+                exit_code: Some(0),
+            })
+        }
+        async fn pull_limited(
+            &self,
+            _: &str,
+            _: &str,
+            local: &Path,
+            limit: u64,
+        ) -> atv_optimizer_core::adb::AdbResult<()> {
+            let mut limits = self.limits.lock().unwrap();
+            let size = self.sizes[limits.len()];
+            limits.push(limit);
+            std::fs::write(local, vec![1u8; size])?;
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn an_apk_backup_shares_one_size_budget_across_its_splits() {
+        let dir = tempfile::tempdir().unwrap();
+        let driver = std::sync::Arc::new(BackupDriver {
+            sizes: vec![10, 20],
+            limits: Default::default(),
+        });
+        let state = AppState::new(driver.clone(), Default::default(), dir.path().to_path_buf());
+        backup_apk_impl(&state, "TV", "com.example.app", 100)
+            .await
+            .unwrap();
+        assert_eq!(*driver.limits.lock().unwrap(), vec![100, 90]);
+
+        let over = std::sync::Arc::new(BackupDriver {
+            sizes: vec![60, 50],
+            limits: Default::default(),
+        });
+        let state = AppState::new(over.clone(), Default::default(), dir.path().to_path_buf());
+        let Err(error) = backup_apk_impl(&state, "TV", "com.example.app", 100).await else {
+            panic!("a bundle over budget must fail");
+        };
+        assert!(error.contains("backup limit"), "{error}");
+        assert_eq!(*over.limits.lock().unwrap(), vec![100, 40]);
+        // Only the first, complete backup is left.
+        assert_eq!(
+            std::fs::read_dir(dir.path().join("backups"))
+                .unwrap()
+                .count(),
+            1
+        );
+    }
 
     struct DownloadDriver {
         fail: bool,

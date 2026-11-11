@@ -252,7 +252,11 @@
 
   function startLive() {
     stopLive();
-    liveTimer = setInterval(() => void session.loadHealth(true), 3000);
+    // A lost link skips ticks instead of polling a dead socket; live mode
+    // picks up again once the session is back.
+    liveTimer = setInterval(() => {
+      if (session.isConnected) void session.loadHealth(true);
+    }, 3000);
   }
 
   function stopLive() {

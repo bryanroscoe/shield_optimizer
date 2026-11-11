@@ -6,6 +6,7 @@
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import RemovalHelp from "$lib/components/RemovalHelp.svelte";
+  import AppColumnHelp from "$lib/components/AppColumnHelp.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
   import type {
@@ -96,6 +97,7 @@
   let optimizeAbort = $state(false);
   let optimizeSummary = $state<string>("");
   let optimizePerfApplied = $state<boolean>(false);
+  let performanceBusy = $state(false);
   /// Changes the last Optimize run made to the TV. A snapshot taken before a
   /// run cannot undo it, so saving one is offered only after a run changed it.
   let lastOptimizeChanged = $state(0);
@@ -157,6 +159,7 @@
       loadRequest++;
       runRequest++;
       performanceRequest++;
+      performanceBusy = false;
       optimizeAbort = true;
       optimizePlan = null;
       optimizePlanLoading = false;
@@ -201,6 +204,8 @@
     optimizeFailureMessages = {};
     optimizeSummary = "";
     optimizePerfApplied = false;
+    performanceRequest++;
+    performanceBusy = false;
     appliedInPlan = new Map();
     resetSnapshotOffer();
     safetyByPackage = {};
@@ -525,12 +530,13 @@
   }
 
   async function applyPerformanceSettings() {
-    if (!optimizePlan || optimizeRunning) return;
+    if (!optimizePlan || optimizeRunning || performanceBusy) return;
     const context = captureContext();
     const plan = optimizePlan;
     const mode = optimizeMode;
     const request = ++performanceRequest;
     const profile = optimizeMode === "optimize" ? "optimized" : "default";
+    performanceBusy = true;
     try {
       const r = await api.applyPerformanceSettings(context.serial, profile);
       if (!contextIsCurrent(context) || request !== performanceRequest || optimizePlan !== plan || optimizeMode !== mode) return;
@@ -543,6 +549,8 @@
       optimizeSummary = optimizeSummary
         ? `${optimizeSummary} Performance failed: ${e}.`
         : `Performance failed: ${e}.`;
+    } finally {
+      if (request === performanceRequest) performanceBusy = false;
     }
   }
 
@@ -773,10 +781,10 @@
       <thead>
         <tr>
           <th><span class="sr-only">Details</span></th>
-          <th>App</th>
+          <th><AppColumnHelp column="app" /></th>
           <th>Verdict &amp; source</th>
-          <th class="right">RAM</th>
-          <th class="right">Last used</th>
+          <th class="right"><AppColumnHelp column="ram" /></th>
+          <th class="right"><AppColumnHelp column="usage" /></th>
           <th>Action</th>
         </tr>
       </thead>
@@ -938,10 +946,14 @@
       {#if optimizeSummary && !optimizeRunning}
         <button
           onclick={applyPerformanceSettings}
-          disabled={optimizePerfApplied}
+          disabled={optimizePerfApplied || performanceBusy}
           data-tip={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
         >
-          {optimizePerfApplied ? "Performance applied" : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
+          {optimizePerfApplied
+            ? "Performance applied"
+            : performanceBusy
+              ? "Applying…"
+              : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
         </button>
       {/if}
     </div>

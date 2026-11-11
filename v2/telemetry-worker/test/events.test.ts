@@ -1,7 +1,20 @@
 import { env } from "cloudflare:workers";
-import { describe, expect, it } from "vitest";
-import { utcDay } from "../src/ingest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { EVENT_BYTES_KEY, eventBytes, utcDay } from "../src/ingest";
+import { validateEvent } from "../src/validate";
 import { call, event, newInstallId, post } from "./helpers";
+
+// One frozen clock for the tests and the Worker (same isolate), so the day a
+// test seeds rate_daily under is the day the Worker counts against, even on
+// a run that crosses UTC midnight. A second before midnight on purpose.
+const NOW = new Date("2026-11-11T23:59:59.000Z");
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 async function rowsFor(installId: string): Promise<Array<Record<string, unknown>>> {
   const r = await env.DB.prepare("SELECT * FROM events WHERE install_id = ?1 ORDER BY id").bind(installId).all();
@@ -25,6 +38,8 @@ describe("POST /v1/events", () => {
 
     const rows = await rowsFor(id);
     expect(rows).toHaveLength(4);
+    // The Worker read the same clock as the test.
+    expect(rows[0]?.received_at).toBe(NOW.toISOString());
     expect(rows[0]).toMatchObject({ manufacturer: "NVIDIA", model: "SHIELD Android TV", sdk: 30, kind: "device_seen" });
     expect(rows[3]).toMatchObject({ kind: "error", manufacturer: null, message: "adb not found in [path]" });
     // Nothing from request.cf is kept, not even the country.
@@ -208,6 +223,32 @@ describe("POST /v1/events", () => {
     } finally {
       await env.DB.prepare("UPDATE rate_daily SET events = ?2 WHERE day = ?1 AND key = '*'").bind(day, before?.events ?? 0).run();
     }
+  });
+
+  it("counts each accepted event's stored bytes against a global daily cap", async () => {
+    const day = utcDay(new Date());
+    const counter = async () =>
+      (await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY).first<{ events: number }>())
+        ?.events ?? 0;
+    const excerpt = "2026-11-02T14:00:02Z INFO x: connect failed\n".repeat(150);
+    const raw = event({ schema: 2, kind: "error", error_code: "connect_failed", log_excerpt: excerpt });
+    const clean = validateEvent(raw);
+    if (!clean.ok) throw new Error(clean.reason);
+    const before = await counter();
+    expect((await post("/v1/events", { events: [raw] })).status).toBe(204);
+    expect(await counter()).toBe(before + eventBytes(clean.value));
+    expect(eventBytes(clean.value)).toBeGreaterThan(new TextEncoder().encode(clean.value.log_excerpt ?? "").length);
+
+    // wrangler.toml's GLOBAL_DAILY_EVENT_BYTES (1.5 MiB): a full byte budget
+    // refuses the next event as the global cap and stores nothing.
+    await env.DB.prepare("UPDATE rate_daily SET events = ?3 WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY, 1572864 - 10).run();
+    const fresh = newInstallId();
+    const res = await post("/v1/events", { events: [event({ install_id: fresh })] });
+    expect(res.status).toBe(429);
+    expect(await res.json()).toEqual({ error: "global_daily_cap" });
+    expect(await rowsFor(fresh)).toHaveLength(0);
+    expect(await counter()).toBe(1572864 - 10);
+    await env.DB.prepare("UPDATE rate_daily SET events = ?3 WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY, before).run();
   });
 
   it("answers OPTIONS without granting any origin, and rejects other methods", async () => {

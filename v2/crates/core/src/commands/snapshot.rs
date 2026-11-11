@@ -10,8 +10,8 @@ use crate::adb::{
     parse_installed_packages_output,
 };
 use crate::engine::snapshot::{
-    absent_catalog_packages, compute_apply_plan, tracked_setting_keys, ApplyPlanInputs, Snapshot,
-    SnapshotApplyPlan, SCHEMA_VERSION,
+    absent_catalog_packages, compute_apply_plan, is_tracked_setting, tracked_setting_keys,
+    ApplyPlanInputs, Snapshot, SnapshotApplyPlan, SCHEMA_VERSION,
 };
 use crate::engine::{
     home_keep_reason, is_never_disable, is_valid_package_name, may_be_home_handler,
@@ -161,17 +161,19 @@ async fn plan_for(
 ) -> Result<(SnapshotApplyPlan, Option<Vec<String>>), String> {
     let adb = state.adb_snapshot().await;
     let reads = restore_reads(adb.as_ref(), serial).await?;
-    let device = crate::commands::devices::device_profile_impl(state, serial).await?;
+    // This TV's type alone: another connected TV's failed read must not
+    // block or change this plan.
+    let device_type = crate::commands::devices::device_type_for(adb.as_ref(), serial).await?;
     let current_settings = current_settings_map(adb.as_ref(), serial).await?;
     let current_launcher = read_current_home(adb.as_ref(), serial)
         .await
         .ok()
         .and_then(|r| r.package);
-    let catalog = state.app_lists.for_device(device.device_type);
+    let catalog = state.app_lists.for_device(device_type);
     let plan = compute_apply_plan(
         snap,
         &ApplyPlanInputs {
-            target_device_type: device.device_type,
+            target_device_type: device_type,
             currently_installed: &reads.installed,
             currently_disabled: &reads.disabled,
             current_settings: &current_settings,
@@ -184,7 +186,7 @@ async fn plan_for(
     Ok((plan, reads.home_handlers))
 }
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub struct SnapshotFile {
     pub path: String,
     pub filename: String,
@@ -265,11 +267,21 @@ pub async fn list_snapshots(state: State<'_, AppState>) -> Result<Vec<SnapshotFi
         if path.extension().and_then(|e| e.to_str()) != Some("json") {
             continue;
         }
-        let Ok(contents) = tokio::fs::read_to_string(&path).await else {
-            continue;
+        // The listing has no row shape for a broken file, so it is logged
+        // rather than shown; it stays on disk for the user to inspect.
+        let contents = match tokio::fs::read_to_string(&path).await {
+            Ok(contents) => contents,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "snapshot list: unreadable file");
+                continue;
+            }
         };
-        let Ok(snap) = Snapshot::from_json(&contents) else {
-            continue;
+        let snap = match Snapshot::from_json(&contents) {
+            Ok(snap) => snap,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "snapshot list: unparseable file");
+                continue;
+            }
         };
         let filename = path
             .file_name()
@@ -303,6 +315,15 @@ pub async fn save_snapshot(
     label: Option<String>,
 ) -> Result<SnapshotFile, String> {
     state.require_pro(Feature::Snapshot)?;
+    save_snapshot_impl(state.inner(), serial, device_name, label).await
+}
+
+async fn save_snapshot_impl(
+    state: &AppState,
+    serial: String,
+    device_name: String,
+    label: Option<String>,
+) -> Result<SnapshotFile, String> {
     // Empty/whitespace label is treated as "no label".
     let label = label
         .map(|s| s.trim().to_string())
@@ -325,13 +346,10 @@ pub async fn save_snapshot(
         .filter(|key| !settings.contains_key(key))
         .collect();
 
-    // Detect device type the same way list_devices does — we'll just refetch
-    // here for snapshot purposes since it's cheap.
-    let device_type =
-        match crate::commands::devices::device_profile_impl(state.inner(), &serial).await {
-            Ok(d) => d.device_type,
-            Err(_) => crate::engine::DeviceType::Unknown,
-        };
+    // A failed read fails the save: a snapshot recorded as Unknown would
+    // warn on every restore to the TV it came from, and its absent apps
+    // would come from the wrong catalog.
+    let device_type = crate::commands::devices::device_type_for(adb.as_ref(), &serial).await?;
 
     // Android version.
     let ver_out = adb
@@ -377,15 +395,31 @@ pub async fn save_snapshot(
         })
         .collect();
     let stamp = chrono::Utc::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("{safe_name}_{stamp}.json");
-    let path: PathBuf = dir.join(&filename);
+    let stem = format!("{safe_name}_{stamp}");
 
     let json = snap
         .to_json()
         .map_err(|e| format!("serialize snapshot: {e}"))?;
-    tokio::fs::write(&path, &json)
-        .await
-        .map_err(|e| format!("write snapshot: {e}"))?;
+    // Staged and published without replacing anything: two saves with the
+    // same label in the same second each keep their file, and a failed write
+    // never leaves a truncated snapshot behind.
+    let path = tokio::task::spawn_blocking(move || {
+        super::screenshot::publish_new_file(
+            &dir,
+            &stem,
+            "json",
+            "snapshot",
+            "Could not reserve a snapshot filename. Earlier snapshots were preserved; save again.",
+            |file| std::io::Write::write_all(file, json.as_bytes()),
+        )
+    })
+    .await
+    .map_err(|e| format!("save snapshot task: {e}"))??;
+    let filename = path
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("")
+        .to_string();
 
     Ok(SnapshotFile {
         path: path.display().to_string(),
@@ -411,8 +445,16 @@ pub async fn preview_apply(
     snapshot_path: String,
 ) -> Result<SnapshotApplyPlan, String> {
     state.require_pro(Feature::Snapshot)?;
-    let snap = read_confined_snapshot(&state.snapshot_dir, &snapshot_path).await?;
-    Ok(plan_for(state.inner(), &serial, &snap).await?.0)
+    preview_apply_impl(state.inner(), &serial, &snapshot_path).await
+}
+
+async fn preview_apply_impl(
+    state: &AppState,
+    serial: &str,
+    snapshot_path: &str,
+) -> Result<SnapshotApplyPlan, String> {
+    let snap = read_confined_snapshot(&state.snapshot_dir, snapshot_path).await?;
+    Ok(plan_for(state, serial, &snap).await?.0)
 }
 
 #[derive(Serialize)]
@@ -559,8 +601,16 @@ pub async fn apply_snapshot(
     snapshot_path: String,
 ) -> Result<ApplyResult, String> {
     state.require_pro(Feature::Snapshot)?;
-    let snap = read_confined_snapshot(&state.snapshot_dir, &snapshot_path).await?;
-    apply_snapshot_impl(state.inner(), &serial, &snap).await
+    apply_snapshot_path_impl(state.inner(), &serial, &snapshot_path).await
+}
+
+async fn apply_snapshot_path_impl(
+    state: &AppState,
+    serial: &str,
+    snapshot_path: &str,
+) -> Result<ApplyResult, String> {
+    let snap = read_confined_snapshot(&state.snapshot_dir, snapshot_path).await?;
+    apply_snapshot_impl(state, serial, &snap).await
 }
 
 async fn apply_snapshot_impl(
@@ -762,7 +812,11 @@ async fn apply_settings_from_plan(
 ) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut settings_written = Vec::new();
     let mut settings_deleted = Vec::new();
-    let mut settings_failed = Vec::new();
+    let mut settings_failed: Vec<String> = plan
+        .settings_refused
+        .iter()
+        .map(|k| format!("{k}: refused (not a setting snapshots restore)"))
+        .collect();
     // Apply one setting per shell call. In a `;` batch a single failing
     // `settings put` (e.g. a SecurityException on a protected key) is invisible
     // — `adb shell` exits 0 even when the write fails, so success is read back
@@ -773,6 +827,10 @@ async fn apply_settings_from_plan(
         .map(|(key, value)| (key, Some(value)));
     let deletes = plan.settings_to_delete.iter().map(|key| (key, None));
     for (k, value) in writes.chain(deletes) {
+        if !is_tracked_setting(k) {
+            settings_failed.push(format!("{k}: refused (not a setting snapshots restore)"));
+            continue;
+        }
         // Key shape is `"ns.subkey"` per the snapshot schema.
         let Some((ns, key)) = k.split_once('.') else {
             settings_failed.push(format!("{k}: malformed key (expected ns.subkey)"));
@@ -1112,32 +1170,43 @@ mod tests {
             packages_kept: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
+            settings_refused: vec![],
             current_values: Default::default(),
-            settings_to_write: [("global.empty".into(), String::new())].into(),
+            settings_to_write: [(
+                "global.encoded_surround_output_enabled_formats".into(),
+                String::new(),
+            )]
+            .into(),
             settings_to_delete: vec![
-                "global.unset".into(),
-                "global.denied".into(),
+                "global.encoded_surround_output".into(),
+                "global.hdmi_control_enabled".into(),
                 "global.bad;key".into(),
             ],
         };
         let mock = MockAdb::default()
-            .on_shell("settings list global", &batched(&["empty="]))
-            .on_shell_failure("settings delete global denied", "Error: permission denied");
+            .on_shell(
+                "settings list global",
+                &batched(&["encoded_surround_output_enabled_formats="]),
+            )
+            .on_shell_failure(
+                "settings delete global hdmi_control_enabled",
+                "Error: permission denied",
+            );
         let log = mock.shell_log();
         let (written, deleted, failed) = apply_settings_from_plan(&mock, "serial", &plan).await;
-        assert_eq!(written, ["global.empty"]);
-        assert_eq!(deleted, ["global.unset"]);
+        assert_eq!(written, ["global.encoded_surround_output_enabled_formats"]);
+        assert_eq!(deleted, ["global.encoded_surround_output"]);
         assert_eq!(failed.len(), 2);
         let calls = log.lock().unwrap();
         let readback = crate::adb::checked_batch_command(&["settings list global"]);
         assert_eq!(
             *calls,
             [
-                "settings put global empty ''",
+                "settings put global encoded_surround_output_enabled_formats ''",
                 readback.as_str(),
-                "settings delete global unset",
+                "settings delete global encoded_surround_output",
                 readback.as_str(),
-                "settings delete global denied"
+                "settings delete global hdmi_control_enabled"
             ]
         );
     }
@@ -1155,6 +1224,7 @@ mod tests {
             packages_kept: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
+            settings_refused: vec![],
             current_values: Default::default(),
             settings_to_write: [(write.0.to_string(), write.1.to_string())].into(),
             settings_to_delete: vec![],
@@ -1218,7 +1288,8 @@ mod tests {
         readback: &str,
     ) -> MockAdb {
         MockAdb::default()
-            .on_raw("devices", "serial\tdevice\n")
+            // A second TV, so a plan is shown to depend on this one alone.
+            .on_raw("devices", "serial\tdevice\nother\tdevice\n")
             // Before "settings get": the profile batch also reads a setting.
             .on_shell("getprop ro.product.brand", "profile")
             .on_shell(
@@ -1354,6 +1425,152 @@ mod tests {
         assert!(!disabled_any(&log, PROTECTED));
     }
 
+    #[tokio::test]
+    async fn a_snapshot_cannot_write_or_delete_a_setting_it_does_not_track() {
+        for absent in [false, true] {
+            let mock = restore_tv(&[SETTINGS], &[], &[SETTINGS], "");
+            let log = mock.shell_log();
+            let mut snap = snapshot(None, &[]);
+            if absent {
+                snap.absent_settings = vec!["global.adb_enabled".into()];
+            } else {
+                snap.settings = [("global.adb_enabled".into(), "0".into())].into();
+            }
+            let res = apply_snapshot_impl(&state_with(mock), "serial", &snap)
+                .await
+                .unwrap();
+            assert!(res.settings_written.is_empty() && res.settings_deleted.is_empty());
+            assert_eq!(
+                res.settings_failed,
+                ["global.adb_enabled: refused (not a setting snapshots restore)"]
+            );
+            assert!(
+                !log.lock()
+                    .unwrap()
+                    .iter()
+                    .any(|c| c.contains("adb_enabled")),
+                "{:?}",
+                log.lock().unwrap()
+            );
+        }
+    }
+
+    fn save_tv(profile: &str) -> MockAdb {
+        MockAdb::default()
+            // The profile batch also reads a setting and the Android version.
+            .on_shell("getprop ro.product.brand", profile)
+            .on_shell(
+                "(pm list packages -d --user 0)",
+                &batched(&[&package_list(&[SETTINGS]), ""]),
+            )
+            .on_shell(
+                "settings get",
+                &batched(&vec!["null"; super::tracked_setting_keys().len()]),
+            )
+            .on_shell("getprop ro.build.version.release", "11")
+    }
+
+    /// A Pro state whose snapshot directory is `<data_dir>/snapshots`.
+    fn state_in(mock: MockAdb, data_dir: &std::path::Path) -> crate::commands::AppState {
+        crate::commands::AppState::new(
+            std::sync::Arc::new(mock),
+            Default::default(),
+            data_dir.to_path_buf(),
+        )
+        .with_entitlement(crate::license::Entitlement::Pro)
+    }
+
+    #[tokio::test]
+    async fn saves_never_overwrite_each_other_and_a_failed_type_read_saves_nothing() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        let state = state_in(save_tv("profile"), root.path());
+        let first =
+            super::save_snapshot_impl(&state, "serial".into(), "TV".into(), Some("x".into()))
+                .await
+                .unwrap();
+        let second =
+            super::save_snapshot_impl(&state, "serial".into(), "TV".into(), Some("x".into()))
+                .await
+                .unwrap();
+        assert_ne!(first.path, second.path);
+        for saved in [&first, &second] {
+            let text = std::fs::read_to_string(&saved.path).unwrap();
+            Snapshot::from_json(&text).unwrap();
+        }
+        // Only the two snapshots: no staging files left behind.
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 2);
+
+        let unreadable = tempfile::tempdir().unwrap();
+        let state = state_in(save_tv(""), unreadable.path());
+        // Nothing was created, not even the snapshot directory.
+        let err = super::save_snapshot_impl(&state, "serial".into(), "TV".into(), None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("device profile"), "{err}");
+        assert_eq!(std::fs::read_dir(unreadable.path()).unwrap().count(), 0);
+    }
+
+    #[tokio::test]
+    async fn another_tvs_failed_read_does_not_block_this_tvs_plan() {
+        let mock = restore_tv(&[SETTINGS, BLOAT], &[], &[SETTINGS], "").on_shell_for(
+            "other",
+            "getprop ro.product.brand",
+            "",
+        );
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(None, &[BLOAT]))
+            .await
+            .unwrap();
+        assert_eq!(res.packages_disabled, [BLOAT]);
+    }
+
+    #[tokio::test]
+    async fn only_files_inside_the_snapshot_dir_are_read() {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join("snapshots");
+        std::fs::create_dir(&dir).unwrap();
+        let json = snapshot(None, &[BLOAT]).to_json().unwrap();
+        let inside = dir.join("inside.json");
+        let outside = root.path().join("outside.json");
+        std::fs::write(&inside, &json).unwrap();
+        std::fs::write(&outside, &json).unwrap();
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut rejected = vec![
+            outside.display().to_string(),
+            dir.join("../outside.json").display().to_string(),
+        ];
+        #[cfg(unix)]
+        {
+            let link = dir.join("link.json");
+            std::os::unix::fs::symlink(&outside, &link).unwrap();
+            rejected.push(link.display().to_string());
+        }
+        assert!(
+            super::read_confined_snapshot(&dir, &inside.display().to_string())
+                .await
+                .is_ok()
+        );
+        for path in &rejected {
+            let err = super::read_confined_snapshot(&dir, path)
+                .await
+                .expect_err(path);
+            assert!(err.contains("outside"), "{path}: {err}");
+        }
+        // Preview and apply both go through the same confined read.
+        let mock = restore_tv(&[SETTINGS, BLOAT], &[], &[SETTINGS], "");
+        let log = mock.shell_log();
+        let state = state_in(mock, root.path());
+        for path in &rejected {
+            assert!(super::preview_apply_impl(&state, "serial", path)
+                .await
+                .is_err());
+            assert!(super::apply_snapshot_path_impl(&state, "serial", path)
+                .await
+                .is_err());
+        }
+        assert!(log.lock().unwrap().is_empty(), "{:?}", log.lock().unwrap());
+    }
+
     fn disabled_any(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>, pkg: &str) -> bool {
         log.lock()
             .unwrap()
@@ -1425,6 +1642,7 @@ mod tests {
             packages_kept: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
+            settings_refused: vec![],
             current_values: Default::default(),
             settings_to_write: Default::default(),
             settings_to_delete: vec![],

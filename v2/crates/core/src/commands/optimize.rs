@@ -122,33 +122,47 @@ pub async fn apply_performance_settings(
     profile: PerformanceProfile,
 ) -> Result<PerformanceResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
+    let adb = state.adb_snapshot().await;
+    Ok(apply_performance_settings_impl(adb.as_ref(), &serial, profile).await)
+}
+
+const ANIMATION_SCALES: [&str; 3] = [
+    "window_animation_scale",
+    "transition_animation_scale",
+    "animator_duration_scale",
+];
+
+/// Each scale is written and read back on its own: `adb shell` reports only
+/// the last command of a `;` chain, so a batch hides a failed write.
+async fn apply_performance_settings_impl(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    profile: PerformanceProfile,
+) -> PerformanceResult {
     let value = match profile {
         PerformanceProfile::Optimized => "0.5",
         PerformanceProfile::Default => "1",
     };
-    let cmd = format!(
-        "settings put global window_animation_scale {value}; \
-         settings put global transition_animation_scale {value}; \
-         settings put global animator_duration_scale {value}"
-    );
-    let adb = state.adb_snapshot().await;
-    let out = adb
-        .shell(&serial, &cmd)
-        .await
-        .map_err(|e| format!("settings put: {e}"))?;
-    let message = if out.stdout.is_empty() {
-        if out.stderr.is_empty() {
-            format!("Animations → {value}×")
-        } else {
-            out.stderr
+    let mut failed = Vec::new();
+    for key in ANIMATION_SCALES {
+        if let Err(e) =
+            super::verification::put_setting_confirmed(adb, serial, "global", key, Some(value))
+                .await
+        {
+            failed.push(e);
+        }
+    }
+    if failed.is_empty() {
+        PerformanceResult {
+            ok: true,
+            message: format!("Animations → {value}×"),
         }
     } else {
-        out.stdout
-    };
-    Ok(PerformanceResult {
-        ok: !message.contains("Error") && !message.contains("Exception"),
-        message,
-    })
+        PerformanceResult {
+            ok: false,
+            message: format!("Animations not set to {value}×: {}", failed.join("; ")),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -170,6 +184,38 @@ mod tests {
     }
     use crate::adb::BATCH_SEPARATOR;
     use crate::commands::test_support::MockAdb;
+
+    #[tokio::test]
+    async fn animation_scales_are_confirmed_one_by_one() {
+        let all = batched(&[
+            "window_animation_scale=0.5\ntransition_animation_scale=0.5\nanimator_duration_scale=0.5",
+        ]);
+        let mock = MockAdb::default().on_shell("settings list global", &all);
+        let log = mock.shell_log();
+        let res = apply_performance_settings_impl(&mock, "TV", PerformanceProfile::Optimized).await;
+        assert!(res.ok, "{}", res.message);
+        assert_eq!(
+            log.lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.starts_with("settings put global"))
+                .count(),
+            3
+        );
+
+        let one_missing = batched(&["window_animation_scale=0.5\ntransition_animation_scale=1"]);
+        for mock in [
+            MockAdb::default().on_shell("settings list global", &one_missing),
+            MockAdb::default()
+                .on_shell("settings put global animator", "Error: denied")
+                .on_shell("settings list global", &all),
+            MockAdb::default().on_shell_err("settings list global", "offline"),
+        ] {
+            let res =
+                apply_performance_settings_impl(&mock, "TV", PerformanceProfile::Optimized).await;
+            assert!(!res.ok, "{}", res.message);
+        }
+    }
     use crate::engine::{
         ActionMethod, AppEntry, AppListBundle, DeviceType, OptimizeAction, RiskTier,
     };

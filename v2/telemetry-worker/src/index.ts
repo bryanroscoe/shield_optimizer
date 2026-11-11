@@ -124,7 +124,14 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
 
   if (path.startsWith("/v1/admin/support/")) {
     if (request.method !== "GET") return error(405, "method_not_allowed", {}, { allow: "GET" });
-    const q = parseSupportQuery(decodeURIComponent(path.slice("/v1/admin/support/".length)));
+    let raw: string;
+    try {
+      raw = decodeURIComponent(path.slice("/v1/admin/support/".length));
+    } catch {
+      // A malformed %-escape is the caller's mistake, not a server error.
+      return error(400, "bad_support_id");
+    }
+    const q = parseSupportQuery(raw);
     if (!q) return error(400, "bad_support_id");
     const url = new URL(request.url);
     const limit = Number(url.searchParams.get("limit") ?? String(DEFAULT_EVENT_LIMIT));

@@ -25,11 +25,17 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-04)
+### What is in flight right now (2026-11-11)
 
 `v2-2.5.0` (2026-11-04) is the latest desktop release. It completed the rename to ATV Optimizer
 (identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
 device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
+
+**Unreleased on `main`:** PR #268 (merged 2026-11-09) made built-in Rust ADB the default desktop
+engine, with Settings › ADB › ADB engine switching to Google platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md));
+the release that ships it waits for `docs/DEVICE-TEST-SCRIPT.md` N1–N18. Snapshot schema is 4
+(#353), which 2.5.0 and earlier refuse. The full list is `v2/CHANGELOG.md`'s `## Unreleased`.
+
 Shipped in 2.5.0 or live on the server side:
 
 - **Telemetry backend is live** (#264, deployed by #269): a Cloudflare Worker + D1 at
@@ -54,8 +60,10 @@ Shipped in 2.5.0 or live on the server side:
 Play submission path: the developer account is personal and new, so Google requires a closed test
 with at least 12 testers opted in for 14 consecutive days before production access (invite Ko-fi
 supporters first). Build and console steps: [`v2/mobile/RELEASE.md`](v2/mobile/RELEASE.md) and
-[`v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md`](v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md). Nothing in the
-mobile app has been verified on a real Play account or device yet.
+[`v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md`](v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md). Play `0.1.1`
+was installed from Google Play on a Pixel 10 Pro on 2026-11-05 and its startup and LAN discovery
+passed; phone-to-TV authorization, connected features and Play billing purchases are still
+unverified (`v2/mobile/HANDOFF.md`).
 
 Still open and not code work: #122 is closed on the fix and needs a Google TV reporter to confirm
 it on 2.4.1; #123 needs Glance's package id from its reporter; #93 and #105 need a real phone and
@@ -144,22 +152,22 @@ It runs offline against the demo fixture layer (`src/lib/demo-mock.ts`, gated be
 - **New screen/tab** → add a visit + capture step in `screenshots/capture.mjs`.
 - **New `invoke` command that loads on a screen** → add a fixture case in `src/lib/demo-mock.ts`, or that screen renders empty.
 
-The phone app has its own capture: `cd v2/mobile && npm run screenshots` writes every mobile screen to `v2/mobile/screenshots/frames/` (gitignored), then rebuilds the committed `gallery.gif` and one-page `contact-sheet.png` shown in the root and mobile READMEs. The `refresh-screenshots` release job regenerates them too once the mobile app is on the default branch. It runs against `v2/mobile/src/lib/demo-mock.ts` (`VITE_DEMO=1`), which answers shared commands from the desktop fixtures and only adds the mobile-only ones. A new mobile screen needs an entry in `SCREENS` in `v2/mobile/screenshots/capture.mjs`.
+The phone app has its own capture: `cd v2/mobile && npm run screenshots` writes every mobile screen to `v2/mobile/screenshots/frames/` (gitignored), then rebuilds the committed `gallery.gif` and one-page `contact-sheet.png` shown in the root and mobile READMEs. The `refresh-screenshots` release job regenerates them too. It runs against `v2/mobile/src/lib/demo-mock.ts` (`VITE_DEMO=1`), which answers shared commands from the desktop fixtures and only adds the mobile-only ones. A new mobile screen needs an entry in `SCREENS` in `v2/mobile/screenshots/capture.mjs`.
 
 The release workflow also regenerates the gallery on every `v2-*` tag (the `refresh-screenshots` job) and commits it to the default branch, so a release always ships current screenshots even if a manual regen was missed. Requires `ffmpeg` + `npx playwright install chromium` locally. Full pipeline docs: `v2/screenshots/README.md`.
 
 ## Cutting a v2 release
 
-- Run `v2/release.sh` from `v2/`. Flags: `--patch` (default), `--minor`, `--major`, plus `--beta` / `--rc` / `--alpha` / `--preview`, or `--set X.Y.Z[-tag]` for an explicit version. The script bumps `tauri.conf.json`, `Cargo.toml`, `Cargo.lock`, and `package.json`, commits as `Release v2-X.Y.Z[-tag]`, creates an annotated tag, and pushes (with confirmation).
+- Run `v2/release.sh` from `v2/`. Flags: `--patch` (default), `--minor`, `--major`, plus `--beta` / `--rc` / `--alpha` / `--preview`, or `--set X.Y.Z[-tag]` for an explicit version. The script bumps `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `crates/core/Cargo.toml`, `Cargo.lock`, `package.json` and the Flatpak metainfo (`flatpak/io.github.bryanroscoe.ATVOptimizer.metainfo.xml`, which gains a `<release>` entry), commits as `Release v2-X.Y.Z[-tag]`, creates an annotated tag, and pushes (with confirmation). From a stable version a pre-release flag bumps the patch and starts at `.1` (`2.5.0` → `--beta` → `2.5.1-beta.1`). From a pre-release with no bump flag the base version is kept: the same type counts up (`-beta.1` → `-beta.2`), another type starts at `.1` (`--rc` → `-rc.1`), and a plain run promotes it to stable (`2.6.0-rc.1` → `2.6.0`). The arithmetic lives in `v2/scripts/release_version.py`, tested by `v2/scripts/test_release_scripts.py`.
 - Release notes come from `v2/CHANGELOG.md`'s `## v2-X.Y.Z[-tag]` section — add a new section above the existing ones for every release. If no matching section exists, the workflow falls back to `git log` between the previous and current tag.
-- Pre-release suffixes (`-alpha`, `-beta`, `-rc`, `-preview`, `-pre`, with optional `.N`) are auto-detected by the workflow and flag the GitHub Release as a prerelease.
+- Pre-release tags (anything after X.Y.Z) publish a GitHub prerelease and never reach the update channels: `merge-updater` and `bump-tap` run for stable tags alone, because `v2/updater/latest.json` is the app's only update channel. The Flatpak bundle is still attached to the prerelease and `refresh-screenshots` still runs. Neither the manifest nor the cask is ever moved to a version strictly older than the live one; an equal version is republished (a re-dispatched tag re-signs every asset, and the manifest must carry the new signatures). Manual dispatch republishes an existing tag and builds that tag's commit. GitHub keeps one pending job per concurrency group, so with three overlapping releases the middle one's publish job can be cancelled; re-run it if needed.
 - Builds are unsigned. Users hit Gatekeeper (macOS) and SmartScreen (Windows) on first launch; the workflow appends the dismissal instructions to every release body. Signing setup is documented at the top of `.github/workflows/v2-release.yml` for when we add it.
 - The tag push fires the workflow. Builds take ~15-25 min across the three OS bundlers and produce: `.deb / .AppImage / .rpm` (Linux), universal `.dmg` + `.app.tar.gz` (macOS), `.msi` + `.exe` (Windows).
 - **Every updater signature is checked before the manifest goes live.** `merge-updater` downloads each artifact `latest.json` names and verifies it against `plugins.updater.pubkey` with `v2/scripts/updater-signatures.mjs`; a failure stops the release before `v2/updater/latest.json` changes. Any step that modifies a bundle after tauri-action signed it (the AppImage libwayland strip does) must sign it again with the same key and upload the new `.sig`.
 - After a successful build the `refresh-screenshots` job regenerates `v2/screenshots/gallery.gif` from the released UI and commits it to the default branch (Linux-rendered, so it can look slightly different from a local macOS regen — accepted trade-off). See "Keep the screenshots in sync" above.
 - **Windows MSI versioning gotcha** (two parts):
   - WiX rejects non-numeric pre-release identifiers — `0.1.0-beta` fails with "optional pre-release identifier in app version must be numeric-only…". So `release.sh` sets a numeric-only `bundle.windows.wix.version` (the human version stays as-is for Linux/macOS/NSIS).
-  - **Windows Installer ignores the 4th version field** for upgrade detection — it compares only `major.minor.build`. An earlier scheme put the pre-release counter in the 4th field (`0.1.0.N`), so every beta read as `0.1.0` and Windows refused in-place upgrades ("uninstall the existing version first"). `release.sh` now encodes the counter into the **3rd (build)** field so each release strictly increases in semver order: `build3 = patch*1000 + typeBase + n` with type bands alpha 0 / beta 300 / rc 600 / stable 999 (e.g. `0.1.0-beta.3` → `0.1.303`, `0.1.0-rc.1` → `0.1.601`, `0.1.0` → `0.1.999`). If you hand-bump, set `bundle.windows.wix.version` with the same scheme.
+  - **Windows Installer ignores the 4th version field** for upgrade detection — it compares only `major.minor.build`. An earlier scheme put the pre-release counter in the 4th field (`0.1.0.N`), so every beta read as `0.1.0` and Windows refused in-place upgrades ("uninstall the existing version first"). `release.sh` now encodes the counter into the **3rd (build)** field so each release strictly increases in semver order: `build3 = patch*1000 + typeBase + n` with type bands alpha 0 / beta 300 / rc 600 / stable 999 (e.g. `0.1.0-beta.3` → `0.1.303`, `0.1.0-rc.1` → `0.1.601`, `0.1.0` → `0.1.999`). `release.sh` stops before writing anything when a version can't be encoded or wouldn't upgrade on Windows (pre-release number outside 1-299, patch over 64, major or minor over 255); it never clamps. If you hand-bump, set `bundle.windows.wix.version` with the same scheme (`python3 v2/scripts/release_version.py wix X.Y.Z[-tag]`).
   - The MSI **UpgradeCode** must stay stable for upgrades to work. Tauri derives it from the product name unless it is set, so it is **pinned** in `tauri.conf.json` (`bundle.windows.wix.upgradeCode`) to the value the original name produced; never change or remove it. `bundle.publisher` is pinned the same way (`shieldoptimizer`, what the original identifier derived): NSIS and WiX key `Software\<publisher>\<product>` and the remembered install folder on it.
   - The 2.5.0 rename (identifier `com.atvoptimizer.app`, data folder `ATVOptimizer`, binary `atv-optimizer`) copies the old data and WebView profile on first launch (`v2/src-tauri/src/rename.rs`), and `v2/src-tauri/windows/hooks.nsh` removes a side-by-side "Shield Optimizer" NSIS install left by the 2.3.0 product rename. Overrides are `ATV_OPTIMIZER_ADB` / `ATV_OPTIMIZER_SUBNET`; the `SHIELD_OPTIMIZER_*` names still work. See `v2/HANDOFF.md`.
 - **Don't pipe `yes` into `release.sh`.** The auto-mode classifier blocks it (correctly) — the script's interactive gates are the safety net. Run it interactively, or pass `--yes` if you have deliberately decided to skip the gates (CI, or an agent acting on an explicit instruction).
@@ -229,7 +237,9 @@ hide a layout problem.
   for images). Attachments get `user-attachments` URLs that GitHub renders inline, videos as a player.
   A body that already references `./file` has that reference rewritten. Never link evidence by a
   repo-relative path (`v2/evidence/…`): in a PR it resolves under `/pull/<n>/` and 404s. Branch
-  links break when the branch is deleted. Committing evidence to the repo is optional; attaching it is not.
+  links break when the branch is deleted. Evidence is never committed: attach it to the PR. The
+  capture directories (`v2/evidence/`, `v2/mobile/evidence/`, `docs/evidence/`) are gitignored;
+  fixtures a test reads live under that test's `fixtures/` directory.
 - **Roadmap markers**: closing a roadmap or parity item updates its status in the same commit
   (`v2/ATVTOOLS-PARITY.md`, `v2/mobile/BACKLOG.md`). Docs that
   claim shipped work is unbuilt send the next reader to rebuild it — that has happened here.

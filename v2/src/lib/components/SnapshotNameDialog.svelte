@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { dialogFocus } from "$lib/dialog-focus";
 
   // Names a snapshot before it is saved. The desktop app can't use prompt():
   // macOS's web view has no prompt dialog and returns null at once.
@@ -11,7 +11,6 @@
     onCancel: () => void;
   } = $props();
 
-  let dialog: HTMLDivElement;
   let input: HTMLInputElement;
   let label = $state("");
   const titleId = $props.id();
@@ -20,43 +19,16 @@
     e.preventDefault();
     onSave(label.trim());
   }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onCancel();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const items = [...dialog.querySelectorAll<HTMLElement>("input, button")].filter((el) => !el.hasAttribute("disabled"));
-    if (items.length === 0) return;
-    const first = items[0];
-    const last = items[items.length - 1];
-    if (e.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
-  onMount(() => {
-    void tick().then(() => input?.focus());
-  });
 </script>
 
 <div class="name-backdrop" role="presentation" onclick={onCancel}></div>
-<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <div
   class="name-dialog"
   role="dialog"
   aria-modal="true"
   aria-labelledby={titleId}
   tabindex="-1"
-  bind:this={dialog}
-  onkeydown={onKeydown}
+  use:dialogFocus={{ onClose: onCancel, initial: () => input }}
   data-snapshot-name-dialog
 >
   <form onsubmit={submit}>

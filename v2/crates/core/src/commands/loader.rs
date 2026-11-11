@@ -222,32 +222,23 @@ mod tests {
         );
     }
 
-    /// A curated entry must never be able to claim a package is safe when the
-    /// protected list says it bricks the device.
+    /// No shipped entry may name a protected package at all: a catalog row
+    /// for it is a disable the app would offer and then refuse.
     #[test]
-    fn no_shipped_entry_overrides_the_protected_list() {
+    fn no_shipped_entry_is_on_the_protected_list() {
         let bundle = load_embedded_app_lists().expect("embedded lists parse");
-        for entry in bundle
+        let protected: Vec<&str> = bundle
             .common
             .iter()
             .chain(bundle.shield.iter())
             .chain(bundle.googletv.iter())
-        {
-            let verdict = classify_with_catalog(
-                &entry.package,
-                Some(CatalogVerdict {
-                    risk: entry.risk,
-                    description: &entry.optimize_description,
-                }),
-            );
-            if crate::engine::is_never_disable(&entry.package) {
-                assert!(
-                    matches!(verdict, Safety::NeverDisable { .. }),
-                    "{} is protected but classified {verdict:?}",
-                    entry.package
-                );
-            }
-        }
+            .map(|entry| entry.package.as_str())
+            .filter(|package| crate::engine::is_never_disable(package))
+            .collect();
+        assert!(
+            protected.is_empty(),
+            "protected packages in the catalog: {protected:?}"
+        );
     }
 
     /// Every curated entry needs a sentence a person can act on. An empty

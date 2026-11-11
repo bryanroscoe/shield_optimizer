@@ -64,7 +64,20 @@
     "test:telemetry-errors-support": "node tests/telemetry-errors-support.mjs",
     "test:support-tiers-ui": "node tests/support-tiers-ui.mjs",
     "test:settings-screen": "node tests/settings-screen.mjs",
-    "test:local-network-notice": "node tests/local-network-notice.mjs"
+    "test:local-network-notice": "node tests/local-network-notice.mjs",
+    "test:remote-outcome": "node tests/remote-outcome.mjs",
+    "test:launcher-protection-message": "node tests/launcher-protection-message.mjs",
+    "test:release-version-gate": "node tests/release-version-gate.mjs",
+    "test:health-load-failure": "node tests/health-load-failure.mjs",
+    "test:dialog-focus": "node tests/dialog-focus.mjs",
+    "test:badge-tips": "node tests/badge-tips.mjs",
+    "test:media-duplicate-values": "node tests/media-duplicate-values.mjs",
+    "test:protected-remove-tip": "node tests/protected-remove-tip.mjs",
+    "test:sideload-drop-states": "node tests/sideload-drop-states.mjs",
+    "test:display-scaling": "node tests/display-scaling.mjs",
+    "test:snapshot-refused-settings": "node tests/snapshot-refused-settings.mjs",
+    "test:test-wiring": "node tests/test-wiring.mjs",
+    "test:release-scripts": "python3 -B -m unittest discover -s scripts -p 'test_*.py'"
   },
   "license": "UNLICENSED",
   "dependencies": {

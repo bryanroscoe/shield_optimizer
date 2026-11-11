@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, rename } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -12,7 +13,7 @@ delete process.env.TAURI_DEV_HOST;
 let server, browser, context;
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, ...(evidence && !baseline ? { recordVideo: { dir: evidence, size: { width: 1400, height: 1000 } } } : {}) });

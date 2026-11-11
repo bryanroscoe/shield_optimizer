@@ -58,28 +58,53 @@ fn publish_screenshot(
     stem: &str,
     write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
 ) -> Result<PathBuf, String> {
+    publish_new_file(
+        dir,
+        stem,
+        "png",
+        "screenshot",
+        "Could not reserve a screenshot filename. Earlier captures were preserved; retry the capture.",
+        write,
+    )
+}
+
+/// Stage `write`'s bytes in `dir`, then publish them as `<stem>.<extension>`,
+/// or `<stem> (n).<extension>` when that name is taken. Never replaces an
+/// existing file, and a failed write publishes nothing.
+pub(crate) fn publish_new_file(
+    dir: &Path,
+    stem: &str,
+    extension: &str,
+    what: &str,
+    exhausted: &str,
+    write: impl FnOnce(&mut std::fs::File) -> std::io::Result<()>,
+) -> Result<PathBuf, String> {
     let mut temporary = tempfile::NamedTempFile::new_in(dir)
-        .map_err(|e| format!("stage screenshot in {}: {e}", dir.display()))?;
-    write(temporary.as_file_mut()).map_err(|e| format!("write screenshot: {e}"))?;
+        .map_err(|e| format!("stage {what} in {}: {e}", dir.display()))?;
+    write(temporary.as_file_mut()).map_err(|e| format!("write {what}: {e}"))?;
     temporary
         .as_file_mut()
         .flush()
-        .map_err(|e| format!("flush screenshot: {e}"))?;
+        .map_err(|e| format!("flush {what}: {e}"))?;
+    temporary
+        .as_file()
+        .sync_all()
+        .map_err(|e| format!("flush {what}: {e}"))?;
     // Publish complete bytes without replacing a destination; existence checks alone race.
     for n in 1..=MAX_CAPTURE_NAMES {
         let name = if n == 1 {
-            format!("{stem}.png")
+            format!("{stem}.{extension}")
         } else {
-            format!("{stem} ({n}).png")
+            format!("{stem} ({n}).{extension}")
         };
         let path = dir.join(name);
         match temporary.persist_noclobber(&path) {
             Ok(_) => return Ok(path),
             Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => temporary = e.file,
-            Err(e) => return Err(format!("save screenshot {}: {}", path.display(), e.error)),
+            Err(e) => return Err(format!("save {what} {}: {}", path.display(), e.error)),
         }
     }
-    Err("Could not reserve a screenshot filename. Earlier captures were preserved; retry the capture.".into())
+    Err(exhausted.to_string())
 }
 
 #[tauri::command]

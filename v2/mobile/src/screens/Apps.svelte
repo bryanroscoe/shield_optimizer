@@ -900,6 +900,7 @@
     <input
       type="text"
       placeholder="Search apps or packages"
+      aria-label="Search apps or packages"
       bind:value={searchQuery}
       class="search-input"
       autocomplete="off"
@@ -909,7 +910,7 @@
   </div>
 
   <HelpSheet title="Using the app list">
-    <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; Everything else does not. All removals use the same safety checks.</p>
+    <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; apps under “Everything else” do not. All removals use the same safety checks.</p>
   </HelpSheet>
 
   <div class="filters-row">

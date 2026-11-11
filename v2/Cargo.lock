@@ -387,12 +387,10 @@ dependencies = [
 name = "atv-optimizer"
 version = "2.5.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "atv-direct-adb",
  "atv-optimizer-core",
  "axmldecoder",
- "base64 0.22.1",
  "chrono",
  "dirs 5.0.1",
  "futures-util",
@@ -426,7 +424,6 @@ dependencies = [
 name = "atv-optimizer-core"
 version = "2.5.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "base64 0.22.1",
  "chrono",

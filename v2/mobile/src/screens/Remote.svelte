@@ -3,6 +3,7 @@
   import { onDestroy } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
+  import { sameTv } from "../lib/tvTarget";
   import type { Screen } from "../lib/router.svelte";
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
@@ -180,13 +181,32 @@
     latency = null;
   }
 
+  // Send Text targets the TV it was opened on, never a TV that took its place
+  // while the dialog was up. A silent reconnect to that same TV (a liveness
+  // blip) keeps the dialog and what was typed; sending still needs a live link.
+  type TvRef = { serial: string; epoch: number };
+  let keyboardTarget: TvRef | null = null;
+  function isSameTv(target: TvRef | null): target is TvRef {
+    return target !== null && !destroyed && sameTv(target);
+  }
+
   async function handleSendText() {
     if (!textToSend || sending) return;
+    const target = keyboardTarget;
+    if (!isSameTv(target)) {
+      modalError = "Not connected to the TV this was opened for. Nothing was sent.";
+      return;
+    }
+    if (!session.isConnected) {
+      modalError = "The TV isn't answering right now. Nothing was sent; your text is kept, so send it again once it reconnects.";
+      return;
+    }
     sending = true;
     modalError = "";
     try {
       const start = performance.now();
-      const r = await api.sendText(session.serial, textToSend, forceShell);
+      const r = await api.sendText(target.serial, textToSend, forceShell);
+      if (!isSameTv(target)) return;
       noteResult(r.transport, Math.round(performance.now() - start));
       if (r.ok) {
         textToSend = "";
@@ -195,25 +215,55 @@
         modalError = r.message;
       }
     } catch (e) {
-      modalError = String(e);
+      if (isSameTv(target)) modalError = String(e);
     } finally {
       sending = false;
     }
   }
 
   function openKeyboard() {
+    if (!session.isConnected) {
+      remoteMessage = "Not connected to a TV.";
+      return;
+    }
+    keyboardTarget = { serial: session.serial, epoch: session.deviceEpoch };
     modalError = "";
     showKeyboardModal = true;
   }
+
+  // Switching to another TV (or to none) closes what was opened for the old
+  // one. A reconnect to the same verified TV does not: it would throw away
+  // text the person typed (a long Wi-Fi password) over a harmless blip.
+  let watched = session.deviceEpoch;
+  $effect(() => {
+    const key = session.deviceEpoch;
+    if (key === watched) return;
+    watched = key;
+    if (showKeyboardModal) remoteMessage = "The TV connection changed, so Send Text was closed.";
+    showKeyboardModal = false;
+    powerConfirm = false;
+    keyboardTarget = null;
+    textToSend = "";
+    modalError = "";
+  });
 
   function confirmPower() {
     powerConfirm = false;
     sendKey("power");
   }
 
+  // A queued Settings press runs only on the exact connection it was pressed on.
+  function onConnection(target: { serial: string; generation: number }): boolean {
+    return !destroyed && session.isConnected && session.serial === target.serial && session.generation === target.generation;
+  }
+
   function openSettings() {
+    if (!session.isConnected || destroyed || queuedWork >= 8) return;
+    const target = { serial: session.serial, generation: session.generation };
     enqueue(async () => {
-      const r = await api.openSettings(session.serial);
+      if (!onConnection(target)) return;
+      const r = await api.openSettings(target.serial);
+      if (!onConnection(target)) return;
       remoteMessage = r.ok ? "" : r.message;
     });
   }

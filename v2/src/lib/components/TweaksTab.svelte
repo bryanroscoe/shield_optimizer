@@ -24,6 +24,16 @@
   let displayScaleBusy = $state<DisplayScalePreset | null>(null);
   let displayScaleMessage = $state<string>("");
   let currentDisplayScaling = $state<CurrentDisplayScaling | null>(null);
+  let displayScalingErr = $state<string | null>(null);
+
+  // A failed read rejects; keep the error to show instead of blank values.
+  async function readDisplayScaling(target: string) {
+    try {
+      return { scaling: await api.getDisplayScaling(target), err: null };
+    } catch (e) {
+      return { scaling: null, err: String(e) };
+    }
+  }
 
   // Disabling Nvidia's system hooks package. This controls Xbox controller
   // button remapping (Guide → Home). On the 2019+ remote the dedicated
@@ -65,14 +75,15 @@
     try {
       const [t, s, states, perm, dns] = await Promise.all([
         api.getTweaks(serial),
-        api.getDisplayScaling(serial).catch(() => null),
+        readDisplayScaling(serial),
         api.packageStates(serial, [NETFLIX_HOOKS_PKG]).catch(() => null),
         api.appPermissionState(serial, ASSISTANT_PKG, ASSISTANT_PERM).catch(() => null),
         api.getPrivateDns(serial).catch(() => null),
       ]);
       if (!alive || serial !== target) return;
       tweaks = t;
-      currentDisplayScaling = s;
+      currentDisplayScaling = s.scaling;
+      displayScalingErr = s.err;
       netflixHooksState = states ? (states[NETFLIX_HOOKS_PKG] ?? null) : null;
       assistantState = perm ?? null;
       privateDns = dns;
@@ -335,9 +346,12 @@
     displayScaleMessage = "";
     try {
       const r = await api.setDisplayScaling(serial, preset);
-      displayScaleMessage = r.message.trim() || (r.ok ? "ok" : "no output");
-      // Refresh the displayed current values.
-      currentDisplayScaling = await api.getDisplayScaling(serial).catch(() => currentDisplayScaling);
+      // On success the message is the read-back size and density, which the
+      // refreshed current values below already show.
+      displayScaleMessage = r.ok ? "Applied." : r.message.trim() || "The TV did not confirm the change.";
+      const now = await readDisplayScaling(serial);
+      currentDisplayScaling = now.scaling;
+      displayScalingErr = now.err;
     } catch (e) {
       displayScaleMessage = String(e);
     } finally {
@@ -749,6 +763,10 @@
         <br />
         {currentDisplayScaling.density || "Density: unknown"}
       </div>
+    {:else if displayScalingErr}
+      <p class="error scaling-read-error" role="status">
+        Couldn't read the current size and density: {displayScalingErr}
+      </p>
     {/if}
     <div class="scale-options">
       <button
@@ -886,6 +904,7 @@
     color: var(--fg-primary);
   }
   .action-message {
+    white-space: pre-line;
     margin-top: 0.4rem;
     padding: 0.4rem 0.6rem;
     background: var(--bg-inset);
@@ -931,6 +950,9 @@
     padding: 0.5rem 0.7rem;
     margin: 0.4rem 0 0.8rem;
     line-height: 1.5;
+  }
+  .scaling-read-error {
+    margin: 0.4rem 0 0.6rem;
   }
   .current-scaling {
     background: var(--bg-inset);

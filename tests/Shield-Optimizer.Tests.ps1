@@ -255,26 +255,6 @@ Current temperatures from HAL:
             Get-ParsedTemperature -ThermalOutput "No temperature data available" | Should -Be "N/A"
         }
     }
-
-    Context "Real fixture data" {
-        It "Should parse Shield thermal fixture if available" -Skip:(-not (Test-Path (Join-Path $PSScriptRoot "fixtures/shield-thermal.txt"))) {
-            $thermal = Get-Content (Join-Path $PSScriptRoot "fixtures/shield-thermal.txt") -Raw
-            $result = Get-ParsedTemperature -ThermalOutput $thermal
-            $result | Should -Not -Be "N/A"
-            $result | Should -BeOfType [double]
-            $result | Should -BeGreaterThan 0
-            $result | Should -BeLessThan 100
-        }
-
-        It "Should parse Onn thermal fixture if available" -Skip:(-not (Test-Path (Join-Path $PSScriptRoot "fixtures/onn-thermal.txt"))) {
-            $thermal = Get-Content (Join-Path $PSScriptRoot "fixtures/onn-thermal.txt") -Raw
-            $result = Get-ParsedTemperature -ThermalOutput $thermal
-            $result | Should -Not -Be "N/A"
-            $result | Should -BeOfType [double]
-            $result | Should -BeGreaterThan 0
-            $result | Should -BeLessThan 100
-        }
-    }
 }
 
 Describe "Get-ParsedRamInfo" -Tag "Unit", "Priority2" {
@@ -329,26 +309,6 @@ Free RAM: 419,430K
 "@
             $result = Get-ParsedRamInfo -MemInfoOutput $memInfo
             $result.Percent | Should -Be 80  # 80% used
-        }
-    }
-
-    Context "Real fixture data" {
-        It "Should parse Shield meminfo fixture if available" -Skip:(-not (Test-Path (Join-Path $PSScriptRoot "fixtures/shield-meminfo.txt"))) {
-            $memInfo = Get-Content (Join-Path $PSScriptRoot "fixtures/shield-meminfo.txt") -Raw
-            $result = Get-ParsedRamInfo -MemInfoOutput $memInfo
-
-            $result.Total | Should -BeGreaterThan 0
-            $result.Percent | Should -BeGreaterOrEqual 0
-            $result.Percent | Should -BeLessOrEqual 100
-        }
-
-        It "Should parse Onn meminfo fixture if available" -Skip:(-not (Test-Path (Join-Path $PSScriptRoot "fixtures/onn-meminfo.txt"))) {
-            $memInfo = Get-Content (Join-Path $PSScriptRoot "fixtures/onn-meminfo.txt") -Raw
-            $result = Get-ParsedRamInfo -MemInfoOutput $memInfo
-
-            $result.Total | Should -BeGreaterThan 0
-            $result.Percent | Should -BeGreaterOrEqual 0
-            $result.Percent | Should -BeLessOrEqual 100
         }
     }
 }

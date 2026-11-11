@@ -19,10 +19,6 @@ pub fn materialize(data_dir: &Path) -> Result<PathBuf, String> {
     let temporary = data_dir.join(format!("{SERVER_NAME}.tmp"));
     std::fs::write(&temporary, SERVER_BYTES)
         .map_err(|e| format!("write embedded scrcpy server: {e}"))?;
-    if destination.exists() {
-        std::fs::remove_file(&destination)
-            .map_err(|e| format!("replace stale scrcpy server: {e}"))?;
-    }
     std::fs::rename(&temporary, &destination)
         .map_err(|e| format!("install embedded scrcpy server: {e}"))?;
     Ok(destination)

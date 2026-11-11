@@ -303,6 +303,55 @@ test("Free users retain emergency recovery without an unlock or payment", async 
   assert.equal((await writes(page, "activate_license")).length, 0);
 });
 
+test("emergency recovery needs a live link and stays labelled with the TV it ran on", async (t) => {
+  const page = await open(t, "more");
+  const button = page.getByRole("button", { name: /Emergency recovery/ });
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  assert.equal(await button.isDisabled(), true);
+  await page.evaluate(() => { window.session.liveness = "live"; });
+
+  // Confirmed on A, but the session moved to B before Re-enable all: nothing runs.
+  await button.click();
+  await page.evaluate(() => window.session.connect("B", 5555));
+  await page.getByRole("button", { name: "Re-enable all", exact: true }).click();
+  await page.getByText("The TV connection changed. Nothing was re-enabled.").first().waitFor();
+  assert.deepEqual(await writes(page, "panic_recovery"), []);
+
+  // Ran on B; when the session moves on, the result names B as an earlier connection.
+  await page.evaluate(() => {
+    window.handlers.panic_recovery = () => new Promise((resolve) => { window.releaseRecovery = resolve; });
+  });
+  await button.click();
+  await page.getByRole("button", { name: "Re-enable all", exact: true }).click();
+  await page.waitForFunction(() => !!window.releaseRecovery);
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.releaseRecovery({ restored: ["com.example.app"], failed: [], message: "Recovered B" });
+  });
+  await page.getByText("On B, an earlier connection:").waitFor();
+  assert.equal(await page.getByText("Recovered B").count(), 0, "no success toast for a TV that is no longer connected");
+  assert.deepEqual(await writes(page, "panic_recovery"), [{ serial: "B:5555" }]);
+});
+
+test("emergency recovery confirmed across a reconnect to the same TV asks to confirm again", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(async () => {
+    window.handlers.list_devices = () => [{ id: 1, serial: `${window.session.host}:${window.session.connectPort}`, status: "device", device_type: "shield", properties: { serial_number: "verified-A" } }];
+    await window.session.connect("A", 5555);
+  });
+  await page.getByRole("button", { name: /Emergency recovery/ }).click();
+  // A liveness blip: the session silently redials the same verified TV.
+  const same = await page.evaluate(async () => {
+    const before = { generation: window.session.generation, epoch: window.session.deviceEpoch };
+    await window.session.recoverOrMarkLost();
+    return { newConnection: window.session.generation !== before.generation, sameTv: window.session.deviceEpoch === before.epoch };
+  });
+  assert.deepEqual(same, { newConnection: true, sameTv: true });
+  await page.getByRole("button", { name: "Re-enable all", exact: true }).click();
+  await page.getByText("The TV reconnected, so nothing was re-enabled. Confirm Emergency recovery again.").first().waitFor();
+  assert.deepEqual(await writes(page, "panic_recovery"), []);
+});
+
 test("scaling readback matches both resolution and density and clears stale selection on failure", async (t) => {
   const page = await open(t, "tweaks", { pro: true });
   const card = page.locator('.tweak-row').filter({ has: page.getByText('Display scaling', { exact: true }) });

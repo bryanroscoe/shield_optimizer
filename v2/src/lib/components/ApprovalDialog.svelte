@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
+  import { dialogFocus } from "$lib/dialog-focus";
 
   /// "asking": the request is being made. "waiting": the TV was asked (or,
   /// under platform-tools, is probably asking) and the app waits for Allow.
@@ -58,11 +59,6 @@
   });
   const minutesLeft = $derived(deadline === null ? null : Math.max(1, Math.ceil((deadline - now) / 60_000)));
 
-  function focusable(): HTMLElement[] {
-    return [...dialog.querySelectorAll<HTMLElement>("button, summary, [href], [tabindex]:not([tabindex='-1'])")]
-      .filter(el => !el.hasAttribute("disabled") && el.offsetParent !== null);
-  }
-
   /// The control to land on in each phase. Its buttons change with the
   /// phase, and the one that had focus may be gone.
   function primary(): HTMLElement {
@@ -80,52 +76,11 @@
     });
   });
 
-  /// Focus that slipped out (to the page body when its button went away)
-  /// still answers Escape and Tab here.
-  function onWindowKeydown(e: KeyboardEvent) {
-    if (!dialog || dialog.contains(document.activeElement)) return;
-    if (e.key === "Escape" || e.key === "Tab") {
-      e.preventDefault();
-      if (e.key === "Escape") onClose();
-      else primary().focus();
-    }
-  }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key === "Escape") {
-      // Closing keeps the request; Cancel request is the only stop.
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-      return;
-    }
-    if (e.key !== "Tab") return;
-    const items = focusable();
-    if (items.length === 0) {
-      e.preventDefault();
-      dialog.focus();
-      return;
-    }
-    const first = items[0];
-    const last = items[items.length - 1];
-    const active = document.activeElement;
-    if (e.shiftKey && (active === first || active === dialog)) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      e.preventDefault();
-      first.focus();
-    }
-  }
-
   onMount(() => {
-    void tick().then(() => dialog?.focus());
     const clock = setInterval(() => (now = Date.now()), 5000);
     return () => clearInterval(clock);
   });
 </script>
-
-<svelte:window onkeydown={onWindowKeydown} />
 
 <div class="approval-backdrop" role="presentation" onclick={onClose}></div>
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
@@ -136,7 +91,7 @@
   aria-labelledby={titleId}
   tabindex="-1"
   bind:this={dialog}
-  onkeydown={onKeydown}
+  use:dialogFocus={{ onClose, escapeFromOutside: true, recapture: primary, restoreFocus: false }}
   data-approval-dialog
   data-phase={phase}
 >

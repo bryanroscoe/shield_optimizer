@@ -1,9 +1,9 @@
 # v2 — current state
 
-Native desktop ADB takeover: see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
-for PR #268, exact candidate provenance, completed checks and remaining native acceptance.
+Built-in desktop ADB (PR #268, merged 2026-11-09): see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
+for its history and remaining hardware acceptance, and [DIRECT-ADB.md](DIRECT-ADB.md) for how it works.
 
-v2 is a shipping desktop app. Latest **published** version: **2.4.1** (2026-10-23). The `v2-2.4.0` tag's build
+v2 is a shipping desktop app. Latest **published** version: **2.5.0** (2026-11-04). The `v2-2.4.0` tag's build
 failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
@@ -12,12 +12,18 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 
 ## Unreleased on `main`
 
-Snapshot schema is **4** on `main` (PR #353): snapshots record catalog apps that weren't installed,
-and restore disables any of them that are back (never uninstalls). 2.5.0 and earlier refuse v4
-files as newer than they support. Review rows suggest Uninstall only for a store app in
-`pm list packages -3`; see `AppEntry::suggested_method`.
+`v2/CHANGELOG.md`'s `## Unreleased` section is the full list. The changes with consequences for
+the next release:
 
-Nothing yet. `v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data
+- **Built-in ADB is the default desktop engine** (PR #268, merged 2026-11-09); Settings › ADB ›
+  ADB engine switches to platform-tools. See below and `DIRECT-ADB.md`.
+- **Snapshot schema is 4** (PR #353): snapshots record catalog apps that weren't installed, and
+  restore disables any of them that are back (never uninstalls). 2.5.0 and earlier refuse v4
+  files as newer than they support.
+- Review rows suggest Uninstall only for a store app in `pm list packages -3`; see
+  `AppEntry::suggested_method`.
+
+`v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data
 folder `ATVOptimizer`, binary `atv-optimizer`, crates `atv-optimizer` / `atv_optimizer_lib` /
 `atv-optimizer-core`, Homebrew cask `atv-optimizer`) and the desktop connection work below; its
 notes are in `v2/CHANGELOG.md`.
@@ -34,8 +40,8 @@ Desktop connection recovery: Add by IP, Scan LAN and restart verify transport re
 confirmed restart can retry one unchanged failed address. On macOS, an adb server left running by
 the previous version is cut off from the network once the new version opens; the app restarts it
 when it can reach a TV that adb can't (`src-tauri/src/adb/server_repair.rs`). The subprocess driver
-was the desktop default through 2.5.0. PR #268 makes the built-in Rust ADB (the mobile
-transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
+was the desktop default through 2.5.0. PR #268 (merged 2026-11-09) made the built-in Rust ADB (the
+mobile transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
 ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its handoff is
 `NATIVE-ADB-HANDOFF.md`; the release that ships it waits for Bryan's hardware batch,
 `../docs/DEVICE-TEST-SCRIPT.md` N1–N18. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
@@ -52,7 +58,7 @@ completion, backend unavailability, navigation, or its deadline. Pending handsha
 alone are not reported as unauthorized. Regression coverage is in `tests/native-scan-progress.mjs`
 and the native driver/scan unit tests.
 
-The current native owner-test app also retains the optional grouped IPv4/IPv6
+Built-in ADB also keeps the optional grouped IPv4/IPv6
 address picker in collapsed Scan details. Scan tries alternative mDNS routes
 serially and suppresses redundant routes after a ready connection or observed
 AUTH; actual TV cards still merge only on verified hardware identity. The exact

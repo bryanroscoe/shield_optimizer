@@ -2,6 +2,8 @@
 
 ## Status at merge — 2026-11-08
 
+PR #268 merged on 2026-11-09 and is on `main`, unreleased (2.5.0 predates it).
+
 Built-in is the default engine, and Settings › ADB engine switches to Google platform-tools.
 - **Scans never prompt.** Scan LAN, Add by IP, reconnects and every dedicated connection sign only with trusted keys. Only Request approval shows the TV's prompt: a pop-up that waits up to 10 minutes, with the same row and pop-up under both engines.
 - **Engine switches don't prompt either.** The two engines share keys in both directions.
@@ -13,7 +15,7 @@ Hardware evidence:
 - The Android TV 14 emulator covers the rest.
 - Still unchecked on hardware: steps N1–N18 in `docs/DEVICE-TEST-SCRIPT.md` beyond those.
 
-The sections below are the dated history. Where they say platform-tools is the default, or that fast Remote is gated, this section supersedes them.
+The sections below are the dated history. Where they say platform-tools is the default, that #268 is a draft, or that fast Remote is gated, this section supersedes them. The pre-merge slice records (`DIRECT-ADB-PARITY.md`, `NATIVE-DISCOVERY-ACCEPTANCE.md`, `NATIVE-INSTALL-ACCEPTANCE.md`, `RUST-ADB-ACCEPTANCE-GATES.md`) are archived in `docs/ARCHIVE-INDEX.md`; their current limits are in `DIRECT-ADB.md`.
 
 ## No reprompt and fast Remote — 2026-11-06
 

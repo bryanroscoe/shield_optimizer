@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -10,7 +11,7 @@ if (evidence) await mkdir(evidence, { recursive: true });
 const target = '192.0.2.1:5555';
 let server, browser;
 try {
-  server = await createServer({ root: resolve(import.meta.dirname, '..'), server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root: resolve(import.meta.dirname, '..'), server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });

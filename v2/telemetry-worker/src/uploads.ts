@@ -90,7 +90,9 @@ async function installCount(env: Env, day: string, key: string): Promise<number>
 // five a day is refused before it can touch the shared budget, so one person
 // retrying can't use up anyone else's. Then one statement admits against all
 // three counters or none: this install, the global count and the global bytes
-// (which bounds storage: 100 MiB a day for 30 days is 3 GiB of D1's 5 GiB).
+// (6 MiB a day kept 30 days is up to about 189 MB; with everything else at its
+// worst that can pass the storage budget, and the cron's oldest-first trim
+// then holds it there; README "Storage budget").
 export async function admitUpload(env: Env, installId: string, bytes: number, now: Date): Promise<UploadAdmission> {
   const day = utcDay(now);
   const key = `upload:${installId}`;
@@ -98,8 +100,8 @@ export async function admitUpload(env: Env, installId: string, bytes: number, no
   if ((await installCount(env, day, key)) + 1 > installCap) return "install";
   const rows: QuotaRow[] = [
     { key, n: 1, cap: installCap },
-    { key: UPLOAD_GLOBAL_KEY, n: 1, cap: intVar(env.GLOBAL_DAILY_UPLOADS, 1000) },
-    { key: UPLOAD_BYTES_KEY, n: bytes, cap: intVar(env.GLOBAL_DAILY_UPLOAD_BYTES, 100 * 1024 * 1024) },
+    { key: UPLOAD_GLOBAL_KEY, n: 1, cap: intVar(env.GLOBAL_DAILY_UPLOADS, 200) },
+    { key: UPLOAD_BYTES_KEY, n: bytes, cap: intVar(env.GLOBAL_DAILY_UPLOAD_BYTES, 6 * 1024 * 1024) },
   ];
   if (await admit(env, day, rows)) return "ok";
   // Refused: a concurrent upload from the same install took the last slot,

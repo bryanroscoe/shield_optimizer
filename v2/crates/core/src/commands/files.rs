@@ -38,22 +38,64 @@ pub fn validate_sdcard_path(path: &str) -> Result<String, String> {
     validate_device_path(path, false)
 }
 
+/// Normalise a device path for deleting: collapse repeated slashes and `.`
+/// segments so `//system` and `/sdcard/.` are checked as `/system` and
+/// `/sdcard`. A `..` segment is refused outright rather than resolved.
+pub fn normalize_delete_path(path: &str) -> Result<String, String> {
+    let path = path.trim();
+    if !path.starts_with('/') {
+        return Err(format!("Path must be absolute: {path:?}"));
+    }
+    let mut segments = Vec::new();
+    for seg in path.split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => return Err("Path traversal (`..`) is not allowed.".to_string()),
+            seg => segments.push(seg),
+        }
+    }
+    Ok(format!("/{}", segments.join("/")))
+}
+
 /// Refuse deleting the filesystem root, `/sdcard` itself, or a critical system
 /// mount even in power-user mode — a recursive delete there could brick the
 /// device. Subpaths are the user's call (and mostly permission-denied without
-/// root). Returns the refusal message, or `None` if the path is deletable.
+/// root). Other spellings of a protected path are checked in normalised form.
+/// Returns the refusal message, or `None` if the path is deletable.
 pub fn protected_delete_reason(path: &str) -> Option<String> {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed == "/sdcard" {
-        return Some("Refusing to delete /sdcard itself.".to_string());
+    let normalized = match normalize_delete_path(path) {
+        Ok(p) => p,
+        Err(e) => return Some(format!("Refusing to delete {}: {e}", path.trim())),
+    };
+    let trimmed = normalized.as_str();
+    // Every name Android gives the user's shared storage.
+    const STORAGE: &[&str] = &[
+        "/sdcard",
+        "/storage",
+        "/storage/emulated",
+        "/storage/emulated/0",
+        "/storage/self",
+        "/storage/self/primary",
+        "/mnt",
+        "/mnt/sdcard",
+        "/mnt/user",
+        "/mnt/user/0",
+        "/mnt/user/0/primary",
+        "/data/media",
+        "/data/media/0",
+    ];
+    if STORAGE.contains(&trimmed) {
+        return Some(format!(
+            "Refusing to delete {trimmed} itself: it is the TV's shared storage."
+        ));
     }
     const PROTECTED: &[&str] = &[
-        "", "/system", "/data", "/vendor", "/proc", "/sys", "/dev", "/boot", "/init", "/sbin",
+        "/", "/system", "/data", "/vendor", "/proc", "/sys", "/dev", "/boot", "/init", "/sbin",
         "/bin", "/etc",
     ];
     if PROTECTED.contains(&trimmed) {
         return Some(format!(
-            "Refusing to delete a protected system path: {path}"
+            "Refusing to delete a protected system path: {trimmed}"
         ));
     }
     None
@@ -69,7 +111,7 @@ pub async fn delete_path_with(
     path: &str,
     allow_system: bool,
 ) -> Result<ActionResult, String> {
-    let path = validate_device_path(path, allow_system)?;
+    let path = validate_device_path(&normalize_delete_path(path)?, allow_system)?;
     if let Some(reason) = protected_delete_reason(&path) {
         return Err(reason);
     }
@@ -242,6 +284,54 @@ mod tests {
         }
         assert!(protected_delete_reason("/sdcard/Download/old.zip").is_none());
         assert!(protected_delete_reason("/system/app/Bloat/Bloat.apk").is_none());
+    }
+
+    #[test]
+    fn other_spellings_of_protected_paths_are_refused() {
+        for p in [
+            "/sdcard/.",
+            "/sdcard/./",
+            "//system",
+            "/system//",
+            "/sdcard//",
+            "/sdcard/Download/..",
+            "/sdcard/Download/../x",
+            "/storage/emulated/0",
+            "/storage/emulated/0/",
+            "/storage/self/primary",
+            "/storage/emulated",
+            "/storage",
+            "/mnt/sdcard",
+            "/data/media/0",
+        ] {
+            assert!(protected_delete_reason(p).is_some(), "{p} must be refused");
+        }
+        assert!(protected_delete_reason("/storage/emulated/0/Download/old.zip").is_none());
+        assert!(protected_delete_reason("/sdcard/.hidden").is_none());
+        assert!(protected_delete_reason("/sdcard//Download").is_none());
+        assert!(protected_delete_reason("//data/local/tmp/x").is_none());
+    }
+
+    #[tokio::test]
+    async fn delete_runs_on_the_normalised_path() {
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        for bad in ["//system", "/sdcard/.", "/sdcard//", "//data/../system"] {
+            assert!(
+                delete_path_with(&mock, "tv", bad, true).await.is_err(),
+                "{bad:?} must be refused"
+            );
+        }
+        assert!(log.lock().unwrap().is_empty());
+        // The Files tab at `/` joins `/` and `data/...` into `//data/...`.
+        let r = delete_path_with(&mock, "tv", "//data/local/tmp/x", true)
+            .await
+            .unwrap();
+        assert!(r.ok, "{}", r.message);
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            ["rm -rf '/data/local/tmp/x'".to_string()]
+        );
     }
 
     const SMARTTUBE_DIRS: &[&str] = &[

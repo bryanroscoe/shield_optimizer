@@ -1,7 +1,9 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import RefusedSettings from "$lib/components/RefusedSettings.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
-  import { onMount, onDestroy, tick } from "svelte";
+  import { tip } from "$lib/tip";
+  import { onMount, onDestroy, tick, untrack } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -60,6 +62,7 @@
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
   import RemovalHelp from "$lib/components/RemovalHelp.svelte";
+  import AppColumnHelp from "$lib/components/AppColumnHelp.svelte";
   import BreakableId from "$lib/components/BreakableId.svelte";
   import {
     idleMeasurements,
@@ -1471,18 +1474,20 @@
 
   async function loadHomePicker() {
     if (homePickerLoading || homePickerPackages.length > 0) return;
+    const context = capturePageContext();
     homePickerLoading = true;
     homePickerErr = null;
     try {
-      const list = await api.listInstalledPackages(serial);
+      const list = await api.listInstalledPackages(context.serial);
+      if (!pageContextIsCurrent(context)) return;
       const unique = new Map(list.map((p) => [p.package, p]));
       homePickerPackages = [...unique.values()].sort((a, b) =>
         (a.name ?? a.package).localeCompare(b.name ?? b.package),
       );
     } catch (e) {
-      homePickerErr = String(e);
+      if (pageContextIsCurrent(context)) homePickerErr = String(e);
     } finally {
-      homePickerLoading = false;
+      if (pageContextIsCurrent(context)) homePickerLoading = false;
     }
   }
 
@@ -1490,25 +1495,30 @@
   let stockHoldsHomeFor = $state<string | null>(null);
 
   async function setHomeFromPicker() {
+    if (homePickerBusy !== null) return;
     launcherSetResult = null;
     const pkg = homePickerChoice;
     if (!pkg) return;
+    const context = capturePageContext();
     homePickerBusy = "set";
     homePickerMessage = "";
     stockConfirmOpen = false;
     try {
-      const r = await api.setHomeAny(serial, pkg, homePickerActivity.trim() || null);
+      const r = await api.setHomeAny(context.serial, pkg, homePickerActivity.trim() || null);
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = r.ok;
       homePickerMessage = r.message;
       stockHoldsHomeFor = r.stock_holds_home ? pkg : null;
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       await loadLauncher();
+      if (!pageContextIsCurrent(context)) return;
       invalidateDeviceCaches();
     } catch (e) {
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = false;
       homePickerMessage = String(e);
     } finally {
-      homePickerBusy = null;
+      if (pageContextIsCurrent(context)) homePickerBusy = null;
     }
   }
 
@@ -1541,6 +1551,7 @@
         ? " Google TV's setup helper (Setup Wraith) was turned off too."
         : "";
       const r = await api.disableStockLauncher(context.serial, pkg);
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = r.ok;
       homePickerMessage = r.ok
         ? `The stock launcher is disabled and ${pkg} is Home.${wraithNote} Re-enable stock from the list above any time.`
@@ -1548,12 +1559,14 @@
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       stockHoldsHomeFor = null;
       await loadLauncher();
+      if (!pageContextIsCurrent(context)) return;
       invalidateDeviceCaches();
     } catch (e) {
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = false;
       homePickerMessage = String(e);
     } finally {
-      homePickerBusy = null;
+      if (pageContextIsCurrent(context)) homePickerBusy = null;
     }
   }
 
@@ -2093,9 +2106,11 @@
   $effect(() => {
     visited[activeTab] = true;
     if (activeTab === "health") {
-      if ((report === null || healthStale) && !reportLoading) {
+      // A failed first load leaves `report` null; without the reportErr check
+      // this would retry forever. Refresh (or a stale mark) retries explicitly.
+      if (((report === null && reportErr === null) || healthStale) && !reportLoading) {
         healthStale = false;
-        loadHealth();
+        untrack(() => loadHealth());
       }
       // Preload the app tab so its own inventory is ready when visited.
       if (!appsLoaded && !appsLoading) loadApps();
@@ -2174,13 +2189,13 @@
     // Unmount the extracted tab components — their state dies with them.
     visited = {};
     device = null; deviceErr = null;
-    report = null; reportErr = null; reportLastRefreshed = null; memorySafety = {};
+    report = null; reportErr = null; reportLoading = false; reportLastRefreshed = null; memorySafety = {};
     memoryConfirmed = new Set();
     launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = ""; launcherSetResult = null;
     launcherActionBusy = null; launcherProgress = ""; launcherLoading = false; launcherDiagnostics = [];
     stopStorePoll(); storeOpened = null;
-    homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
+    homePickerPackages = []; homePickerLoading = false; homePickerBusy = null; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
@@ -2696,7 +2711,7 @@
                   <tr><th>Interface</th><th class="right">RX</th><th class="right">TX</th></tr>
                 </thead>
                 <tbody>
-                  {#each resource.interfaces as network (network.name)}
+                  {#each resource.interfaces as network, i (i)}
                     <tr>
                       <td class="mono">{network.name}</td>
                       <td class="right mono">{formatRate(network.rx_bytes_per_s)}</td>
@@ -2725,7 +2740,7 @@
                     <span class="av-chip">{report.display.refresh_hz} Hz</span>
                   {/if}
                   {#if report.display.hdr_types.length}
-                    {#each report.display.hdr_types as hdr (hdr)}
+                    {#each [...new Set(report.display.hdr_types)] as hdr (hdr)}
                       <span class="av-chip">{hdr}</span>
                     {/each}
                   {:else}
@@ -2794,7 +2809,7 @@
                       <span class="mem-process"><BreakableId text={m.process} /></span>
                       <span
                         class="unconfirmed"
-                        title="No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."
+                        use:tip={"No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."}
                       >not a package</span>
                     {/if}
                     {#if m.pid !== null}
@@ -3242,7 +3257,7 @@
           <thead>
             <tr>
               <th><span class="sr-only">Details</span></th>
-              <th>App</th>
+              <th><AppColumnHelp column="app" /></th>
               <!-- A whole paragraph, so it stays a `title`: `data-tip` paints
                    one nowrap line and a paragraph in one line is a page-wide
                    strip. The short version rides alongside it. -->
@@ -3250,13 +3265,8 @@
                 title="Our verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs an explicit tick before it can be removed."
                 data-tip="Click a row to read the full reason"
               >Verdict &amp; source</th>
-              <th class="right" data-tip="Resident RAM right now (dumpsys meminfo)">RAM</th>
-              <th
-                class="right"
-                title="Last foreground use, from Android's usagestats. History is limited — roughly a year of rolling buckets — and is cleared by a factory reset, so a dash can mean the record aged out rather than that the app was never opened."
-                data-tip="Android keeps about a year of usage history"
-                data-tip-align="end"
-              >Last used</th>
+              <th class="right"><AppColumnHelp column="ram" /></th>
+              <th class="right"><AppColumnHelp column="usage" /></th>
               <th class="controls-start">Actions</th>
             </tr>
           </thead>
@@ -3483,8 +3493,8 @@
                   <th><span class="sr-only">Details</span></th>
                   <th>App</th>
                   <th>Verdict &amp; source</th>
-                  <th class="right">RAM</th>
-                  <th class="right">Last used</th>
+                  <th class="right"><AppColumnHelp column="ram" /></th>
+                  <th class="right"><AppColumnHelp column="usage" /></th>
                   <th class="controls-start">Actions</th>
                 </tr>
               </thead>
@@ -3492,6 +3502,9 @@
                 {#each visibleOthers as o (o.package)}
                   {@const safety = packageSafety[o.package]}
                   {@const canRemove = othersLoaded && safety?.status === "ready" && !isBlocked(safety.verdict)}
+                  {@const removeTip = safety?.status === "ready" && isBlocked(safety.verdict)
+                    ? `Protected — ${safety.verdict.reason}`
+                    : canRemove ? undefined : "Needs a completed safety check and a current package list"}
                   <AppRow
                     name={o.name ?? o.package}
                     description={o.description ?? undefined}
@@ -3515,8 +3528,8 @@
                       <div class="actions-cell">
                         <div class="row-verbs">
                         {#if o.enabled}
-                          <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip="Needs a completed safety check and a current package list">Disable</button>
-                          <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip="Needs a completed safety check and a current package list">Uninstall</button>
+                          <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip={removeTip} data-tip-wrap>Disable</button>
+                          <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip={removeTip} data-tip-wrap>Uninstall</button>
                         {:else}
                           <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} data-tip="pm enable">Enable</button>
                         {/if}
@@ -3666,6 +3679,7 @@
         {#if preview.cross_device_warning}
           <div class="warning">{preview.cross_device_warning}</div>
         {/if}
+        <RefusedSettings keys={preview.settings_refused ?? []} />
         <!-- Row per item, as the board has it: what it is now and what this
              snapshot would make it. "Now" is left blank where the device has
              not told us — a preview that guesses is worse than one that says

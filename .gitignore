@@ -137,3 +137,6 @@ credentials.json
 secrets.json
 reddit-post.md
 .runtime/
+
+# PR evidence captures are attached to the PR, never committed.
+/docs/evidence/

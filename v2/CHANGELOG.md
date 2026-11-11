@@ -22,6 +22,26 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop and Android: restoring a snapshot never writes or resets a setting snapshots don't track. A snapshot file can be edited or shared, so any other setting it names is skipped, the restore preview says how many (the keys are behind its help), and the result lists them as not restored.
+- Desktop and Android: one TV that can't be read no longer breaks the device list or snapshots for the others. It keeps its own row, and saving a snapshot fails with the reason instead of recording an unknown device type. Saving never replaces an existing snapshot file.
+- Desktop and Android: Private DNS, display scaling and animation-speed changes report success only once the TV reads the new value back. A custom Private DNS host that doesn't work puts the previous setting back. Display scaling shows an error when the TV's current size and density can't be read, instead of blank values.
+- Desktop: the Health tab no longer re-requests a failed report in a loop. It shows the error once, and Refresh tries again.
+- Desktop: the Playback and Health tabs no longer crash when a TV reports two decoders for one video format or two network interfaces with the same name.
+- Desktop: dialogs (Report a bug, release history, snapshot name, approval, Report this app) move focus inside when they open, keep Tab inside, close on Escape and return focus to the button that opened them. Report a bug lists what the report contains.
+- Desktop: the explanations behind App List and Health badges open by click, tap or keyboard, not only on hover, and close on Escape.
+- Desktop: Install APK shows a bad drop's error and the drag highlight while a folder is listed or a file is staged, not only on the empty tab, and a listed APK reads Installed right after you install it.
+- Desktop: Disable and Uninstall on a protected app say Protected and why.
+- Android: Back closes the top dialog or sheet before leaving the screen.
+- Desktop: an APK install the TV refuses (for example `INSTALL_FAILED_VERSION_DOWNGRADE`) shows the decoded reason instead of a bare error, for Install APK and Copy to another device.
+- Desktop: downloading platform-tools has a timeout, and the new copy is installed only once it is complete, so a failed or interrupted download leaves the working adb in place.
+- Desktop: Scan LAN no longer port-sweeps the network behind a VPN or other tunnel when that is where the default route goes; it says why it skipped the sweep.
+- Desktop: APK backup file names are cleaned of anything that isn't a plain file-name character, and every backup stays inside the folder you chose.
+- Desktop: the App List's per-row badges no longer add a Tab stop per row; the App, RAM and Last used column headers each have a **?** that explains them by keyboard.
+- Android: the phone's ADB key is written safely in one step, and a damaged key is reported as such instead of being replaced silently, which would have un-paired every TV.
+- Android: APK backups are capped at 2 GiB.
+- Android: switching the phone to a right-to-left language no longer drops the TV session.
+- Android: Send Text keeps what you typed when the app silently reconnects to the same TV; it still closes when a different TV answers. A Reboot or Emergency recovery confirmed across a reconnect asks you to confirm again, and a reboot's result is shown even when the TV drops the connection as it goes down.
+
 - Desktop and Android: DIRECTV, DisneyNOW and Live Channels now have reviewed Caution recommendations, starting at Keep. DIRECTV explains the operator-box and subscription caveats; retired DisneyNOW warns that it has no current Play download; Live Channels warns about tuner viewing, its guide and TV input shortcuts. None is selected automatically (#307, #318, #321).
 
 - Desktop and Android: an app you might not use now suggests **Uninstall** only when it is a Play Store app that was added to the TV rather than built in, so you can get it back from the store and uninstalling frees its storage. Apps that came with the TV or were sideloaded suggest **Disable**, which is fully reversible; when the app can't tell how an app got there, it suggests Disable. On desktop, Uninstall is still offered where it was before, and a **?** beside the App List and Optimize filters explains the difference. On Android, choosing such an app in Optimize now disables it; Uninstall stays in its app sheet. Optimize's default picks are unchanged.

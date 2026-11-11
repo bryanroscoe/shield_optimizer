@@ -2,6 +2,7 @@
 // that folder until you ask it to: the remembered path is often on a removable
 // volume or a mounted DMG, and probing it on mount makes macOS ask for
 // removable-volume access on every visit (#89).
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -101,7 +102,7 @@ async function main() {
     const { chromium } = await import("playwright");
     server = await createServer({
       root: V2,
-      server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false },
+      server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false },
     });
     await server.listen();
     browser = await chromium.launch();

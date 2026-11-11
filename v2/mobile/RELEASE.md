@@ -103,7 +103,8 @@ implementation as the eventual public release; do not substitute a debug or fixt
    instruments, not a real charge. Complete the purchase/restore/pending/refund matrix in §6.
 5. Complete the physical phone/TV matrix and fix any failures. Internal availability alone is
    not product acceptance. Then finish listing/declarations and roll out Closed testing to
-   start the account's required production-access clock.
+   start the account's required production-access clock. Send invited testers
+   [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
 
 ## 0. Prerequisites (one time)
 

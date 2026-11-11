@@ -5,6 +5,7 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import { api } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
+  import { dialogFocus } from "$lib/dialog-focus";
   import type { Safety } from "$lib/types";
   import {
     APP_REPORT_NOTE_MAX,
@@ -115,19 +116,16 @@
       ? "The GitHub form opened with this report filled in. Review it there, then submit it yourself."
       : "This report is too long to fill in for you. Click Copy, then paste it into the Report field on GitHub.";
   }
-
-  function onKeydown(e: KeyboardEvent) {
-    if (e.key !== "Escape") return;
-    e.preventDefault();
-    e.stopPropagation();
-    onClose();
-  }
 </script>
 
-<svelte:window onkeydown={onKeydown} />
-
 <div class="report-backdrop" role="presentation" onclick={onClose}></div>
-<div class="report-dialog" role="dialog" aria-modal="true" aria-labelledby="app-report-title">
+<div
+  class="report-dialog"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="app-report-title"
+  use:dialogFocus={{ onClose, escapeFromOutside: true }}
+>
   <h2 id="app-report-title">Report this app</h2>
   <p class="muted small">
     Nothing is sent automatically. Below is everything this report contains. Copy it, save it

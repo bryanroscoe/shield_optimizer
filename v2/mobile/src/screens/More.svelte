@@ -39,6 +39,12 @@
     return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
   }
 
+  // Spelled in pieces: Vite's dependency scanner strips HTML comments from a
+  // .svelte file before parsing its script, and literal markers here cut the
+  // script short and fail the scan (tests/optimize-deps.test.mjs).
+  const COMMENT_OPEN = "<" + "!--";
+  const COMMENT_CLOSE = "--" + ">";
+
   /// The generated third-party notices are Markdown with a little HTML (a
   /// generator comment, <details>/<summary>). This only splits them into
   /// blocks of plain text; the template renders every block as text, so
@@ -63,14 +69,14 @@
         blocks.push({ kind: "code", text: code.join("\n") });
         continue;
       }
-      if (line.includes("<!--")) {
-        line = line.replace(/<!--[\s\S]*?-->/g, "");
-        const open = line.indexOf("<!--");
+      if (line.includes(COMMENT_OPEN)) {
+        line = line.replace(/<!-{2}[\s\S]*?-{2}>/g, "");
+        const open = line.indexOf(COMMENT_OPEN);
         if (open >= 0) {
           // A comment that runs onto later lines.
           let end = i + 1;
-          while (end < lines.length && !lines[end].includes("-->")) end++;
-          line = line.slice(0, open) + (end < lines.length ? lines[end].slice(lines[end].indexOf("-->") + 3) : "");
+          while (end < lines.length && !lines[end].includes(COMMENT_CLOSE)) end++;
+          line = line.slice(0, open) + (end < lines.length ? lines[end].slice(lines[end].indexOf(COMMENT_CLOSE) + 3) : "");
           i = end;
         }
       }
@@ -134,6 +140,7 @@
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
+  import { currentTarget, sameTv, targetState, type TvTarget } from "../lib/tvTarget";
   import { frontendLogText } from "../lib/log";
   import {
     clearUnknownDiagnostics,
@@ -340,19 +347,49 @@
   // for a debloat that went too far; it never uninstalls or installs anything.
   let recoveryConfirm = $state(false);
   let recovering = $state(false);
-  let recovery = $state<RecoveryResult | null>(null);
+  // Recovery runs on the connection it was confirmed for, and its result keeps
+  // that TV's name so it is never read as the state of a TV that replaced it.
+  let recoveryTarget = $state<TvTarget | null>(null);
+  let recovery = $state<(RecoveryResult & { target: TvTarget }) | null>(null);
+  // Results stay this TV's across a reconnect to the same TV; another TV
+  // never reads them as its own.
+  const isCurrent = (target: TvTarget) => session.isConnected && sameTv(target);
+  const recoveryIsCurrent = $derived(recovery !== null && isCurrent(recovery.target));
+
+  function confirmRecovery() {
+    if (!session.isConnected) return;
+    recoveryTarget = currentTarget();
+    recoveryConfirm = true;
+  }
 
   async function runRecovery() {
     recoveryConfirm = false;
-    if (recovering || !session.serial) return;
+    const target = recoveryTarget;
+    recoveryTarget = null;
+    if (recovering || !target) return;
+    const state = targetState(target);
+    if (state !== "current") {
+      showToast(
+        state === "reconnected"
+          ? "The TV reconnected, so nothing was re-enabled. Confirm Emergency recovery again."
+          : state === "offline"
+            ? "The TV isn't answering. Nothing was re-enabled."
+            : "The TV connection changed. Nothing was re-enabled.",
+        "error",
+      );
+      return;
+    }
     recovering = true;
     recovery = null;
     try {
-      recovery = await api.panicRecovery(session.serial);
+      const result = await api.panicRecovery(target.serial);
+      recovery = { ...result, target };
       session.invalidateAll();
-      showToast(recovery.message || `Re-enabled ${recovery.restored.length} apps.`, recovery.failed.length ? "info" : "success");
+      if (isCurrent(target)) {
+        showToast(result.message || `Re-enabled ${result.restored.length} apps.`, result.failed.length ? "info" : "success");
+      }
     } catch (e) {
-      showToast(String(e), "error");
+      if (isCurrent(target)) showToast(String(e), "error");
     } finally {
       recovering = false;
     }
@@ -373,11 +410,11 @@
     rebootTarget = null;
     if (!mode || rebooting || !session.serial) return;
     rebooting = true;
-    const generation = session.generation;
+    const target = currentTarget();
     try {
-      const r = await api.rebootDevice(session.serial, mode);
+      const r = await api.rebootDevice(target.serial, mode);
       showToast(r.ok ? `${rebootLabels[mode]} command sent.` : r.message || "Reboot failed.", r.ok ? "success" : "error");
-      if (r.ok && await session.finishReboot(generation)) router.reset("onboarding");
+      if (r.ok && await session.finishReboot(target)) router.reset("onboarding");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
@@ -648,6 +685,7 @@
             type="text"
             bind:value={licenseKey}
             placeholder="ATVOPT-…"
+            aria-label="License key"
             class="license-input mono"
             autocapitalize="characters"
             autocorrect="off"
@@ -701,7 +739,7 @@
         didn't touch. Use it if something stopped working after a debloat. It never uninstalls
         or installs anything.
       </p>
-      <button class="ghost-btn" disabled={recovering || !session.connectedDevice} onclick={() => (recoveryConfirm = true)}>
+      <button class="ghost-btn" disabled={recovering || !session.isConnected} onclick={confirmRecovery}>
         {#if recovering}
           <span class="pdot blink"></span>Re-enabling apps…
         {:else}
@@ -710,6 +748,9 @@
       </button>
       {#if recovery}
         <div class="recovery-result">
+          {#if !recoveryIsCurrent}
+            <span class="recovery-earlier">On {recovery.target.label}, an earlier connection:</span>
+          {/if}
           <span class="mono">{recovery.restored.length} re-enabled · {recovery.failed.length} failed</span>
           {#if recovery.failed.length}
             <ul class="recovery-failed mono">
@@ -728,7 +769,7 @@
       <p class="card-desc">Every option restarts the TV and drops this connection.</p>
       <div class="reboot-row">
         {#each ["normal", "recovery", "bootloader"] as mode (mode)}
-          <button class="ghost-btn" disabled={rebooting || !session.connectedDevice} onclick={() => (rebootTarget = mode as RebootMode)}>
+          <button class="ghost-btn" disabled={rebooting || !session.isConnected} onclick={() => (rebootTarget = mode as RebootMode)}>
             <span class="msr">{mode === "normal" ? "restart_alt" : mode === "recovery" ? "build" : "developer_board"}</span>{rebootLabels[mode as RebootMode]}
           </button>
         {/each}
@@ -981,10 +1022,13 @@
     open={recoveryConfirm}
     icon="medical_services"
     title="Re-enable every disabled app?"
-    message="This turns back on all apps currently disabled on {session.deviceLabel}, including bloat you disabled on purpose. You can run Optimize again afterwards."
+    message="This turns back on all apps currently disabled on {recoveryTarget?.label ?? session.deviceLabel}, including bloat you disabled on purpose. You can run Optimize again afterwards."
     confirmLabel="Re-enable all"
     onConfirm={runRecovery}
-    onCancel={() => (recoveryConfirm = false)}
+    onCancel={() => {
+      recoveryConfirm = false;
+      recoveryTarget = null;
+    }}
   />
 
   <ConfirmDialog

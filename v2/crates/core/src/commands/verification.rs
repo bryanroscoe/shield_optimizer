@@ -127,6 +127,34 @@ pub(super) async fn verify_setting(
     }
 }
 
+/// Write (`Some`) or delete (`None`) a setting and confirm it by reading it
+/// back. The error names the key.
+pub(super) async fn put_setting_confirmed(
+    adb: &dyn AdbDriver,
+    serial: &str,
+    namespace: &str,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), String> {
+    let command = match value {
+        Some(value) => format!(
+            "settings put {namespace} {key} {}",
+            super::quote_shell_arg(value)
+        ),
+        None => format!("settings delete {namespace} {key}"),
+    };
+    let out = adb
+        .shell(serial, &command)
+        .await
+        .map_err(|e| format!("{key}: {e}"))?;
+    if !succeeded(&out) {
+        return Err(format!("{key}: {}", failure_text(&out)));
+    }
+    verify_setting(adb, serial, namespace, key, value)
+        .await
+        .map_err(|e| format!("{key}: {}", e.message()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

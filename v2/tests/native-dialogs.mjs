@@ -12,6 +12,7 @@
 // the native dialog answered through `plugin:dialog|message`. A second run
 // without `isTauri` checks that an async confirm resolving false still cancels.
 // The native dialog itself can't be shown here.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { readdir, readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -109,7 +110,7 @@ try {
   server = await createServer({
     root,
     cacheDir: resolve(root, "node_modules/.vite-native-dialogs"),
-    server: { host: "127.0.0.1", port: 0, hmr: false, fs: { allow: [root, await realpath(resolve(root, "node_modules"))] } },
+    server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false, fs: { allow: [root, await realpath(resolve(root, "node_modules"))] } },
   });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;

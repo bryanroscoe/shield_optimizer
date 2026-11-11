@@ -398,7 +398,9 @@ pub fn persist_cache(data_dir: &Path, action: &CacheAction) {
         CacheAction::Store(cache) => std::fs::create_dir_all(data_dir)
             .map_err(|e| e.to_string())
             .and_then(|_| serde_json::to_string(cache).map_err(|e| e.to_string()))
-            .and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string())),
+            .and_then(|json| {
+                crate::write_replacing(&path, json.as_bytes()).map_err(|e| e.to_string())
+            }),
     };
     if let Err(e) = result {
         tracing::warn!(error = %e, "could not update play_purchase.json");

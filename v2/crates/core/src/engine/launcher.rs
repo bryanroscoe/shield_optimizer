@@ -287,6 +287,11 @@ pub fn home_keep_reason(
         return Some(HomeKeepReason::PairedStockKept);
     }
     match enabled_handlers {
+        // Home resolves to it, yet the HOME query didn't list it: the two
+        // reads disagree, so neither proves another launcher stays.
+        Some(handlers) if current_home == Some(pkg) && !handlers.iter().any(|h| h == pkg) => {
+            Some(HomeKeepReason::HomeAppsUnreadable)
+        }
         Some(handlers) if !handlers.is_empty() => {
             is_last_enabled_home_handler(pkg, handlers, catalog)
                 .then_some(HomeKeepReason::OnlyHomeApp)
@@ -388,7 +393,12 @@ pub fn pick_current_home(
     resolved: Option<&str>,
     catalog: &LauncherCatalog,
 ) -> HomeReading {
-    let resolved = resolved.and_then(|c| c.split_once('/'));
+    // `android/com.android.internal.app.ResolverActivity` is the chooser
+    // shown when no default Home is set: no Home app at all, not one named
+    // `android`.
+    let resolved = resolved
+        .and_then(|c| c.split_once('/'))
+        .filter(|(pkg, _)| *pkg != "android" && is_valid_package_name(pkg));
     let role = role_holders.and_then(|r| r.iter().find(|p| is_valid_package_name(p)));
     match (role, resolved) {
         (None, Some((pkg, activity))) => HomeReading {
@@ -669,6 +679,42 @@ mod tests {
         assert_eq!(reading.package.as_deref(), Some(MONET));
         assert_eq!(reading.activity, None);
         assert!(reading.note.unwrap().contains("setup helper"));
+    }
+
+    #[test]
+    fn the_home_chooser_is_no_home_app_not_one_called_android() {
+        for resolved in [
+            "android/com.android.internal.app.ResolverActivity",
+            "not a package/.Main",
+        ] {
+            assert_eq!(
+                pick_current_home(None, Some(resolved), &catalog()),
+                HomeReading::default(),
+                "{resolved}"
+            );
+            assert_eq!(
+                pick_current_home(Some(&pkgs(&[MONET])), Some(resolved), &catalog())
+                    .package
+                    .as_deref(),
+                Some(MONET)
+            );
+        }
+    }
+
+    #[test]
+    fn current_home_missing_from_the_handler_list_is_kept() {
+        // Home resolves to Monet but the HOME query only listed stock: the
+        // reads disagree, so Monet stays on.
+        let handlers = pkgs(&["com.google.android.tvlauncher"]);
+        assert_eq!(
+            home_keep_reason(MONET, Some(&handlers), Some(MONET), &[], &catalog()),
+            Some(HomeKeepReason::HomeAppsUnreadable)
+        );
+        let both = pkgs(&["com.google.android.tvlauncher", MONET]);
+        assert_eq!(
+            home_keep_reason(MONET, Some(&both), Some(MONET), &[], &catalog()),
+            None
+        );
     }
 
     #[test]

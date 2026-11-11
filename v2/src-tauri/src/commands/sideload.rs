@@ -58,10 +58,7 @@ async fn install_apk_impl(
     args.push(apk_path.to_string());
     let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
 
-    let out = adb
-        .raw_transfer(&args_ref)
-        .await
-        .map_err(|e| format!("adb install: {e}"))?;
+    let out = install_answer(adb.raw_transfer(&args_ref).await)?;
     let combined = combine_streams(&out.stdout, &out.stderr);
     let ok = install_succeeded(out.success(), &combined);
     let hint = decode_install_error(&combined);
@@ -72,6 +69,23 @@ async fn install_apk_impl(
         message: combined,
         hint,
     })
+}
+
+/// Real `adb install` exits 1 on `Failure [INSTALL_FAILED_*]`, and both
+/// drivers report that as `NonZeroExit`. It is the install's answer, so it
+/// becomes a failed output the hint decoder reads, not a bare error.
+pub(super) fn install_answer(
+    result: crate::adb::AdbResult<crate::adb::AdbOutput>,
+) -> Result<crate::adb::AdbOutput, String> {
+    match result {
+        Ok(out) => Ok(out),
+        Err(crate::adb::AdbError::NonZeroExit { code, stderr }) => Ok(crate::adb::AdbOutput {
+            stdout: String::new(),
+            stderr,
+            exit_code: code.or(Some(1)),
+        }),
+        Err(e) => Err(format!("adb install: {e}")),
+    }
 }
 
 #[derive(Serialize)]
@@ -90,9 +104,7 @@ pub struct DiscoveredApk {
 fn read_apk_package_id(apk_path: &std::path::Path) -> Option<String> {
     let file = std::fs::File::open(apk_path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
-    let mut manifest = zip.by_name("AndroidManifest.xml").ok()?;
-    let mut bytes = Vec::new();
-    std::io::Read::read_to_end(&mut manifest, &mut bytes).ok()?;
+    let bytes = read_capped(zip.by_name("AndroidManifest.xml").ok()?)?;
     let doc = axmldecoder::parse(&bytes).ok()?;
     if let Some(axmldecoder::Node::Element(root)) = doc.get_root() {
         if root.get_tag() == "manifest" {
@@ -104,6 +116,26 @@ fn read_apk_package_id(apk_path: &std::path::Path) -> Option<String> {
         }
     }
     None
+}
+
+/// Real manifests are tens of KB; the APK is untrusted, so a "manifest" that
+/// inflates to gigabytes is treated as unreadable rather than buffered.
+const MAX_MANIFEST_BYTES: u64 = 4 * 1024 * 1024;
+
+fn read_capped(reader: impl std::io::Read) -> Option<Vec<u8>> {
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(
+        &mut std::io::Read::take(reader, MAX_MANIFEST_BYTES + 1),
+        &mut bytes,
+    )
+    .ok()?;
+    (bytes.len() as u64 <= MAX_MANIFEST_BYTES).then_some(bytes)
+}
+
+fn is_apk_file_name(path: &std::path::Path) -> bool {
+    path.extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("apk"))
 }
 
 fn trusted_package_id(raw: Option<String>) -> Option<String> {
@@ -186,8 +218,12 @@ pub async fn inspect_apk(
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_string();
-    let package = read_apk_package_id(&apk);
-    let abis = read_apk_abis(&apk);
+    let (package, abis) = {
+        let apk = apk.clone();
+        tokio::task::spawn_blocking(move || (read_apk_package_id(&apk), read_apk_abis(&apk)))
+            .await
+            .map_err(|e| format!("read {path}: {e}"))?
+    };
 
     let adb = state.adb_snapshot().await;
     let device_abis: Vec<String> = match adb.shell(&serial, "getprop ro.product.cpu.abilist").await
@@ -245,7 +281,7 @@ pub async fn list_apks_in_folder(folder: String) -> Result<Vec<DiscoveredApk>, S
     while let Some(entry) = read.next_entry().await.transpose() {
         let entry = entry.map_err(|e| format!("read_dir entry: {e}"))?;
         let path = entry.path();
-        if path.extension().and_then(|s| s.to_str()) != Some("apk") {
+        if !is_apk_file_name(&path) {
             continue;
         }
         let metadata = match entry.metadata().await {
@@ -260,7 +296,13 @@ pub async fn list_apks_in_folder(folder: String) -> Result<Vec<DiscoveredApk>, S
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_string();
-        let package = read_apk_package_id(&path);
+        let package = {
+            let path = path.clone();
+            tokio::task::spawn_blocking(move || read_apk_package_id(&path))
+                .await
+                .ok()
+                .flatten()
+        };
         out.push(DiscoveredApk {
             path: path.display().to_string(),
             name,
@@ -278,6 +320,36 @@ pub async fn list_apks_in_folder(folder: String) -> Result<Vec<DiscoveredApk>, S
 #[cfg(test)]
 mod tests {
     use super::trusted_package_id;
+    use std::io::Read;
+
+    #[test]
+    fn the_apk_extension_is_matched_in_any_case() {
+        for name in ["a.apk", "B.APK", "c.Apk"] {
+            assert!(
+                super::is_apk_file_name(std::path::Path::new(name)),
+                "{name}"
+            );
+        }
+        for name in ["a.apks", "apk", "a.apk.zip", "a"] {
+            assert!(
+                !super::is_apk_file_name(std::path::Path::new(name)),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_oversized_manifest_is_unreadable_not_buffered() {
+        let limit = super::MAX_MANIFEST_BYTES as usize;
+        assert_eq!(
+            super::read_capped(std::io::repeat(0).take(limit as u64 + 1)),
+            None
+        );
+        assert_eq!(
+            super::read_capped(&vec![7u8; limit][..]).map(|b| b.len()),
+            Some(limit)
+        );
+    }
 
     #[test]
     fn a_manifest_package_id_with_shell_syntax_is_treated_as_unreadable() {
@@ -297,6 +369,7 @@ mod tests {
     enum Reply {
         Output(crate::adb::AdbOutput),
         Error(String),
+        NonZero(String),
     }
 
     type InstallCalls = std::sync::Arc<std::sync::Mutex<Vec<Vec<String>>>>;
@@ -325,6 +398,10 @@ mod tests {
             match &self.reply {
                 Reply::Output(output) => Ok(output.clone()),
                 Reply::Error(message) => Err(crate::adb::AdbError::Transport(message.clone())),
+                Reply::NonZero(stderr) => Err(crate::adb::AdbError::NonZeroExit {
+                    code: Some(1),
+                    stderr: stderr.clone(),
+                }),
             }
         }
     }
@@ -496,6 +573,42 @@ mod tests {
             "rejected-error.json",
             &serde_json::json!({ "error": error }),
         );
+    }
+
+    /// The subprocess driver and the built-in engine both turn adb's exit 1
+    /// on `Failure [...]` into `NonZeroExit`; the user still gets a decoded
+    /// `ok: false` result rather than a raw error.
+    #[tokio::test]
+    async fn a_nonzero_install_exit_is_a_decoded_failed_result() {
+        let temp = tempfile::tempdir().unwrap();
+        let file = temp.path().join("simulated.apk");
+        std::fs::write(&file, b"simulation only").unwrap();
+        let refusal =
+            "adb: failed to install simulated.apk: Failure [INSTALL_FAILED_VERSION_DOWNGRADE]";
+        let (state, calls) = mock_state(Reply::NonZero(refusal.into()));
+        let installed = super::install_apk_impl(&state, "mock-tv", file.to_str().unwrap(), None)
+            .await
+            .expect("an install refusal is a result, not an error");
+        assert!(!installed.ok);
+        assert!(installed.message.contains(refusal));
+        assert!(installed.hint.as_deref().unwrap().contains("newer"));
+        assert_eq!(calls.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn only_a_nonzero_exit_becomes_an_install_answer() {
+        let answer = super::install_answer(Err(crate::adb::AdbError::NonZeroExit {
+            code: None,
+            stderr: "Failure [INSTALL_FAILED_INVALID_APK]".into(),
+        }))
+        .unwrap();
+        assert!(!answer.success());
+        assert_eq!(answer.stderr, "Failure [INSTALL_FAILED_INVALID_APK]");
+        let transport = super::install_answer(Err(crate::adb::AdbError::Transport(
+            "connection reset".into(),
+        )))
+        .unwrap_err();
+        assert!(transport.contains("connection reset"));
     }
 
     #[tokio::test]

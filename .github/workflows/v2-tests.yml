@@ -16,6 +16,8 @@ on:
       # The telemetry Worker has its own job in tests.yml.
       - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
+      # Its notes and version gates call v2/scripts, tested in `frontend`.
+      - '.github/workflows/v2-release.yml'
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
     # No branch filter: stacked PRs (base = another feature branch) need CI
@@ -25,6 +27,8 @@ on:
       # The telemetry Worker has its own job in tests.yml.
       - '!v2/telemetry-worker/**'
       - '.github/workflows/v2-tests.yml'
+      # Its notes and version gates call v2/scripts, tested in `frontend`.
+      - '.github/workflows/v2-release.yml'
   workflow_dispatch:
     inputs:
       native_test_app:
@@ -390,6 +394,14 @@ jobs:
       - name: Catalog review queue
         run: python3 -m unittest discover -s v2/tools/catalog-review -p 'test_*.py'
 
+      # release.sh's next-version and MSI version arithmetic, and the release
+      # workflow's CHANGELOG extraction.
+      - name: Release version and changelog scripts
+        working-directory: v2
+        env:
+          PYTHONDONTWRITEBYTECODE: '1'
+        run: npm run test:release-scripts
+
       # The Sideload tab must not read the remembered APK folder until asked
       # (#89) — that folder is often a removable volume.
       - name: Sideload scan
@@ -439,6 +451,12 @@ jobs:
         working-directory: v2
         run: npm run test:version-compare
 
+      # The release workflow never publishes an updater manifest that is not
+      # newer than the live one.
+      - name: Release version gate
+        working-directory: v2
+        run: npm run test:release-version-gate
+
       # adb pair/connect failures get plain guidance with the raw text kept,
       # and unknown errors are not guessed at.
       - name: adb errors
@@ -454,6 +472,10 @@ jobs:
       - name: Remote lifecycle
         working-directory: v2
         run: npm run test:remote-lifecycle
+
+      - name: Remote unknown-outcome warning
+        working-directory: v2
+        run: npm run test:remote-outcome
 
       # Force stop, Shield-only Find remote and the reported temperature
       # context, the features desktop gained from the phone.
@@ -489,6 +511,14 @@ jobs:
       - name: Snapshot deletion
         working-directory: v2
         run: npm run test:snapshot-delete
+
+      - name: Catalog uninstall
+        working-directory: v2
+        run: npm run test:catalog-uninstall
+
+      - name: Native install results
+        working-directory: v2
+        run: npm run test:native-install-results
 
       # The desktop app's confirm() is async and its prompt() returns null.
       - name: Confirmation and snapshot name dialogs
@@ -554,6 +584,10 @@ jobs:
         working-directory: v2
         run: LAUNCHER_FEEDBACK_EVIDENCE=1 npm run test:launcher-feedback
 
+      - name: Launcher protected-package message
+        working-directory: v2
+        run: npm run test:launcher-protection-message
+
       - name: Progressive help
         working-directory: v2
         run: npm run test:progressive-help
@@ -594,6 +628,43 @@ jobs:
       - name: macOS Local Network notice
         working-directory: v2
         run: npm run test:local-network-notice
+
+      - name: Health report load failure
+        working-directory: v2
+        run: npm run test:health-load-failure
+
+      - name: Dialog focus
+        working-directory: v2
+        run: npm run test:dialog-focus
+
+      - name: Badge explanations by click, tap and keyboard
+        working-directory: v2
+        run: npm run test:badge-tips
+
+      - name: Media duplicate values
+        working-directory: v2
+        run: npm run test:media-duplicate-values
+
+      - name: Protected remove tip
+        working-directory: v2
+        run: npm run test:protected-remove-tip
+
+      - name: Install APK drop states
+        working-directory: v2
+        run: npm run test:sideload-drop-states
+
+      - name: Display scaling read errors
+        working-directory: v2
+        run: npm run test:display-scaling
+
+      - name: Snapshot preview skipped settings
+        working-directory: v2
+        run: npm run test:snapshot-refused-settings
+
+      # Every tests/*.mjs has a script and every test:* script runs here.
+      - name: Test wiring
+        working-directory: v2
+        run: npm run test:test-wiring
 
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
@@ -738,3 +809,38 @@ jobs:
       - name: Mobile behavior regressions
         working-directory: v2/mobile
         run: npm test
+
+  # One verdict for the whole run. GitHub has silently failed to create a job
+  # before and nothing made that visible; this fails unless every job ran and
+  # passed, or was skipped on purpose (skip-ci, a closed PR, an unrelated
+  # label event, or the opt-in native-test-app jobs).
+  ci-ok:
+    if: always()
+    needs: [rust, frontend, e2e, frontend-mobile, native-test-app, native-test-bundles]
+    name: v2 Tests OK
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed or was skipped on purpose
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          # The same condition the required jobs use.
+          SHOULD_RUN: >-
+            ${{ github.event_name != 'pull_request' ||
+            (github.event.pull_request.state == 'open' &&
+             !contains(github.event.pull_request.labels.*.name, 'skip-ci') &&
+             ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
+              (github.event.label.name == 'skip-ci' || github.event.label.name == 'native-test-app'))) }}
+        run: |
+          set -euo pipefail
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<<"$RESULTS"
+          [[ $(jq 'length' <<<"$RESULTS") -eq 6 ]] || { echo "::error::expected 6 job results"; exit 1; }
+          bad=$(jq -r --arg run "$SHOULD_RUN" '
+            [to_entries[]
+             | select(
+                 (.value.result != "success" and .value.result != "skipped") or
+                 ($run == "true" and .value.result == "skipped" and
+                  (.key | IN("rust", "frontend", "e2e", "frontend-mobile"))))
+             | "\(.key)=\(.value.result)"] | join(", ")' <<<"$RESULTS")
+          [[ -z "$bad" ]] || { echo "::error::not passed: $bad"; exit 1; }
+          echo "All required v2 jobs passed (should_run=$SHOULD_RUN)."

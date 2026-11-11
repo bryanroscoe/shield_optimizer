@@ -6,7 +6,14 @@
   // and closes on the trigger again, its close button, Escape, a press outside it, or
   // focus leaving it. Nothing is inserted into the page flow, so opening one doesn't
   // shift the rows beneath it.
-  let { label, forId, children }: { label: string; forId?: string; children: Snippet } = $props();
+  // `inline` fits a table column header: the label keeps the header's own type and the
+  // trigger sits beside it without growing the row.
+  let {
+    label,
+    forId,
+    inline = false,
+    children,
+  }: { label: string; forId?: string; inline?: boolean; children: Snippet } = $props();
   const helpId = $props.id();
   let expanded = $state(false);
   let trigger: HTMLButtonElement;
@@ -81,7 +88,8 @@
 
 <svelte:window onkeydown={onWindowKeydown} onpointerdown={onWindowPointerdown} />
 
-<div class="help-title">
+<!-- While open, Escape belongs to this help, not to a dialog around it. -->
+<div class="help-title" class:inline data-own-escape={expanded ? "" : undefined}>
   {#if forId}
     <label for={forId}>{label}</label>
   {:else}
@@ -105,6 +113,7 @@
   role="region"
   aria-label={label}
   hidden={!expanded}
+  data-own-escape={expanded ? "" : undefined}
   style:top="{top}px"
   style:left="{left}px"
   style:max-height={maxHeight ? `${maxHeight}px` : undefined}
@@ -121,6 +130,9 @@
 
 <style>
   .help-title { display: flex; align-items: center; gap: 0.5rem; font-size: 0.92rem; font-weight: 550; }
+  .help-title.inline { display: inline-flex; gap: 0.35rem; font-size: inherit; font-weight: inherit; vertical-align: middle; }
+  .help-title.inline > span { white-space: nowrap; }
+  .help-title.inline .help-trigger { margin-block: -0.35rem; text-transform: none; letter-spacing: normal; }
   label { cursor: pointer; }
   .help-trigger { flex: 0 0 1.65rem; width: 1.65rem; height: 1.65rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; background: transparent; color: var(--fg-secondary); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
   .help-trigger:hover,
@@ -145,6 +157,9 @@
     line-height: 1.5;
     color: var(--fg-secondary);
     text-align: left;
+    text-transform: none;
+    letter-spacing: normal;
+    white-space: normal;
     overflow-wrap: anywhere;
   }
   .help-popover[hidden] { display: none; }

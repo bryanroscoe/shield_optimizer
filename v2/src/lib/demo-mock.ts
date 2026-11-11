@@ -732,6 +732,13 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
 }
 
 function demoFiles(path: string) {
+  if (path === "/") {
+    return [
+      { name: "data", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-28 19:02" },
+      { name: "sdcard", is_dir: false, is_symlink: true, size_bytes: 21, modified: "2026-01-01 00:00" },
+      { name: "system", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-01-01 00:00" },
+    ];
+  }
   if (path === "/sdcard") {
     return [
       { name: "Download", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-28 19:02" },
