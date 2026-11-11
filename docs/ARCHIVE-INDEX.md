@@ -31,6 +31,9 @@ given.
 | `v2/mobile/RELEASE-POLISH-RECEIPTS.md` | Per-PR review/CI/merge receipts for PRs #181–#204 and #206 | `git show a9f07d7:v2/mobile/RELEASE-POLISH-RECEIPTS.md` |
 | `atv-optimizer-android-strategy.html` | Early feasibility and go-to-market page for the Android app (now `v2/mobile/HANDOFF.md`) | `git show e4a9300:atv-optimizer-android-strategy.html` |
 | `testing/` | Docker harness (`Dockerfile`, `Makefile`) for running the v1 script under Linux by hand; CI runs Pester directly | `git show e4a9300:testing/Dockerfile` |
+| `docs/evidence/` | Committed PR evidence (836 KB, 10 files): `mobile-main-integration-2026-10-17/`, `native-main-integration-20261101.md`, `v1-tvrecommendations-safety/`. PR evidence is now attached to the PR and these paths are gitignored | `git show e4a9300:docs/evidence/native-main-integration-20261101.md`; list with `git ls-tree -r --name-only e4a9300 docs/evidence` |
+| `v2/evidence/` | Committed desktop PR evidence (6.6 MB, 57 files): `cleartv-208-20261022/`, `firetv-protection-205-20261019/`, `launcher-curation-2026-10-23/`, `launcher-feedback-212/`, `native-main-integration-20261101/`, `quit-install-admission-20261017/`, `tvrecommendations-safety/`. The one file a test read is now `v2/tests/fixtures/launcher-protection-result.json`; the `*_EVIDENCE` test captures still write here, gitignored | `git ls-tree -r --name-only e4a9300 v2/evidence`, then `git show e4a9300:<path>` |
+| `v2/mobile/evidence/` | Committed mobile PR evidence (10 MB, 189 files): `apk-report-fallback`, `daydream-order`, `density-only-label`, `detail-state`, `diagnostics-header`, `export-discoverability`, `metric-context`, `modal-handoffs`, `modal-scroll`, `ram-accounting`, `report-readability`, `report-safety`, `scaling-preset-wrap`, `screensaver-labels`, `screenshot-retention`, `settings-polish`, `setup-helper-disable`, `sheet-identity`, `thermal-threshold-wording` (all `-2026-10-17`), `cleartv-integration-2026-10-22/`, `entitlement-preview-20261016/`, `launcher-curation-2026-10-23/`, `launcher-protection-integration-2026-10-19/`, `parity-2026-10-06/`, `reconnect-20261015/`, `standalone-fixture-build-2026-10-23/`, `feedback-ux-48cba23-source.json`. The lifecycle reproduction and its baseline moved to `v2/mobile/tests/lifecycle/`; the `*_EVIDENCE` test captures still write here, gitignored | `git ls-tree -r --name-only e4a9300 v2/mobile/evidence`, then `git show e4a9300:<path>` |
 
 ## Bulk material outside the repository
 
@@ -59,9 +62,10 @@ Verify with `cd <archive> && shasum -a 256 -c MANIFEST-sha256.txt`.
   screenshots and applied patches.
 
 Both are heavy with internal process vocabulary from the retired tracker. The durable, readable
-versions of this material are the release decision packet listed above,
-[`gastown-shield_optimizer-beads-export.json`](gastown-shield_optimizer-beads-export.json) and
-[`../v2/mobile/evidence/`](../v2/mobile/evidence/).
+versions of this material are the release decision packet listed above and
+[`gastown-shield_optimizer-beads-export.json`](gastown-shield_optimizer-beads-export.json). The
+later per-PR evidence folders were removed from the tree too; see the evidence rows in the table
+above.
 
 | Directory | Size | Files |
 |---|---|---|

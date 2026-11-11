@@ -320,7 +320,7 @@ cd vendor/adb_client && cargo test --lib      # the vendored crate is outside th
 ```
 
 From `v2/mobile/`: `npm run check` (0 errors / 0 warnings), `npm run build`, `npm test` (the
-browser suite: real screens, mocked Tauri). `node --test evidence/lifecycle/reproduce.mjs` runs the
+browser suite: real screens, mocked Tauri). `node --test tests/lifecycle/reproduce.mjs` runs the
 lifecycle matrix. CI (`.github/workflows/v2-tests.yml`) runs the Rust workspace, the vendored
 tests and the mobile check/build/test. The separate `mobile-play-release.yml` smoke job builds
 the four-ABI Android artifacts and runs Kotlin JVM tests for mobile/shared input changes on

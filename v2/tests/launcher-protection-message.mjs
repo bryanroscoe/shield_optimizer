@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || 'playwright');
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const evidence = join(root, 'evidence/firetv-protection-205-20261019');
-const result = JSON.parse(await readFile(join(evidence, 'result-simulated.json'), 'utf8'));
+// Written by the shared-core launcher test with SHIELD_205_EVIDENCE=<path>.
+const result = JSON.parse(await readFile(join(root, 'tests/fixtures/launcher-protection-result.json'), 'utf8'));
 const route = await readFile(join(root, 'src/routes/devices/[serial]/+page.svelte'), 'utf8');
 const messageCss = route.match(/  \.action-message \{[^}]+\}/)?.[0];
 assert.ok(messageCss, 'reuse the production message wrapping rule');

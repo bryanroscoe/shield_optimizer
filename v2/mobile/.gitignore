@@ -16,3 +16,6 @@ __pycache__/
 # Screenshot frames — regenerable via `npm run screenshots`. gallery.gif and
 # contact-sheet.png are committed.
 /screenshots/frames/
+
+# Test evidence captures (*_EVIDENCE=1 and friends). Attach them to the PR; never commit them.
+/evidence/

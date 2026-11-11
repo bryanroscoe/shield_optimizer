@@ -19,7 +19,7 @@ From `v2/mobile/`, with dependencies from the checked-in lockfile:
 npm ci --ignore-scripts
 # Only if the matching host browser is missing:
 npx playwright install chromium
-node --test evidence/lifecycle/reproduce.mjs
+node --test tests/lifecycle/reproduce.mjs
 ```
 
 The harness starts a loopback Vite development server and Chromium at 384×812. All Tauri invokes
@@ -35,7 +35,7 @@ reconstructs JavaScript; the fixture separately models an empty or retained nati
 Output defaults to `/tmp/so-vtm.8-lifecycle/observations.json`; set `LIFECYCLE_OUTPUT` to choose
 another directory, or `LIFECYCLE_MOBILE_ROOT` to run against another checkout's `v2/mobile`. The
 output records the source HEAD, dirty paths, source hashes, runtime versions, state and invoke
-sequence. The recorded baseline run is in `evidence/lifecycle/`.
+sequence. The recorded baseline run is in `tests/lifecycle/` (`baseline-48cba23.*`).
 
 **Four reload cases are out of date.** They still expect a saved-TV reconnect to stop on a
 Connected / Open dashboard interstitial, but a saved-TV connect now opens the Dashboard directly

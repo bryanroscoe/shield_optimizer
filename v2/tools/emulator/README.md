@@ -93,7 +93,7 @@ What this does **not** cover, and still needs a real phone:
 - Real background/doze transitions — relevant to the fast-remote 30-second
   background grace and to the app-restart report (#105). The emulator reproduces the
   *JavaScript* lifecycle faithfully, which is what
-  `evidence/lifecycle/reproduce.mjs` already models; it does not reproduce Android
+  `v2/mobile/tests/lifecycle/reproduce.mjs` already models; it does not reproduce Android
   killing the process under real memory pressure.
 - Touch ergonomics and safe-area insets.
 
