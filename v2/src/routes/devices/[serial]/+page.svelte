@@ -1472,18 +1472,20 @@
 
   async function loadHomePicker() {
     if (homePickerLoading || homePickerPackages.length > 0) return;
+    const context = capturePageContext();
     homePickerLoading = true;
     homePickerErr = null;
     try {
-      const list = await api.listInstalledPackages(serial);
+      const list = await api.listInstalledPackages(context.serial);
+      if (!pageContextIsCurrent(context)) return;
       const unique = new Map(list.map((p) => [p.package, p]));
       homePickerPackages = [...unique.values()].sort((a, b) =>
         (a.name ?? a.package).localeCompare(b.name ?? b.package),
       );
     } catch (e) {
-      homePickerErr = String(e);
+      if (pageContextIsCurrent(context)) homePickerErr = String(e);
     } finally {
-      homePickerLoading = false;
+      if (pageContextIsCurrent(context)) homePickerLoading = false;
     }
   }
 
@@ -1491,25 +1493,30 @@
   let stockHoldsHomeFor = $state<string | null>(null);
 
   async function setHomeFromPicker() {
+    if (homePickerBusy !== null) return;
     launcherSetResult = null;
     const pkg = homePickerChoice;
     if (!pkg) return;
+    const context = capturePageContext();
     homePickerBusy = "set";
     homePickerMessage = "";
     stockConfirmOpen = false;
     try {
-      const r = await api.setHomeAny(serial, pkg, homePickerActivity.trim() || null);
+      const r = await api.setHomeAny(context.serial, pkg, homePickerActivity.trim() || null);
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = r.ok;
       homePickerMessage = r.message;
       stockHoldsHomeFor = r.stock_holds_home ? pkg : null;
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       await loadLauncher();
+      if (!pageContextIsCurrent(context)) return;
       invalidateDeviceCaches();
     } catch (e) {
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = false;
       homePickerMessage = String(e);
     } finally {
-      homePickerBusy = null;
+      if (pageContextIsCurrent(context)) homePickerBusy = null;
     }
   }
 
@@ -1542,6 +1549,7 @@
         ? " Google TV's setup helper (Setup Wraith) was turned off too."
         : "";
       const r = await api.disableStockLauncher(context.serial, pkg);
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = r.ok;
       homePickerMessage = r.ok
         ? `The stock launcher is disabled and ${pkg} is Home.${wraithNote} Re-enable stock from the list above any time.`
@@ -1549,12 +1557,14 @@
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       stockHoldsHomeFor = null;
       await loadLauncher();
+      if (!pageContextIsCurrent(context)) return;
       invalidateDeviceCaches();
     } catch (e) {
+      if (!pageContextIsCurrent(context)) return;
       homePickerOk = false;
       homePickerMessage = String(e);
     } finally {
-      homePickerBusy = null;
+      if (pageContextIsCurrent(context)) homePickerBusy = null;
     }
   }
 
@@ -2183,7 +2193,7 @@
     launcherErr = null; launcherActionMessage = ""; launcherSetResult = null;
     launcherActionBusy = null; launcherProgress = ""; launcherLoading = false; launcherDiagnostics = [];
     stopStorePoll(); storeOpened = null;
-    homePickerPackages = []; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
+    homePickerPackages = []; homePickerLoading = false; homePickerBusy = null; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
     apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
@@ -3496,6 +3506,9 @@
                 {#each visibleOthers as o (o.package)}
                   {@const safety = packageSafety[o.package]}
                   {@const canRemove = othersLoaded && safety?.status === "ready" && !isBlocked(safety.verdict)}
+                  {@const removeTip = safety?.status === "ready" && isBlocked(safety.verdict)
+                    ? `Protected — ${safety.verdict.reason}`
+                    : canRemove ? undefined : "Needs a completed safety check and a current package list"}
                   <AppRow
                     name={o.name ?? o.package}
                     description={o.description ?? undefined}
@@ -3519,8 +3532,8 @@
                       <div class="actions-cell">
                         <div class="row-verbs">
                         {#if o.enabled}
-                          <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip="Needs a completed safety check and a current package list">Disable</button>
-                          <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip="Needs a completed safety check and a current package list">Uninstall</button>
+                          <button class="small-action subtle" onclick={() => disableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip={removeTip} data-tip-wrap>Disable</button>
+                          <button class="small-action subtle danger" onclick={() => uninstallOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight || !canRemove} data-tip={removeTip} data-tip-wrap>Uninstall</button>
                         {:else}
                           <button class="small-action subtle" onclick={() => enableOther(o.package)} disabled={appActionBusy === o.package || appMutationInFlight} data-tip="pm enable">Enable</button>
                         {/if}
