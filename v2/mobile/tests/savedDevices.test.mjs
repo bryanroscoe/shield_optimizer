@@ -278,35 +278,6 @@ test("matches id-less rows only at the exact endpoint", () => {
   assert.equal(savedDevices.listSavedDevices().length, 2);
 });
 
-test("forgets identified TVs by id and id-less TVs by exact endpoint", () => {
-  seed([
-    saved({ host: "192.168.1.20", lastUsed: "2026-09-04T00:00:00.000Z" }),
-    saved({ lastUsed: "2026-09-03T00:00:00.000Z" }),
-    saved({ hardwareId: "google-b", name: "Other TV", lastUsed: "2026-09-02T00:00:00.000Z" }),
-    saved({
-      host: "192.168.1.30",
-      hardwareId: undefined,
-      name: "No id",
-      lastUsed: "2026-09-05T00:00:00.000Z",
-    }),
-    saved({
-      host: "192.168.1.30",
-      hardwareId: "shield-c",
-      name: "Identified at same endpoint",
-      lastUsed: "2026-09-01T00:00:00.000Z",
-    }),
-  ]);
-
-  savedDevices.forgetDevice("192.168.1.20", 5555);
-  assert.equal(savedDevices.listSavedDevices().some((row) => row.hardwareId === "shield-a"), false);
-  assert.equal(savedDevices.listSavedDevices().some((row) => row.hardwareId === "google-b"), true);
-
-  savedDevices.forgetDevice("192.168.1.30", 5555);
-  const rows = savedDevices.listSavedDevices();
-  assert.equal(rows.some((row) => !row.hardwareId), false);
-  assert.equal(rows.some((row) => row.hardwareId === "shield-c"), true);
-});
-
 test("returns cached names only for an unambiguous or matching identity", () => {
   seed([
     saved({ hardwareId: "shield-a", name: "Shield" }),

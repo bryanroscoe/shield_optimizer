@@ -5,7 +5,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { startViteServer } from "./helpers/vite-harness.mjs";
 import { SimulatedStore } from "./helpers/simulated-store.mjs";
 let server, origin, browser, model;
-before(async () => { ({ server, origin } = await startViteServer()); model = await server.ssrLoadModule("/src/lib/entitlementPreview.ts"); browser = await chromium.launch({ headless: true }); });
+before(async () => { ({ server, origin } = await startViteServer()); model = await server.ssrLoadModule("/tests/helpers/entitlementPreview.ts"); browser = await chromium.launch({ headless: true }); });
 after(async () => { await browser?.close(); await server?.close(); });
 test("matrix covers every registered mobile command and opener exactly once", async () => {
   const matrix = JSON.parse(await readFile(new URL("../BILLING-COMMAND-MATRIX.json", import.meta.url)));

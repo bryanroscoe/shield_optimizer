@@ -282,15 +282,6 @@ export function rememberDevice(
   return { mismatch };
 }
 
-export function forgetDevice(host: string, connectPort: number): void {
-  const current = listSavedDevices();
-  const target = current.find(
-    (d) => d.host === host && d.connectPort === connectPort,
-  );
-  if (!target) return;
-  forgetSavedDevice(target);
-}
-
 export function forgetSavedDevice(device: SavedDevice): void {
   const identity = savedDeviceKey(device);
   write(listSavedDevices().filter((saved) => savedDeviceKey(saved) !== identity));

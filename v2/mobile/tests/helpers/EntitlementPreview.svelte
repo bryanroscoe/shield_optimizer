@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { previewMessage, previewIsPro, type Preview } from "../lib/entitlementPreview";
+  import { previewMessage, previewIsPro, type Preview } from "./entitlementPreview";
   let { state, onBuy, onRestore, onRecovery }: { state: Preview; onBuy: () => void; onRestore: () => void; onRecovery: () => void } = $props();
   const busy = $derived(["buying", "restoring", "pending", "verifying"].includes(state.phase));
 </script>
