@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-10",
+  "updated_at": "2026-11-11",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1139,6 +1139,46 @@
       },
       "scope": "Optional Caution, Disable suggestion, review=true, both defaults=false and initial Keep. Existing origin-gated main planner may offer Uninstall for verified user-installed store apps; no new override or bulk default. No model/firmware/platform certification.",
       "independent_review": "Both agents independently researched exact identity, purposes, dependencies and recovery; agree acceptance. No hardware proof."
+    },
+    "com.disneyplus.mea": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-11",
+      "reconsider_after": "2026-12-11",
+      "reason": "Exact Play URL returned 404; regional fetch did not recover a developer listing. Exact primary identity, dependencies, removal consequences and recovery/migration applicability remain unverified. Missing listing is not proof of a defunct app or safe removal; no alias to another Disney+ package.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-11.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.disneyplus.mea",
+        "https://help.disneyplus.com/article/disneyplus-en-bz-uninstall-reinstall"
+      ],
+      "original_observations": {
+        "active_profiles": 1,
+        "commented_profiles": 0,
+        "note_profiles": 0,
+        "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55p7k/debloat.txt#L65",
+        "context": "Unused streaming app disabled by owner choice, not vendor removal guidance; full model/firmware/keep comments preserved in pinned source."
+      },
+      "independent_review": "One read-only reviewer independently checked both exact URLs and vendor help; agrees hold. No formal GitHub approval or hardware test."
+    },
+    "com.disneyplus.ph": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-11",
+      "reconsider_after": "2026-12-11",
+      "reason": "Exact Play URL returned 404; regional fetch did not recover a developer listing. Exact primary identity, dependencies, removal consequences and recovery/migration applicability remain unverified. Missing listing is not proof of a defunct app or safe removal; no alias to another Disney+ package.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-11.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.disneyplus.ph",
+        "https://help.disneyplus.com/article/disneyplus-en-bz-uninstall-reinstall"
+      ],
+      "original_observations": {
+        "active_profiles": 1,
+        "commented_profiles": 0,
+        "note_profiles": 0,
+        "url": "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/skyworth-sw-22sa/debloat.txt#L63",
+        "context": "Unused streaming app disabled by owner choice, not vendor removal guidance; full model/firmware/keep comments preserved in pinned source."
+      },
+      "independent_review": "One read-only reviewer independently checked both exact URLs and vendor help; agrees hold. No formal GitHub approval or hardware test."
     }
   }
 }
