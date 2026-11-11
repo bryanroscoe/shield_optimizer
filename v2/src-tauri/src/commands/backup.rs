@@ -55,6 +55,30 @@ fn backup_file_name(package: &str, version: Option<&str>, remote: &str, split: b
     format!("{package}-{version}-{stem}.apk")
 }
 
+/// Local filenames for every pulled APK, unique within one backup.
+/// Sanitising can map two split names to one file (`a:b` and `a_b`, a 64-char
+/// cap, `..` → `part`); a repeat gets `-2`, `-3`… before `.apk`. Names that
+/// do not collide stay exactly as earlier backups spelled them, and restore
+/// (`clone_app`) uses the returned paths rather than reading names back.
+fn backup_file_names(package: &str, version: Option<&str>, remotes: &[String]) -> Vec<String> {
+    let split = remotes.len() > 1;
+    let mut used = std::collections::HashSet::new();
+    remotes
+        .iter()
+        .map(|remote| {
+            let name = backup_file_name(package, version, remote, split);
+            let stem = name.strip_suffix(".apk").unwrap_or(&name).to_string();
+            let mut candidate = name;
+            let mut n = 2;
+            while !used.insert(candidate.to_ascii_lowercase()) {
+                candidate = format!("{stem}-{n}.apk");
+                n += 1;
+            }
+            candidate
+        })
+        .collect()
+}
+
 /// The device reports `versionName` and the APK paths, so either can carry
 /// separators or `..`. Only `[A-Za-z0-9._-]` reaches a local file name;
 /// anything that still spells a parent directory is dropped.
@@ -116,10 +140,10 @@ async fn pull_apks(
     version: Option<&str>,
     dest: &Path,
 ) -> Result<Vec<PathBuf>, String> {
-    let split = remotes.len() > 1;
+    let names = backup_file_names(package, version, remotes);
     let mut locals = Vec::new();
-    for remote in remotes {
-        let local = dest.join(backup_file_name(package, version, remote, split));
+    for (remote, name) in remotes.iter().zip(names) {
+        let local = dest.join(name);
         if local.parent() != Some(dest) {
             return Err(format!(
                 "Refusing to save {remote} outside {}",
@@ -364,6 +388,48 @@ mod tests {
             ));
             assert_eq!(local.parent(), Some(dest), "{version:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn colliding_split_names_never_overwrite_each_other() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let state = state_with(MockAdb::default());
+        let adb = state.adb_snapshot().await;
+        let dest = tempfile::tempdir().unwrap();
+        let remotes: Vec<String> = [
+            "/data/app/y/base.apk",
+            "/data/app/y/split:a.apk",
+            "/data/app/y/split_a.apk",
+            "/data/app/y/x..y.apk",
+            "/data/app/y/..z.apk",
+        ]
+        .map(String::from)
+        .to_vec();
+        let locals = pull_apks(
+            adb.as_ref(),
+            "tv",
+            "com.x",
+            &remotes,
+            Some("1.0"),
+            dest.path(),
+        )
+        .await
+        .unwrap();
+        let names: Vec<String> = locals
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "com.x-1.0-base.apk",
+                "com.x-1.0-split_a.apk",
+                "com.x-1.0-split_a-2.apk",
+                "com.x-1.0-part.apk",
+                "com.x-1.0-part-2.apk",
+            ]
+        );
+        assert!(locals.iter().all(|p| p.parent() == Some(dest.path())));
     }
 
     #[tokio::test]
