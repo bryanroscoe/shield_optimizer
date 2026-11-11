@@ -22,7 +22,8 @@ migrations_dir = "migrations"
 
 # Daily at 03:17 UTC: delete raw events older than RAW_RETENTION_DAYS, clear log
 # excerpts and delete Send logs uploads older than LOG_RETENTION_DAYS, and drop
-# stale rate-limit counters. Aggregate tables are kept.
+# stale rate-limit counters. Aggregate tables are kept, unless the storage
+# budget below is exceeded.
 [triggers]
 crons = ["17 3 * * *"]
 
@@ -40,12 +41,26 @@ PER_INSTALL_DAILY_EVENTS = "500"
 # later deletes it (quota row, raw row and its index entries): ~12 per event-day under
 # a sustained flood, so 7k events stays near 84k writes. See README.md.
 GLOBAL_DAILY_EVENTS = "7000"
+# Storage. The Workers Free plan caps ONE D1 database at 500 MB (5 GB is the
+# account total); past it every write, so every ingest, upload and tier sync,
+# fails with 503. Worst case under a flood of made-up install ids, with the
+# caps below: events 1.5 MiB/day x 90 days ~ 142 MB, uploads 2 MiB/day x 30
+# days ~ 63 MB, plus row overhead and counters, ~ 210 MB of estimated data.
+# See "Storage budget" in README.md. Raise these only on a paid plan.
+#
+# Stored bytes of accepted events per UTC day across everyone: each event costs
+# its string bytes plus 256 for the row and its index entries.
+GLOBAL_DAILY_EVENT_BYTES = "1572864"
 # Send logs uploads (POST /v1/diagnostics). The per-install cap is checked first,
 # so one install can't spend the shared budget. The global caps are a count and
-# a byte total per UTC day; with LOG_RETENTION_DAYS (30) the byte cap bounds
-# stored log text at about 3 GiB of D1's 5 GiB even under a flood of made-up
-# install ids, and each upload costs about six row writes (three quota rows, the
-# row and its two index entries), so 1000 a day stays near 6k writes.
+# a byte total per UTC day (8 full-size 256 KiB uploads, or many small ones).
+# Each upload costs about six row writes (three quota rows, the row and its two
+# index entries), so 200 a day stays near 1.2k writes.
 PER_INSTALL_DAILY_UPLOADS = "5"
-GLOBAL_DAILY_UPLOADS = "1000"
-GLOBAL_DAILY_UPLOAD_BYTES = "104857600"
+GLOBAL_DAILY_UPLOADS = "200"
+GLOBAL_DAILY_UPLOAD_BYTES = "2097152"
+# The cron frees space oldest first (uploads, then log excerpts, then raw
+# events, then the oldest aggregate days) down to 80% of this when the
+# estimated stored bytes pass it. Kept well under 500 MB because the estimate
+# counts data, not SQLite's page overhead.
+STORAGE_BUDGET_BYTES = "300000000"

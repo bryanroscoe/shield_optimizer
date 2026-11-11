@@ -15,6 +15,25 @@ export interface QuotaRow {
 export type QuotaResult = { ok: true; rows: QuotaRow[] } | { ok: false; scope: "install" | "global" };
 
 export const GLOBAL_KEY = "*";
+// Stored bytes of accepted events, across everyone, per UTC day.
+export const EVENT_BYTES_KEY = "event-bytes:*";
+
+// What one events row costs in storage, as counted against
+// GLOBAL_DAILY_EVENT_BYTES and estimated by the storage-budget purge: a fixed
+// allowance for the row, its timestamps and its two index entries, plus every
+// stored string. The SQL twin is EVENT_SIZE_SQL below; keep them in step.
+export const EVENT_ROW_OVERHEAD = 256;
+const encoder = new TextEncoder();
+
+export function eventBytes(e: CleanEvent): number {
+  let n = EVENT_ROW_OVERHEAD;
+  const strings: Array<string | null> = [
+    e.install_id, e.app, e.app_version, e.os, e.client_ts, e.kind, e.action, e.error_code, e.message, e.diag, e.log_excerpt,
+  ];
+  if (e.device) for (const v of Object.values(e.device)) if (typeof v === "string") strings.push(v);
+  for (const s of strings) if (s) n += encoder.encode(s).length;
+  return n;
+}
 
 export function utcDay(now: Date): string {
   return now.toISOString().slice(0, 10);
@@ -33,18 +52,27 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
   const globalCap = intVar(env.GLOBAL_DAILY_EVENTS, 7000);
   const perInstall = new Map<string, number>();
   for (const e of events) perInstall.set(e.install_id, (perInstall.get(e.install_id) ?? 0) + 1);
+  const byteCap = intVar(env.GLOBAL_DAILY_EVENT_BYTES, DEFAULT_DAILY_EVENT_BYTES);
+  const bytes = events.reduce((a, e) => a + eventBytes(e), 0);
   const rows: QuotaRow[] = [...perInstall].map(([key, n]) => ({ key, n, cap: installCap }));
   rows.push({ key: GLOBAL_KEY, n: events.length, cap: globalCap });
+  rows.push({ key: EVENT_BYTES_KEY, n: bytes, cap: byteCap });
 
   const admitted = await admit(env, day, rows);
   if (admitted) return { ok: true, rows };
 
   // Refused: a read to say which cap, for the response body.
-  const global = await env.DB.prepare("SELECT events FROM rate_daily WHERE day = ?1 AND key = ?2")
-    .bind(day, GLOBAL_KEY)
-    .first<{ events: number }>();
-  return { ok: false, scope: (global?.events ?? 0) + events.length > globalCap ? "global" : "install" };
+  const counters = await env.DB.prepare("SELECT key, events FROM rate_daily WHERE day = ?1 AND key IN (?2, ?3)")
+    .bind(day, GLOBAL_KEY, EVENT_BYTES_KEY)
+    .all<{ key: string; events: number }>();
+  const used = (key: string) => counters.results.find((r) => r.key === key)?.events ?? 0;
+  const global = used(GLOBAL_KEY) + events.length > globalCap || used(EVENT_BYTES_KEY) + bytes > byteCap;
+  return { ok: false, scope: global ? "global" : "install" };
 }
+
+// 1.5 MiB a day kept RAW_RETENTION_DAYS (90) is at most ~142 MB of events.
+// See "Storage budget" in README.md before raising it.
+export const DEFAULT_DAILY_EVENT_BYTES = 1536 * 1024;
 
 // Bumps every counter in `rows` by its `n`, or none of them when any would
 // pass its `cap`. One statement; see consumeQuota.
@@ -65,9 +93,9 @@ export async function admit(env: Env, day: string, rows: QuotaRow[]): Promise<bo
   return admitted.results.length === rows.length;
 }
 
-// Gives back an admitted batch's per-install quota when storing it failed, so
-// a transient D1 error does not lock an install out for events that were never
-// recorded. The global counter is deliberately not refunded: it is the failure
+// Gives back an admitted batch's per-install quota (and its bytes) when
+// storing it failed, so a transient D1 error does not lock an install out for
+// events that were never recorded. The global counter is deliberately not refunded: it is the failure
 // budget that bounds admission+refund writes if storage stays broken while
 // rate_daily is still writable. Best effort: if D1 is down this fails too.
 export async function releaseQuota(env: Env, rows: QuotaRow[], now: Date): Promise<void> {
@@ -205,11 +233,12 @@ export interface PurgeResult {
   rate: number;
   excerpts: number;
   uploads: number;
+  storage: StorageTrim;
 }
 
 // Raw events go after RAW_RETENTION_DAYS (90). Log text is kept for less:
 // excerpts are cleared from their events, and Send logs uploads deleted,
-// after LOG_RETENTION_DAYS (30).
+// after LOG_RETENTION_DAYS (30). Then the storage budget is enforced.
 export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
   const days = intVar(env.RAW_RETENTION_DAYS, 90);
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
@@ -229,5 +258,121 @@ export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
     rate: rate?.meta.changes ?? 0,
     excerpts: excerpts?.meta.changes ?? 0,
     uploads: uploads?.meta.changes ?? 0,
+    storage: await enforceStorageBudget(env),
   };
+}
+
+// The storage budget. A Workers Free D1 database stops taking writes at 500 MB,
+// after which every ingest, upload and tier sync answers 503. The daily caps
+// keep the worst case well under that (README "Storage budget"), but the
+// aggregate tables are kept forever and a flood of made-up device names grows
+// them without limit. So when the estimated stored bytes pass
+// STORAGE_BUDGET_BYTES, the cron frees space, oldest first, down to 80% of it:
+// Send logs uploads, then log excerpts, then raw events, and only then the
+// oldest aggregate days. Sizes are estimates (string bytes plus a per-row
+// allowance), not the database file size, which SQLite does not shrink on
+// delete; freed pages are reused by later writes.
+export const DEFAULT_STORAGE_BUDGET_BYTES = 300_000_000;
+const TARGET_FRACTION = 0.8;
+
+const textBytes = (cols: string[]) => `LENGTH(CAST(${cols.map((c) => `COALESCE(${c}, '')`).join(" || ")} AS BLOB))`;
+const EVENT_SIZE_SQL = `${EVENT_ROW_OVERHEAD} + ${textBytes([
+  "install_id", "app", "app_version", "os", "client_ts", "kind", "manufacturer", "brand", "model", "device", "product",
+  "android_release", "profile", "support_tier", "action", "error_code", "message", "diag", "log_excerpt",
+])}`;
+const AGG_ROW_OVERHEAD = 128;
+const AGG_DIMS = ["manufacturer", "model", "device", "profile", "app", "app_version"];
+const UPLOAD_SIZE_SQL = `bytes + ${EVENT_ROW_OVERHEAD}`;
+
+interface Tier {
+  name: string;
+  table: string;
+  // Rows are freed in ascending order of this column, whole values at a time.
+  col: string;
+  size: string;
+  filter?: string;
+  // The statement that frees rows with col <= the cutoff.
+  free: (cutoff: string) => string;
+}
+
+const deleteUpTo = (table: string, col: string) => (cutoff: string) => `DELETE FROM ${table} WHERE ${col} <= ${cutoff}`;
+
+const TIERS: Tier[] = [
+  { name: "uploads", table: "diag_uploads", col: "received_at", size: UPLOAD_SIZE_SQL, free: deleteUpTo("diag_uploads", "received_at") },
+  {
+    name: "excerpts",
+    table: "events",
+    col: "received_at",
+    size: "LENGTH(CAST(log_excerpt AS BLOB))",
+    filter: "log_excerpt IS NOT NULL",
+    free: (cutoff) => `UPDATE events SET log_excerpt = NULL WHERE log_excerpt IS NOT NULL AND received_at <= ${cutoff}`,
+  },
+  { name: "events", table: "events", col: "received_at", size: EVENT_SIZE_SQL, free: deleteUpTo("events", "received_at") },
+  {
+    name: "agg_error_daily",
+    table: "agg_error_daily",
+    col: "day",
+    size: `${AGG_ROW_OVERHEAD} + ${textBytes(["day", ...AGG_DIMS, "error_code"])}`,
+    free: deleteUpTo("agg_error_daily", "day"),
+  },
+  {
+    name: "agg_device_daily",
+    table: "agg_device_daily",
+    col: "day",
+    size: `${AGG_ROW_OVERHEAD} + ${textBytes(["day", ...AGG_DIMS, "last_seen"])}`,
+    free: deleteUpTo("agg_device_daily", "day"),
+  },
+  {
+    name: "agg_device_installs",
+    table: "agg_device_installs",
+    col: "last_seen",
+    size: `${AGG_ROW_OVERHEAD} + ${textBytes([...AGG_DIMS, "install_id", "first_seen", "last_seen"])}`,
+    free: deleteUpTo("agg_device_installs", "last_seen"),
+  },
+];
+
+const sum = (size: string, table: string, filter?: string) =>
+  `(SELECT COALESCE(SUM(${size}), 0) FROM ${table}${filter ? ` WHERE ${filter}` : ""})`;
+
+// One query; reads every row once.
+export async function estimateStorageBytes(env: Env): Promise<number> {
+  const parts = [
+    sum(UPLOAD_SIZE_SQL, "diag_uploads"),
+    sum(EVENT_SIZE_SQL, "events"),
+    ...TIERS.filter((t) => t.table.startsWith("agg_")).map((t) => sum(t.size, t.table)),
+    sum(`64 + ${textBytes(["day", "key"])}`, "rate_daily"),
+  ];
+  const row = await env.DB.prepare(`SELECT ${parts.join(" + ")} AS total`).first<{ total: number }>();
+  return row?.total ?? 0;
+}
+
+export interface StorageTrim {
+  before: number;
+  after: number;
+  budget: number;
+  trimmed: string[];
+}
+
+export async function enforceStorageBudget(env: Env): Promise<StorageTrim> {
+  const budget = intVar(env.STORAGE_BUDGET_BYTES, DEFAULT_STORAGE_BUDGET_BYTES);
+  const before = await estimateStorageBytes(env);
+  const result: StorageTrim = { before, after: before, budget, trimmed: [] };
+  if (before <= budget) return result;
+  const target = Math.floor(budget * TARGET_FRACTION);
+  for (const tier of TIERS) {
+    const excess = result.after - target;
+    if (excess <= 0) break;
+    // The smallest cutoff whose oldest-first running total covers the excess,
+    // or everything in the tier when it holds less than that.
+    const where = tier.filter ? ` WHERE ${tier.filter}` : "";
+    const cte = `WITH per AS (SELECT ${tier.col} AS k, SUM(${tier.size}) AS b FROM ${tier.table}${where} GROUP BY k),
+      run AS (SELECT k, SUM(b) OVER (ORDER BY k) AS r FROM per)`;
+    const cutoff = `COALESCE((SELECT k FROM run WHERE r >= ?1 ORDER BY k LIMIT 1), (SELECT MAX(k) FROM per))`;
+    const res = await env.DB.prepare(`${cte} ${tier.free(cutoff)}`).bind(excess).run();
+    if ((res.meta.changes ?? 0) > 0) {
+      result.trimmed.push(tier.name);
+      result.after = await estimateStorageBytes(env);
+    }
+  }
+  return result;
 }
