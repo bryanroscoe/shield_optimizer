@@ -2728,7 +2728,7 @@
                     <span class="av-chip">{report.display.refresh_hz} Hz</span>
                   {/if}
                   {#if report.display.hdr_types.length}
-                    {#each report.display.hdr_types as hdr (hdr)}
+                    {#each [...new Set(report.display.hdr_types)] as hdr (hdr)}
                       <span class="av-chip">{hdr}</span>
                     {/each}
                   {:else}

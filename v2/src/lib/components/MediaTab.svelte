@@ -116,7 +116,7 @@
           <tr><th>Resolution</th><th>Refresh</th><th>Notes</th></tr>
         </thead>
         <tbody>
-          {#each caps.modes as m (`${m.width}x${m.height}@${m.fps}`)}
+          {#each caps.modes as m, i (i)}
             <tr class:film={isFilmRate(m.fps)}>
               <td class="mono">{m.width}×{m.height}</td>
               <td class="mono">{m.fps.toFixed(3)} Hz</td>
@@ -138,7 +138,7 @@
       <p class="rail-label">HDR formats</p>
       <div class="rail-list">
         {#if caps.hdr_types.length}
-          {#each caps.hdr_types as h (h)}
+          {#each [...new Set(caps.hdr_types)] as h (h)}
             <div class="rail-item"><span>{h}</span><span class="pill ok">Reported</span></div>
           {/each}
         {:else}
@@ -156,7 +156,7 @@
           <span>Passthrough mode</span>
           <span class="pill">{surroundLabel[caps.audio.mode] ?? caps.audio.mode}</span>
         </div>
-        {#each caps.audio.enabled_formats as f (f)}
+        {#each [...new Set(caps.audio.enabled_formats)] as f (f)}
           <div class="rail-item"><span>{f}</span><span class="pill ok">Enabled</span></div>
         {/each}
       </div>
