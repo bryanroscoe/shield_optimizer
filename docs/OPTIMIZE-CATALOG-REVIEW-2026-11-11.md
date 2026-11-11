@@ -68,3 +68,19 @@ The existing daily job, timing and approved normal reviewed-green merge policy
 are unchanged. No deploy, release, device control, packaging, billing, credential
 or security change. Retain the bound checkout/warm frontend dependencies for the
 daily job, review **2026-11-17**; clean only this task's disposable scratch.
+
+## CI dependency recovery
+
+The first two hosted attempts failed to resolve `azure.archive.ubuntu.com` while
+installing browser dependencies; frontend type checks/builds passed, browser
+regressions did not run. Linux native/e2e jobs remained in package downloads
+until their time limits. These attempts are not substantive CI passes.
+
+The same independent reviewer checks a scoped CI recovery: before dependency
+installation in the four affected jobs, rewrite runner Ubuntu mirror-file/Azure
+source URIs to the official Ubuntu archive/security HTTPS endpoints. Preserve
+suites, components, signing keyrings, verification, package lists and all tests.
+Third-party repository URIs remain unchanged. The helper's temporary-file tests
+cover Jammy-style lists, Noble deb822, security repositories, unrelated sources,
+missing files and repeated execution. No local host APT configuration is changed.
+Actual replacement-head CI and exact-merge main CI must still succeed.
