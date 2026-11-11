@@ -77,9 +77,13 @@ pub fn safety_for(state: &AppState, package: &str) -> Safety {
 /// The rule tables still apply: they only ever make a verdict *more*
 /// conservative, so a process that looks like a protected package is still
 /// flagged.
+///
+/// A process may carry a `:name` suffix (`com.android.systemui:screenshot`);
+/// it runs in the package before the colon, so that is what is classified.
 #[tauri::command]
 pub fn process_safety_info(process: String) -> Safety {
-    classify_safety(&process)
+    let package = process.split(':').next().unwrap_or(&process);
+    classify_safety(package)
 }
 
 #[derive(Serialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -511,11 +515,11 @@ pub(crate) async fn disable_package_impl(
     // and this is the path the app list and the optimize wizard use, so the
     // same guard applies here. A third-party launcher is only Caution to the
     // safety rules, so nothing else stops it.
+    state.require_pro(Feature::CuratedDebloat)?;
     let handlers = match guard_last_home_handler(state, serial, package, "disable").await {
         Ok(handlers) => handlers,
         Err(refusal) => return Ok(refusal),
     };
-    state.require_pro(Feature::CuratedDebloat)?;
     // A stock launcher with a paired setup helper (Google TV's Setup Wraith):
     // the Home apps read before disabling it let the helper follow (#157).
     let pairs_helper = !super::loader::launchers()
@@ -933,10 +937,10 @@ pub(crate) async fn uninstall_package_impl(
     }
     // Uninstalling the only enabled launcher strands the TV without a Home
     // screen exactly as disabling it does.
+    state.require_pro(Feature::CuratedDebloat)?;
     if let Err(refusal) = guard_last_home_handler(state, serial, package, "uninstall").await {
         return Ok(refusal);
     }
-    state.require_pro(Feature::CuratedDebloat)?;
     let mut result = run(state, serial, &format!("pm uninstall --user 0 {package}")).await?;
     if !result.ok {
         if let Some(hint) = decode_uninstall_error(&result.message) {
@@ -969,24 +973,16 @@ pub async fn reinstall_existing(
 /// device. Use when an app was fully uninstalled and isn't available via
 /// `install-existing` (third-party apps, or system apps wiped from /data).
 ///
-/// Reject package strings containing shell metacharacters since the value is
-/// interpolated into a URL passed to `am start`. Real package names are
-/// `[a-zA-Z0-9_.]` only, so this is more than permissive enough.
+/// The package is interpolated into a URL passed to `am start`, so only a
+/// well-formed package name is accepted.
 #[tauri::command]
 pub async fn open_play_store(
     state: State<'_, AppState>,
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    if package.is_empty()
-        || package
-            .chars()
-            .any(|c| !(c.is_ascii_alphanumeric() || c == '.' || c == '_'))
-    {
-        return Ok(ActionResult {
-            ok: false,
-            message: format!("invalid package name: {package}"),
-        });
+    if let Some(rejection) = reject_invalid_package(&package) {
+        return Ok(rejection);
     }
     run(
         &state,
@@ -1081,6 +1077,41 @@ mod tests {
             safety_for(&state, "com.random.sideloaded.apk"),
             Safety::Unknown { .. }
         ));
+    }
+
+    #[test]
+    fn a_process_with_a_name_suffix_is_classified_as_its_package() {
+        assert!(matches!(
+            process_safety_info("com.android.systemui:screenshot".into()),
+            Safety::NeverDisable { .. }
+        ));
+        assert!(matches!(
+            process_safety_info("com.android.systemui".into()),
+            Safety::NeverDisable { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_never_disable_package_is_refused_before_any_device_write() {
+        const PROTECTED: &str = "com.android.systemui";
+        let mock = crate::commands::test_support::MockAdb::default();
+        let log = mock.shell_log();
+        let state = crate::commands::test_support::state_with(mock);
+        let disabled = disable_package_impl(&state, "serial", PROTECTED)
+            .await
+            .unwrap();
+        assert!(!disabled.ok, "{}", disabled.message);
+        let removed = uninstall_package_impl(&state, "serial", PROTECTED)
+            .await
+            .unwrap();
+        assert!(!removed.ok, "{}", removed.message);
+        let calls = log.lock().unwrap();
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c.contains("pm disable") || c.contains("pm uninstall")),
+            "{calls:?}"
+        );
     }
 
     /// Unknown has to keep meaning something. It is the signal that a package

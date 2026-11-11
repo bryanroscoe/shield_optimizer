@@ -3133,6 +3133,81 @@ mod tests {
     /// GitHub #122 — onn 4K Pro: setting Projectivy as default must not report
     /// a failure and roll stock back when the switch has worked. Three
     /// polling/rollback cases.
+    const PROTECTED: &str = "com.android.systemui";
+
+    fn disables(log: &Arc<Mutex<Vec<String>>>) -> Vec<String> {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.contains("pm disable"))
+            .cloned()
+            .collect()
+    }
+
+    /// The launcher paths' do-not-disable gates only see catalog stock
+    /// launchers and setup helpers. None of those may be protected, or the
+    /// gates would be all that stands between a takeover and a brick.
+    #[test]
+    fn no_catalog_stock_launcher_or_setup_helper_is_protected() {
+        let catalog = launchers();
+        for pkg in catalog
+            .stock
+            .iter()
+            .map(|e| e.package.as_str())
+            .chain(catalog.transient_home_holders.iter().map(String::as_str))
+            .chain(
+                catalog
+                    .stock
+                    .iter()
+                    .flat_map(|e| e.disable_with.iter().map(String::as_str)),
+            )
+        {
+            assert!(!crate::engine::is_never_disable(pkg), "{pkg}");
+        }
+        assert!(crate::engine::is_never_disable(PROTECTED));
+    }
+
+    #[tokio::test]
+    async fn launcher_disable_paths_never_disable_a_protected_package() {
+        // Setup-helper fix.
+        let mock = MockAdb::default().on_shell(
+            "query-activities",
+            &format!("  packageName={PROTECTED}\n  packageName=com.spocky.projengmenu\n"),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        let res = disable_setup_helper_impl(&state, "serial", PROTECTED)
+            .await
+            .unwrap();
+        assert!(!res.ok);
+
+        // Stock takeover with a protected package holding Home.
+        let mut diagnostics = Vec::new();
+        let takeover = stock_takeover(
+            &*state.adb_snapshot().await,
+            "serial",
+            "com.spocky.projengmenu",
+            PROTECTED,
+            true,
+            &Progress::Silent,
+            &mut diagnostics,
+        )
+        .await;
+        assert!(takeover.is_none());
+
+        // Stock disable when the only other Home handlers are protected.
+        let res = disable_stock_launcher_impl(
+            &state,
+            "serial",
+            "com.spocky.projengmenu",
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
+        assert!(!res.ok);
+        assert!(disables(&log).is_empty(), "{:?}", disables(&log));
+    }
+
     mod launcher_verification_122 {
         use super::*;
 
