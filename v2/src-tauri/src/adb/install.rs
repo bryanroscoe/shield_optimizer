@@ -167,7 +167,7 @@ fn install_archive<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, In
     let had_previous = root.exists();
     if had_previous {
         // Windows refuses to rename a folder whose adb.exe is running.
-        if let Err(source) = std::fs::rename(root, &previous) {
+        if let Err(source) = rename_retrying(root, &previous) {
             let _ = std::fs::remove_dir_all(&staging);
             return Err(InstallError::Replace {
                 path: root.display().to_string(),
@@ -175,7 +175,7 @@ fn install_archive<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, In
             });
         }
     }
-    if let Err(source) = std::fs::rename(&staging, root) {
+    if let Err(source) = rename_retrying(&staging, root) {
         if had_previous {
             let _ = std::fs::rename(&previous, root);
         }
@@ -189,6 +189,34 @@ fn install_archive<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, In
         let _ = std::fs::remove_dir_all(&previous);
     }
     Ok(root.join(relative))
+}
+
+/// Antivirus scanners (Windows Defender above all) hold a just-written
+/// `adb.exe` open for a moment, and the folder rename fails with access
+/// denied until they let go.
+const RENAME_BACKOFF_MS: &[u64] = &[100, 250, 500, 1000];
+
+fn rename_retrying(from: &Path, to: &Path) -> std::io::Result<()> {
+    retry_rename(
+        || std::fs::rename(from, to),
+        |ms| std::thread::sleep(std::time::Duration::from_millis(ms)),
+    )
+}
+
+fn retry_rename(
+    mut rename: impl FnMut() -> std::io::Result<()>,
+    mut sleep: impl FnMut(u64),
+) -> std::io::Result<()> {
+    let mut backoff = RENAME_BACKOFF_MS.iter();
+    loop {
+        match rename() {
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => match backoff.next() {
+                Some(&ms) => sleep(ms),
+                None => return Err(e),
+            },
+            other => return other,
+        }
+    }
 }
 
 const STAGING_PREFIX: &str = "platform-tools.installing-";
@@ -379,6 +407,48 @@ mod tests {
             std::io::Write::write_all(&mut writer, body).unwrap();
         }
         std::io::Cursor::new(writer.finish().unwrap().into_inner())
+    }
+
+    #[test]
+    fn a_locked_rename_is_retried_then_given_up() {
+        use std::io::{Error, ErrorKind};
+        let mut calls = 0;
+        let mut slept = Vec::new();
+        let r = retry_rename(
+            || {
+                calls += 1;
+                if calls < 3 {
+                    Err(Error::from(ErrorKind::PermissionDenied))
+                } else {
+                    Ok(())
+                }
+            },
+            |ms| slept.push(ms),
+        );
+        assert!(r.is_ok());
+        assert_eq!((calls, slept), (3, vec![100, 250]));
+
+        let mut calls = 0;
+        let r = retry_rename(
+            || {
+                calls += 1;
+                Err(Error::from(ErrorKind::PermissionDenied))
+            },
+            |_| {},
+        );
+        assert_eq!(r.unwrap_err().kind(), ErrorKind::PermissionDenied);
+        assert_eq!(calls, RENAME_BACKOFF_MS.len() + 1);
+
+        // Anything else fails at once.
+        let mut calls = 0;
+        let r = retry_rename(
+            || {
+                calls += 1;
+                Err(Error::from(ErrorKind::NotFound))
+            },
+            |_| panic!("must not wait"),
+        );
+        assert_eq!((r.unwrap_err().kind(), calls), (ErrorKind::NotFound, 1));
     }
 
     #[test]
