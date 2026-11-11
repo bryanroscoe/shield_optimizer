@@ -267,6 +267,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Use official Ubuntu package mirrors
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p 'test_ubuntu_mirrors.py'
+          sudo python3 -B .github/scripts/ubuntu-mirrors.py
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -335,6 +341,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+
+      - name: Use official Ubuntu package mirrors
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p 'test_ubuntu_mirrors.py'
+          sudo python3 -B .github/scripts/ubuntu-mirrors.py
 
       - name: Informational profile catalog
         env:
@@ -654,6 +665,11 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Use official Ubuntu package mirrors
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p 'test_ubuntu_mirrors.py'
+          sudo python3 -B .github/scripts/ubuntu-mirrors.py
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -723,6 +739,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
+
+      - name: Use official Ubuntu package mirrors
+        run: |
+          python3 -B -m unittest discover -s .github/scripts -p 'test_ubuntu_mirrors.py'
+          sudo python3 -B .github/scripts/ubuntu-mirrors.py
 
       - name: Setup Node
         uses: actions/setup-node@v5
