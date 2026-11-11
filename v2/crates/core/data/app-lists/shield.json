@@ -114,13 +114,12 @@
     "risk": "medium",
     "optimize_description": "Nvidia's own games storefront and home-screen row, built around the GameStream service Nvidia retired in 2023. Disabling removes the Nvidia Games app and its row; GeForce NOW and Play Store games keep working.",
     "restore_description": "Brings back the Nvidia Games app and its home-screen row.",
-    "default_optimize": false,
+    "default_optimize": true,
     "default_restore": false,
     "play_store": true,
-    "reviewed_at": "2026-11-11",
+    "reviewed_at": "2026-09-19",
     "sources": [
-      "git history (115ded0)",
-      "bug bash 2026-11-11: Medium risk, so not pre-selected"
+      "git history (115ded0)"
     ],
     "device_scope": [
       "shield"

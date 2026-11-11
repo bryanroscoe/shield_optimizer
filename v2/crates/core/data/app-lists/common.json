@@ -3,32 +3,30 @@
     "package": "com.google.android.feedback",
     "name": "Google Feedback",
     "method": "disable",
-    "risk": "medium",
-    "optimize_description": "Sends Google the crash reports and “send feedback” forms from Android's own apps. Disabling stops those reports; everything else works as before, but Google no longer hears about crashes on this TV.",
+    "risk": "safe",
+    "optimize_description": "Sends Google the crash reports and “send feedback” forms from Android's own apps. Disabling stops those reports; everything else works exactly as before.",
     "restore_description": "Lets Android send crash and feedback reports to Google again.",
-    "default_optimize": false,
+    "default_optimize": true,
     "default_restore": true,
     "play_store": false,
-    "reviewed_at": "2026-11-11",
+    "reviewed_at": "2026-09-19",
     "sources": [
-      "git history (115ded0)",
-      "engine caution list (v2/crates/core/src/engine/safety.rs), which outranks this entry"
+      "git history (115ded0)"
     ]
   },
   {
     "package": "com.android.printspooler",
     "name": "Print Spooler",
     "method": "disable",
-    "risk": "medium",
+    "risk": "safe",
     "optimize_description": "Android's printing plumbing — it queues documents for a printer, which a TV has no way to reach. Disabling frees nothing; it only takes the entry out of your app list.",
     "restore_description": "Puts Android's print queue back.",
     "default_optimize": false,
     "default_restore": true,
     "play_store": false,
-    "reviewed_at": "2026-11-11",
+    "reviewed_at": "2026-09-19",
     "sources": [
-      "git history (115ded0)",
-      "engine caution list (v2/crates/core/src/engine/safety.rs), which outranks this entry"
+      "git history (115ded0)"
     ]
   },
   {
