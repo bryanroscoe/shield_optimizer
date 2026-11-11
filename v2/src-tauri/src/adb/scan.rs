@@ -440,7 +440,7 @@ mod tests {
             &[iface("eth0", [10, 0, 5, 9], 16, false)]
         ));
         // A gateway outside every local subnet is not swept.
-        assert!(!on([10, 9, 9, 1], &[wifi.clone()]));
+        assert!(!on([10, 9, 9, 1], std::slice::from_ref(&wifi)));
         // A down interface does not count.
         let mut down = wifi;
         down.up = false;
