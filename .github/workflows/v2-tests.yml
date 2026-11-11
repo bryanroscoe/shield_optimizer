@@ -653,6 +653,10 @@ jobs:
         working-directory: v2
         run: npm run test:sideload-drop-states
 
+      - name: Display scaling read errors
+        working-directory: v2
+        run: npm run test:display-scaling
+
       # Every tests/*.mjs has a script and every test:* script runs here.
       - name: Test wiring
         working-directory: v2
