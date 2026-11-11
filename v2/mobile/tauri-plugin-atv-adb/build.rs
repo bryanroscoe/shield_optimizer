@@ -1,6 +1,6 @@
-// This plugin exposes no JS-invokable commands — it is a Rust-side transport
-// used by the app's WirelessAdb driver. Its only job on Android is to ship the
-// libadb-android-backed Kotlin plugin (android/) into the app build.
+// This plugin exposes no JS-invokable commands. Its job on Android is to ship
+// the Kotlin side (android/) that the app's Rust code calls: network
+// discovery and watching, and document pick, save and share.
 const COMMANDS: &[&str] = &[];
 
 fn main() {

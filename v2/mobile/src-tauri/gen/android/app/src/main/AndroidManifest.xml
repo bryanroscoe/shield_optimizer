@@ -27,9 +27,11 @@
         <!-- fontScale and density keep a text or display size change from
              recreating the activity, which reloads the WebView and drops the
              session (and any apply in progress). MainActivity passes the new
-             font scale on to the WebView. -->
+             font scale on to the WebView. layoutDirection goes with locale:
+             without it a switch to a right-to-left language still recreates
+             the activity. -->
         <activity
-            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|smallestScreenSize|screenLayout|uiMode|fontScale|density|fontWeightAdjustment"
             android:launchMode="singleTask"
             android:label="@string/main_activity_title"
             android:name=".MainActivity"
