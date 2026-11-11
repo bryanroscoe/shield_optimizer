@@ -1,12 +1,14 @@
 // A small screen-stack router.
 // Navigation pushes/replaces/pops a stack. The Android system/gesture back
-// button pops the stack (or runs a screen's own step back) while there is
-// somewhere to go, and is left to Android at the root.
+// button closes an open dialog or sheet first, then pops the stack (or runs a
+// screen's own step back) while there is somewhere to go, and is left to
+// Android at the root.
 
 import { untrack } from "svelte";
 import { isTauri, type PluginListener } from "@tauri-apps/api/core";
 import { onBackButtonPress } from "@tauri-apps/api/app";
 import { session } from "./session.svelte";
+import { closeTopModal, hasOpenModal, onModalStackChange } from "./modal";
 
 export type Screen =
   | "onboarding"
@@ -70,10 +72,11 @@ let localBack: (() => void) | null = null;
 /// teardown reads state as it was before the change that unmounted it.
 let syncedDepth = 1;
 
-/// Whether Back has anything to do in the app: pop a level, run a screen's
-/// own step back, or be swallowed while an apply is running.
+/// Whether Back has anything to do in the app: close an open dialog or sheet,
+/// pop a level, run a screen's own step back, or be swallowed while an apply
+/// is running.
 function wantsBack(): boolean {
-  return syncedDepth > 1 || localBack !== null || session.applyInProgress;
+  return hasOpenModal() || syncedDepth > 1 || localBack !== null || session.applyInProgress;
 }
 
 function syncBack(depth: number): void {
@@ -140,9 +143,16 @@ function syncHistory(): void {
   }
 }
 
-/// One Back press: a screen's own step back first, else pop the stack (which
-/// swallows the press while an apply is running and does nothing at the root).
+/// One Back press: the top dialog or sheet first (as Escape would close it),
+/// then a screen's own step back, else pop the stack (which swallows the press
+/// while an apply is running and does nothing at the root).
 function stepBack(): void {
+  if (hasOpenModal()) {
+    // A running apply keeps every modal up, as it keeps every screen.
+    if (!session.applyInProgress) closeTopModal();
+    syncBack(router.stack.length);
+    return;
+  }
   const handler = localBack;
   if (handler && !session.applyInProgress) {
     handler();
@@ -238,6 +248,7 @@ export function initBackHandler(): () => void {
     stepBack();
   };
   window.addEventListener("popstate", onPop);
+  onModalStackChange(() => syncBack(syncedDepth));
   started = true;
   syncBack(router.stack.length);
   // An apply swallows Back even where nothing could be popped.
@@ -249,6 +260,7 @@ export function initBackHandler(): () => void {
   });
   return () => {
     stopApplyWatch();
+    onModalStackChange(null);
     window.removeEventListener("popstate", onPop);
     started = false;
     if (native) syncNative();

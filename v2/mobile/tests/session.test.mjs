@@ -227,6 +227,83 @@ test("Tweaks is a bottom tab and Optimize is a pushed screen; Back unwinds both 
   assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
 });
 
+test("Back closes an open Dashboard dialog instead of leaving the app", async (t) => {
+  const page = await open(t, "dashboard");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await page.locator(".action-btn", { hasText: "Reboot" }).click();
+  const dialog = page.getByRole("dialog", { name: "Reboot the TV?" });
+  await dialog.waitFor();
+  // At the root, the open dialog alone is what gives Back somewhere to go.
+  await page.evaluate(() => history.back());
+  await dialog.waitFor({ state: "detached" });
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "reboot_device")), false);
+});
+
+async function backModals(page) {
+  await page.evaluate(async () => {
+    const { modal } = await import("/src/lib/modal.ts");
+    window.openModals = [];
+    window.refuseClose = false;
+    window.openTestModal = (name) => {
+      const node = document.createElement("div");
+      node.style.cssText = "position:fixed;inset:0";
+      node.innerHTML = `<div role="dialog" aria-label="${name}"><button>${name}</button></div>`;
+      document.body.append(node);
+      const action = modal(node, { onClose() {
+        if (window.refuseClose) return;
+        action.destroy();
+        node.remove();
+        window.openModals = window.openModals.filter((n) => n !== name);
+      } });
+      window.openModals.push(name);
+    };
+  });
+}
+const pressBack = async (page) => {
+  const before = await page.evaluate(() => window.backEvents);
+  await page.evaluate(() => history.back());
+  await page.waitForFunction((n) => window.backEvents > n, before);
+  // Let the close settle and the spare history entry come back.
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+};
+
+test("Back closes stacked modals top first, then pops the screen underneath", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await backModals(page);
+  await page.evaluate(() => { openTestModal("Sheet"); openTestModal("Confirm"); });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Sheet"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), []);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+});
+
+test("Back cannot dismiss a modal mid-apply or one that refuses to close", async (t) => {
+  const page = await open(t, "more");
+  await page.evaluate(() => { window.backEvents = 0; window.addEventListener("popstate", () => window.backEvents++); });
+  await backModals(page);
+  await page.evaluate(() => { openTestModal("Applying"); window.session.applyInProgress = true; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Applying"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+
+  // A modal whose own close refuses (as it would refuse Escape) stays up too.
+  await page.evaluate(() => { window.session.applyInProgress = false; window.refuseClose = true; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), ["Applying"]);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+
+  await page.evaluate(() => { window.refuseClose = false; });
+  await pressBack(page);
+  assert.deepEqual(await page.evaluate(() => window.openModals), []);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard", "more"]);
+});
+
 test("remote queue is discarded after navigation and a TV switch", async (t) => {
   const page = await open(t);
   await page.evaluate(() => {

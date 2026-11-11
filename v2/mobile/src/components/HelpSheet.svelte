@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { modal } from "../lib/modal";
   // Routine help behind a "?" link: tapping it opens a short bottom sheet instead of
-  // expanding text into the screen. Closes on Done, a tap above the sheet, or Escape;
+  // expanding text into the screen. Closes on Done, a tap above the sheet, Escape or Back;
   // focus returns to the link (lib/modal.ts). Risks and consequences stay on the screen.
   let { title, children }: { title: string; children: Snippet } = $props();
   const id = $props.id();

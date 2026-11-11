@@ -24,7 +24,8 @@ go-ahead; don't infer permission from a phone being powered on.
    - Optimize apply locks the tabs, and Cancel stops after the current item;
    - Emergency recovery on a TV with a few disabled apps;
    - Back from Settings → Devices → back → back reaches the Dashboard, and one more press leaves
-     the app;
+     the app; Back with a dialog or sheet open (Dashboard Reboot, an Apps sheet, a help sheet)
+     closes only that, and is refused while an apply runs (browser-tested only);
    - the screenshot preview renders; Tweaks shows "Unset" rather than OFF for a never-written
      setting;
    - Settings › Licensing shows "Debug build test key" after activating the dev key, and
