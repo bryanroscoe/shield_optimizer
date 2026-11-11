@@ -1,6 +1,7 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
+  import { tip } from "$lib/tip";
   import { onMount, onDestroy, tick, untrack } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
@@ -2796,7 +2797,8 @@
                       <span class="mem-process"><BreakableId text={m.process} /></span>
                       <span
                         class="unconfirmed"
-                        title="No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."
+                        data-tip-wrap
+                        use:tip={"No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."}
                       >not a package</span>
                     {/if}
                     {#if m.pid !== null}

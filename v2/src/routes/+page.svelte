@@ -3,6 +3,7 @@
   import ApprovalDialog, { type ApprovalPhase } from "$lib/components/ApprovalDialog.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick } from "svelte";
+  import { tip } from "$lib/tip";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
   import { confirmAction } from "$lib/confirm";
@@ -1609,6 +1610,12 @@
   <ul class="device-list">
     {#each visibleDevices as d (d.serial)}
       {@const href = deviceHref(d)}
+      {@const tvNote = openedAnyway(d)
+        ? "Reported it is not an Android TV; you chose to open it anyway"
+        : isUnconfirmedTv(d)
+          ? "Didn't report itself as an Android TV; tools may not apply"
+          : null}
+      {@const tvNoteId = `tv-note-${d.serial}`}
       <li>
         {#if href}
           <a
@@ -1616,8 +1623,10 @@
             class:flash={flashSerial === d.serial}
             href={href}
             data-serial={d.serial}
+            aria-describedby={tvNote ? tvNoteId : undefined}
             oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
           >
+            {#if tvNote}<span id={tvNoteId} hidden>{tvNote}</span>{/if}
             <span class="device-icon" aria-hidden="true">
               <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
             </span>
@@ -1629,16 +1638,13 @@
                 <span class="device-status online">
                   <span class="status-dot" aria-hidden="true"></span> Online
                 </span>
+                <!-- Inside the row's link, so not a control of its own: the
+                     explanation opens with the link's keyboard focus and is
+                     the link's accessible description. -->
                 {#if openedAnyway(d)}
-                  <span
-                    class="status-tag not-a-tv"
-                    data-tip="Reported it is not an Android TV; you chose to open it anyway"
-                  >NOT A TV</span>
+                  <span class="status-tag not-a-tv" data-tip={tvNote}>NOT A TV</span>
                 {:else if isUnconfirmedTv(d)}
-                  <span
-                    class="status-tag unconfirmed"
-                    data-tip="Didn't report itself as an Android TV; tools may not apply"
-                  >UNCONFIRMED TV</span>
+                  <span class="status-tag unconfirmed" data-tip={tvNote}>UNCONFIRMED TV</span>
                 {/if}
                 {#if d.properties && d.support?.tier !== "fully_supported"}
                   <SupportBadge support={d.support} />
@@ -1728,7 +1734,7 @@
                 {:else if isUnconfirmedTv(d)}
                   <span
                     class="status-tag unconfirmed"
-                    data-tip="Didn't report itself as an Android TV; tools may not apply"
+                    use:tip={"Didn't report itself as an Android TV; tools may not apply"}
                   >UNCONFIRMED TV</span>
                 {/if}
               </div>
@@ -1996,6 +2002,10 @@
   }
   .approval-line.approval-result {
     color: var(--danger-text);
+  }
+  .device-row:focus-visible .status-tag[data-tip]::after {
+    opacity: 1;
+    visibility: visible;
   }
   .sr-only {
     position: absolute;

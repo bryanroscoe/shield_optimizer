@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { AppUsage } from "$lib/types";
+  import { tip } from "$lib/tip";
   import { isStaleUsage, usageLabel, usageLabelBare } from "$lib/usage";
 
   // "last used" cue for the Review / remove-if-unused decision. Renders nothing
@@ -13,7 +14,7 @@
   <span
     class="usage-tag"
     class:stale={isStaleUsage(usage)}
-    data-tip="Last foreground use · Android keeps about a year of history"
+    use:tip={"Last foreground use · Android keeps about a year of history"}
   >
     {bare ? usageLabelBare(usage) : usageLabel(usage)}
   </span>

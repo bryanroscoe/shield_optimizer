@@ -487,9 +487,22 @@ textarea:focus-visible {
   visibility: hidden;
 }
 [data-tip]:hover::after,
-[data-tip]:focus-visible::after {
+[data-tip]:focus-visible::after,
+[data-tip][data-tip-focus]:focus::after {
   opacity: 1;
   visibility: visible;
+}
+/* A badge that explains itself ($lib/tip): click, tap or Tab opens it. */
+[data-tip-focus] {
+  cursor: help;
+}
+[data-tip-focus]:focus {
+  outline: none;
+}
+[data-tip-focus]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 /* A tooltip on the last control in a row would otherwise be clipped by the
    card's edge; these flip to the right-hand side. */
