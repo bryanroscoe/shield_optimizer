@@ -228,25 +228,71 @@ pub struct CurrentDisplayScaling {
 
 /// `get_display_scaling` — fetch current `wm size` + `wm density` in one
 /// batched shell call so the UI can show what the user is about to change.
-/// Mirrors v1's read at the top of `Set-DisplayScaling` (§8).
+/// Mirrors v1's read at the top of `Set-DisplayScaling` (§8). A failed read
+/// is an error, not blank values.
 #[tauri::command]
 pub async fn get_display_scaling(
     state: State<'_, AppState>,
     serial: String,
 ) -> Result<CurrentDisplayScaling, String> {
     let adb = state.adb_snapshot().await;
-    // One round-trip; a failed read degrades its section to an empty string.
-    let cmd = crate::adb::batch_command(&["wm size", "wm density"]);
+    read_display_scaling(adb.as_ref(), &serial).await
+}
+
+async fn read_display_scaling(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Result<CurrentDisplayScaling, String> {
+    let cmd = crate::adb::checked_batch_command(&["wm size", "wm density"]);
     let out = adb
-        .shell(&serial, &cmd)
+        .shell(serial, &cmd)
         .await
-        .map(|o| o.stdout)
-        .unwrap_or_default();
-    let sections = crate::adb::split_batch(&out, 2);
-    Ok(CurrentDisplayScaling {
-        size: sections[0].trim().to_string(),
-        density: sections[1].trim().to_string(),
-    })
+        .map_err(|e| format!("wm: {e}"))?;
+    let sections =
+        crate::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).map_err(|e| format!("wm: {e}"))?;
+    let size = sections[0].trim().to_string();
+    let density = sections[1].trim().to_string();
+    if size.is_empty() || density.is_empty() {
+        return Err("wm: the TV reported no display size or density".into());
+    }
+    Ok(CurrentDisplayScaling { size, density })
+}
+
+/// The value Android is using from `wm size` / `wm density` output: the
+/// override when there is one, else the physical value.
+fn effective_display_value(output: &str) -> Option<&str> {
+    let value = |prefix: &str| {
+        output.lines().find_map(|line| {
+            let (label, value) = line.split_once(':')?;
+            label
+                .trim()
+                .starts_with(prefix)
+                .then_some(value.trim())
+                .filter(|v| !v.is_empty())
+        })
+    };
+    value("Override").or_else(|| value("Physical"))
+}
+
+fn has_display_override(output: &str) -> bool {
+    output
+        .lines()
+        .any(|line| line.trim_start().starts_with("Override"))
+}
+
+/// Whether the TV now reports `preset`. Android drops an override equal to
+/// the physical value, so a matching physical value with no override counts.
+fn display_scaling_applied(preset: DisplayScalePreset, now: &CurrentDisplayScaling) -> bool {
+    let (size, density) = match preset {
+        DisplayScalePreset::Uhd4k => ("3839x2160", "640"),
+        DisplayScalePreset::Fhd1080p => ("1920x1080", "320"),
+        DisplayScalePreset::Hd720p => ("1280x720", "213"),
+        DisplayScalePreset::Reset => {
+            return !has_display_override(&now.size) && !has_display_override(&now.density)
+        }
+    };
+    effective_display_value(&now.size) == Some(size)
+        && effective_display_value(&now.density) == Some(density)
 }
 
 #[derive(Debug, Clone, Copy, serde::Deserialize)]
@@ -292,14 +338,40 @@ pub async fn set_display_scaling(
         .shell(&serial, &cmd)
         .await
         .map_err(|e| format!("wm: {e}"))?;
-    Ok(DisplayScaleResult {
-        ok: !out.stdout.contains("Error") && !out.stderr.contains("Error"),
-        message: if out.stdout.is_empty() {
-            out.stderr
-        } else {
-            out.stdout
+    Ok(display_scaling_outcome(adb.as_ref(), &serial, preset, &out).await)
+}
+
+/// Judge a `wm` write by its exit status and failure output, then by what
+/// the TV reports afterwards.
+async fn display_scaling_outcome(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    preset: DisplayScalePreset,
+    out: &crate::adb::AdbOutput,
+) -> DisplayScaleResult {
+    if !super::verification::succeeded(out) {
+        return DisplayScaleResult {
+            ok: false,
+            message: super::verification::failure_text(out),
+        };
+    }
+    match read_display_scaling(adb, serial).await {
+        Ok(now) if display_scaling_applied(preset, &now) => DisplayScaleResult {
+            ok: true,
+            message: format!("{}\n{}", now.size, now.density),
         },
-    })
+        Ok(now) => DisplayScaleResult {
+            ok: false,
+            message: format!(
+                "The TV did not take the new scaling. It reports:\n{}\n{}",
+                now.size, now.density
+            ),
+        },
+        Err(e) => DisplayScaleResult {
+            ok: false,
+            message: format!("Sent, but the TV's display scaling could not be read back ({e})."),
+        },
+    }
 }
 
 #[derive(Serialize)]
@@ -381,59 +453,175 @@ pub async fn set_private_dns(
 ) -> Result<PrivateDnsResult, String> {
     state.require_pro(Feature::TweaksWrite)?;
     let adb = state.adb_snapshot().await;
-    match mode.as_str() {
-        "off" => {
-            adb.shell(&serial, "settings put global private_dns_mode off")
+    set_private_dns_impl(
+        adb.as_ref(),
+        &serial,
+        &mode,
+        hostname.as_deref(),
+        std::time::Duration::from_secs(2),
+    )
+    .await
+}
+
+const PRIVATE_DNS_MODE: &str = "private_dns_mode";
+const PRIVATE_DNS_SPECIFIER: &str = "private_dns_specifier";
+
+/// The Private DNS mode and hostname, from a checked read. `None` means
+/// unset, never "couldn't read".
+async fn read_private_dns(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> Result<PrivateDnsState, String> {
+    let cmd = crate::adb::checked_batch_command(&[
+        "settings get global private_dns_mode",
+        "settings get global private_dns_specifier",
+    ]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("settings get: {e}"))?;
+    let sections = crate::adb::parse_checked_batch(&out.stdout, 2, &[0, 1])?;
+    let value = |s: &str| {
+        let v = s.trim();
+        (!v.is_empty() && v != "null").then(|| v.to_string())
+    };
+    Ok(PrivateDnsState {
+        mode: value(&sections[0]),
+        hostname: value(&sections[1]),
+    })
+}
+
+fn private_dns_label(state: &PrivateDnsState) -> String {
+    match state.mode.as_deref() {
+        Some("off") => "Off".to_string(),
+        Some("hostname") => state
+            .hostname
+            .clone()
+            .unwrap_or_else(|| "a custom hostname".to_string()),
+        _ => "Automatic".to_string(),
+    }
+}
+
+/// Put back the hostname and mode read before a change. True only when the
+/// TV confirms both.
+async fn restore_private_dns(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    previous: &PrivateDnsState,
+) -> bool {
+    let host = super::verification::put_setting_confirmed(
+        adb,
+        serial,
+        "global",
+        PRIVATE_DNS_SPECIFIER,
+        previous.hostname.as_deref(),
+    )
+    .await;
+    let mode = super::verification::put_setting_confirmed(
+        adb,
+        serial,
+        "global",
+        PRIVATE_DNS_MODE,
+        previous.mode.as_deref(),
+    )
+    .await;
+    host.is_ok() && mode.is_ok()
+}
+
+async fn set_private_dns_impl(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    mode: &str,
+    hostname: Option<&str>,
+    probe_wait: std::time::Duration,
+) -> Result<PrivateDnsResult, String> {
+    let simple = |ok: bool, message: String| PrivateDnsResult {
+        ok,
+        message,
+        reverted: false,
+    };
+    match mode {
+        "off" | "opportunistic" => {
+            let label = if mode == "off" {
+                "off"
+            } else {
+                "set to automatic"
+            };
+            Ok(
+                match super::verification::put_setting_confirmed(
+                    adb,
+                    serial,
+                    "global",
+                    PRIVATE_DNS_MODE,
+                    Some(mode),
+                )
                 .await
-                .map_err(|e| format!("settings put: {e}"))?;
-            Ok(PrivateDnsResult {
-                ok: true,
-                message: "Private DNS off.".to_string(),
-                reverted: false,
-            })
-        }
-        "opportunistic" => {
-            adb.shell(
-                &serial,
-                "settings put global private_dns_mode opportunistic",
+                {
+                    Ok(()) => simple(true, format!("Private DNS {label}.")),
+                    Err(e) => simple(false, format!("Private DNS was not changed: {e}")),
+                },
             )
-            .await
-            .map_err(|e| format!("settings put: {e}"))?;
-            Ok(PrivateDnsResult {
-                ok: true,
-                message: "Private DNS set to automatic.".to_string(),
-                reverted: false,
-            })
         }
         "hostname" => {
-            let host = hostname.unwrap_or_default();
-            let host = host.trim();
+            let host = hostname.unwrap_or_default().trim();
             if !is_valid_dns_hostname(host) {
+                return Ok(simple(
+                    false,
+                    format!("{host:?} is not a valid hostname. Use one like dns.adguard.com."),
+                ));
+            }
+            // What to go back to if the new host can't resolve. Unreadable
+            // means Automatic, the setting that keeps the TV online.
+            let previous = read_private_dns(adb, serial)
+                .await
+                .unwrap_or(PrivateDnsState {
+                    mode: Some("opportunistic".to_string()),
+                    hostname: None,
+                });
+            let write = async {
+                super::verification::put_setting_confirmed(
+                    adb,
+                    serial,
+                    "global",
+                    PRIVATE_DNS_SPECIFIER,
+                    Some(host),
+                )
+                .await?;
+                super::verification::put_setting_confirmed(
+                    adb,
+                    serial,
+                    "global",
+                    PRIVATE_DNS_MODE,
+                    Some("hostname"),
+                )
+                .await
+            }
+            .await;
+            if let Err(e) = write {
+                let restored = restore_private_dns(adb, serial, &previous).await;
                 return Ok(PrivateDnsResult {
                     ok: false,
-                    message: format!(
-                        "{host:?} is not a valid hostname. Use one like dns.adguard.com."
-                    ),
-                    reverted: false,
+                    message: if restored {
+                        format!("Private DNS was not changed: {e}")
+                    } else {
+                        format!(
+                            "Setting Private DNS failed ({e}), and putting back {} could not be \
+                             confirmed. Check Private DNS on the TV.",
+                            private_dns_label(&previous)
+                        )
+                    },
+                    reverted: restored,
                 });
             }
-            let set_cmd = format!(
-                "settings put global private_dns_specifier {}; \
-                 settings put global private_dns_mode hostname",
-                quote_shell_arg(host)
-            );
-            adb.shell(&serial, &set_cmd)
-                .await
-                .map_err(|e| format!("settings put: {e}"))?;
 
             // Probe: a custom DoT host that can't be reached leaves the device
             // with no DNS. Retry a few times (DoT validation lags a few seconds)
             // before deciding it's dead.
             let mut resolved = false;
             for _ in 0..3 {
-                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                tokio::time::sleep(probe_wait).await;
                 if let Ok(out) = adb
-                    .shell(&serial, "ping -c1 -W3 connectivitycheck.gstatic.com")
+                    .shell(serial, "ping -c1 -W3 connectivitycheck.gstatic.com")
                     .await
                 {
                     if out.combined().contains("bytes from") {
@@ -443,33 +631,31 @@ pub async fn set_private_dns(
                 }
             }
             if resolved {
-                Ok(PrivateDnsResult {
-                    ok: true,
-                    message: format!("Private DNS set to {host}. A test lookup worked."),
-                    reverted: false,
-                })
-            } else {
-                adb.shell(
-                    &serial,
-                    "settings put global private_dns_mode opportunistic",
-                )
-                .await
-                .map_err(|e| format!("settings put: {e}"))?;
-                Ok(PrivateDnsResult {
-                    ok: false,
-                    message: format!(
-                        "A test lookup through {host} failed, so Private DNS was set back to \
-                         Automatic to keep the TV online. Check the hostname."
-                    ),
-                    reverted: true,
-                })
+                return Ok(simple(
+                    true,
+                    format!("Private DNS set to {host}. A test lookup worked."),
+                ));
             }
+            let restored = restore_private_dns(adb, serial, &previous).await;
+            let label = private_dns_label(&previous);
+            Ok(PrivateDnsResult {
+                ok: false,
+                message: if restored {
+                    format!(
+                        "A test lookup through {host} failed, so Private DNS was set back to \
+                         {label} to keep the TV online. Check the hostname."
+                    )
+                } else {
+                    format!(
+                        "A test lookup through {host} failed, and setting Private DNS back to \
+                         {label} could not be confirmed. The TV may have no working DNS: set \
+                         Private DNS to Automatic or Off on the TV."
+                    )
+                },
+                reverted: restored,
+            })
         }
-        other => Ok(PrivateDnsResult {
-            ok: false,
-            message: format!("unknown Private DNS mode: {other}"),
-            reverted: false,
-        }),
+        other => Ok(simple(false, format!("unknown Private DNS mode: {other}"))),
     }
 }
 
@@ -481,6 +667,226 @@ mod tests {
     };
     use crate::adb::{batch::BATCH_STATUS, BATCH_SEPARATOR};
     use crate::commands::test_support::MockAdb;
+    use std::time::Duration;
+
+    fn dns_list(lines: &str) -> String {
+        settings_output(&[lines])
+    }
+
+    #[tokio::test]
+    async fn off_and_automatic_are_reported_only_when_the_tv_confirms_them() {
+        let confirmed =
+            MockAdb::default().on_shell("settings list global", &dns_list("private_dns_mode=off"));
+        let res = super::set_private_dns_impl(&confirmed, "TV", "off", None, Duration::ZERO)
+            .await
+            .unwrap();
+        assert!(res.ok, "{}", res.message);
+        for mock in [
+            MockAdb::default().on_shell(
+                "settings list global",
+                &dns_list("private_dns_mode=hostname"),
+            ),
+            MockAdb::default().on_shell_exit("settings put", "", 1),
+            MockAdb::default().on_shell("settings put", "Error: permission denied"),
+            MockAdb::default().on_shell_err("settings list global", "offline"),
+        ] {
+            let res =
+                super::set_private_dns_impl(&mock, "TV", "opportunistic", None, Duration::ZERO)
+                    .await
+                    .unwrap();
+            assert!(!res.ok, "{}", res.message);
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dead_host_restores_the_previous_mode_not_automatic() {
+        let mock = MockAdb::default()
+            .on_shell(
+                "settings get global private_dns_mode",
+                &settings_output(&["off", "null"]),
+            )
+            .on_shell_seq(
+                "settings list global",
+                &[
+                    &dns_list("private_dns_mode=off\nprivate_dns_specifier=dns.example.com"),
+                    &dns_list("private_dns_mode=hostname\nprivate_dns_specifier=dns.example.com"),
+                    &dns_list("private_dns_mode=hostname"),
+                    &dns_list("private_dns_mode=off"),
+                ],
+            )
+            .on_shell("ping", "unknown host");
+        let log = mock.shell_log();
+        let res = super::set_private_dns_impl(
+            &mock,
+            "TV",
+            "hostname",
+            Some("dns.example.com"),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert!(!res.ok);
+        assert!(res.reverted, "{}", res.message);
+        assert!(res.message.contains("set back to Off"), "{}", res.message);
+        let calls = log.lock().unwrap();
+        assert!(calls.contains(&"settings delete global private_dns_specifier".to_string()));
+        assert!(calls.contains(&"settings put global private_dns_mode 'off'".to_string()));
+        assert!(
+            !calls.iter().any(|c| c.contains("opportunistic")),
+            "{calls:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_revert_that_fails_is_not_reported_as_reverted() {
+        let mock = MockAdb::default()
+            .on_shell(
+                "settings get global private_dns_mode",
+                &settings_output(&["opportunistic", "null"]),
+            )
+            .on_shell_seq(
+                "settings list global",
+                &[
+                    &dns_list("private_dns_specifier=dns.example.com"),
+                    &dns_list("private_dns_mode=hostname\nprivate_dns_specifier=dns.example.com"),
+                    // The revert does not take.
+                    &dns_list("private_dns_mode=hostname\nprivate_dns_specifier=dns.example.com"),
+                ],
+            )
+            .on_shell("ping", "");
+        let res = super::set_private_dns_impl(
+            &mock,
+            "TV",
+            "hostname",
+            Some("dns.example.com"),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert!(!res.ok);
+        assert!(!res.reverted, "{}", res.message);
+        assert!(
+            res.message.contains("could not be confirmed"),
+            "{}",
+            res.message
+        );
+    }
+
+    #[tokio::test]
+    async fn a_working_host_is_kept() {
+        let mock = MockAdb::default()
+            .on_shell(
+                "settings get global private_dns_mode",
+                &settings_output(&["opportunistic", "null"]),
+            )
+            .on_shell_seq(
+                "settings list global",
+                &[
+                    &dns_list(
+                        "private_dns_mode=opportunistic\nprivate_dns_specifier=dns.example.com",
+                    ),
+                    &dns_list("private_dns_mode=hostname\nprivate_dns_specifier=dns.example.com"),
+                ],
+            )
+            .on_shell("ping", "64 bytes from 1.2.3.4");
+        let res = super::set_private_dns_impl(
+            &mock,
+            "TV",
+            "hostname",
+            Some("dns.example.com"),
+            Duration::ZERO,
+        )
+        .await
+        .unwrap();
+        assert!(res.ok && !res.reverted, "{}", res.message);
+    }
+
+    fn wm(size: &str, density: &str) -> String {
+        settings_output(&[size, density])
+    }
+
+    #[tokio::test]
+    async fn display_scaling_is_judged_by_exit_status_and_what_the_tv_reports() {
+        use super::{display_scaling_outcome, DisplayScalePreset as P};
+        let ok_out = crate::adb::AdbOutput {
+            stdout: String::new(),
+            stderr: String::new(),
+            exit_code: Some(0),
+        };
+        let applied = MockAdb::default().on_shell(
+            "wm size",
+            &wm(
+                "Physical size: 3840x2160\nOverride size: 1920x1080",
+                "Physical density: 320",
+            ),
+        );
+        assert!(
+            display_scaling_outcome(&applied, "TV", P::Fhd1080p, &ok_out)
+                .await
+                .ok
+        );
+        // The same report is not a reset, nor a 720p switch.
+        assert!(
+            !display_scaling_outcome(&applied, "TV", P::Reset, &ok_out)
+                .await
+                .ok
+        );
+        assert!(
+            !display_scaling_outcome(&applied, "TV", P::Hd720p, &ok_out)
+                .await
+                .ok
+        );
+        let reset = MockAdb::default().on_shell(
+            "wm size",
+            &wm("Physical size: 1920x1080", "Physical density: 320"),
+        );
+        assert!(
+            display_scaling_outcome(&reset, "TV", P::Reset, &ok_out)
+                .await
+                .ok
+        );
+        assert!(
+            display_scaling_outcome(&reset, "TV", P::Fhd1080p, &ok_out)
+                .await
+                .ok
+        );
+
+        let unreadable = MockAdb::default().on_shell_err("wm size", "offline");
+        assert!(
+            !display_scaling_outcome(&unreadable, "TV", P::Reset, &ok_out)
+                .await
+                .ok
+        );
+        let failed = crate::adb::AdbOutput {
+            stdout: "Error: bad size".into(),
+            ..ok_out.clone()
+        };
+        assert!(
+            !display_scaling_outcome(&reset, "TV", P::Reset, &failed)
+                .await
+                .ok
+        );
+        let nonzero = crate::adb::AdbOutput {
+            exit_code: Some(255),
+            ..ok_out
+        };
+        assert!(
+            !display_scaling_outcome(&reset, "TV", P::Reset, &nonzero)
+                .await
+                .ok
+        );
+    }
+
+    #[tokio::test]
+    async fn a_failed_display_read_is_an_error_not_blank_values() {
+        for mock in [
+            MockAdb::default().on_shell_err("wm size", "offline"),
+            MockAdb::default().on_shell("wm size", ""),
+            MockAdb::default().on_shell("wm size", &wm("", "")),
+        ] {
+            assert!(super::read_display_scaling(&mock, "TV").await.is_err());
+        }
+    }
 
     fn settings_output(values: &[&str]) -> String {
         values
