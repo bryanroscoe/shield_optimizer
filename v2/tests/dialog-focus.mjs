@@ -6,6 +6,7 @@
 // Settings (NOTICE_TEXT) next to its reports switch.
 //
 // Run via `node tests/dialog-focus.mjs` from v2/.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -87,7 +88,7 @@ async function main() {
 }
 
 async function startServer(createServer, keep) {
-  const server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+  const server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
   keep(server);
   await server.listen();
   return server.ssrLoadModule(join(V2, "shared/telemetry.ts"));

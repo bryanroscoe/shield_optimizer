@@ -1,5 +1,6 @@
 // Desktop parity with the phone: Force stop in the app detail panel, the
 // Shield-only Find remote control, and the Temperature tile's reported context.
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, realpath } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -35,7 +36,7 @@ const calls = (page, command) => page.evaluate(command => window.parityCalls.fil
 
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [root, await realpath(resolve(root, 'node_modules'))] } } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false, fs: { allow: [root, await realpath(resolve(root, 'node_modules'))] } } });
   await server.listen();
   const url = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();

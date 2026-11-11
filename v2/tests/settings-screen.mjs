@@ -11,6 +11,7 @@
 //     override or a build without the built-in engine disables it.
 // ADB_ENGINE_EVIDENCE=<dir> saves 720px captures of the engine row.
 // Nothing here can reach a network: the demo backend records the upload.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -616,7 +617,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium, webkit } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await (process.argv.includes("--webkit") ? webkit : chromium).launch();
     const base = serverURL(server);

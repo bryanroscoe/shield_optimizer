@@ -17,6 +17,7 @@
 // Set LAYOUT_EVIDENCE_DIR=/abs/dir to save a screenshot of each checked screen.
 //
 // Run via `npm run test:layout-clipping` from v2/.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -291,7 +292,7 @@ async function main() {
     if (EVIDENCE) await mkdir(EVIDENCE, { recursive: true });
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
     const base = serverURL(server);

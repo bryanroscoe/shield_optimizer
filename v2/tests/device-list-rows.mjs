@@ -11,6 +11,7 @@
 //     from a clickable row does not navigate into the device it just dropped.
 //
 // Rendering is where all of it becomes visible, so this drives the real screen.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -322,7 +323,7 @@ async function main() {
     const { chromium } = await import("playwright");
     server = await createServer({
       root: V2,
-      server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false },
+      server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false },
     });
     await server.listen();
     browser = await chromium.launch();

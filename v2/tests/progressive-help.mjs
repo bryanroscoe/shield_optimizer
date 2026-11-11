@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -176,7 +177,7 @@ async function emptyConnectionHelp(browser, base) {
 
 let server, browser;
 try {
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await (process.argv.includes('--webkit') ? webkit : chromium).launch();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;

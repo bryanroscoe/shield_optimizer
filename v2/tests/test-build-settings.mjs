@@ -4,6 +4,7 @@
 // reports off with the switch disabled in both places, and still shows the
 // Support ID its log uploads carry. One without an endpoint claims nothing
 // can be sent. A release build shows none of that.
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +15,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 process.env.VITE_DEMO = '1';
 let server, browser;
 try {
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();

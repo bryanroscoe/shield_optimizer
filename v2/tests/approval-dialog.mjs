@@ -4,6 +4,7 @@
 // stops, the dialog closing by itself once the TV allows this computer, and
 // the same flow under Google platform-tools. Set APPROVAL_DIALOG_EVIDENCE to a
 // folder to keep screenshots and a recording.
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -20,7 +21,7 @@ process.env.VITE_DEMO = '1';
 let server, browser;
 try {
   if (evidence) await mkdir(evidence, { recursive: true });
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, strictPort: false, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();

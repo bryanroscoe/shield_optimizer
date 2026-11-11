@@ -4,6 +4,7 @@
 // List row shows its tip without toggling the row's detail.
 //
 // Run via `node tests/badge-tips.mjs` from v2/.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,7 +49,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
     const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });

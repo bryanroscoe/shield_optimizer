@@ -6,6 +6,7 @@
 //
 // The dev server keeps the native menu (Inspect Element), so this sets the
 // dev-only switch that previews the release behaviour.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -245,7 +246,7 @@ async function main() {
     const { chromium } = await import("playwright");
     server = await createServer({
       root: V2,
-      server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false },
+      server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false },
     });
     await server.listen();
     browser = await chromium.launch();

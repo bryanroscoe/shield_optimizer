@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -11,7 +12,7 @@ const evidence = process.env.DIRECT_ADB_EVIDENCE;
 if (evidence) await mkdir(evidence, { recursive: true });
 let server, browser;
 try {
-  server = await createServer({ root, server: { host: '127.0.0.1', port: 0, hmr: false } });
+  server = await createServer({ root, server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1360, height: 900 }, ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });

@@ -1,3 +1,4 @@
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -97,7 +98,7 @@ let browser, server;
 try {
   const { createServer } = await import("vite");
   const { chromium } = await import("playwright");
-  server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+  server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   const address = server.httpServer.address();
   browser = await chromium.launch();

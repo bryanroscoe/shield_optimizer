@@ -7,6 +7,7 @@
 //     shape as its fixture, which the triage tool's own Rust test parses;
 //   - nothing is sent: the only exits are the clipboard, a file the user
 //     picked, and a URL the user opens and still has to submit.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, realpathSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -496,7 +497,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false, fs: { allow: [V2, realpathSync(join(V2, "node_modules"))] } } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false, fs: { allow: [V2, realpathSync(join(V2, "node_modules"))] } } });
     await server.listen();
     browser = await chromium.launch();
     await publicLinkPrivacy(server);

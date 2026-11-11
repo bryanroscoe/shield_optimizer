@@ -10,6 +10,7 @@
 // Runs against the demo fixture layer. Plex is installed there
 // (list_installed_packages) but declares no Home screen, so it must reach the
 // picker and must not reach the launcher list.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { mkdir } from "node:fs/promises";
@@ -269,7 +270,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
     await exercise({ browser, base: serverURL(server) });

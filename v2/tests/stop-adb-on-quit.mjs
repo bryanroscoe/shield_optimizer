@@ -8,6 +8,7 @@
 // reply to one made before a change can't confirm the setting. The
 // native setting outlives a page change and a webview reload, starts off with
 // every launch, and gets the saved choice back on the first read.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -225,7 +226,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
     await exercise({ browser, base: serverURL(server) });

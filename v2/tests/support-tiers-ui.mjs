@@ -2,6 +2,7 @@
 // presentation, driven through the real desktop screens against the demo
 // fixture layer. Nothing here can reach a network: the demo backend records
 // what the UI hands to `telemetry_*` in `window.__TELEMETRY__`.
+import { freePort } from "./lib/free-port.mjs";
 import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -164,7 +165,7 @@ async function main() {
   try {
     const { createServer } = await import("vite");
     const { chromium } = await import("playwright");
-    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: 0, strictPort: false, hmr: false } });
+    server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
     const base = serverURL(server);

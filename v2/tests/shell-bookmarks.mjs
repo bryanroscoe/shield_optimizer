@@ -1,3 +1,4 @@
+import { freePort } from './lib/free-port.mjs';
 import assert from 'node:assert/strict';
 import { mkdir, realpath } from 'node:fs/promises';
 import { resolve } from 'node:path';
@@ -9,7 +10,7 @@ const evidence = process.env.SHIELD_BOOKMARK_EVIDENCE;
 if (evidence) await mkdir(evidence, { recursive: true });
 let server, browser;
 try {
-  server = await createServer({ root, cacheDir: resolve(root, '.vite-bookmark-test'), server: { host: '127.0.0.1', port: 0, hmr: false, fs: { allow: [root, await realpath(resolve(root, 'node_modules'))] } } });
+  server = await createServer({ root, cacheDir: resolve(root, '.vite-bookmark-test'), server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false, fs: { allow: [root, await realpath(resolve(root, 'node_modules'))] } } });
   await server.listen();
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   browser = await chromium.launch();
