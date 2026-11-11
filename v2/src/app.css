@@ -487,14 +487,36 @@ textarea:focus-visible {
   visibility: hidden;
 }
 [data-tip]:hover::after,
-[data-tip]:focus-visible::after,
-[data-tip][data-tip-focus]:focus::after {
+[data-tip]:focus-visible::after {
   opacity: 1;
   visibility: visible;
 }
-/* A badge that explains itself ($lib/tip): click, tap or Tab opens it. */
+/* A badge that explains itself ($lib/tip): hover, click, tap or Tab opens
+   its bubble. Fixed to the viewport so a clipping row can't hide it. */
 [data-tip-focus] {
   cursor: help;
+}
+.tip-bubble {
+  position: fixed;
+  z-index: 60;
+  box-sizing: border-box;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 16px));
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface-2);
+  color: var(--fg-primary);
+  font-family: var(--sans);
+  font-size: 0.72rem;
+  font-weight: 400;
+  line-height: 1.4;
+  letter-spacing: normal;
+  text-transform: none;
+  pointer-events: none;
+}
+.tip-bubble[hidden] {
+  display: none;
 }
 [data-tip-focus]:focus {
   outline: none;

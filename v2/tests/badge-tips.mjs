@@ -11,8 +11,16 @@ import { fileURLToPath } from "node:url";
 const V2 = join(dirname(fileURLToPath(import.meta.url)), "..");
 const SERIAL = "192.168.1.42:5555";
 
+// The bubble is shared and fixed to the viewport; it is showing this badge's
+// words, and it is not clipped to nothing.
 const tipShown = (locator) =>
-  locator.evaluate((el) => getComputedStyle(el, "::after").visibility === "visible");
+  locator.evaluate((el) => {
+    const bubble = document.querySelector(".tip-bubble");
+    if (!bubble || bubble.hidden) return false;
+    const r = bubble.getBoundingClientRect();
+    const words = document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent;
+    return bubble.textContent === words && r.width > 20 && r.height > 8;
+  });
 
 async function checkBadges(page, scope, label) {
   const badges = page.locator(`${scope} [data-tip-focus]`);
@@ -21,14 +29,12 @@ async function checkBadges(page, scope, label) {
   const facts = await badges.evaluateAll((all) =>
     all.map((el) => ({
       tabindex: el.getAttribute("tabindex"),
-      tip: el.dataset.tip,
       described: document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent ?? null,
     })),
   );
   for (const f of facts) {
     assert.equal(f.tabindex, "0", `${label}: badge is focusable ${JSON.stringify(f)}`);
-    assert.ok(f.tip, `${label}: badge has a tip ${JSON.stringify(f)}`);
-    assert.equal(f.described, f.tip, `${label}: tip is the accessible description ${JSON.stringify(f)}`);
+    assert.ok(f.described && f.described.length > 10, `${label}: the tip is the accessible description ${JSON.stringify(f)}`);
   }
   return { badges, count };
 }
