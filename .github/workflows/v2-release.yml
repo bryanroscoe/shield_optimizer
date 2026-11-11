@@ -9,6 +9,24 @@
 #   - windows-latest → .msi + .exe
 # All artifacts land on a GitHub Release for the tag.
 #
+# Pre-releases: a tag with any suffix after X.Y.Z (v2-2.6.0-beta.1) becomes a
+# GitHub prerelease and stops there. The app has a single update channel, the
+# v2/updater/latest.json endpoint in tauri.conf.json, so merge-updater and
+# bump-tap run only for stable tags; otherwise every stable install and the
+# Homebrew cask would be moved onto the beta.
+#
+# Manual dispatch rebuilds and republishes an EXISTING v2-* tag: the run fails
+# unless the tag exists, and every job builds that tag's commit, never the
+# branch the run was started from.
+#
+# The updater manifest is never moved backwards: merge-updater runs one at a
+# time (concurrency group v2-release) and skips the commit unless the new
+# version is newer than the one on the default branch (v2/scripts/version-newer.mjs,
+# the app's own comparison).
+#
+# Third-party actions in jobs that hold signing keys are pinned to a commit
+# SHA (version in the trailing comment). Bump them deliberately.
+#
 # Signing: no paid certificates yet. Users will see the macOS "unidentified
 # developer" Gatekeeper prompt and the Windows SmartScreen warning on first
 # launch — both are dismissible. The README's "First launch" section
@@ -39,8 +57,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag name (manual dispatch only — overrides the trigger tag for testing)'
-        required: false
+        description: 'Existing v2-* tag to rebuild and republish (its commit is built; the run fails if the tag does not exist)'
+        required: true
 
 permissions:
   contents: write
@@ -70,27 +88,44 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="${INPUT_TAG:-${GITHUB_REF_NAME}}"
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag="$INPUT_TAG"
+          else
+            tag="$GITHUB_REF_NAME"
+          fi
+          if [[ ! "$tag" =~ ^v2-[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::'$tag' is not a v2-X.Y.Z[-pre] tag"
+            exit 1
+          fi
+          # Manual dispatch republishes an existing tag and nothing else.
+          git rev-parse -q --verify "refs/tags/$tag^{commit}" >/dev/null || {
+            echo "::error::tag $tag does not exist; push the tag first (release.sh does)"
+            exit 1
+          }
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
-          # Prerelease detection: any tag containing one of the standard
-          # pre-release markers becomes a GitHub prerelease. Covers
-          # v2-0.1.0-beta, v2-0.1.0-beta.1, v2-0.1.0-rc1, -alpha, -preview, -pre.
-          if [[ "$tag" =~ -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?$ ]]; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
-          else
+          # Anything after X.Y.Z (-beta.1, -rc1, -alpha, -preview...) is a
+          # prerelease: a GitHub prerelease that never reaches the updater
+          # manifest or the Homebrew cask.
+          if [[ "$tag" =~ ^v2-[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
 
-          changelog="v2/CHANGELOG.md"
+          # The tag's own CHANGELOG, extracted by whole-word heading match
+          # (v2/scripts/changelog_section.py; `v2-2.0.0` never takes the
+          # `v2-2.0.0-beta.N` sections with it).
+          changelog="$RUNNER_TEMP/CHANGELOG.md"
           body=""
-          if [[ -f "$changelog" ]] && grep -q "^## $tag\b" "$changelog"; then
-            echo "Pulling notes for $tag from $changelog"
-            body=$(awk -v tag="## $tag" '
-              $0 ~ "^"tag {flag=1; next}
-              flag && /^## / {flag=0}
-              flag {print}
-            ' "$changelog")
+          if git show "refs/tags/$tag:v2/CHANGELOG.md" > "$changelog" 2>/dev/null; then
+            status=0
+            body=$(python3 v2/scripts/changelog_section.py "$changelog" "$tag") || status=$?
+            case "$status" in
+              0) echo "Pulling notes for $tag from v2/CHANGELOG.md" ;;
+              3) body="" ;;
+              *) echo "::error::changelog_section.py failed ($status)"; exit 1 ;;
+            esac
           fi
 
           if [[ -z "$body" ]]; then
@@ -151,6 +186,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          # Exactly the tag being released, also under manual dispatch.
+          ref: refs/tags/${{ needs.notes.outputs.tag }}
           # Need history so we can diff against the previous v2-* tag for
           # auto-generated release notes.
           fetch-depth: 0
@@ -163,20 +200,16 @@ jobs:
           cache-dependency-path: v2/package-lock.json
 
       - name: Install Rust (stable)
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable branch, 2026-11-11
         with:
+          toolchain: stable
           # Both arches needed for the universal macOS target. No-op on the
           # Linux/Windows runners — rustup just notes the target is supported.
           targets: ${{ matrix.os == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            v2/target
-          key: ${{ runner.os }}-cargo-v2-release-${{ hashFiles('v2/Cargo.lock') }}
+      # No cargo cache: release.sh rewrites Cargo.lock on every release, so a
+      # lockfile-keyed cache never hit and only stored a multi-GB entry that
+      # evicted the test workflows' caches. Release builds compile from clean.
 
       # Tauri's bundler on Linux needs webkit2gtk and friends. Pinning to
       # 22.04 because 24.04 ships libwebkit2gtk-4.1 only under a slightly
@@ -201,7 +234,7 @@ jobs:
       # invoking `cargo tauri build`, collecting bundle outputs, creating
       # (or updating) the GitHub release, and uploading every artifact.
       - name: Build + publish
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2 (v0 on 2026-11-11)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -316,12 +349,15 @@ jobs:
   # Requires the HOMEBREW_TAP_TOKEN secret — a fine-grained PAT scoped to
   # bryanroscoe/homebrew-shield-optimizer with contents:write. If the secret
   # is missing, this job is skipped (not failed) so the rest of the release
-  # still ships.
+  # still ships. Stable tags only: the cask is what `brew upgrade` installs.
   bump-tap:
     needs: [notes, build]
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
-    if: success()
+    if: success() && needs.notes.outputs.prerelease == 'false'
+    concurrency:
+      group: v2-release-tap
+      cancel-in-progress: false
     steps:
       - name: Check secret presence
         id: secret
@@ -408,12 +444,16 @@ jobs:
   # update is available. Each matrix leg's tauri-action run merges its platform
   # into the single latest.json release asset, so the asset already lists every
   # platform. Committing it makes the raw.githubusercontent endpoint in
-  # tauri.conf.json resolve.
+  # tauri.conf.json resolve. Stable tags only (it is the one update channel),
+  # one run at a time, and never to a version that is not newer.
   merge-updater:
     needs: [notes, build]
     name: Publish updater manifest
     runs-on: ubuntu-latest
-    if: success()
+    if: success() && needs.notes.outputs.prerelease == 'false'
+    concurrency:
+      group: v2-release
+      cancel-in-progress: false
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v5
@@ -427,6 +467,7 @@ jobs:
           node-version: '22'
 
       - name: Download latest.json from release
+        id: download
         env:
           TAG: ${{ needs.notes.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -444,6 +485,18 @@ jobs:
           done
           [[ -f /tmp/latest.json ]] || { echo "latest.json not found on release $TAG"; exit 1; }
 
+          # Two close tags can finish out of order; the older one must not
+          # roll every installed copy back.
+          candidate=$(jq -r '.version' /tmp/latest.json)
+          current=""
+          [[ -f v2/updater/latest.json ]] && current=$(jq -r '.version // empty' v2/updater/latest.json)
+          if [[ -n "$current" ]] && ! node v2/scripts/version-newer.mjs "$candidate" "$current"; then
+            echo "::warning::$TAG's manifest ($candidate) is not newer than the published one ($current); not publishing it."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+
           cp /tmp/latest.json v2/updater/latest.json
           echo "Updater manifest for $TAG:"
           cat v2/updater/latest.json
@@ -456,6 +509,7 @@ jobs:
       # among themselves and can leave the old signature in. Anything still
       # failing stops the release here, before the manifest goes live.
       - name: Verify updater signatures
+        if: steps.download.outputs.publish == 'true'
         env:
           TAG: ${{ needs.notes.outputs.tag }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -475,6 +529,7 @@ jobs:
           fi
 
       - name: Commit updater manifest
+        if: steps.download.outputs.publish == 'true'
         env:
           TAG: ${{ needs.notes.outputs.tag }}
         run: |

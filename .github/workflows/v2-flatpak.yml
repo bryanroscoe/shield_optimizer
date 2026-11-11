@@ -42,6 +42,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          # From v2-release.yml: the release tag itself, also under manual dispatch.
+          ref: ${{ inputs.upload-tag && format('refs/tags/{0}', inputs.upload-tag) || '' }}
 
       - name: Validate desktop file and AppStream metadata
         run: |
@@ -94,13 +97,16 @@ jobs:
       options: --privileged
     steps:
       - uses: actions/checkout@v5
+        with:
+          # From v2-release.yml: the release tag itself, also under manual dispatch.
+          ref: ${{ inputs.upload-tag && format('refs/tags/{0}', inputs.upload-tag) || '' }}
 
       - uses: actions/download-artifact@v5
         with:
           name: flatpak-generated-sources
           path: v2/flatpak/generated-sources
 
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8 (v6 on 2026-11-11)
         with:
           manifest-path: v2/flatpak/io.github.bryanroscoe.ATVOptimizer.yml
           bundle: atv-optimizer.flatpak
