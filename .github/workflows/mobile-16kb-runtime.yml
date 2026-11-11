@@ -1,0 +1,158 @@
+name: Mobile 16 KB runtime QA
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run_id:
+        description: Successful Mobile Play release build run on main (not a smoke run)
+        required: true
+        type: string
+      source_sha:
+        description: Exact 40-character source commit of that build
+        required: true
+        type: string
+      apk_sha256:
+        description: Exact SHA-256 of the retained app-universal-release.apk
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: mobile-16kb-runtime
+  cancel-in-progress: false
+
+jobs:
+  runtime:
+    if: github.ref == 'refs/heads/main' && github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      SOURCE_RUN_ID: ${{ inputs.source_run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      APK_SHA256: ${{ inputs.apk_sha256 }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Verify runner prerequisites without changing permissions
+        run: |
+          EVIDENCE="$RUNNER_TEMP/runtime-evidence"
+          {
+            echo "EVIDENCE=$EVIDENCE"
+            echo "CANDIDATE=$RUNNER_TEMP/runtime-candidate"
+            echo "ANDROID_AVD_HOME=$RUNNER_TEMP/runtime-avd"
+          } >> "$GITHUB_ENV"
+          mkdir -p "$EVIDENCE"
+          [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$APK_SHA256" =~ ^[0-9a-f]{64}$ ]]
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo '::error::This runner has no usable KVM access. No permission changes or software-emulation fallback will be attempted.'
+            exit 1
+          fi
+          python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 12 * 1024**3, "Require at least 12 GiB free for image and disposable AVD"'
+
+      - name: Validate source run and select its release artifact
+        id: source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" > "$EVIDENCE/source-run.json"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID/artifacts?per_page=100" > "$EVIDENCE/source-artifacts.json"
+          gh api "repos/$GITHUB_REPOSITORY/compare/$SOURCE_SHA...main" > "$RUNNER_TEMP/source-comparison.json"
+          python3 v2/mobile/scripts/runtime-16kb.py select \
+            --run "$EVIDENCE/source-run.json" --artifacts "$EVIDENCE/source-artifacts.json" \
+            --comparison "$RUNNER_TEMP/source-comparison.json" --repository "$GITHUB_REPOSITORY" \
+            --run-id "$SOURCE_RUN_ID" --source-sha "$SOURCE_SHA" --output "$EVIDENCE/source.json"
+
+      - name: Download only the selected retained artifact
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.source_run_id }}
+          artifact-ids: ${{ steps.source.outputs.artifact_id }}
+          merge-multiple: true
+          path: ${{ env.CANDIDATE }}
+
+      - name: Verify pinned APK and bundle receipts
+        run: |
+          python3 v2/mobile/scripts/runtime-16kb.py candidate --root "$CANDIDATE" \
+            --provenance "$EVIDENCE/source.json" --apk-sha256 "$APK_SHA256" \
+            --output "$EVIDENCE/candidate.json"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install official 16 KB image and verification tools
+        timeout-minutes: 15
+        run: |
+          sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
+          # Use the runner's existing accepted SDK licenses; never accept new agreements here.
+          "$sdk/sdkmanager" --install 'emulator' 'platform-tools' 'build-tools;36.0.0' \
+            'system-images;android-36;google_apis_ps16k;x86_64' </dev/null
+          {
+            echo "$ANDROID_HOME/platform-tools"
+            echo "$ANDROID_HOME/build-tools/36.0.0"
+            echo "$sdk"
+          } >> "$GITHUB_PATH"
+          "$ANDROID_HOME/emulator/emulator" -accel-check
+          "$ANDROID_HOME/emulator/emulator" -version > "$EVIDENCE/emulator-version.txt"
+          cp "$ANDROID_HOME/system-images/android-36/google_apis_ps16k/x86_64/source.properties" "$EVIDENCE/system-image.properties"
+
+      - name: Boot disposable emulator and verify real 16 KB startup
+        id: smoke
+        timeout-minutes: 12
+        run: |
+          mkdir -p "$ANDROID_AVD_HOME"
+          printf 'no\n' | avdmanager create avd -n runtime16kb \
+            -k 'system-images;android-36;google_apis_ps16k;x86_64' --device pixel_5
+          "$ANDROID_HOME/emulator/emulator" -avd runtime16kb -port 5554 \
+            -no-window -no-audio -no-snapshot -no-boot-anim -gpu swiftshader_indirect \
+            -memory 3072 -cores 2 -accel on > "$EVIDENCE/emulator.log" 2>&1 &
+          emulator_pid=$!
+          cleanup() {
+            adb -s emulator-5554 emu kill || true
+            wait "$emulator_pid" || true
+            tail -c 2000000 "$EVIDENCE/emulator.log" > "$RUNNER_TEMP/emulator-tail.log"
+            mv "$RUNNER_TEMP/emulator-tail.log" "$EVIDENCE/emulator.log"
+          }
+          trap cleanup EXIT
+          booted=false
+          for _ in {1..150}; do
+            kill -0 "$emulator_pid"
+            if [[ "$(adb -s emulator-5554 shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" == 1 ]]; then
+              booted=true
+              break
+            fi
+            sleep 2
+          done
+          [[ "$booted" == true ]]
+          python3 v2/mobile/scripts/runtime-16kb.py runtime --root "$CANDIDATE" \
+            --evidence "$EVIDENCE" --provenance "$EVIDENCE/candidate.json"
+
+      - name: Keep bounded runtime evidence, never release artifacts or credentials
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-16kb-runtime-${{ github.run_id }}
+          path: ${{ env.EVIDENCE }}
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Summarize actual outcome
+        if: always()
+        env:
+          OUTCOME: ${{ steps.smoke.outcome }}
+        run: |
+          if [[ "$OUTCOME" == success ]] && jq -e '.status == "passed" and .page_size == 16384' "$EVIDENCE/runtime-receipt.json" >/dev/null; then
+            echo 'Signed candidate passed x86_64 Android 16 16 KB startup and restart checks.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '16 KB runtime was not confirmed. Inspect the failed step and retained evidence.' >> "$GITHUB_STEP_SUMMARY"
+          fi
+          echo 'This does not prove ARM64 runtime, Play-generated splits, billing, phone/TV acceptance or Play pre-launch results. No build, signing or Play upload occurs.' >> "$GITHUB_STEP_SUMMARY"

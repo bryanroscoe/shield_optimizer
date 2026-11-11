@@ -20,6 +20,7 @@ async function open(t, screen, options = {}) {
       conflicts: [],
       upload: {},
       uploadHold: null,
+      pickHold: null,
       apkPick: { status: "picked", batch: "import-apk", files: [{ name: "base.apk", size_bytes: 4096 }, { name: "split_config.arm64_v8a.apk", size_bytes: 2048 }] },
       inspection: { files: [{ name: "base.apk", size_bytes: 4096 }, { name: "split_config.arm64_v8a.apk", size_bytes: 2048 }], abis: ["arm64-v8a"], abis_known: true, device_abis: ["arm64-v8a", "armeabi-v7a"], abi_compatible: true },
       install: { ok: true, message: "Success", hint: null },
@@ -36,7 +37,7 @@ async function open(t, screen, options = {}) {
         case "app_list_for_device": case "list_installed_packages": case "list_backups": return [];
         case "package_states": case "app_memory_map": case "app_usage_map": case "app_storage_map": return {};
         case "list_remote_dir": return args.path === "/sdcard" ? [{ name: "Movies", is_dir: true, is_symlink: false, size_bytes: 0, modified: "" }, { name: "old.txt", is_dir: false, is_symlink: false, size_bytes: 3, modified: "" }] : [];
-        case "import_pick": return reply(args.purpose === "apk" ? mock.apkPick : mock.pick);
+        case "import_pick": { if (mock.pickHold) await mock.pickHold; return reply(args.purpose === "apk" ? mock.apkPick : mock.pick); }
         case "discard_import": return null;
         case "upload_conflicts": return reply(mock.conflicts);
         case "upload_imported": {
@@ -76,13 +77,46 @@ test("Upload sends each picked file to the open folder, lists it and frees the c
   assert.deepEqual(await called(page, "import_pick"), [{ purpose: "upload" }]);
   assert.deepEqual(await called(page, "upload_conflicts"), [{ serial: "MOCK:5555", batch: "import-1", remoteDir: "/sdcard" }]);
   assert.deepEqual(await called(page, "upload_imported"), [
-    { serial: "MOCK:5555", batch: "import-1", index: 0, remoteDir: "/sdcard", overwrite: false },
-    { serial: "MOCK:5555", batch: "import-1", index: 1, remoteDir: "/sdcard", overwrite: false },
+    { serial: "MOCK:5555", expectedHardwareId: "SYNTHETIC-HARDWARE", batch: "import-1", index: 0, remoteDir: "/sdcard", overwrite: false },
+    { serial: "MOCK:5555", expectedHardwareId: "SYNTHETIC-HARDWARE", batch: "import-1", index: 1, remoteDir: "/sdcard", overwrite: false },
   ]);
   assert.deepEqual(await called(page, "discard_import"), [{ batch: "import-1" }]);
   await page.locator(".dl-row").filter({ hasText: "On the TV: /sdcard/clip.mp4" }).waitFor();
   // The folder is read again so the new files show.
   assert.equal((await called(page, "list_remote_dir")).filter(a => a.path === "/sdcard").length, 2);
+});
+
+test("upload preserves the original normalized hardware identity across picker and confirmation", async t => {
+  const page = await open(t, "files");
+  await page.evaluate(async () => {
+    const { session } = await import("/src/lib/session.svelte.ts");
+    session.connectedDevice.properties.serial_number = "  ORIGINAL-TV  ";
+    mock.pickHold = new Promise(resolve => { window.releasePick = resolve; });
+    mock.conflicts = [{ name: "notes.txt", remote_path: "/sdcard/notes.txt", is_dir: false }];
+  });
+  await uploadButton(page).click();
+  await page.getByRole("status").filter({ hasText: "Waiting for the file picker…" }).waitFor();
+  await page.evaluate(async () => {
+    const { session } = await import("/src/lib/session.svelte.ts");
+    session.connectedDevice.properties.serial_number = "DIFFERENT-TV";
+    releasePick();
+  });
+  const dialog = page.getByRole("dialog", { name: "Replace files on the TV?" });
+  await dialog.getByRole("button", { name: "Replace" }).click();
+  await page.getByText("Uploaded 2 files to /sdcard.").waitFor();
+  assert.deepEqual((await called(page, "upload_imported")).map(a => a.expectedHardwareId), ["ORIGINAL-TV", "ORIGINAL-TV"]);
+});
+
+test("upload refuses an unknown hardware identity before opening the picker", async t => {
+  const page = await open(t, "files");
+  await page.evaluate(async () => {
+    const { session } = await import("/src/lib/session.svelte.ts");
+    session.connectedDevice.properties.serial_number = " unknown ";
+  });
+  await uploadButton(page).click();
+  await page.getByText("The upload needs a verified TV hardware identity. Reconnect to the TV and try again.").waitFor();
+  assert.equal((await called(page, "import_pick")).length, 0);
+  assert.equal((await called(page, "upload_imported")).length, 0);
 });
 
 test("progress names the file being sent, and the button waits for the upload", async t => {

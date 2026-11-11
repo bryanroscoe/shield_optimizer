@@ -23,7 +23,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use atv_optimizer_core::adb::{AdbDriver, AdbError};
 use atv_optimizer_core::commands::files::validate_sdcard_path;
 use atv_optimizer_core::commands::AppState;
 use atv_optimizer_core::engine::apk_abis;
@@ -439,22 +438,6 @@ pub fn remote_target(remote_dir: &str, name: &str) -> Result<String, String> {
     Ok(target)
 }
 
-const MOVED: &str = "atvopt-moved";
-
-/// The hidden name an upload is sent under before it is moved into place: `.<name>.atvopt-part`
-/// in the same folder, inside the same `/sdcard` bound.
-pub fn partial_target(remote_dir: &str, name: &str) -> Result<String, String> {
-    remote_target(remote_dir, &format!(".{name}.atvopt-part"))
-}
-
-/// Best-effort removal of an upload's partial copy. True when the TV confirmed it is gone.
-async fn remove_on_tv(adb: &dyn AdbDriver, serial: &str, path: &str) -> bool {
-    let command = format!("rm -f {} && echo {MOVED}", quote_path(path));
-    adb.shell(serial, &command)
-        .await
-        .is_ok_and(|out| out.stdout.lines().any(|l| l.trim() == MOVED))
-}
-
 /// Something already on the TV where an upload would land.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UploadConflict {
@@ -564,11 +547,15 @@ pub enum UploadOutcome {
 }
 
 /// `upload_imported` — push one staged file into a TV folder.
+// Keep the existing flat Tauri IPC arguments; the hardware identity is a required
+// upload authorization bound, not an optional field hidden inside another argument.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn upload_imported(
     state: State<'_, AppState>,
     store: State<'_, ImportStore>,
     serial: String,
+    expected_hardware_id: String,
     batch: String,
     index: usize,
     remote_dir: String,
@@ -578,6 +565,7 @@ pub async fn upload_imported(
         state.inner(),
         store.inner(),
         &serial,
+        &expected_hardware_id,
         &batch,
         index,
         &remote_dir,
@@ -586,109 +574,50 @@ pub async fn upload_imported(
     .await
 }
 
+// Mirrors the command boundary so tests exercise the same explicit request fields.
+#[allow(clippy::too_many_arguments)]
 pub async fn upload_imported_impl(
     state: &AppState,
     store: &ImportStore,
     serial: &str,
+    expected_hardware_id: &str,
     batch: &str,
     index: usize,
     remote_dir: &str,
     overwrite: bool,
 ) -> Result<UploadOutcome, String> {
+    let expected_hardware_id =
+        atv_optimizer_core::commands::devices::verified_hardware_id(expected_hardware_id)
+            .ok_or("The upload needs a verified TV hardware identity. Nothing was uploaded.")?;
     let batch = store.get(batch)?;
     let file = batch.files.get(index).ok_or(BATCH_GONE)?;
     let target = remote_target(remote_dir, &file.name)?;
-    // Checked again right before sending: the folder may have changed since the question.
-    let existing = existing_on_tv(state, serial, std::slice::from_ref(&target)).await?;
-    match existing.first() {
-        Some((_, true)) => {
-            return Err(format!(
-                "A folder named {} is already in {}. Nothing was uploaded for it.",
-                file.name,
-                remote_dir.trim_end_matches('/')
-            ))
-        }
-        Some((_, false)) if !overwrite => {
-            return Ok(UploadOutcome::Exists {
+    let adb = state.adb_snapshot().await;
+    match adb
+        .upload_file(
+            serial,
+            expected_hardware_id,
+            &file.path,
+            &target,
+            file.size_bytes,
+            overwrite,
+        )
+        .await
+        .map_err(|error| error.to_string())?
+    {
+        atv_optimizer_core::adb::upload::UploadResult::Exists => Ok(UploadOutcome::Exists {
+            name: file.name.clone(),
+            remote_path: target,
+        }),
+        atv_optimizer_core::adb::upload::UploadResult::Uploaded { verified } => {
+            Ok(UploadOutcome::Uploaded {
                 name: file.name.clone(),
                 remote_path: target,
+                size_bytes: file.size_bytes,
+                verified,
             })
         }
-        _ => {}
     }
-    // Sent under a hidden name and moved into place only once complete, so an interrupted or
-    // short upload never replaces (or poses as) the file the user meant.
-    let partial = partial_target(remote_dir, &file.name)?;
-    let adb = state.adb_snapshot().await;
-    let local = file.path.to_string_lossy().into_owned();
-    if let Err(e) = adb
-        .raw_transfer(&["-s", serial, "push", &local, &partial])
-        .await
-    {
-        let removed = remove_on_tv(adb.as_ref(), serial, &partial).await;
-        let left = if removed {
-            "Nothing in the folder was replaced.".to_string()
-        } else {
-            format!(
-                "Nothing in the folder was replaced; an incomplete copy may be left at {partial}."
-            )
-        };
-        return Err(match e {
-            AdbError::Uncertain { .. } => {
-                format!("{} didn't finish uploading: {e}. {left}", file.name)
-            }
-            e => format!("Couldn't upload {}: {e}. {left}", file.name),
-        });
-    }
-    let verified = match adb
-        .shell(serial, &format!("stat -c %s {}", quote_path(&partial)))
-        .await
-    {
-        Ok(out) => match out.stdout.trim().parse::<u64>() {
-            Ok(size) if size == file.size_bytes => true,
-            Ok(size) => {
-                remove_on_tv(adb.as_ref(), serial, &partial).await;
-                return Err(format!(
-                    "{} reached the TV as {size} bytes instead of {}, so it was removed. Nothing \
-                     in the folder was replaced. Try again.",
-                    file.name, file.size_bytes
-                ));
-            }
-            Err(_) => false,
-        },
-        Err(_) => false,
-    };
-    let moved = adb
-        .shell(
-            serial,
-            &format!(
-                "mv -f {} {} && echo {MOVED}",
-                quote_path(&partial),
-                quote_path(&target)
-            ),
-        )
-        .await;
-    if !moved
-        .as_ref()
-        .is_ok_and(|out| out.stdout.lines().any(|l| l.trim() == MOVED))
-    {
-        remove_on_tv(adb.as_ref(), serial, &partial).await;
-        let reason = match moved {
-            Ok(out) => out.combined().trim().to_string(),
-            Err(e) => e.to_string(),
-        };
-        return Err(format!(
-            "{} was sent but couldn't be put in place ({reason}). Nothing in the folder was \
-             replaced.",
-            file.name
-        ));
-    }
-    Ok(UploadOutcome::Uploaded {
-        name: file.name.clone(),
-        remote_path: target,
-        size_bytes: file.size_bytes,
-        verified,
-    })
 }
 
 /// What the staged APKs say about themselves before anything is installed. Not a signature
@@ -840,7 +769,7 @@ pub async fn install_imported_apks_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use atv_optimizer_core::adb::{AdbDriver, AdbOutput, AdbResult};
+    use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult};
 
     fn output(stdout: &str) -> AdbResult<AdbOutput> {
         Ok(AdbOutput {
@@ -879,6 +808,60 @@ mod tests {
 
     #[async_trait::async_trait]
     impl AdbDriver for Tv {
+        async fn upload_file(
+            &self,
+            serial: &str,
+            _expected_hardware_id: &str,
+            local: &Path,
+            target: &str,
+            size: u64,
+            overwrite: bool,
+        ) -> AdbResult<atv_optimizer_core::adb::upload::UploadResult> {
+            struct Io<'a>(&'a Tv, &'a str);
+            impl atv_optimizer_core::adb::upload::UploadIo for Io<'_> {
+                fn shell(&mut self, command: &str) -> AdbResult<AdbOutput> {
+                    self.0.calls.lock().unwrap().push(command.into());
+                    if command.starts_with("case ") && !command.contains("cat ") {
+                        output("atvopt-safe-shell")
+                    } else if command.starts_with("if [ -d") {
+                        output(if self.0.existing.starts_with("d ") {
+                            "atvopt-directory"
+                        } else if self.0.existing.starts_with("f ") {
+                            "atvopt-exists"
+                        } else {
+                            "atvopt-absent"
+                        })
+                    } else if command.starts_with("mkdir ") {
+                        output("atvopt-created")
+                    } else if command.starts_with("stat ") {
+                        output(&self.0.stat)
+                    } else if command.starts_with("rm ") {
+                        output("atvopt-clean")
+                    } else {
+                        output(if self.0.mv_fails {
+                            ""
+                        } else {
+                            "atvopt-committed"
+                        })
+                    }
+                }
+                fn push(&mut self, local: &Path, remote: &str) -> AdbResult<()> {
+                    self.0.calls.lock().unwrap().push(format!(
+                        "-s {} push {} {remote}",
+                        self.1,
+                        local.display()
+                    ));
+                    (self.0.transfer)().map(|_| ())
+                }
+            }
+            atv_optimizer_core::adb::upload::upload(
+                &mut Io(self, serial),
+                local,
+                target,
+                size,
+                overwrite,
+            )
+        }
         async fn raw(&self, _: &[&str]) -> AdbResult<AdbOutput> {
             unreachable!()
         }
@@ -1188,9 +1171,18 @@ mod tests {
         tv.stat = "5\n".into();
         let tv = Arc::new(tv);
         let state = state(tv.clone(), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard/Movies", false)
-            .await
-            .unwrap();
+        let outcome = upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/sdcard/Movies",
+            false,
+        )
+        .await
+        .unwrap();
         assert_eq!(
             outcome,
             UploadOutcome::Uploaded {
@@ -1203,16 +1195,11 @@ mod tests {
         let calls = tv.calls();
         let push = calls.iter().position(|c| c.contains(" push ")).unwrap();
         assert!(calls[push].starts_with("-s TV push "));
-        assert!(calls[push].ends_with("000-clip.mp4 /sdcard/Movies/.clip.mp4.atvopt-part"));
-        // Sent under a hidden name, checked, then moved over the target.
-        assert_eq!(
-            calls[push + 1],
-            "stat -c %s '/sdcard/Movies/.clip.mp4.atvopt-part'"
-        );
-        assert_eq!(
-            calls[push + 2],
-            "mv -f '/sdcard/Movies/.clip.mp4.atvopt-part' '/sdcard/Movies/clip.mp4' && echo atvopt-moved"
-        );
+        assert!(calls[push].contains("000-clip.mp4 /sdcard/Movies/.atvopt-upload-"));
+        assert!(calls[push].ends_with("/payload"));
+        assert!(calls[push + 1].starts_with("stat -c %s '/sdcard/Movies/.atvopt-upload-"));
+        assert!(calls[push + 2].contains("( set -C;"));
+        assert!(calls[push + 2].contains(" > '/sdcard/Movies/clip.mp4'"));
     }
 
     #[tokio::test]
@@ -1224,14 +1211,16 @@ mod tests {
         tv.stat = "1".into();
         let tv = Arc::new(tv);
         let state = state(tv.clone(), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap();
         assert!(matches!(outcome, UploadOutcome::Exists { .. }));
         assert!(!tv.calls().iter().any(|c| c.contains(" push ")));
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap();
         assert!(matches!(
             outcome,
             UploadOutcome::Uploaded { verified: true, .. }
@@ -1241,9 +1230,10 @@ mod tests {
         folder.existing = "d /sdcard/a.txt\n".into();
         let folder = Arc::new(folder);
         let state = super::tests::state(folder.clone(), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap_err();
         assert!(error.contains("A folder named a.txt"), "{error}");
         assert!(!folder.calls().iter().any(|c| c.contains(" push ")));
     }
@@ -1256,9 +1246,10 @@ mod tests {
         let mut short = Tv::new();
         short.stat = "2".into();
         let state = state(Arc::new(short), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap_err();
         assert!(error.contains("as 2 bytes instead of 3"), "{error}");
         assert!(
             error.contains("Nothing in the folder was replaced"),
@@ -1268,9 +1259,10 @@ mod tests {
         let mut unknown = Tv::new();
         unknown.stat = "stat: not found".into();
         let state = super::tests::state(Arc::new(unknown), root.path());
-        let outcome = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap();
+        let outcome =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap();
         assert!(matches!(
             outcome,
             UploadOutcome::Uploaded {
@@ -1287,9 +1279,10 @@ mod tests {
             })
         };
         let state = super::tests::state(Arc::new(uncertain), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", false)
-            .await
-            .unwrap_err();
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+                .await
+                .unwrap_err();
         assert!(error.contains("didn't finish uploading"), "{error}");
         assert!(
             error.contains("Nothing in the folder was replaced."),
@@ -1301,27 +1294,47 @@ mod tests {
         stuck.mv_fails = true;
         let stuck = Arc::new(stuck);
         let state = super::tests::state(stuck.clone(), root.path());
-        let error = upload_imported_impl(&state, &store, "TV", &id, 0, "/sdcard", true)
-            .await
-            .unwrap_err();
-        assert!(error.contains("couldn't be put in place"), "{error}");
+        let error =
+            upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", true)
+                .await
+                .unwrap_err();
+        assert!(
+            error.contains("did not confirm putting the file in place"),
+            "{error}"
+        );
         assert!(stuck
             .calls()
             .iter()
-            .any(|c| c == "rm -f '/sdcard/.a.txt.atvopt-part' && echo atvopt-moved"));
+            .any(|c| c.starts_with("rm -f '/sdcard/.atvopt-upload-")));
 
         let state = super::tests::state(Arc::new(Tv::new()), root.path());
         assert_eq!(
-            upload_imported_impl(&state, &store, "TV", "import-unknown", 0, "/sdcard", false)
-                .await
-                .unwrap_err(),
+            upload_imported_impl(
+                &state,
+                &store,
+                "TV",
+                "fixture-tv",
+                "import-unknown",
+                0,
+                "/sdcard",
+                false
+            )
+            .await
+            .unwrap_err(),
             BATCH_GONE
         );
-        assert!(
-            upload_imported_impl(&state, &store, "TV", &id, 0, "/data/local/tmp", false)
-                .await
-                .is_err()
-        );
+        assert!(upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/data/local/tmp",
+            false
+        )
+        .await
+        .is_err());
     }
 
     fn stored_zip(names: &[&str]) -> Vec<u8> {
