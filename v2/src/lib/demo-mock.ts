@@ -659,9 +659,7 @@ function demoInstallSource(pkg: string): "user" | "preinstalled" | "unknown" {
 // follows `suggested_method`; a default row keeps `safe_method`.
 function demoPlanMethod(entry: AppEntry): "disable" | "uninstall" {
   if (entry.review && !entry.default_optimize) {
-    const ordinaryStore =
-      entry.play_store && !entry.defunct && !entry.default_restore && (entry.risk === "safe" || entry.risk === "medium");
-    return ordinaryStore && demoInstallSource(entry.package) === "user" ? "uninstall" : "disable";
+    return "disable";
   }
   return entry.method === "uninstall" && !(entry.play_store || entry.defunct) ? "disable" : entry.method;
 }
@@ -1212,10 +1210,10 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           "com.android.printspooler",
           "com.google.android.videos",
           "com.google.android.music",
-          "tv.twitch.android.app",
         ],
-        // Installed since the snapshot was saved: a restore turns it off.
-        packages_absent_in_snapshot: ["tv.twitch.android.app"],
+        // No verified saved-TV hardware identity: recorded absence is not an action.
+        packages_absent_in_snapshot: [],
+        packages_absent_skipped: ["tv.twitch.android.app"],
         packages_already_disabled: ["com.amazon.amazonvideo.livingroom", "com.facebook.katana"],
         packages_not_installed: ["com.disney.disneyplus", "com.quibi.qlient"],
         launcher_to_set: snap.launcher && snap.launcher !== homeNow ? snap.launcher : null,
@@ -1265,12 +1263,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return {
         packages_disabled: ["com.google.android.feedback", "com.android.printspooler"],
         packages_failed: [],
+        packages_absent_skipped: ["tv.twitch.android.app"],
         launcher_set: true,
         launcher_message: "Set Projectivy as default.",
         settings_written: ["global.hdmi_control_enabled", "secure.match_content_frame_rate"],
         settings_deleted: ["global.encoded_surround_output"],
         settings_failed: [],
-        summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written, 1 reset.",
+        summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written, 1 reset. Left 1 recorded absent app unchanged.",
       } satisfies ApplyResult;
     case "prepare_optimize":
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");

@@ -355,12 +355,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_review_row_uninstalls_only_a_store_app_the_user_installed() {
+    async fn a_review_row_disables_store_apps_without_verified_installer_provenance() {
         use crate::engine::InstallSource;
         let plan = review_plan("package:com.store.mine", 0).await;
         let mine = row(&plan, "com.store.mine");
         assert_eq!(mine.install_source, InstallSource::User);
-        assert_eq!(mine.action, OptimizeAction::Uninstall);
+        assert_eq!(mine.action, OptimizeAction::Disable);
         let shipped = row(&plan, "com.store.shipped");
         assert_eq!(shipped.install_source, InstallSource::Preinstalled);
         assert_eq!(shipped.action, OptimizeAction::Disable);

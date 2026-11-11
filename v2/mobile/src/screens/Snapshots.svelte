@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AbsentSnapshotApps from "../../../shared/components/AbsentSnapshotApps.svelte";
   import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
@@ -49,6 +50,7 @@
     generation: number;
   } | null>(null);
   let unchangedOpen = $state(false);
+  let absentResult = $state<{ packages: string[]; serial: string; generation: number } | null>(null);
   let deleteTarget = $state<SnapshotFile | null>(null);
 
   let toast = $state("");
@@ -120,6 +122,7 @@
     void session.generation;
     void session.isConnected;
     untrack(() => {
+      if (absentResult && !ownsConnection(absentResult.serial, absentResult.generation)) absentResult = null;
       if (pending && !ownsConnection(pending.serial, pending.generation)) {
         pending = null;
         showToast(CONNECTION_CHANGED, "error");
@@ -136,6 +139,7 @@
       return;
     }
     busyPath = snap.path;
+    absentResult = null;
     try {
       const plan = await api.previewApply(serial, snap.path);
       if (!ownsConnection(serial, generation)) {
@@ -168,15 +172,19 @@
     busyPath = p.snap.path;
     applyFailure = null;
     notRestored = [];
+    absentResult = null;
     try {
       const res = await api.applySnapshot(p.serial, p.snap.path);
+      const absent = res.packages_absent_skipped ?? [];
+      absentResult = absent.length && ownsConnection(p.serial, p.generation)
+        ? { packages: absent, serial: p.serial, generation: p.generation } : null;
       const outcome = restoreOutcome(res, p.plan);
       // Only the summary names a stock launcher left off with its setup
       // helper (Setup Wraith) still on; that is not a clean success either.
       const followUp = res.summary?.includes("Setup Wraith");
       showToast(
         res.summary || "Snapshot applied.",
-        outcome.length || followUp ? "info" : "success",
+        outcome.length || followUp || absent.length ? "info" : "success",
       );
       notRestored = outcome;
       if (outcome.length > 0) {
@@ -276,6 +284,12 @@
     {/if}
   {/if}
 
+  {#if absentResult}
+    <section aria-label="Recorded absent apps left unchanged">
+      <AbsentSnapshotApps packages={absentResult.packages} />
+    </section>
+  {/if}
+
   {#if loading}
     <div class="center">
       <span class="statuspill live"><span class="pdot blink"></span>Loading snapshots…</span>
@@ -287,7 +301,7 @@
       <p class="locked-desc">
         A snapshot records which apps are disabled, which known apps weren't installed, your Home
         app and a set of display, audio, HDMI-CEC and screensaver settings. Restoring it disables
-        those apps if they're on and puts the settings back. It never re-enables anything, and it
+        recorded disabled apps if they're on and puts the settings back. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified. It never re-enables anything, and it
         never uninstalls or reinstalls apps.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
@@ -303,8 +317,8 @@
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
-    <p class="intro">Restoring disables the recorded apps and restores settings. It never re-enables anything or reinstalls apps.</p>
-    <HelpSheet title="What snapshots include"><p>A snapshot records disabled apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Use it to set this TV up the same way again, for example after a factory reset. Restoring disables every recorded app, with no per-app choice, on whichever TV you restore it to.</p></HelpSheet>
+    <p class="intro">Restoring disables recorded disabled apps and restores settings. It never re-enables anything or reinstalls apps.</p>
+    <HelpSheet title="What snapshots include"><p>A snapshot records disabled and absent apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Use it to set this TV up the same way again, for example after a factory reset. Restoring disables recorded disabled apps, with no per-app choice. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.</p></HelpSheet>
 
     <!-- Create -->
     <div class="create-card">
@@ -385,6 +399,7 @@
               </p>
             {/if}
 
+            <AbsentSnapshotApps packages={pending.plan.packages_absent_skipped ?? []} />
             <p class="plan-summary mono">{previewSummary(pending.plan)}</p>
 
             {#if homeSkip}
@@ -426,7 +441,9 @@
 
             {#if nothingToDo}
               <p class="plan-empty">
-                {homeSkip || kept.length > 0 || refused.length > 0
+                {(pending.plan.packages_absent_skipped?.length ?? 0) > 0
+                  ? "No changes will be made. Recorded absent apps are left unchanged."
+                  : homeSkip || kept.length > 0 || refused.length > 0
                   ? "Nothing to change. Everything else already matches the snapshot."
                   : "This TV already matches the snapshot — nothing to change."}
               </p>
@@ -468,7 +485,7 @@
             {/if}
 
             <p class="plan-note">
-              Restoring disables the recorded apps and writes the recorded settings back, including
+              Restoring disables recorded disabled apps and writes the recorded settings back, including
               resetting settings the snapshot recorded as never set. It never re-enables anything or
               reinstalls apps. A disabled app can be turned back on with Emergency recovery under More.
             </p>

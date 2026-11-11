@@ -143,21 +143,30 @@ test("uninstallOutcome names how each kind of app comes back", () => {
   assert.equal(rec.uninstallNote("com.example.app", entry({ defunct: true })), defunct.detail);
 });
 
-test("a review row suggests Uninstall only for a store app the user installed", () => {
+test("review rows suggest Disable regardless of source or catalog flags", () => {
   const store = entry({ method: "disable", play_store: true, review: true, default_optimize: false });
-  assert.equal(rec.suggestedMethod(store, "user"), "uninstall");
+  assert.equal(rec.suggestedMethod(store, "user"), "disable");
   assert.equal(rec.suggestedMethod({ ...store, method: "uninstall" }, "preinstalled"), "disable");
   assert.equal(rec.suggestedMethod(store, "unknown"), "disable");
   for (const other of [{ play_store: false }, { defunct: true }, { default_restore: true }, { risk: "high" }, { risk: "advanced" }]) {
     assert.equal(rec.suggestedMethod({ ...store, ...other }, "user"), "disable", JSON.stringify(other));
   }
-  assert.equal(rec.suggestedMethod({ ...store, risk: "medium" }, "user"), "uninstall");
+  assert.equal(rec.suggestedMethod({ ...store, risk: "medium" }, "user"), "disable");
   assert.deepEqual(rec.recommendation(store, "enabled", ready("safe"), "user"), {
-    kind: "review", label: "Review: uninstall if unused", action: "uninstall",
+    kind: "review", label: "Review: disable if unused", action: "disable",
   });
   assert.deepEqual(rec.recommendation(store, "enabled", ready("caution")), {
     kind: "review", label: "Review: disable if unused", action: "disable",
   });
+  for (const source of ["user", "preinstalled", "unknown"]) {
+    for (const method of ["disable", "uninstall"]) {
+      for (const play_store of [true, false]) {
+        for (const defunct of [true, false]) {
+          assert.equal(rec.suggestedMethod({ ...store, method, play_store, defunct }, source), "disable");
+        }
+      }
+    }
+  }
   // A default Optimize row keeps its store-gated method whatever the source.
   const defunct = entry({ play_store: false, defunct: true });
   assert.equal(rec.recommendation(defunct, "enabled", ready("safe"), "preinstalled").action, "uninstall");

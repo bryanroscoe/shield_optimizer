@@ -1047,7 +1047,7 @@ mod tests {
             assert!(entry.play_store && !entry.defunct);
             assert_eq!(
                 entry.suggested_method(InstallSource::User),
-                ActionMethod::Uninstall
+                ActionMethod::Disable
             );
         }
         assert!(lists.find("com.att.tv.openvideo").is_none());

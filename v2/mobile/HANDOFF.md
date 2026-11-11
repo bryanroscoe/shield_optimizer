@@ -258,6 +258,13 @@ deferred.
 - **Restore keeps a Home app and never re-enables anything.** Core decides; the plan's
   `launcher_disabled` and `packages_kept` and the result's `(kept: …)` entries are shown with their
   reasons. A preview with one of them never says the TV already matches the snapshot.
+- **Snapshot v4 absence is recorded, not applied.** The shared engine leaves every
+  `absent_packages` entry unchanged because the saved TV's hardware identity is unverified.
+  Preview names skipped apps. Explicitly disabled apps, tracked settings and Home protection
+  retain their existing restore behavior; v1–v4 remain readable.
+- **Review suggestions use Disable until installer provenance is verified.** `pm list packages
+  -3` distinguishes non-system apps, not Play installs from sideloads. Default Keep, curated bulk
+  defaults and explicitly confirmed Uninstall remain unchanged.
 
 ## 4. Licensing and commerce
 
