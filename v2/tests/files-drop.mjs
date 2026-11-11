@@ -6,7 +6,8 @@
 //   - a dropped file goes to `push_file` for the folder on screen, and a
 //     dropped folder is refused with a message instead;
 //   - a drop does nothing while Files is not the tab showing, because a
-//     visited tab stays mounted, only hidden.
+//     visited tab stays mounted, only hidden;
+//   - a folder opened from the filesystem root is "/data", not "//data".
 //
 // Run via `npm run test:files-drop` from v2/.
 import { freePort } from "./lib/free-port.mjs";
@@ -114,8 +115,27 @@ async function main() {
     assert.equal(await overlay.count(), 0, "no overlay was left behind");
     assert.doesNotMatch(await message.innerText(), /other\.txt/, "a hidden Files tab ignored the drop");
 
+    // Climb to the root (power-user paths) and open a folder from there.
+    await page.evaluate(() => {
+      const internals = window.__TAURI_INTERNALS__;
+      const invoke = internals.invoke;
+      window.__LIST_DIRS__ = [];
+      internals.invoke = (cmd, args) => {
+        if (cmd === "list_dir") window.__LIST_DIRS__.push(args.path);
+        return invoke(cmd, args);
+      };
+    });
+    await panel.getByLabel("Show system paths (power user)").check();
+    await panel.locator(".crumbs button", { hasText: "Up" }).click();
+    await panel.locator(".dir-link", { hasText: "data" }).waitFor();
+    await panel.locator(".dir-link", { hasText: "data" }).click();
+    await page.waitForFunction(() => window.__LIST_DIRS__.includes("/data") || window.__LIST_DIRS__.includes("//data"));
+    const listed = await page.evaluate(() => window.__LIST_DIRS__);
+    assert.ok(listed.includes("/"), `climbed to the root: ${listed}`);
+    assert.ok(listed.includes("/data") && !listed.some((p) => p.startsWith("//")), `root children join with one slash: ${listed}`);
+
     console.log(
-      "Files drop passed: the overlay names the folder, a dropped file uploads there, a folder is refused, and a hidden Files tab ignores drops.",
+      "Files drop passed: the overlay names the folder, a dropped file uploads there, a folder is refused, a hidden Files tab ignores drops, and root folders open as /name.",
     );
     await page.close();
   } finally {
