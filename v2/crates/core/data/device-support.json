@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "updated": "2026-10-31",
+  "updated": "2026-11-11",
   "rules": [
     {
       "match": { "manufacturer": "NVIDIA", "model_prefix": "SHIELD" },
@@ -11,6 +11,86 @@
       "match": { "manufacturer": "Amazon", "model_prefix": "AFT" },
       "tier": "not_supported",
       "note": "Fire OS blocks the changes this app makes."
+    },
+    {
+      "match": { "manufacturer": "Google", "model_prefix": "Google TV Streamer", "device": "kirkwood" },
+      "tier": "beta",
+      "note": "Early reports from 20 installs: 100% of 90 actions worked."
+    },
+    {
+      "match": { "manufacturer": "onn", "model_prefix": "onn 4K Pro Streaming Device", "device": "jarvis2" },
+      "tier": "beta",
+      "note": "Early reports from 13 installs: 100% of 46 actions worked."
+    },
+    {
+      "match": { "manufacturer": "onn", "model_prefix": "onn. Streaming Device 4K pro", "device": "SNA" },
+      "tier": "beta",
+      "note": "Early reports from 9 installs: 95.1% of 81 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Google", "model_prefix": "Chromecast", "device": "sabrina" },
+      "tier": "beta",
+      "note": "Early reports from 9 installs: 90.6% of 64 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Sony", "model_prefix": "BRAVIA 4K GB ATV3", "device": "BRAVIA_ATV3_4K" },
+      "tier": "beta",
+      "note": "Early reports from 8 installs: 98.3% of 60 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MIBOX4", "device": "oneday" },
+      "tier": "beta",
+      "note": "Early reports from 7 installs: 94.9% of 59 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MiTV-AFMU0", "device": "twilight" },
+      "tier": "beta",
+      "note": "Early reports from 7 installs: 96.9% of 32 actions worked."
+    },
+    {
+      "match": { "manufacturer": "SEI Robotics", "model_prefix": "Box R 4K Plus", "device": "YYJ" },
+      "tier": "beta",
+      "note": "Early reports from 7 installs: 87.5% of 8 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MiTV-AYFR0", "device": "soul" },
+      "tier": "beta",
+      "note": "Early reports from 5 installs: 80.8% of 26 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MiTV-MOOQ0", "device": "croods" },
+      "tier": "beta",
+      "note": "Early reports from 4 installs: 100% of 38 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MiTV-MOOQ1", "device": "tarzan" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 98.2% of 56 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MIBOX3", "device": "once" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 94.3% of 35 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Xiaomi", "model_prefix": "MiTV-AESP0", "device": "aquaman" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 95.7% of 23 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Google", "model_prefix": "W2", "device": "p281" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 100% of 17 actions worked."
+    },
+    {
+      "match": { "manufacturer": "Sony", "model_prefix": "BRAVIA VH1", "device": "BRAVIA_VH1" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 100% of 13 actions worked."
+    },
+    {
+      "match": { "manufacturer": "onn", "model_prefix": "onn. 4K Streaming Box", "device": "YOC" },
+      "tier": "beta",
+      "note": "Early reports from 3 installs: 100% of 8 actions worked."
     },
     {
       "match": { "manufacturer": "TCL" },

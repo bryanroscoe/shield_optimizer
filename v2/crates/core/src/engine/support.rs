@@ -252,6 +252,63 @@ mod tests {
     }
 
     #[test]
+    fn device_report_beta_promotions_match_their_exact_strings() {
+        // Manufacturer, model and device from the 2026-11-09 Device support
+        // report (#273), every row it suggested moving from unknown to beta.
+        let rows = [
+            ("Google", "Google TV Streamer", "kirkwood"),
+            ("onn", "onn 4K Pro Streaming Device", "jarvis2"),
+            ("onn", "onn. Streaming Device 4K pro", "SNA"),
+            ("Google", "Chromecast", "sabrina"),
+            ("Sony", "BRAVIA 4K GB ATV3", "BRAVIA_ATV3_4K"),
+            ("Xiaomi", "MIBOX4", "oneday"),
+            ("Xiaomi", "MiTV-AFMU0", "twilight"),
+            ("SEI Robotics", "Box R 4K Plus", "YYJ"),
+            ("Xiaomi", "MiTV-AYFR0", "soul"),
+            ("Xiaomi", "MiTV-MOOQ0", "croods"),
+            ("Xiaomi", "MiTV-MOOQ1", "tarzan"),
+            ("Xiaomi", "MIBOX3", "once"),
+            ("Xiaomi", "MiTV-AESP0", "aquaman"),
+            ("Google", "W2", "p281"),
+            ("Sony", "BRAVIA VH1", "BRAVIA_VH1"),
+            ("onn", "onn. 4K Streaming Box", "YOC"),
+        ];
+        let rules = embedded();
+        for (manufacturer, model, device) in rows {
+            let info = classify_support(Some(&props(manufacturer, "", model, device)), &rules);
+            assert_eq!(
+                info.tier,
+                SupportTier::Beta,
+                "{manufacturer} {model} {device}"
+            );
+            assert!(info.note.is_some(), "{manufacturer} {model} {device}");
+        }
+    }
+
+    #[test]
+    fn device_report_rows_left_out_of_beta_stay_unknown() {
+        // Same report: a sibling model or codename of a promoted TV that did
+        // not meet the bar keeps claiming nothing.
+        let rows = [
+            ("Google", "Chromecast HD", "boreal"),
+            ("onn", "onn 4K Streaming Device", "wayne"),
+            ("Xiaomi", "MiTV-AFKR0", "jaws"),
+            ("Xiaomi", "MiTV-MSSP1", "nino"),
+            ("Sony", "BRAVIA 4K GB", "BRAVIA_ATV2"),
+            ("Google", "Pixel 11 Pro XL", "kodiak"),
+        ];
+        let rules = embedded();
+        for (manufacturer, model, device) in rows {
+            let info = classify_support(Some(&props(manufacturer, "", model, device)), &rules);
+            assert_eq!(
+                info.tier,
+                SupportTier::Unknown,
+                "{manufacturer} {model} {device}"
+            );
+        }
+    }
+
+    #[test]
     fn fire_tv_is_not_supported_with_its_reason() {
         let p = props("Amazon", "Amazon", "AFTMM", "mantis");
         let info = classify_support(Some(&p), &embedded());
