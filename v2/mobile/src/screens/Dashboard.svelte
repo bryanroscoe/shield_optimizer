@@ -3,6 +3,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
+  import { currentTarget, sameTv, targetState, type TvTarget } from "../lib/tvTarget";
   import { listSavedDevices, savedDeviceIsLiveConnection, savedDeviceKey } from "../lib/savedDevices";
   import type { Screen } from "../lib/router.svelte";
   import type { SavedDevice, ScreenshotResult } from "../lib/types";
@@ -171,10 +172,10 @@
   }
 
   // The reboot is bound to the connection the confirm was opened on.
-  let rebootFor: { serial: string; generation: number } | null = null;
+  let rebootFor: TvTarget | null = null;
   function askReboot() {
     if (!session.isConnected) return;
-    rebootFor = { serial: session.serial, generation: session.generation };
+    rebootFor = currentTarget();
     rebootConfirm = true;
   }
 
@@ -183,21 +184,30 @@
     const target = rebootFor;
     rebootFor = null;
     if (busyAction || !target) return;
-    const generation = target.generation;
-    if (!session.isConnected || generation !== session.generation || target.serial !== session.serial) {
-      showToast("The TV connection changed. Nothing was sent.", "error");
+    const state = targetState(target);
+    if (state !== "current") {
+      showToast(
+        state === "reconnected"
+          ? "The TV reconnected, so the reboot wasn't sent. Confirm Reboot again."
+          : state === "offline"
+            ? "The TV isn't answering. Nothing was sent."
+            : "The TV connection changed. Nothing was sent.",
+        "error",
+      );
       return;
     }
     busyAction = "reboot";
+    // A TV usually drops the socket as it goes down, so the reply can land
+    // after a reconnect started. The result is always shown, naming the TV
+    // once the session is on another one; only the disconnect that follows
+    // is limited to the TV it was sent to.
+    const named = (text: string) => (sameTv(target) ? text : `${target.label}: ${text}`);
     try {
       const r = await api.rebootDevice(target.serial, "normal");
-      if (generation !== session.generation) return;
-      showToast(r.ok ? "Reboot command sent." : r.message || "Reboot failed.", r.ok ? "success" : "error");
-      if (r.ok) {
-        if (await session.finishReboot(generation)) router.reset("onboarding");
-      }
+      showToast(named(r.ok ? "Reboot command sent." : r.message || "Reboot failed."), r.ok ? "success" : "error");
+      if (r.ok && (await session.finishReboot(target))) router.reset("onboarding");
     } catch (e) {
-      if (generation === session.generation) showToast(String(e), "error");
+      showToast(named(String(e)), "error");
     } finally {
       busyAction = "";
     }

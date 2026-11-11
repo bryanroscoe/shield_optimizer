@@ -41,6 +41,14 @@ class Session {
   }
 
   connectedDevice = $state<Device | null>(null);
+  /// Which TV the session is on. `generation` moves on every connect, silent
+  /// redial and disconnect; this moves only when the TV may have changed: a
+  /// different serial, a hardware id that differs or that either side can't
+  /// report (sameness is never inferred from the address alone), or no TV at
+  /// all. A silent reconnect to the same verified TV keeps it, so a screen can
+  /// keep what the person was doing (text typed into Send Text) across a
+  /// liveness blip, while still refusing to send over a dead link.
+  deviceEpoch = $state(0);
   host = $state("");
   connectPort = $state(5555);
   entitlement = $state<Entitlement>("free");
@@ -136,6 +144,12 @@ class Session {
     this.liveness = "connecting";
     this.identityNote = "";
     onAttempt?.(generation);
+    const previousSerial = this.serial;
+    const previousId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
+    // Set once the old device object is dropped: from then on the TV is
+    // settled again (or counted as changed) however this attempt ends.
+    let dropped = false;
+    let settled = false;
     try {
       const result = await api.wirelessConnect(host, port, generation);
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
@@ -147,6 +161,7 @@ class Session {
       // held describes a socket that no longer exists. Drop it before the new
       // host is published so no render can pair the old name with the new IP.
       this.connectedDevice = null;
+      dropped = true;
       this.clearDeviceData();
       this.host = host;
       this.connectPort = port;
@@ -158,19 +173,24 @@ class Session {
       }
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
       this.liveness = this.connectedDevice ? "live" : "lost";
+      let mismatch = false;
       if (this.connectedDevice) {
         this.recoveryAttempted = false;
         // Remember this TV so the next launch can offer it, and allow a
         // silent redial of it because the user chose it explicitly.
-        this.rememberCurrentDevice();
+        mismatch = this.rememberCurrentDevice();
         setAutoConnect(true);
       }
+      this.settleDevice(previousSerial, previousId, mismatch);
+      settled = true;
       return this.connectedDevice ? result : { ok: false, message: "The TV disconnected before its profile could be loaded." };
     } catch (error) {
       if (generation === this.connectionGeneration) {
         await this.restoreCurrentLiveness(generation);
       }
       throw error;
+    } finally {
+      if (dropped && !settled) this.deviceEpoch += 1;
     }
   }
 
@@ -239,11 +259,21 @@ class Session {
   }
 
   reset(): void {
+    if (this.connectedDevice) this.deviceEpoch += 1;
     this.connectedDevice = null;
     this.host = "";
     this.connectPort = 5555;
     this.liveness = "idle";
     this.clearDeviceData();
+  }
+
+  /// After a connect or silent redial settles: keep `deviceEpoch` only when
+  /// the live TV is verifiably the one that was there before.
+  private settleDevice(previousSerial: string, previousId: string | undefined, mismatch: boolean): void {
+    const device = this.connectedDevice;
+    const id = normalizeHardwareId(device?.properties?.serial_number);
+    const same = !mismatch && device !== null && device.serial === previousSerial && previousId !== undefined && id === previousId;
+    if (!same) this.deviceEpoch += 1;
   }
 
   private clearDeviceData(): void {
@@ -321,6 +351,7 @@ class Session {
     const generation = this.nextGeneration();
     const promise = (async () => {
       this.liveness = "reconnecting";
+      const lostSerial = this.serial;
       const lostId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
       try {
         const result = await api.wirelessConnect(this.host, this.connectPort, generation);
@@ -339,6 +370,7 @@ class Session {
             // Cached stats describe the TV that was lost; another TV at this
             // address must not show them as its own.
             if (mismatch || recoveredId !== lostId) this.clearDeviceData();
+            this.settleDevice(lostSerial, lostId, mismatch);
             this.liveness = "live";
             this.recoveryAttempted = false;
             return true;
@@ -359,8 +391,12 @@ class Session {
     }
   }
 
-  async finishReboot(generation: number): Promise<boolean> {
-    if (generation !== this.connectionGeneration) return false;
+  /// Drop the connection to a TV that was just told to reboot. A TV usually
+  /// drops the socket as it goes down, which starts a silent redial and moves
+  /// `generation`, so this is keyed on the TV (serial and `deviceEpoch`): a
+  /// newer session on another TV is never disconnected.
+  async finishReboot(target: { serial: string; epoch: number }): Promise<boolean> {
+    if (target.serial !== this.serial || target.epoch !== this.deviceEpoch) return false;
     return this.disconnect();
   }
 

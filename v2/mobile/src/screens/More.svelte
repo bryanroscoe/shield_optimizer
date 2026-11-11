@@ -140,6 +140,7 @@
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
+  import { currentTarget, sameTv, targetState, type TvTarget } from "../lib/tvTarget";
   import { frontendLogText } from "../lib/log";
   import {
     clearUnknownDiagnostics,
@@ -348,21 +349,16 @@
   let recovering = $state(false);
   // Recovery runs on the connection it was confirmed for, and its result keeps
   // that TV's name so it is never read as the state of a TV that replaced it.
-  type RecoveryTarget = { serial: string; generation: number; label: string };
-  let recoveryTarget = $state<RecoveryTarget | null>(null);
-  let recovery = $state<(RecoveryResult & { target: RecoveryTarget }) | null>(null);
-  const isCurrent = (target: RecoveryTarget) =>
-    session.isConnected && session.serial === target.serial && session.generation === target.generation;
-  const recoveryIsCurrent = $derived(
-    recovery !== null &&
-      session.isConnected &&
-      session.serial === recovery.target.serial &&
-      session.generation === recovery.target.generation,
-  );
+  let recoveryTarget = $state<TvTarget | null>(null);
+  let recovery = $state<(RecoveryResult & { target: TvTarget }) | null>(null);
+  // Results stay this TV's across a reconnect to the same TV; another TV
+  // never reads them as its own.
+  const isCurrent = (target: TvTarget) => session.isConnected && sameTv(target);
+  const recoveryIsCurrent = $derived(recovery !== null && isCurrent(recovery.target));
 
   function confirmRecovery() {
     if (!session.isConnected) return;
-    recoveryTarget = { serial: session.serial, generation: session.generation, label: session.deviceLabel };
+    recoveryTarget = currentTarget();
     recoveryConfirm = true;
   }
 
@@ -371,8 +367,16 @@
     const target = recoveryTarget;
     recoveryTarget = null;
     if (recovering || !target) return;
-    if (!isCurrent(target)) {
-      showToast("The TV connection changed. Nothing was re-enabled.", "error");
+    const state = targetState(target);
+    if (state !== "current") {
+      showToast(
+        state === "reconnected"
+          ? "The TV reconnected, so nothing was re-enabled. Confirm Emergency recovery again."
+          : state === "offline"
+            ? "The TV isn't answering. Nothing was re-enabled."
+            : "The TV connection changed. Nothing was re-enabled.",
+        "error",
+      );
       return;
     }
     recovering = true;
@@ -406,11 +410,11 @@
     rebootTarget = null;
     if (!mode || rebooting || !session.serial) return;
     rebooting = true;
-    const generation = session.generation;
+    const target = currentTarget();
     try {
-      const r = await api.rebootDevice(session.serial, mode);
+      const r = await api.rebootDevice(target.serial, mode);
       showToast(r.ok ? `${rebootLabels[mode]} command sent.` : r.message || "Reboot failed.", r.ok ? "success" : "error");
-      if (r.ok && await session.finishReboot(generation)) router.reset("onboarding");
+      if (r.ok && await session.finishReboot(target)) router.reset("onboarding");
     } catch (e) {
       showToast(String(e), "error");
     } finally {
