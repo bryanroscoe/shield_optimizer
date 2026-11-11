@@ -55,6 +55,7 @@
     }
   }
   let unlistenDrop: (() => void) | null = null;
+  let destroyed = false;
   // Every opened tab stays mounted, hidden, and the webview's drop stream is
   // window-wide — without this a file dropped on Files would also be staged here.
   let rootEl = $state<HTMLElement | undefined>(undefined);
@@ -66,7 +67,7 @@
   onMount(async () => {
     try {
       const { getCurrentWebview } = await import("@tauri-apps/api/webview");
-      unlistenDrop = await getCurrentWebview().onDragDropEvent((event) => {
+      const unlisten = await getCurrentWebview().onDragDropEvent((event) => {
         if (!isShowing()) {
           dragging = false;
           return;
@@ -95,12 +96,28 @@
         dropError = "";
         void stageApk(apks[0]);
       });
+      // Destroyed while the listener was being registered: nothing would
+      // ever unlisten it, and a later drop would act for a gone device.
+      if (destroyed) unlisten();
+      else unlistenDrop = unlisten;
     } catch {
       /* not running inside the app shell — no drop target, everything else works */
     }
   });
 
-  onDestroy(() => unlistenDrop?.());
+  onDestroy(() => {
+    destroyed = true;
+    unlistenDrop?.();
+  });
+
+  /// Storage can be unavailable or full; the folder still works this session.
+  function rememberFolder(folder: string) {
+    try {
+      localStorage.setItem("shieldopt.lastApkFolder", folder);
+    } catch {
+      /* not remembered for next time */
+    }
+  }
 
   async function pickAndInstallApk() {
     const selected = await openDialog({
@@ -114,7 +131,7 @@
     const lastSep = Math.max(selected.lastIndexOf("/"), selected.lastIndexOf("\\"));
     if (lastSep > 0) {
       const folder = selected.slice(0, lastSep);
-      localStorage.setItem("shieldopt.lastApkFolder", folder);
+      rememberFolder(folder);
       savedFolder = folder;
       await scanApkFolder(folder, "selected");
     }
@@ -124,7 +141,7 @@
   async function pickApkFolder() {
     const picked = await openDialog({ multiple: false, directory: true });
     if (!picked || Array.isArray(picked)) return;
-    localStorage.setItem("shieldopt.lastApkFolder", picked);
+    rememberFolder(picked);
     savedFolder = picked;
     await scanApkFolder(picked, "selected");
   }
@@ -179,10 +196,25 @@
         ? "Installed."
         : installFailureSummary(r.message);
       sideloadHint = r.hint;
+      if (r.ok) await refreshInstallState();
     } catch (e) {
       sideloadResult = String(e);
     } finally {
       sideloadBusy = null;
+    }
+  }
+
+  /// Re-read whether the listed APKs are installed, so a row just installed
+  /// reads INSTALLED and offers Reinstall.
+  async function refreshInstallState() {
+    const folder = discoveredFolder;
+    const pkgs = discoveredApks.map((a) => a.package).filter((p): p is string => !!p);
+    if (!pkgs.length) return;
+    try {
+      const states = await api.packageStates(serial, pkgs);
+      if (discoveredFolder === folder) apkInstallState = states;
+    } catch {
+      /* keep the last known states; the install result above says what happened */
     }
   }
 
@@ -240,13 +272,19 @@
   </div>
   <HelpDetails label="Install help">
     <p class="muted small">
-      Pick a file directly, or point at a folder and we'll list every APK inside.
-      Either way, install runs <code>adb install -r &lt;file&gt;</code>.
+      Pick a file directly, drop one on this tab, or point at a folder and we'll list every APK
+      inside. The folder is kept for next time; scanning it only reads the files and checks which
+      apps this TV already has. Either way, install runs <code>adb install -r &lt;file&gt;</code>.
     </p>
   </HelpDetails>
 
   <div class="sideload-layout">
     <div class="sideload-main">
+  {#if dragging && (savedFolder || discoveredFolder || staged || staging)}
+    <div class="drop-overlay" role="status">
+      <Icon name="upload" size={20} /> Drop to review
+    </div>
+  {/if}
   {#if staging}
     <p class="muted">Reading that APK…</p>
   {:else if staged}
@@ -331,15 +369,14 @@
           {discoveryBusy ? "Scanning…" : "Scan folder"}
         </button>
       </div>
-      <p class="muted small">
-        Scanning reads APK files in this folder and checks whether detected apps are installed on
-        this TV. Scanning does not install apps.
-      </p>
     </div>
   {/if}
 
   {#if scanError}
     <div class="install-result bad" role="alert"><span><Icon name="close" size={16} /> {scanError}</span></div>
+  {/if}
+  {#if dropError}
+    <div class="install-result bad drop-error" role="alert"><span><Icon name="close" size={16} /> {dropError}</span></div>
   {/if}
 
   {#if discoveredFolder && discoveredApks.length > 0}
@@ -393,11 +430,7 @@
     <div class="sideload-empty" class:dragging>
       <Icon name="upload" size={28} />
       <strong>{dragging ? "Drop to review" : "Drop an .apk here"}</strong>
-      <span class="small">
-        Nothing installs until you confirm. Or Choose folder… to list every APK
-        inside it and keep it for next time, or Pick file… to install one.
-      </span>
-      {#if dropError}<span class="small drop-error">{dropError}</span>{/if}
+      <span class="small">Nothing installs until you confirm.</span>
     </div>
   {/if}
 
@@ -480,6 +513,23 @@
   .sideload-main,
   .sideload-rail {
     min-width: 0;
+  }
+  .sideload-main {
+    position: relative;
+  }
+  .drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border: 2px dashed var(--accent);
+    border-radius: var(--radius-lg);
+    background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+    color: var(--fg-primary);
+    font-weight: 500;
   }
   .rail-label {
     margin: 1rem 0 0.5rem;
@@ -603,10 +653,6 @@
     word-break: break-all;
   }
   .saved-folder {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: 0.5rem 0.8rem;
-    align-items: center;
     margin: 0.8rem 0;
     padding: 0.7rem;
     background: var(--bg-inset);
@@ -621,10 +667,6 @@
   }
   .saved-folder-path code {
     overflow-wrap: anywhere;
-  }
-  .saved-folder p {
-    grid-column: 1 / -1;
-    margin: 0;
   }
   .apk-list {
     list-style: none;
@@ -681,9 +723,6 @@
   }
   .sideload-empty.dragging :global(.msr) {
     color: var(--accent);
-  }
-  .drop-error {
-    color: var(--warn);
   }
   /* A dropped APK lands here, not on the device. */
   .staged-card {
