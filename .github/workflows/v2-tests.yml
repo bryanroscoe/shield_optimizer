@@ -657,6 +657,10 @@ jobs:
         working-directory: v2
         run: npm run test:display-scaling
 
+      - name: Snapshot preview skipped settings
+        working-directory: v2
+        run: npm run test:snapshot-refused-settings
+
       # Every tests/*.mjs has a script and every test:* script runs here.
       - name: Test wiring
         working-directory: v2

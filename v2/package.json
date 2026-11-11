@@ -75,6 +75,7 @@
     "test:protected-remove-tip": "node tests/protected-remove-tip.mjs",
     "test:sideload-drop-states": "node tests/sideload-drop-states.mjs",
     "test:display-scaling": "node tests/display-scaling.mjs",
+    "test:snapshot-refused-settings": "node tests/snapshot-refused-settings.mjs",
     "test:test-wiring": "node tests/test-wiring.mjs",
     "test:release-scripts": "python3 -B -m unittest discover -s scripts -p 'test_*.py'"
   },

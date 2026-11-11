@@ -1,5 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import RefusedSettings from "$lib/components/RefusedSettings.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
   import { tip } from "$lib/tip";
   import { onMount, onDestroy, tick, untrack } from "svelte";
@@ -3682,6 +3683,7 @@
         {#if preview.cross_device_warning}
           <div class="warning">{preview.cross_device_warning}</div>
         {/if}
+        <RefusedSettings keys={preview.settings_refused ?? []} />
         <!-- Row per item, as the board has it: what it is now and what this
              snapshot would make it. "Now" is left blank where the device has
              not told us — a preview that guesses is worse than one that says

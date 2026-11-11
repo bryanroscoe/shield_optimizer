@@ -1,5 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import RefusedSettings from "$lib/components/RefusedSettings.svelte";
   import { onMount } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { revealItemInDir } from "@tauri-apps/plugin-opener";
@@ -205,6 +206,7 @@
     {#if plan.cross_device_warning}
       <div class="warning"><Icon name="warning" size={16} /> {plan.cross_device_warning}</div>
     {/if}
+    <RefusedSettings keys={plan.settings_refused ?? []} />
 
     <div class="plan-summary">
       <strong>{plan.packages_to_disable.length}</strong> to disable ·
