@@ -1,7 +1,11 @@
 // Badges that explain themselves ($lib/tip) must not be hover-only: the
-// explanation opens on click, tap and keyboard focus, Escape dismisses it, and
-// it is the badge's accessible description. Clicking a badge inside an App
-// List row shows its tip without toggling the row's detail.
+// explanation opens on click, tap and keyboard focus, and Escape dismisses it.
+// One-off badges are Tab stops with the explanation as their accessible
+// description. Per-row App List badges (REVIEW, RAM, last used) are not: a
+// long list would gain a Tab stop per row and a screen reader would repeat the
+// sentence on every row, so each column header carries one keyboard-reachable
+// HelpTip instead. Clicking a badge inside a row shows its tip without
+// toggling the row's detail.
 //
 // Run via `node tests/badge-tips.mjs` from v2/.
 import { freePort } from "./lib/free-port.mjs";
@@ -19,12 +23,11 @@ const tipShown = (locator) =>
     const bubble = document.querySelector(".tip-bubble");
     if (!bubble || bubble.hidden) return false;
     const r = bubble.getBoundingClientRect();
-    const words = document.getElementById(el.getAttribute("aria-describedby") ?? "")?.textContent;
-    return bubble.textContent === words && r.width > 20 && r.height > 8;
+    return bubble.textContent === el.dataset.tipText && r.width > 20 && r.height > 8;
   });
 
 async function checkBadges(page, scope, label) {
-  const badges = page.locator(`${scope} [data-tip-focus]`);
+  const badges = page.locator(`${scope} [data-tip-focus=""]`);
   const count = await badges.count();
   assert.ok(count > 0, `${label}: has explained badges`);
   const facts = await badges.evaluateAll((all) =>
@@ -39,6 +42,33 @@ async function checkBadges(page, scope, label) {
   }
   return { badges, count };
 }
+
+// Tab stops inside a table body that are not real controls.
+const extraTabStops = (table) =>
+  table.evaluate(
+    (t) =>
+      [...t.querySelectorAll("tbody [tabindex]")].filter(
+        (el) => el.tabIndex >= 0 && !el.matches("button, a[href], input, select, textarea"),
+      ).length,
+  );
+
+// Per body row: every Tab stop, and the Tab stops that are real controls.
+// Badges must add nothing, so the two are equal however many badges a row has.
+const rowTabStops = (table) =>
+  table.evaluate((t) =>
+    [...t.querySelectorAll("tbody > tr")]
+      .filter((row) => !row.classList.contains("safety-detail-row"))
+      .map((row) => {
+        const stops = [...row.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")].filter(
+          (el) => el.tabIndex >= 0 && !el.disabled,
+        );
+        return {
+          badges: row.querySelectorAll("[data-tip-focus]").length,
+          stops: stops.length,
+          controls: stops.filter((el) => el.matches("button, a[href], input, select, textarea")).length,
+        };
+      }),
+  );
 
 async function main() {
   const previous = new Map(["VITE_DEMO", "TAURI_DEV_HOST"].map((key) => [key, process.env[key]]));
@@ -60,7 +90,21 @@ async function main() {
     await page.locator("#tab-apps").click();
     const panel = page.locator("#tabpanel-apps");
     await panel.locator(".tag.review").first().waitFor();
-    await checkBadges(page, "#tabpanel-apps", "App List");
+    const table = panel.locator("table.app-table").first();
+    const rowBadges = await panel.locator('[data-tip-focus="row"]').evaluateAll((all) =>
+      all.map((el) => ({ tabindex: el.getAttribute("tabindex"), describedby: el.getAttribute("aria-describedby") })),
+    );
+    assert.ok(rowBadges.length > 3, "App List: rows carry explained badges");
+    for (const b of rowBadges) {
+      assert.deepEqual(b, { tabindex: "-1", describedby: null }, "a row badge is neither a Tab stop nor re-read per row");
+    }
+    assert.equal(await extraTabStops(table), 0, "App List rows add no Tab stops beyond their controls");
+    const rows = await rowTabStops(table);
+    const badgeRows = rows.filter((r) => r.badges > 0);
+    assert.ok(badgeRows.length > 10, "many rows have badges");
+    for (const r of badgeRows) {
+      assert.equal(r.stops, r.controls, `a row's badges add no Tab stops ${JSON.stringify(r)}`);
+    }
 
     const review = panel.locator(".tag.review").first();
     assert.equal(await tipShown(review), false, "tip starts hidden");
@@ -73,15 +117,30 @@ async function main() {
     await page.keyboard.press("Escape");
     assert.equal(await tipShown(review), false, "Escape dismisses the tip");
 
-    // Tab from the control just before it lands on it.
-    await review.evaluate((badge) => {
+    // The keyboard explanation is one HelpTip per column header.
+    const heads = table.locator("thead .help-trigger");
+    assert.deepEqual(
+      await heads.evaluateAll((all) => all.map((el) => el.getAttribute("aria-label"))),
+      ["About App", "About RAM", "About Last used"],
+      "App, RAM and Last used each explain themselves once, in the header",
+    );
+    const usageHelp = table.locator('thead button[aria-label="About Last used"]');
+    await usageHelp.evaluate((trigger) => {
       const order = [...document.querySelectorAll("button, a[href], input, select, textarea, [tabindex]")]
         .filter((el) => el.tabIndex >= 0 && !el.disabled && el.offsetParent !== null);
-      order[order.indexOf(badge) - 1].focus();
+      order[order.indexOf(trigger) - 1].focus();
     });
     await page.keyboard.press("Tab");
-    assert.ok(await review.evaluate((el) => el === document.activeElement), "keyboard reaches the badge");
-    assert.ok(await tipShown(review), "keyboard focus opens the tip");
+    assert.ok(await usageHelp.evaluate((el) => el === document.activeElement), "Tab reaches the Last used help");
+    await page.keyboard.press("Enter");
+    const popover = page.locator(`#${await usageHelp.getAttribute("aria-controls")}`);
+    await popover.waitFor({ state: "visible" });
+    assert.match(await popover.innerText(), /about a year|roughly a year/i, "the header help explains the usage badges");
+    const box = await popover.boundingBox();
+    assert.ok(box && box.x >= 0 && box.x + box.width <= 1280, "the header help stays in the window");
+    await page.keyboard.press("Escape");
+    await popover.waitFor({ state: "hidden" });
+    assert.ok(await usageHelp.evaluate((el) => el === document.activeElement), "Escape returns focus to the header help");
 
     await page.locator("#tab-health").click();
     await page.locator("#tabpanel-health .unconfirmed").first().waitFor();
@@ -90,7 +149,7 @@ async function main() {
     await process.click();
     assert.ok(await tipShown(process), "a click opens 'not a package'");
 
-    console.log("Badge tips passed: App List and Health badges are focusable, described, open on click and keyboard, and close on Escape.");
+    console.log("Badge tips passed: App List row badges add no Tab stops and open on click, the column headers explain them by keyboard, and Health badges are focusable and described.");
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));
     await server?.close().catch((e) => console.error("Vite cleanup failed", e));

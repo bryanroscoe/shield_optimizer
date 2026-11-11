@@ -3,7 +3,8 @@
   // Resident RAM for an app that's running right now. Renders nothing when the
   // app isn't resident (mb falsy) — most apps aren't, and that's the signal.
   // `label` prefixes a small "RAM" tag so the number is unambiguous; turn it off
-  // where a column header already says RAM (AppRow's RAM column).
+  // where a column header already says RAM (AppRow's RAM column). A row badge:
+  // that column header holds the keyboard explanation.
   let { mb, label = true }: { mb?: number; label?: boolean } = $props();
 </script>
 
@@ -12,7 +13,7 @@
     class="ram-tag"
     class:warn={mb >= 200}
     class:caution={mb >= 100 && mb < 200}
-    use:tip={"Resident RAM right now — the app is running"}
+    use:tip={{ text: "Resident RAM right now — the app is running", row: true }}
   >
     {#if label}<span class="ram-label">RAM</span>{/if}{mb.toFixed(0)} MB
   </span>

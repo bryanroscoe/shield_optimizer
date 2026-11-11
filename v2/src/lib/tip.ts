@@ -47,17 +47,30 @@ function hide(node: HTMLElement) {
   owner = null;
 }
 
+/// A per-row badge (`{ text, row: true }`) repeats on every row of a long
+/// table, so it stays out of the Tab order and has no accessible description:
+/// a 300-package App List would otherwise gain 300 Tab stops and read the same
+/// sentence on every row. Hover, click and tap still open it, and the column
+/// header carries one keyboard-reachable explanation (HelpTip) instead.
+export interface TipOptions {
+  text: string;
+  row?: boolean;
+}
+
 /// A short explanation on a badge or label that is not a control. A hover
 /// tooltip alone leaves keyboard and touch users without it, so this makes
 /// the element focusable: the explanation opens on hover, keyboard focus,
 /// click and tap, Escape or moving away dismisses it, and the same words are
 /// the element's accessible description.
-export function tip(node: HTMLElement, text: string) {
-  let current = text;
-  const description = document.createElement("span");
-  description.id = `tip-${++nextId}`;
-  description.textContent = current;
-  descriptions().append(description);
+export function tip(node: HTMLElement, param: string | TipOptions) {
+  const row = typeof param !== "string" && !!param.row;
+  let current = typeof param === "string" ? param : param.text;
+  const description = row ? null : document.createElement("span");
+  if (description) {
+    description.id = `tip-${++nextId}`;
+    description.textContent = current;
+    descriptions().append(description);
+  }
 
   const open = () => show(node, current);
   const close = () => {
@@ -71,9 +84,11 @@ export function tip(node: HTMLElement, text: string) {
       node.blur();
     }
   }
-  node.dataset.tipFocus = "";
-  node.tabIndex = 0;
-  node.setAttribute("aria-describedby", description.id);
+  node.dataset.tipFocus = row ? "row" : "";
+  node.dataset.tipText = current;
+  // -1 still takes focus from a click or tap, which keeps the tip open.
+  node.tabIndex = row ? -1 : 0;
+  if (description) node.setAttribute("aria-describedby", description.id);
   node.addEventListener("pointerenter", open);
   node.addEventListener("pointerleave", close);
   node.addEventListener("focus", open);
@@ -81,10 +96,11 @@ export function tip(node: HTMLElement, text: string) {
   node.addEventListener("keydown", onKeydown);
 
   return {
-    update(next: string) {
-      current = next;
-      description.textContent = next;
-      if (owner === node) show(node, next);
+    update(next: string | TipOptions) {
+      current = typeof next === "string" ? next : next.text;
+      node.dataset.tipText = current;
+      if (description) description.textContent = current;
+      if (owner === node) show(node, current);
     },
     destroy() {
       hide(node);
@@ -93,7 +109,7 @@ export function tip(node: HTMLElement, text: string) {
       node.removeEventListener("focus", open);
       node.removeEventListener("blur", blur);
       node.removeEventListener("keydown", onKeydown);
-      description.remove();
+      description?.remove();
     },
   };
 }

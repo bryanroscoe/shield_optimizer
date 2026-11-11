@@ -6,6 +6,7 @@
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import RemovalHelp from "$lib/components/RemovalHelp.svelte";
+  import AppColumnHelp from "$lib/components/AppColumnHelp.svelte";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
   import type {
@@ -780,10 +781,10 @@
       <thead>
         <tr>
           <th><span class="sr-only">Details</span></th>
-          <th>App</th>
+          <th><AppColumnHelp column="app" /></th>
           <th>Verdict &amp; source</th>
-          <th class="right">RAM</th>
-          <th class="right">Last used</th>
+          <th class="right"><AppColumnHelp column="ram" /></th>
+          <th class="right"><AppColumnHelp column="usage" /></th>
           <th>Action</th>
         </tr>
       </thead>

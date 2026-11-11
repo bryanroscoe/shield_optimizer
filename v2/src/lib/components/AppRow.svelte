@@ -187,7 +187,7 @@
         <span class="state-unavailable">STATE UNAVAILABLE</span>
       {/if}
       {#if review}
-        <span class="tag review" use:tip={"Check whether you actually use this app"}>REVIEW</span>
+        <span class="tag review" use:tip={{ text: "Check whether you actually use this app", row: true }}>REVIEW</span>
       {/if}
       {#if extraTag}
         <span class={`tag tag-${extraTagKind}`}>{extraTag}</span>
@@ -246,7 +246,7 @@
            opened" — usagestats ages out and resets on a wipe. -->
       <span
         class="muted dash"
-        use:tip={"No usage record · Android keeps about a year of history"}
+        use:tip={{ text: "No usage record · Android keeps about a year of history", row: true }}
       >—</span>
     {/if}
   </td>

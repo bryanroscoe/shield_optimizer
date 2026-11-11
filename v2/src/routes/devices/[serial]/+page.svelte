@@ -62,6 +62,7 @@
   } from "$lib/recommendation";
   import AppRow from "$lib/components/AppRow.svelte";
   import RemovalHelp from "$lib/components/RemovalHelp.svelte";
+  import AppColumnHelp from "$lib/components/AppColumnHelp.svelte";
   import BreakableId from "$lib/components/BreakableId.svelte";
   import {
     idleMeasurements,
@@ -3256,7 +3257,7 @@
           <thead>
             <tr>
               <th><span class="sr-only">Details</span></th>
-              <th>App</th>
+              <th><AppColumnHelp column="app" /></th>
               <!-- A whole paragraph, so it stays a `title`: `data-tip` paints
                    one nowrap line and a paragraph in one line is a page-wide
                    strip. The short version rides alongside it. -->
@@ -3264,13 +3265,8 @@
                 title="Our verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs an explicit tick before it can be removed."
                 data-tip="Click a row to read the full reason"
               >Verdict &amp; source</th>
-              <th class="right" data-tip="Resident RAM right now (dumpsys meminfo)">RAM</th>
-              <th
-                class="right"
-                title="Last foreground use, from Android's usagestats. History is limited — roughly a year of rolling buckets — and is cleared by a factory reset, so a dash can mean the record aged out rather than that the app was never opened."
-                data-tip="Android keeps about a year of usage history"
-                data-tip-align="end"
-              >Last used</th>
+              <th class="right"><AppColumnHelp column="ram" /></th>
+              <th class="right"><AppColumnHelp column="usage" /></th>
               <th class="controls-start">Actions</th>
             </tr>
           </thead>
@@ -3497,8 +3493,8 @@
                   <th><span class="sr-only">Details</span></th>
                   <th>App</th>
                   <th>Verdict &amp; source</th>
-                  <th class="right">RAM</th>
-                  <th class="right">Last used</th>
+                  <th class="right"><AppColumnHelp column="ram" /></th>
+                  <th class="right"><AppColumnHelp column="usage" /></th>
                   <th class="controls-start">Actions</th>
                 </tr>
               </thead>
