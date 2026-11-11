@@ -40,7 +40,20 @@ pub enum InstallError {
     MissingAdb,
     #[error("could not resolve the install directory")]
     NoInstallDir,
+    #[error("platform-tools download is larger than {limit} bytes; refusing it")]
+    TooLarge { limit: u64 },
+    #[error(
+        "could not replace the existing platform-tools at {path} ({source}); the existing \
+         install was left as it was. Quit anything using adb from that folder and try again."
+    )]
+    Replace {
+        path: String,
+        source: std::io::Error,
+    },
 }
+
+/// Google's archive is about 12 MB; anything far larger is not it.
+const MAX_ARCHIVE_BYTES: u64 = 100 * 1024 * 1024;
 
 /// Where we extract platform-tools to: inside the session's data folder,
 /// beside the snapshots.
@@ -80,23 +93,137 @@ pub fn adb_path_in_legacy_install_root() -> Option<PathBuf> {
 /// archives are ~12MB so this is fine on a single blocking-thread spawn).
 pub async fn install_platform_tools(operation: Arc<Lease>) -> Result<PathBuf, InstallError> {
     let install_to = install_root().ok_or(InstallError::NoInstallDir)?;
-    tokio::fs::create_dir_all(&install_to).await?;
 
     let url = platform_tools_url();
     tracing::info!(%url, dest = %install_to.display(), "downloading platform-tools");
 
-    let bytes = reqwest::get(url).await?.error_for_status()?.bytes().await?;
+    let bytes = download_capped(url, MAX_ARCHIVE_BYTES).await?;
     tracing::info!(size = bytes.len(), "platform-tools archive downloaded");
 
-    // Extract on a blocking thread — zip crate is synchronous.
-    let install_clone = install_to.clone();
-    let adb_path = finish_extraction(operation, move || -> Result<PathBuf, InstallError> {
-        let cursor = std::io::Cursor::new(bytes.as_ref());
-        extract_zip_to(cursor, &install_clone)
+    finish_extraction(operation, move || -> Result<PathBuf, InstallError> {
+        install_archive(std::io::Cursor::new(bytes), &install_to)
     })
-    .await?;
+    .await
+}
 
-    Ok(adb_path)
+async fn download_capped(url: &str, limit: u64) -> Result<Vec<u8>, InstallError> {
+    let client = reqwest::Client::builder()
+        .user_agent("atv-optimizer-platform-tools")
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(600))
+        .build()?;
+    let mut response = client.get(url).send().await?.error_for_status()?;
+    if response.content_length().is_some_and(|len| len > limit) {
+        return Err(InstallError::TooLarge { limit });
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await? {
+        if body.len() as u64 + chunk.len() as u64 > limit {
+            return Err(InstallError::TooLarge { limit });
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
+}
+
+/// Unpack into a sibling folder, check the result is a usable adb, then swap
+/// it in. A partial extract (disk full, a locked file) never replaces a
+/// working install, and never leaves an `adb` without its libraries where
+/// discovery would pick it up.
+fn install_archive<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, InstallError> {
+    let parent = root.parent().ok_or(InstallError::NoInstallDir)?;
+    std::fs::create_dir_all(parent)?;
+    remove_leftovers(parent);
+    let stamp = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    );
+    let staging = parent.join(format!("{STAGING_PREFIX}{stamp}"));
+    std::fs::create_dir(&staging)?;
+    let staged = extract_zip_to(reader, &staging).and_then(|adb| {
+        if usable_adb(&adb) {
+            Ok(adb)
+        } else {
+            Err(InstallError::MissingAdb)
+        }
+    });
+    let staged = match staged {
+        Ok(adb) => adb,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(e);
+        }
+    };
+    let relative = staged
+        .strip_prefix(&staging)
+        .map(Path::to_path_buf)
+        .map_err(|_| InstallError::MissingAdb)?;
+
+    let previous = parent.join(format!("{RETIRED_PREFIX}{stamp}"));
+    let had_previous = root.exists();
+    if had_previous {
+        // Windows refuses to rename a folder whose adb.exe is running.
+        if let Err(source) = std::fs::rename(root, &previous) {
+            let _ = std::fs::remove_dir_all(&staging);
+            return Err(InstallError::Replace {
+                path: root.display().to_string(),
+                source,
+            });
+        }
+    }
+    if let Err(source) = std::fs::rename(&staging, root) {
+        if had_previous {
+            let _ = std::fs::rename(&previous, root);
+        }
+        let _ = std::fs::remove_dir_all(&staging);
+        return Err(InstallError::Replace {
+            path: root.display().to_string(),
+            source,
+        });
+    }
+    if had_previous {
+        let _ = std::fs::remove_dir_all(&previous);
+    }
+    Ok(root.join(relative))
+}
+
+const STAGING_PREFIX: &str = "platform-tools.installing-";
+const RETIRED_PREFIX: &str = "platform-tools.replaced-";
+
+/// Folders an interrupted earlier install left beside the real one. Only
+/// names this module creates are touched.
+fn remove_leftovers(parent: &Path) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else { continue };
+        if name.starts_with(STAGING_PREFIX) || name.starts_with(RETIRED_PREFIX) {
+            let _ = std::fs::remove_dir_all(entry.path());
+        }
+    }
+}
+
+fn usable_adb(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() || metadata.len() == 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o111 == 0 {
+            return false;
+        }
+    }
+    true
 }
 
 pub(crate) async fn finish_extraction<F>(
@@ -175,7 +302,9 @@ fn extract_zip_to<R: Read + Seek>(reader: R, root: &Path) -> Result<PathBuf, Ins
             }
         }
 
-        if out_path.file_name().and_then(|n| n.to_str()) == Some(exe_name) {
+        if out_path.file_name().and_then(|n| n.to_str()) == Some(exe_name)
+            && out_path.parent() == Some(root)
+        {
             adb_path = Some(out_path);
         }
     }
@@ -236,5 +365,84 @@ mod tests {
 
         let escape = temp.path().parent().unwrap().join("escape.txt");
         assert!(!escape.exists(), "zip-slip protection failed");
+    }
+
+    fn archive(entries: &[(&str, &[u8], u32)]) -> std::io::Cursor<Vec<u8>> {
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::<u8>::new()));
+        for (name, body, mode) in entries {
+            writer
+                .start_file::<_, ()>(
+                    *name,
+                    zip::write::SimpleFileOptions::default().unix_permissions(*mode),
+                )
+                .unwrap();
+            std::io::Write::write_all(&mut writer, body).unwrap();
+        }
+        std::io::Cursor::new(writer.finish().unwrap().into_inner())
+    }
+
+    #[test]
+    fn a_fresh_install_lands_in_place_with_its_libraries() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("platform-tools");
+        let adb = install_archive(
+            archive(&[
+                (&format!("platform-tools/{}", adb_exe()), b"adb", 0o755),
+                ("platform-tools/AdbWinApi.dll", b"dll", 0o644),
+            ]),
+            &root,
+        )
+        .unwrap();
+        assert_eq!(adb, root.join(adb_exe()));
+        assert!(root.join("AdbWinApi.dll").is_file());
+        let leftovers: Vec<_> = std::fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(leftovers, vec![std::ffi::OsString::from("platform-tools")]);
+    }
+
+    #[test]
+    fn a_broken_archive_leaves_the_working_install_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("platform-tools");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(adb_exe()), b"old adb").unwrap();
+
+        let no_adb = install_archive(archive(&[("platform-tools/README", b"x", 0o644)]), &root);
+        assert!(matches!(no_adb, Err(InstallError::MissingAdb)));
+        let truncated = install_archive(std::io::Cursor::new(b"PK\x03\x04 short".to_vec()), &root);
+        assert!(truncated.is_err());
+        #[cfg(unix)]
+        {
+            let not_executable = install_archive(
+                archive(&[(&format!("platform-tools/{}", adb_exe()), b"adb", 0o644)]),
+                &root,
+            );
+            assert!(matches!(not_executable, Err(InstallError::MissingAdb)));
+        }
+
+        assert_eq!(std::fs::read(root.join(adb_exe())).unwrap(), b"old adb");
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn a_new_archive_replaces_the_old_install_and_sweeps_leftovers() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("platform-tools");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("stale.dll"), b"old").unwrap();
+        std::fs::create_dir(temp.path().join(format!("{STAGING_PREFIX}1-2"))).unwrap();
+        std::fs::create_dir(temp.path().join("unrelated")).unwrap();
+
+        install_archive(
+            archive(&[(&format!("platform-tools/{}", adb_exe()), b"new adb", 0o755)]),
+            &root,
+        )
+        .unwrap();
+        assert_eq!(std::fs::read(root.join(adb_exe())).unwrap(), b"new adb");
+        assert!(!root.join("stale.dll").exists());
+        assert!(temp.path().join("unrelated").is_dir());
+        assert!(!temp.path().join(format!("{STAGING_PREFIX}1-2")).exists());
     }
 }
