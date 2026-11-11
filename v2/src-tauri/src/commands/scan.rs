@@ -8,9 +8,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    local_subnet_prefix, parse_device_list, parse_mdns_services, scan_subnet_hits,
-    scan_subnet_with_stats, subnet_overridden, AdbDriver, MdnsService, SweepStats,
-    ADB_NETWORK_PORT,
+    parse_device_list, parse_mdns_services, scan_subnet_hits, scan_subnet_with_stats,
+    subnet_overridden, AdbDriver, MdnsService, SweepStats, ADB_NETWORK_PORT,
 };
 use atv_optimizer_core::adb::{
     native_mdns_services, AdbError, NativeDiscoveryReport, ScanConnectOutcome,
@@ -626,7 +625,14 @@ async fn progressive_native_scan_with_facts(
 pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, String> {
     let adb = state.adb_snapshot().await;
     let started = Instant::now();
-    let prefix = local_subnet_prefix().await;
+    let subnet = crate::adb::local_subnet().await;
+    let prefix = subnet.ok();
+    let skipped_because = match subnet {
+        Err(crate::adb::SubnetSkip::NotLocalLan) => {
+            "The default route leads off the local network (a VPN, for example), so the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise."
+        }
+        _ => "Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.",
+    };
     tracing::debug!(
         elapsed_ms = started.elapsed().as_millis() as u64,
         detected = prefix.is_some(),
@@ -670,7 +676,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
         result.message = result
             .message
             .replace("local network.x", "the local network");
-        result.details.push("Could not detect the default gateway; the port 5555 subnet scan was skipped. Use Add by IP for TVs that do not advertise.".into());
+        result.details.push(skipped_because.into());
         (result, stage)
     } else {
         (
@@ -684,7 +690,7 @@ pub async fn scan_network(state: State<'_, AppState>) -> Result<ScanResult, Stri
                 needs_pairing: vec![],
                 message: "Could not detect the local subnet. Use Add by IP to connect to your TV."
                     .into(),
-                details: vec![],
+                details: vec![skipped_because.into()],
                 native_discovery: None,
             },
             StageFacts::default(),
@@ -1338,7 +1344,7 @@ mod live {
     }
 
     #[tokio::test]
-    #[ignore]
+    #[ignore = "live: needs a real paired TV named by the environment variables it reads"]
     async fn live_forget_then_auto_connect() {
         let (Ok(pair_address), Ok(id), Ok(instance)) = (
             std::env::var("SHIELD_TEST_PAIR_ADDRESS"),

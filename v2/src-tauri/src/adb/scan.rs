@@ -29,6 +29,17 @@ const PROBE_CONCURRENCY: usize = 64;
 /// ADB-over-network listening port.
 pub const ADB_NETWORK_PORT: u16 = 5555;
 
+/// Why the gateway's /24 was not swept.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubnetSkip {
+    /// No IPv4 default gateway could be read.
+    NotDetected,
+    /// The default route leads somewhere other than a private LAN on a
+    /// local interface — typically a full-tunnel VPN. Sweeping it would probe
+    /// port 5555 across someone else's network.
+    NotLocalLan,
+}
+
 /// Determine the local /24 subnet by reading the default gateway. Returns the
 /// first three octets (e.g. `[192, 168, 42]`).
 ///
@@ -37,17 +48,111 @@ pub const ADB_NETWORK_PORT: u16 = 5555;
 /// matches v1's `-Subnet` CLI flag. Falls back to OS-specific subprocess
 /// parsing when unset.
 pub async fn local_subnet_prefix() -> Option<[u8; 3]> {
+    local_subnet().await.ok()
+}
+
+/// [`local_subnet_prefix`], saying why nothing will be swept. The explicit
+/// override is used as given; a detected gateway only counts when it is a
+/// private (RFC 1918) or link-local address on a non-tunnel interface.
+pub async fn local_subnet() -> Result<[u8; 3], SubnetSkip> {
     if let Some(s) = crate::rename::subnet_override() {
         if let Some(prefix) = parse_prefix(&s) {
-            return Some(prefix);
+            return Ok(prefix);
         }
     }
-    let gateway = detect_default_gateway().await?;
-    let octets = match gateway {
-        IpAddr::V4(v4) => v4.octets(),
-        IpAddr::V6(_) => return None, // ADB-over-network is IPv4-only in practice.
+    let gateway = match detect_default_gateway().await {
+        Some(IpAddr::V4(v4)) => v4,
+        // ADB-over-network is IPv4-only in practice.
+        Some(IpAddr::V6(_)) | None => return Err(SubnetSkip::NotDetected),
     };
-    Some([octets[0], octets[1], octets[2]])
+    let interfaces = local_interfaces();
+    if !gateway_is_on_local_lan(gateway, &interfaces) {
+        tracing::info!(%gateway, "default gateway is not on a private local interface; subnet sweep skipped");
+        return Err(SubnetSkip::NotLocalLan);
+    }
+    let octets = gateway.octets();
+    Ok([octets[0], octets[1], octets[2]])
+}
+
+#[derive(Debug, Clone)]
+struct LocalInterface {
+    name: String,
+    ip: std::net::Ipv4Addr,
+    prefixlen: u8,
+    up: bool,
+    point_to_point: bool,
+}
+
+fn local_interfaces() -> Vec<LocalInterface> {
+    let Ok(list) = if_addrs::get_if_addrs() else {
+        return Vec::new();
+    };
+    list.iter()
+        .filter_map(|iface| match &iface.addr {
+            if_addrs::IfAddr::V4(v4) => Some(LocalInterface {
+                name: iface.name.clone(),
+                ip: v4.ip,
+                prefixlen: v4.prefixlen,
+                up: iface.is_oper_up(),
+                point_to_point: iface.is_p2p(),
+            }),
+            if_addrs::IfAddr::V6(_) => None,
+        })
+        .collect()
+}
+
+fn is_tunnel_name(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    [
+        "utun",
+        "tun",
+        "tap",
+        "ppp",
+        "wg",
+        "tailscale",
+        "ipsec",
+        "zt",
+        "gif",
+        "stf",
+    ]
+    .iter()
+    .any(|prefix| name.starts_with(prefix))
+}
+
+fn gateway_is_on_local_lan(gateway: std::net::Ipv4Addr, interfaces: &[LocalInterface]) -> bool {
+    if !(gateway.is_private() || gateway.is_link_local()) {
+        return false;
+    }
+    interfaces.iter().any(|iface| {
+        if !iface.up
+            || iface.point_to_point
+            || iface.ip.is_loopback()
+            || is_tunnel_name(&iface.name)
+        {
+            return false;
+        }
+        let bits = u32::from(iface.prefixlen.min(32));
+        let mask = if bits == 0 {
+            0
+        } else {
+            u32::MAX << (32 - bits)
+        };
+        u32::from(iface.ip) & mask == u32::from(gateway) & mask
+    })
+}
+
+/// `route` / `ip` with a short deadline, from a fixed working directory and
+/// without a console window, like every other helper the app spawns.
+async fn route_helper(program: &str, args: &[&str]) -> Option<std::process::Output> {
+    let mut cmd = Command::new(program);
+    cmd.args(args).kill_on_drop(true);
+    super::hide_console_window(&mut cmd);
+    super::pin_working_directory(&mut cmd);
+    let out = tokio::time::timeout(Duration::from_secs(3), cmd.output())
+        .await
+        .ok()?
+        .ok()?;
+    out.status.success().then_some(out)
 }
 
 /// Did `ATV_OPTIMIZER_SUBNET` choose the subnet, rather than the gateway?
@@ -88,14 +193,7 @@ async fn detect_default_gateway() -> Option<IpAddr> {
 }
 
 async fn gateway_from_macos_route() -> Option<IpAddr> {
-    let out = Command::new("route")
-        .args(["-n", "get", "default"])
-        .output()
-        .await
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
+    let out = route_helper("route", &["-n", "get", "default"]).await?;
     let text = String::from_utf8_lossy(&out.stdout);
     // Line looks like: "    gateway: 192.168.42.1"
     for line in text.lines() {
@@ -141,14 +239,7 @@ fn parse_le_hex_ip(hex: &str) -> Option<IpAddr> {
 }
 
 async fn gateway_from_ip_route() -> Option<IpAddr> {
-    let out = Command::new("ip")
-        .args(["route", "show", "default"])
-        .output()
-        .await
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
+    let out = route_helper("ip", &["route", "show", "default"]).await?;
     let text = String::from_utf8_lossy(&out.stdout);
     // "default via 192.168.42.1 dev eth0 ..."
     for line in text.lines() {
@@ -165,13 +256,7 @@ async fn gateway_from_ip_route() -> Option<IpAddr> {
 }
 
 async fn gateway_from_windows_route() -> Option<IpAddr> {
-    let mut cmd = Command::new("route");
-    cmd.args(["print", "-4", "0.0.0.0"]);
-    super::hide_console_window(&mut cmd);
-    let out = cmd.output().await.ok()?;
-    if !out.status.success() {
-        return None;
-    }
+    let out = route_helper("route", &["print", "-4", "0.0.0.0"]).await?;
     let text = String::from_utf8_lossy(&out.stdout);
     // Row: "    0.0.0.0    0.0.0.0    192.168.42.1    192.168.42.50    25"
     for line in text.lines() {
@@ -291,6 +376,59 @@ async fn probe(prefix: [u8; 3], host: u8) -> Probe {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    fn iface(name: &str, ip: [u8; 4], prefixlen: u8, point_to_point: bool) -> LocalInterface {
+        LocalInterface {
+            name: name.into(),
+            ip: ip.into(),
+            prefixlen,
+            up: true,
+            point_to_point,
+        }
+    }
+
+    #[test]
+    fn only_a_private_gateway_on_a_real_local_interface_is_swept() {
+        let wifi = iface("en0", [192, 168, 42, 50], 24, false);
+        let vpn = iface("utun4", [10, 8, 0, 6], 24, true);
+        assert!(gateway_is_on_local_lan(
+            [192, 168, 42, 1].into(),
+            &[wifi.clone(), vpn.clone()]
+        ));
+        // Full-tunnel VPN: the default route goes through the tunnel.
+        assert!(!gateway_is_on_local_lan(
+            [10, 8, 0, 1].into(),
+            &[wifi.clone(), vpn]
+        ));
+        // A tunnel without the point-to-point flag is still recognised by name.
+        for name in ["wg0", "tailscale0", "tun0", "ppp0", "ipsec0"] {
+            assert!(
+                !gateway_is_on_local_lan(
+                    [10, 8, 0, 1].into(),
+                    &[iface(name, [10, 8, 0, 6], 24, false)]
+                ),
+                "{name}"
+            );
+        }
+        // A public gateway is never swept, even on a local interface.
+        assert!(!gateway_is_on_local_lan(
+            [203, 0, 113, 1].into(),
+            &[iface("eth0", [203, 0, 113, 9], 24, false)]
+        ));
+        // Link-local and wider private masks are fine.
+        assert!(gateway_is_on_local_lan(
+            [169, 254, 1, 1].into(),
+            &[iface("en0", [169, 254, 1, 20], 16, false)]
+        ));
+        assert!(gateway_is_on_local_lan(
+            [10, 0, 0, 1].into(),
+            &[iface("eth0", [10, 0, 5, 9], 16, false)]
+        ));
+        // A down interface does not count.
+        let mut down = wifi;
+        down.up = false;
+        assert!(!gateway_is_on_local_lan([192, 168, 42, 1].into(), &[down]));
+    }
 
     #[cfg(feature = "e2e")]
     #[tokio::test]

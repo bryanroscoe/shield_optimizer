@@ -105,6 +105,6 @@ pub use atv_optimizer_core::adb::{
 pub use driver::{cached_adb_binary, discover_adb_binary, forget_cached_adb_binary, SubprocessAdb};
 pub use install::{adb_path_in_install_root, install_platform_tools, InstallError};
 pub use scan::{
-    local_subnet_prefix, scan_subnet_hits, scan_subnet_with_stats, subnet_overridden, ScanHit,
-    SweepStats, ADB_NETWORK_PORT,
+    local_subnet, local_subnet_prefix, scan_subnet_hits, scan_subnet_with_stats, subnet_overridden,
+    ScanHit, SubnetSkip, SweepStats, ADB_NETWORK_PORT,
 };
