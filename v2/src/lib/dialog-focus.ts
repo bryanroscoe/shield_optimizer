@@ -39,7 +39,17 @@ export function dialogFocus(node: HTMLElement, options: DialogFocusOptions) {
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
+      // This listener is native on the dialog, so it runs before any Svelte
+      // `onkeydown` inside it (those are delegated to the document root) and
+      // before `svelte:window` handlers: a child that handles Escape itself
+      // (a popover, a menu, an editor that clears on Escape) never sees it.
+      // Such a child marks itself, or an ancestor inside the dialog, with
+      // `data-own-escape`; native listeners that call preventDefault first
+      // (like $lib/tip) are honoured too.
       if (e.defaultPrevented) return;
+      if (e.target instanceof Element && e.target.closest("[data-own-escape]")?.closest("[aria-modal='true']") === node) {
+        return;
+      }
       e.preventDefault();
       e.stopPropagation();
       opts.onClose();

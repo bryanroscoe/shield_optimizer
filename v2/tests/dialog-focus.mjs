@@ -2,7 +2,7 @@
 // Escape closes, and focus goes back to the control that opened it. Covers
 // the shell's Report a bug and release-history dialogs, which share
 // `$lib/dialog-focus` with the snapshot-name, approval and app-report
-// dialogs. Also pins that Report a bug discloses the same report contents as
+// dialogs. A child marked data-own-escape keeps its own Escape. Also pins that Report a bug discloses the same report contents as
 // Settings (NOTICE_TEXT) next to its reports switch.
 //
 // Run via `node tests/dialog-focus.mjs` from v2/.
@@ -68,6 +68,25 @@ async function main() {
     await page.keyboard.press("Escape");
     assert.equal(await help.evaluate((d) => d.open), false, "Escape folds the help first");
     assert.equal(await dialog.count(), 1, "the dialog stays open");
+    // A child with its own Escape handler delegated to the root (how Svelte
+    // attaches `onkeydown`) opts out with data-own-escape and gets the key.
+    await dialog.evaluate((d) => {
+      const own = document.createElement("button");
+      own.dataset.ownEscape = "";
+      own.id = "own-escape-probe";
+      own.textContent = "probe";
+      d.append(own);
+      window.__OWN_ESCAPES__ = 0;
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && e.target === own) window.__OWN_ESCAPES__ += 1;
+      });
+      own.focus();
+    });
+    await page.keyboard.press("Escape");
+    assert.equal(await page.evaluate(() => window.__OWN_ESCAPES__), 1, "the child's delegated handler sees Escape");
+    assert.equal(await dialog.count(), 1, "the dialog stays open for a data-own-escape child");
+    await page.evaluate(() => document.getElementById("own-escape-probe")?.remove());
+    await dialog.focus();
     await checkTrap(page, bugButton, "Report a bug");
 
     const versionButton = page.locator("button.version");

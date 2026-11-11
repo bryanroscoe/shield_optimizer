@@ -383,6 +383,8 @@
       return;
     }
     if (e.key !== "Escape") return;
+    // A child that owns its Escape (see $lib/dialog-focus) keeps it.
+    if (e.defaultPrevented || target?.closest?.("[data-own-escape]")) return;
     if (bugOpen) bugOpen = false;
     else if (restartPromptOpen) restartPromptOpen = false;
     else if (notesOpen) notesOpen = false;
