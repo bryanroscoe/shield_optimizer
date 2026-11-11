@@ -65,6 +65,8 @@ pub struct SupportMatch {
     pub device: Option<String>,
 }
 
+/// Unknown fields are rejected on purpose: a document this build cannot fully
+/// understand falls back to the bundled tiers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SupportRule {
