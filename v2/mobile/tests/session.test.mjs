@@ -671,6 +671,34 @@ test("canceled connect cannot update the session when its old reply arrives", as
   assert.deepEqual(result, { canceled: false, serial: "A:5555", host: "A", canceledNative: true });
 });
 
+test("Dashboard Reboot confirmed after a TV switch sends nothing, and a lost link disables it", async (t) => {
+  const page = await open(t, "dashboard");
+  const reboot = page.locator(".action-btn", { hasText: "Reboot" });
+  await reboot.click();
+  await page.evaluate(() => window.session.connect("B", 5555));
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.getByText("The TV connection changed. Nothing was sent.").waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "reboot_device")), false);
+
+  // A reply that lands after the session moved on says nothing about the new TV.
+  await page.evaluate(() => {
+    window.handlers.reboot_device = () => new Promise((resolve) => { window.releaseReboot = resolve; });
+  });
+  await reboot.click();
+  await page.getByRole("button", { name: "Reboot", exact: true }).click();
+  await page.waitForFunction(() => !!window.releaseReboot);
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.releaseReboot({ ok: true, message: "" });
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await page.getByText("Reboot command sent.").count(), 0);
+  assert.deepEqual(await page.evaluate(() => [...window.router.stack]), ["dashboard"]);
+
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  assert.equal(await reboot.isDisabled(), true);
+});
+
 test("stale reboot completion cannot disconnect a newer session", async (t) => {
   const page = await open(t);
   const result = await page.evaluate(async () => {

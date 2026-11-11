@@ -170,19 +170,34 @@
     }
   }
 
+  // The reboot is bound to the connection the confirm was opened on.
+  let rebootFor: { serial: string; generation: number } | null = null;
+  function askReboot() {
+    if (!session.isConnected) return;
+    rebootFor = { serial: session.serial, generation: session.generation };
+    rebootConfirm = true;
+  }
+
   async function doReboot() {
     rebootConfirm = false;
-    if (busyAction) return;
+    const target = rebootFor;
+    rebootFor = null;
+    if (busyAction || !target) return;
+    const generation = target.generation;
+    if (!session.isConnected || generation !== session.generation || target.serial !== session.serial) {
+      showToast("The TV connection changed. Nothing was sent.", "error");
+      return;
+    }
     busyAction = "reboot";
-    const generation = session.generation;
     try {
-      const r = await api.rebootDevice(session.serial, "normal");
+      const r = await api.rebootDevice(target.serial, "normal");
+      if (generation !== session.generation) return;
       showToast(r.ok ? "Reboot command sent." : r.message || "Reboot failed.", r.ok ? "success" : "error");
       if (r.ok) {
         if (await session.finishReboot(generation)) router.reset("onboarding");
       }
     } catch (e) {
-      showToast(String(e), "error");
+      if (generation === session.generation) showToast(String(e), "error");
     } finally {
       busyAction = "";
     }
@@ -371,7 +386,7 @@
           {/if}
         </button>
 
-        <button class="action-btn" disabled={busyAction !== ""} onclick={() => (rebootConfirm = true)}>
+        <button class="action-btn" disabled={busyAction !== "" || !session.isConnected} onclick={askReboot}>
           {#if busyAction === "reboot"}
             <span class="pdot blink"></span><span class="action-text">Rebooting…</span>
           {:else}
@@ -395,7 +410,10 @@
     message="The TV will restart and this connection will drop. You can reconnect once it's back."
     confirmLabel="Reboot"
     onConfirm={doReboot}
-    onCancel={() => (rebootConfirm = false)}
+    onCancel={() => {
+      rebootConfirm = false;
+      rebootFor = null;
+    }}
   />
 
   {#if screenshot}
