@@ -223,6 +223,7 @@
   const nothingToDo = $derived(pending != null && rows.acting.length === 0);
   const homeSkip = $derived(pending ? launcherSkipNote(pending.plan) : null);
   const kept = $derived(pending ? keptPackages(pending.plan) : []);
+  const refused = $derived(pending?.plan.settings_refused ?? []);
 
   // As in ConfirmDialog: the plan scrolls inside the card and Cancel/Restore
   // stay pinned, with a divider once anything is cut off.
@@ -402,9 +403,30 @@
               </p>
             {/if}
 
+            {#if refused.length > 0}
+              <div class="plan-skip" data-testid="refused-settings">
+                <span class="msr" aria-hidden="true">warning</span>
+                <span class="refused-text">
+                  <span>
+                    {refused.length === 1
+                      ? "1 setting in this file is not one snapshots restore and will be skipped."
+                      : `${refused.length} settings in this file are not ones snapshots restore and will be skipped.`}
+                  </span>
+                  <HelpSheet title="Skipped settings">
+                    <p>Snapshots restore only the settings this app saves. These are never written:</p>
+                    <ul class="refused-keys">
+                      {#each refused as key, i (i)}
+                        <li class="mono">{key}</li>
+                      {/each}
+                    </ul>
+                  </HelpSheet>
+                </span>
+              </div>
+            {/if}
+
             {#if nothingToDo}
               <p class="plan-empty">
-                {homeSkip || kept.length > 0
+                {homeSkip || kept.length > 0 || refused.length > 0
                   ? "Nothing to change. Everything else already matches the snapshot."
                   : "This TV already matches the snapshot — nothing to change."}
               </p>
@@ -770,6 +792,18 @@
     color: var(--text-soft);
     font-size: 12px;
     line-height: 1.4;
+    overflow-wrap: anywhere;
+  }
+  .refused-text {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    min-width: 0;
+  }
+  .refused-keys {
+    margin: 8px 0 0;
+    padding-left: 20px;
     overflow-wrap: anywhere;
   }
   .plan-skip .msr {

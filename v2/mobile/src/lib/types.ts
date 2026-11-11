@@ -409,6 +409,8 @@ export interface SnapshotApplyPlan {
   settings_to_write: Record<string, string>;
   settings_to_delete: string[];
   settings_already_set: string[];
+  /// Settings the file names that snapshots never restore; skipped, never written.
+  settings_refused?: string[];
   /// The TV's current value for every setting the snapshot mentions; a key
   /// missing here is unset on the TV.
   current_values: Record<string, string>;
