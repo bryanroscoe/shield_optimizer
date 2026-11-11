@@ -426,7 +426,6 @@ dependencies = [
 name = "atv-optimizer-core"
 version = "2.5.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "base64 0.22.1",
  "chrono",

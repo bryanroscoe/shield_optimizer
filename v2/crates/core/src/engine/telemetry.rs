@@ -202,8 +202,10 @@ pub fn sanitize_error_code(raw: &str) -> String {
     }
 }
 
-fn re(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("static redaction pattern")
+/// Compile a pattern written in this crate. Shared by the redaction and
+/// diagnostics tables; a bad pattern is a bug the tests hit at once.
+pub(super) fn re(pattern: &str) -> Regex {
+    Regex::new(pattern).expect("static pattern")
 }
 
 static URL: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)\b[a-z][a-z0-9+.-]*://\S+"));

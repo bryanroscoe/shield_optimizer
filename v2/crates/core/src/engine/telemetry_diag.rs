@@ -236,9 +236,7 @@ impl Diag {
     }
 }
 
-fn re(pattern: &str) -> Regex {
-    Regex::new(pattern).expect("static diag pattern")
-}
+use super::telemetry::re;
 
 /// Error text to a code from a fixed vocabulary, matching the codes
 /// `shared/errors.ts` shows users where the two overlap. First match wins,
