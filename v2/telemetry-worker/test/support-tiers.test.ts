@@ -14,7 +14,8 @@ const rule = (match: Record<string, unknown>, tier = "beta", note = "n") => ({ m
 
 describe("the repo's device-support.json", () => {
   it("passes the ship check", () => {
-    const res = checkTierFile(repoFile, { today: TODAY });
+    // The real date: every tier PR sets `updated` to the day it was made.
+    const res = checkTierFile(repoFile, { today: new Date().toISOString().slice(0, 10) });
     expect(res.errors).toEqual([]);
     expect(res.doc).not.toBeNull();
   });
