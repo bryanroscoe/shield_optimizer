@@ -41,15 +41,40 @@ fn parse_version_name(dumpsys: &str) -> Option<String> {
 /// APK, `<pkg>-<version>-<remote stem>.apk` for split parts (the stem keeps
 /// `base` / `split_config.en` distinguishable).
 fn backup_file_name(package: &str, version: Option<&str>, remote: &str, split: bool) -> String {
-    let version = version.unwrap_or("unknown");
+    let version = version
+        .and_then(safe_name_component)
+        .unwrap_or_else(|| "unknown".to_string());
     if !split {
         return format!("{package}-{version}.apk");
     }
     let stem = Path::new(remote)
         .file_stem()
         .and_then(|s| s.to_str())
-        .unwrap_or("part");
+        .and_then(safe_name_component)
+        .unwrap_or_else(|| "part".to_string());
     format!("{package}-{version}-{stem}.apk")
+}
+
+/// The device reports `versionName` and the APK paths, so either can carry
+/// separators or `..`. Only `[A-Za-z0-9._-]` reaches a local file name;
+/// anything that still spells a parent directory is dropped.
+fn safe_name_component(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .take(64)
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if cleaned.is_empty() || cleaned.contains("..") {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 /// Resolve a package's APK paths and version on `serial`.
@@ -95,6 +120,12 @@ async fn pull_apks(
     let mut locals = Vec::new();
     for remote in remotes {
         let local = dest.join(backup_file_name(package, version, remote, split));
+        if local.parent() != Some(dest) {
+            return Err(format!(
+                "Refusing to save {remote} outside {}",
+                dest.display()
+            ));
+        }
         let local_str = local.display().to_string();
         adb.raw_transfer(&["-s", serial, "pull", remote, &local_str])
             .await
@@ -180,9 +211,7 @@ pub async fn clone_app(
     let adb = state.adb_snapshot().await;
     let (remotes, version) = apk_paths_and_version(adb.as_ref(), &source_serial, &package).await?;
 
-    let stamp = chrono::Local::now().format("%Y%m%d%H%M%S%3f");
-    let temp = std::env::temp_dir().join(format!("shield-clone-{stamp}"));
-    tokio::fs::create_dir_all(&temp)
+    let temp = super::files::private_temp_dir("atv-clone")
         .await
         .map_err(|e| format!("create temp dir: {e}"))?;
 
@@ -207,10 +236,7 @@ pub async fn clone_app(
         args.extend(locals.iter().map(|p| p.display().to_string()));
         let args_ref: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        let out = adb
-            .raw_transfer(&args_ref)
-            .await
-            .map_err(|e| format!("adb install: {e}"))?;
+        let out = super::sideload::install_answer(adb.raw_transfer(&args_ref).await)?;
         let combined = out.combined().trim().to_string();
         let ok = install_succeeded(out.success(), &combined);
         Ok::<CloneAppResult, String>(CloneAppResult {
@@ -307,5 +333,55 @@ mod tests {
             backup_file_name("com.x", None, "/data/app/y/base.apk", false),
             "com.x-unknown.apk"
         );
+    }
+
+    #[test]
+    fn a_device_reported_version_or_path_never_leaves_the_chosen_folder() {
+        for hostile in ["1/../../../x", "..", "../evil", "1\\..\\..\\x", "a..b", ""] {
+            let name = backup_file_name("com.x", Some(hostile), "/data/app/y/base.apk", false);
+            assert_eq!(name, "com.x-unknown.apk", "{hostile:?}");
+        }
+        assert_eq!(
+            backup_file_name(
+                "com.x",
+                Some("2.0 beta/rc:1"),
+                "/data/app/y/base.apk",
+                false
+            ),
+            "com.x-2.0_beta_rc_1.apk"
+        );
+        assert_eq!(
+            backup_file_name("com.x", Some("1.0"), "/data/app/y/sp lit:..x.apk", true),
+            "com.x-1.0-part.apk"
+        );
+        let dest = Path::new("chosen");
+        for version in ["1/../../../x", "C:\\evil", "/abs/path"] {
+            let local = dest.join(backup_file_name(
+                "com.x",
+                Some(version),
+                "/data/app/y/base.apk",
+                false,
+            ));
+            assert_eq!(local.parent(), Some(dest), "{version:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn pulls_land_inside_the_destination_whatever_the_version_says() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let state = state_with(MockAdb::default());
+        let adb = state.adb_snapshot().await;
+        let dest = tempfile::tempdir().unwrap();
+        let locals = pull_apks(
+            adb.as_ref(),
+            "tv",
+            "com.x",
+            &["/data/app/y/base.apk".to_string()],
+            Some("1/../../../x"),
+            dest.path(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(locals, vec![dest.path().join("com.x-unknown.apk")]);
     }
 }

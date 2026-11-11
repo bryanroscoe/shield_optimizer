@@ -150,7 +150,10 @@ pub async fn copy_file_to_device(
         .ok_or_else(|| format!("Not a file path: {remote}"))?
         .to_string();
 
-    let temp = std::env::temp_dir().join(format!("shield-filecopy-{}", sanitize_temp(&file_name)));
+    let temp_dir = private_temp_dir("atv-filecopy")
+        .await
+        .map_err(|e| format!("create temp dir: {e}"))?;
+    let temp = temp_dir.join(sanitize_temp(&file_name));
     let temp_str = temp.display().to_string();
     let adb = state.adb_snapshot().await;
 
@@ -170,8 +173,46 @@ pub async fn copy_file_to_device(
     }
     .await;
 
-    let _ = tokio::fs::remove_file(&temp).await;
+    let _ = tokio::fs::remove_dir_all(&temp_dir).await;
     result
+}
+
+/// A new, empty, owner-only folder in the system temp dir. `create_dir`
+/// refuses an existing path, so a name planted in a shared /tmp (or a second
+/// copy running at the same moment) is never written through.
+pub(crate) async fn private_temp_dir(prefix: &str) -> std::io::Result<std::path::PathBuf> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let base = std::env::temp_dir();
+    let prefix = prefix.to_string();
+    tokio::task::spawn_blocking(move || {
+        let mut last = None;
+        for _ in 0..16 {
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let dir = base.join(format!(
+                "{prefix}-{}-{nanos}-{}",
+                std::process::id(),
+                NEXT.fetch_add(1, Ordering::Relaxed)
+            ));
+            let mut builder = std::fs::DirBuilder::new();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::DirBuilderExt;
+                builder.mode(0o700);
+            }
+            match builder.create(&dir) {
+                Ok(()) => return Ok(dir),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => last = Some(e),
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last.unwrap_or_else(|| std::io::Error::other("no free temp folder name")))
+    })
+    .await
+    .map_err(|e| std::io::Error::other(e.to_string()))?
 }
 
 /// Flatten a file name for use as a temp-file stem (avoids odd characters in
@@ -229,5 +270,21 @@ mod tests {
     #[test]
     fn quotes_single_quotes_in_paths() {
         assert_eq!(quote_path("/sdcard/it's here"), r"'/sdcard/it'\''s here'");
+    }
+
+    #[tokio::test]
+    async fn each_copy_gets_its_own_new_private_folder() {
+        let first = private_temp_dir("atv-filecopy-test").await.unwrap();
+        let second = private_temp_dir("atv-filecopy-test").await.unwrap();
+        assert_ne!(first, second);
+        assert_eq!(std::fs::read_dir(&first).unwrap().count(), 0);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&first).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o700);
+        }
+        std::fs::remove_dir(&first).unwrap();
+        std::fs::remove_dir(&second).unwrap();
     }
 }
