@@ -1534,6 +1534,7 @@ mod tests {
         let outside = root.path().join("outside.json");
         std::fs::write(&inside, &json).unwrap();
         std::fs::write(&outside, &json).unwrap();
+        #[cfg_attr(not(unix), allow(unused_mut))]
         let mut rejected = vec![
             outside.display().to_string(),
             dir.join("../outside.json").display().to_string(),

@@ -30,7 +30,7 @@ try {
       body { font-family:system-ui,sans-serif; margin:0; background:#101419; color:#e5e8ed; }
       main { padding:20px; max-width:940px; margin:auto; } h1 { font-size:1.35rem; } p { line-height:1.5; }
       .fixture-note { color:#b9c3d0; } .small { font-size:.875rem; } ${messageCss}
-      pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; } summary { padding:14px 0; cursor:pointer; }
+      h1, .fixture-note, #home, summary { overflow-wrap:anywhere; } pre { white-space:pre-wrap; overflow-wrap:anywhere; font-size:.8rem; } summary { padding:14px 0; cursor:pointer; }
       </style><main><h1>Simulated launcher result</h1><p class="fixture-note">Message fixture using the mocked shared-core result and production wrapping rule. This is not a running desktop or Android app.</p><p class="small action-message home-picker-result" role="status"></p><p id="home"></p><details><summary>Raw mocked diagnostics</summary><pre></pre></details></main></html>`);
     await page.getByRole('status').evaluate((el, text) => el.textContent = text, result.last_error);
     await page.locator('#home').evaluate((el, home) => el.textContent = `Final Home readback: ${home}`, result.current_launcher);
