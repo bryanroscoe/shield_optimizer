@@ -1020,13 +1020,28 @@ pub fn load_cached_support_rules(state: &AppState) {
 
 /// A rules document dated before the ones this build shipped with is stale:
 /// an app update that corrects a tier must not be undone by an old cache or
-/// an out-of-date server. `updated` is `YYYY-MM-DD`, so text order is date
-/// order, and a missing date is older than any.
+/// an out-of-date server. Dates are compared as dates; a missing or malformed
+/// one is older than any.
 fn not_older_than_bundled(rules: &SupportRules) -> bool {
-    rules.updated.trim()
-        >= crate::commands::loader::embedded_support_rules()
-            .updated
-            .trim()
+    let bundled = crate::commands::loader::embedded_support_rules();
+    match (
+        crate::engine::support::support_rules_date(&rules.updated),
+        crate::engine::support::support_rules_date(&bundled.updated),
+    ) {
+        (Some(fetched), Some(bundled)) => fetched >= bundled,
+        (Some(_), None) => true,
+        (None, _) => false,
+    }
+}
+
+/// Replace `path` with `text` without ever leaving a partial file.
+fn write_atomically(path: &std::path::Path, text: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    let dir = path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let mut temporary = tempfile::NamedTempFile::new_in(dir)?;
+    temporary.write_all(text.as_bytes())?;
+    temporary.as_file().sync_all()?;
+    temporary.persist(path).map(drop).map_err(|e| e.error)
 }
 
 /// Fetch the current rules from the report server and cache them. Only when
@@ -1042,13 +1057,21 @@ pub async fn refresh_support_rules(state: &AppState) -> bool {
     if !not_older_than_bundled(&rules) || *state.support_rules() == rules {
         return false;
     }
-    state.telemetry.apply_if_current(generation, || {
-        let path = state.data_dir.join(SUPPORT_CACHE_FILE);
-        if let Err(e) = std::fs::write(&path, text) {
-            tracing::debug!(error = %e, "could not cache support rules");
-        }
+    let applied = state.telemetry.apply_if_current(generation, || {
         state.set_support_rules(Arc::new(rules));
-    })
+    });
+    // Cached only once applied, and written off the telemetry lock and off
+    // the async runtime.
+    if applied {
+        let path = state.data_dir.join(SUPPORT_CACHE_FILE);
+        let written = tokio::task::spawn_blocking(move || write_atomically(&path, &text)).await;
+        match written {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::debug!(error = %e, "could not cache support rules"),
+            Err(e) => tracing::debug!(error = %e, "could not cache support rules"),
+        }
+    }
+    applied
 }
 
 /// Event emitted when fetched support rules replaced the ones in use. Both
@@ -1614,6 +1637,33 @@ mod tests {
         assert_eq!(events[1]["action"], "disable");
         assert!(!body.contains("1324619053514"));
         assert!(hub.queued().is_empty());
+    }
+
+    #[test]
+    fn rule_dates_compare_as_dates_and_a_bad_date_is_stale() {
+        let bundled = crate::commands::loader::embedded_support_rules();
+        assert!(crate::engine::support::support_rules_date(&bundled.updated).is_some());
+        let with = |updated: &str| SupportRules {
+            schema: 1,
+            updated: updated.into(),
+            rules: Vec::new(),
+        };
+        assert!(not_older_than_bundled(&with("2999-01-01T00:00:00.000Z")));
+        assert!(not_older_than_bundled(&with(&bundled.updated)));
+        assert!(!not_older_than_bundled(&with("2000-01-01T00:00:00Z")));
+        // As text, "9" sorts after any real year.
+        assert!(!not_older_than_bundled(&with("9")));
+        assert!(!not_older_than_bundled(&with("")));
+    }
+
+    #[test]
+    fn the_support_cache_is_replaced_whole() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(SUPPORT_CACHE_FILE);
+        write_atomically(&path, "first").unwrap();
+        write_atomically(&path, "second").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "second");
+        assert_eq!(std::fs::read_dir(dir.path()).unwrap().count(), 1);
     }
 
     #[test]

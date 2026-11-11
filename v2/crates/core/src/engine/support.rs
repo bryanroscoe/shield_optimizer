@@ -22,6 +22,8 @@ pub const SUPPORT_SCHEMA: u32 = 1;
 pub const MAX_NOTE_CHARS: usize = 200;
 /// Generous for a hand-maintained list; bounds a hostile or broken download.
 pub const MAX_RULES: usize = 500;
+/// The Worker's cap on one match value (docs/DEVICE-SUPPORT.md).
+pub const MAX_MATCH_CHARS: usize = 64;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -64,6 +66,7 @@ pub struct SupportMatch {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SupportRule {
     #[serde(rename = "match")]
     pub matcher: SupportMatch,
@@ -142,9 +145,27 @@ pub fn parse_support_rules(json: &str) -> Result<SupportRules, String> {
     if rules.rules.len() > MAX_RULES {
         return Err(format!("support rules: more than {MAX_RULES} rules"));
     }
+    if !rules.updated.trim().is_empty() && support_rules_date(&rules.updated).is_none() {
+        return Err(format!(
+            "support rules: updated {:?} is not a YYYY-MM-DD date or timestamp",
+            rules.updated
+        ));
+    }
     for (i, rule) in rules.rules.iter().enumerate() {
         if rule.matcher.is_empty() {
             return Err(format!("support rules: rule {i} matches every device"));
+        }
+        let m = &rule.matcher;
+        for value in [&m.manufacturer, &m.brand, &m.model_prefix, &m.device]
+            .into_iter()
+            .flatten()
+        {
+            if value.chars().count() > MAX_MATCH_CHARS || value.trim() != value {
+                return Err(format!(
+                    "support rules: rule {i} match values must be at most {MAX_MATCH_CHARS} \
+                     characters with no surrounding whitespace"
+                ));
+            }
         }
         let note = rule.note.trim();
         if note.is_empty() || note.chars().count() > MAX_NOTE_CHARS {
@@ -154,6 +175,22 @@ pub fn parse_support_rules(json: &str) -> Result<SupportRules, String> {
         }
     }
     Ok(rules)
+}
+
+/// The calendar date of a rules document's `updated`: a zero-padded
+/// `YYYY-MM-DD` (the bundled file) or an RFC 3339 timestamp starting with one
+/// (what the report server serves). `None` for anything else.
+pub fn support_rules_date(updated: &str) -> Option<chrono::NaiveDate> {
+    let updated = updated.trim();
+    let day = updated.get(..10)?;
+    let date = chrono::NaiveDate::parse_from_str(day, "%Y-%m-%d").ok()?;
+    if date.format("%Y-%m-%d").to_string() != day {
+        return None;
+    }
+    let rest = &updated[10..];
+    (rest.is_empty()
+        || (rest.starts_with('T') && chrono::DateTime::parse_from_rfc3339(updated).is_ok()))
+    .then_some(date)
 }
 
 /// First matching rule wins. `None` properties (the device couldn't be
@@ -297,6 +334,12 @@ mod tests {
             r#"{"schema":1,"rules":[{"match":{"brand":"a"},"tier":"great","note":"n"}]}"#,
             r#"{"schema":1,"rules":[{"match":{"brand":"a"},"tier":"beta","note":""}]}"#,
             r#"{"schema":1,"rules":[{"match":{"brand":"a","sdk_min":30},"tier":"beta","note":"n"}]}"#,
+            r#"{"schema":1,"rules":[{"match":{"brand":"a"},"tier":"beta","note":"n","since":"x"}]}"#,
+            r#"{"schema":1,"rules":[{"match":{"brand":" a"},"tier":"beta","note":"n"}]}"#,
+            r#"{"schema":1,"updated":"2026-1-5","rules":[]}"#,
+            r#"{"schema":1,"updated":"9999-99-99","rules":[]}"#,
+            r#"{"schema":1,"updated":"tomorrow","rules":[]}"#,
+            r#"{"schema":1,"updated":"2026-11-05Tlater","rules":[]}"#,
         ] {
             assert!(parse_support_rules(doc).is_err(), "accepted: {doc}");
         }
@@ -305,6 +348,15 @@ mod tests {
             "x".repeat(MAX_NOTE_CHARS + 1)
         );
         assert!(parse_support_rules(&long_note).is_err());
+        let long_match = format!(
+            r#"{{"schema":1,"rules":[{{"match":{{"brand":"{}"}},"tier":"beta","note":"n"}}]}}"#,
+            "x".repeat(MAX_MATCH_CHARS + 1)
+        );
+        assert!(parse_support_rules(&long_match).is_err());
+        for updated in ["2026-10-31", "2026-11-05T12:34:56.789Z", ""] {
+            let doc = format!(r#"{{"schema":1,"updated":"{updated}","rules":[]}}"#);
+            assert!(parse_support_rules(&doc).is_ok(), "rejected: {doc}");
+        }
     }
 
     #[test]
