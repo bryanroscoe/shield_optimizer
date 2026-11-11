@@ -40,7 +40,8 @@ pub fn tail_lines(text: &str, lines: usize) -> Vec<String> {
 /// Read from the package lists because a disabled one never answers the HOME
 /// query; `None` when they could not be read.
 async fn setup_helper_states(adb: &dyn AdbDriver, serial: &str) -> Option<Vec<(String, bool)>> {
-    let cmd = crate::adb::checked_batch_command(&["pm list packages", "pm list packages -d"]);
+    let cmd =
+        crate::adb::checked_batch_command(&[super::LIST_PACKAGES, super::LIST_DISABLED_PACKAGES]);
     let out = adb.shell(serial, &cmd).await.ok()?;
     let sections = crate::adb::parse_checked_batch(&out.stdout, 2, &[0, 1]).ok()?;
     setup_helper_states_from(&sections[0], &sections[1])
@@ -162,6 +163,22 @@ mod tests {
         assert_eq!(setup_helper_states_from("\n", "package:a\n"), None);
         let some = setup_helper_states_from("package:com.android.settings\n", "");
         assert_eq!(some, Some(vec![]));
+    }
+
+    #[tokio::test]
+    async fn setup_helpers_are_read_for_user_zero() {
+        let mock = crate::commands::test_support::MockAdb::default();
+        let log = mock.shell_log();
+        let _ = setup_helper_states(&mock, "serial").await;
+        let calls = log.lock().unwrap();
+        assert!(
+            calls[0].contains("(pm list packages --user 0)"),
+            "{calls:?}"
+        );
+        assert!(
+            calls[0].contains("(pm list packages -d --user 0)"),
+            "{calls:?}"
+        );
     }
 
     #[test]

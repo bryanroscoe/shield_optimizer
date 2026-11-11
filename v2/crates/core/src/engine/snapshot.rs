@@ -276,7 +276,13 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
     let mut already_disabled = Vec::new();
     let mut not_installed = Vec::new();
 
-    for pkg in &snap.disabled_packages {
+    let mut seen = std::collections::HashSet::new();
+    // A hand-edited file may list a package twice; plan it once.
+    for pkg in snap
+        .disabled_packages
+        .iter()
+        .filter(|p| seen.insert(p.as_str()))
+    {
         let s = pkg.as_str();
         if !installed_set.contains(s) {
             not_installed.push(pkg.clone());
@@ -711,6 +717,34 @@ mod tests {
         assert!(is_tracked_setting("secure.screensaver_enabled"));
         assert!(!is_tracked_setting("system.screensaver_enabled"));
         assert!(!is_tracked_setting("screensaver_enabled"));
+    }
+
+    #[test]
+    fn a_package_listed_twice_is_planned_once() {
+        let mut snap = sample_snapshot();
+        snap.disabled_packages = vec![
+            "com.foo".into(),
+            "com.foo".into(),
+            "com.bar".into(),
+            "com.bar".into(),
+        ];
+        let installed = vec!["com.foo".to_string(), "com.bar".to_string()];
+        let disabled = vec!["com.bar".to_string()];
+        let plan = compute_apply_plan(
+            &snap,
+            &ApplyPlanInputs {
+                target_device_type: DeviceType::Shield,
+                currently_disabled: &disabled,
+                currently_installed: &installed,
+                current_settings: &BTreeMap::new(),
+                current_launcher: None,
+                home_handlers: None,
+                launchers: &LauncherCatalog::default(),
+                catalog: &[],
+            },
+        );
+        assert_eq!(plan.packages_to_disable, ["com.foo"]);
+        assert_eq!(plan.packages_already_disabled, ["com.bar"]);
     }
 
     #[test]

@@ -43,9 +43,40 @@ pub fn validate_sdcard_path(path: &str) -> Result<String, String> {
 /// device. Subpaths are the user's call (and mostly permission-denied without
 /// root). Returns the refusal message, or `None` if the path is deletable.
 pub fn protected_delete_reason(path: &str) -> Option<String> {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed == "/sdcard" {
-        return Some("Refusing to delete /sdcard itself.".to_string());
+    let path = path.trim();
+    // `/sdcard/.`, `//system` and `/a/../sdcard` name a protected directory
+    // by another spelling. Deletes take only the plain spelling.
+    let body = path.trim_end_matches('/');
+    if body
+        .split('/')
+        .skip(1)
+        .any(|seg| seg.is_empty() || seg == "." || seg == "..")
+    {
+        return Some(format!(
+            "Refusing to delete {path}: use the path without `.`, `..` or repeated slashes."
+        ));
+    }
+    let trimmed = body;
+    // Every name Android gives the user's shared storage.
+    const STORAGE: &[&str] = &[
+        "/sdcard",
+        "/storage",
+        "/storage/emulated",
+        "/storage/emulated/0",
+        "/storage/self",
+        "/storage/self/primary",
+        "/mnt",
+        "/mnt/sdcard",
+        "/mnt/user",
+        "/mnt/user/0",
+        "/mnt/user/0/primary",
+        "/data/media",
+        "/data/media/0",
+    ];
+    if STORAGE.contains(&trimmed) {
+        return Some(format!(
+            "Refusing to delete {trimmed} itself: it is the TV's shared storage."
+        ));
     }
     const PROTECTED: &[&str] = &[
         "", "/system", "/data", "/vendor", "/proc", "/sys", "/dev", "/boot", "/init", "/sbin",
@@ -242,6 +273,29 @@ mod tests {
         }
         assert!(protected_delete_reason("/sdcard/Download/old.zip").is_none());
         assert!(protected_delete_reason("/system/app/Bloat/Bloat.apk").is_none());
+    }
+
+    #[test]
+    fn other_spellings_of_protected_paths_are_refused() {
+        for p in [
+            "/sdcard/.",
+            "/sdcard/./",
+            "//system",
+            "/system//",
+            "/sdcard//Download",
+            "/sdcard/Download/..",
+            "/storage/emulated/0",
+            "/storage/emulated/0/",
+            "/storage/self/primary",
+            "/storage/emulated",
+            "/storage",
+            "/mnt/sdcard",
+            "/data/media/0",
+        ] {
+            assert!(protected_delete_reason(p).is_some(), "{p} must be refused");
+        }
+        assert!(protected_delete_reason("/storage/emulated/0/Download/old.zip").is_none());
+        assert!(protected_delete_reason("/sdcard/.hidden").is_none());
     }
 
     const SMARTTUBE_DIRS: &[&str] = &[
