@@ -1603,10 +1603,20 @@ fn ensure_adb_key_with(
     Ok(())
 }
 
-/// Starts every error about a key file that exists but cannot be used. The
-/// key is never replaced automatically; the app has to offer a deliberate
-/// reset, since every TV must then approve this device again.
-pub const DAMAGED_ADB_IDENTITY: &str = "This device's ADB identity is damaged";
+/// Starts every error about a key file that exists but cannot be used, as
+/// the plain sentence the person sees. The key is never replaced
+/// automatically; the app has to offer a deliberate reset, since every TV must
+/// then approve this phone or computer again. Telemetry classifies the text
+/// as `adb_key_damaged`.
+#[cfg(target_os = "android")]
+pub const DAMAGED_ADB_IDENTITY: &str = "This phone's ADB key file is damaged";
+#[cfg(not(target_os = "android"))]
+pub const DAMAGED_ADB_IDENTITY: &str = "This computer's ADB key file is damaged";
+const KEY_HOLDER: &str = if cfg!(target_os = "android") {
+    "phone"
+} else {
+    "computer"
+};
 
 /// A structural check only (PEM, PKCS#8, RSA key sequence): it catches a
 /// truncated or overwritten file without the RSA arithmetic that full
@@ -1630,12 +1640,13 @@ fn key_file_is_well_formed(bytes: &[u8]) -> Result<(), &'static str> {
 
 fn check_existing_key(path: &Path) -> Result<(), String> {
     let bytes = std::fs::read(path).map_err(|e| {
-        format!("Could not read this device's ADB identity ({e}); it was left as it was.")
+        format!("Could not read this {KEY_HOLDER}'s ADB key file ({e}); it was left as it was.")
     })?;
     key_file_is_well_formed(&bytes).map_err(|reason| {
+        tracing::warn!(reason, "the persistent ADB key file is damaged");
         format!(
-            "{DAMAGED_ADB_IDENTITY} ({reason}). It was not replaced, because a new identity \
-             means every TV has to approve this device again."
+            "{DAMAGED_ADB_IDENTITY}, so it can't connect to any TV. It was left as it was, \
+             because a new key means every TV has to approve this {KEY_HOLDER} again."
         )
     })
 }
