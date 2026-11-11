@@ -397,9 +397,10 @@ jobs:
       # release.sh's next-version and MSI version arithmetic, and the release
       # workflow's CHANGELOG extraction.
       - name: Release version and changelog scripts
+        working-directory: v2
         env:
           PYTHONDONTWRITEBYTECODE: '1'
-        run: python3 -m unittest discover -s v2/scripts -p 'test_*.py'
+        run: npm run test:release-scripts
 
       # The Sideload tab must not read the remembered APK folder until asked
       # (#89) — that folder is often a removable volume.
@@ -627,6 +628,35 @@ jobs:
       - name: macOS Local Network notice
         working-directory: v2
         run: npm run test:local-network-notice
+
+      - name: Health report load failure
+        working-directory: v2
+        run: npm run test:health-load-failure
+
+      - name: Dialog focus
+        working-directory: v2
+        run: npm run test:dialog-focus
+
+      - name: Badge explanations by click, tap and keyboard
+        working-directory: v2
+        run: npm run test:badge-tips
+
+      - name: Media duplicate values
+        working-directory: v2
+        run: npm run test:media-duplicate-values
+
+      - name: Protected remove tip
+        working-directory: v2
+        run: npm run test:protected-remove-tip
+
+      - name: Install APK drop states
+        working-directory: v2
+        run: npm run test:sideload-drop-states
+
+      # Every tests/*.mjs has a script and every test:* script runs here.
+      - name: Test wiring
+        working-directory: v2
+        run: npm run test:test-wiring
 
       # Reviewable UI frames also allow gallery regeneration without a local browser.
       - name: Capture demo screenshots
