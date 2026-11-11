@@ -65,7 +65,7 @@ async function exercise({ browser, base }) {
   await panel.locator(".mode-box").getByRole("button", { name: "Optimize", exact: true }).click();
   await panel.locator("table.optimize-table tbody tr").first().waitFor();
   assert.deepEqual(
-    await panel.locator("table.optimize-table thead th").allInnerTexts().then((t) => t.map((x) => x.trim().toUpperCase())),
+    await panel.locator("table.optimize-table thead th").allInnerTexts().then((t) => t.map((x) => x.replace(/\s*\?\s*$/, "").trim().toUpperCase())),
     ["DETAILS", "APP", "VERDICT & SOURCE", "RAM", "LAST USED", "ACTION"],
     "a run's result shows in the Action cell, not in a trailing column that scrolls off",
   );
