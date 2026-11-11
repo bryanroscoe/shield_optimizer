@@ -29,6 +29,8 @@ given.
 | `v2/mobile/DEPENDENCY-REMEDIATION-20261016.md` | Receipt for the 2026-10-16 npm dependency audit and pruning (the desktop advisory is now in `v2/HANDOFF.md`) | `git show 1c3f2b1:v2/mobile/DEPENDENCY-REMEDIATION-20261016.md` |
 | `v2/mobile/RELEASE-POLISH.md` | Mobile release-polish checklist with per-PR merge status (open items now in `v2/mobile/BACKLOG.md`) | `git show a9f07d7:v2/mobile/RELEASE-POLISH.md` |
 | `v2/mobile/RELEASE-POLISH-RECEIPTS.md` | Per-PR review/CI/merge receipts for PRs #181–#204 and #206 | `git show a9f07d7:v2/mobile/RELEASE-POLISH-RECEIPTS.md` |
+| `atv-optimizer-android-strategy.html` | Early feasibility and go-to-market page for the Android app (now `v2/mobile/HANDOFF.md`) | `git show e4a9300:atv-optimizer-android-strategy.html` |
+| `testing/` | Docker harness (`Dockerfile`, `Makefile`) for running the v1 script under Linux by hand; CI runs Pester directly | `git show e4a9300:testing/Dockerfile` |
 
 ## Bulk material outside the repository
 
