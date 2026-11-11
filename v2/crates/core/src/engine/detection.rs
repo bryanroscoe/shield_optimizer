@@ -109,27 +109,26 @@ pub fn detect_device_type(props: &DeviceProperties) -> DeviceType {
 
     // Google TV by strong product-specific signals: Onn (Walmart) boxes
     // (`ott_...`), Chromecast, and the newer Streamer codenames are TV-only
-    // products, so they stand on their own.
-    if brand == "onn"
-        || model.contains("onn")
-        || model.contains("chromecast")
-        || model.contains("sabrina")
-        || model.contains("boreal")
-        || device.starts_with("ott_")
-        || matches!(device.as_str(), "sabrina" | "boreal")
+    // products, so they stand on their own unless the device said it is not
+    // a TV (Onn also sells tablets).
+    let names_onn = model
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|word| word == "onn");
+    if tv_evidence(props) != TvEvidence::NotTv
+        && (brand == "onn"
+            || names_onn
+            || model.contains("chromecast")
+            || model.contains("sabrina")
+            || model.contains("boreal")
+            || device.starts_with("ott_")
+            || matches!(device.as_str(), "sabrina" | "boreal"))
     {
         return DeviceType::GoogleTv;
     }
 
-    // Google / Amlogic branding only means Google TV when the device actually
-    // reports the `tv` characteristic — otherwise it's a phone or tablet (e.g.
-    // a Google Pixel) that happens to share the brand.
-    if is_tv && (brand == "google" || manufacturer == "google" || manufacturer == "amlogic") {
-        return DeviceType::GoogleTv;
-    }
-
-    // Any other device that reports itself as a TV: classify as Google TV so it
-    // gets the Android-TV app list rather than nothing.
+    // Any other device that reports itself as a TV (Google and Amlogic boxes
+    // included): classify as Google TV so it gets the Android-TV app list
+    // rather than nothing. Brand alone never counts: a Pixel is `google` too.
     if is_tv {
         return DeviceType::GoogleTv;
     }
@@ -202,6 +201,21 @@ mod tests {
         assert_eq!(
             detect_device_type(&props("", "", "foster", "")),
             DeviceType::Shield
+        );
+    }
+
+    #[test]
+    fn an_onn_tablet_or_a_model_merely_containing_onn_is_not_google_tv() {
+        let mut tablet = props("onn", "onn 10.1 Tablet Pro", "tbbvt8", "onn");
+        tablet.characteristics = "tablet".into();
+        assert_eq!(detect_device_type(&tablet), DeviceType::Unknown);
+        assert_eq!(
+            detect_device_type(&props("acme", "Connect Box", "connect", "acme")),
+            DeviceType::Unknown
+        );
+        assert_eq!(
+            detect_device_type(&props("walmart", "onn. 4K Streaming Box", "x", "x")),
+            DeviceType::GoogleTv
         );
     }
 
