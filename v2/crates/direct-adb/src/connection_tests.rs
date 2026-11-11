@@ -1309,3 +1309,257 @@ async fn a_quiet_handshake_timeout_is_a_failure_that_mentions_no_prompt() {
     }
     peer.join().unwrap();
 }
+
+/// Return the actual upload command, then acknowledge its single shell service.
+fn serve_upload_phase(socket: &mut TcpStream, marker: &str) -> String {
+    let (kind, local, payload) = receive(socket);
+    assert_eq!(kind, b"OPEN");
+    let command = String::from_utf8(payload).unwrap();
+    assert!(command.starts_with("shell,v2,raw:"));
+    send(socket, b"OKAY", 1, local, &[]);
+    for (channel, bytes) in [(1u8, marker.as_bytes()), (3, &[0][..])] {
+        let mut frame = vec![channel];
+        frame.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        frame.extend_from_slice(bytes);
+        send(socket, b"WRTE", 1, local, &frame);
+        assert_eq!(receive(socket).0, b"OKAY");
+    }
+    send(socket, b"CLSE", 1, local, &[]);
+    command
+}
+
+#[tokio::test]
+async fn upload_transaction_keeps_one_verified_socket_across_every_phase() {
+    let connected = connected_driver(|mut selected, listener| {
+        serve_download_identity(&mut selected);
+        let mut upload = accept(&listener);
+        assert_eq!(receive(&mut upload).0, b"CNXN");
+        send(&mut upload, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        serve_download_identity(&mut upload);
+        assert!(serve_upload_phase(&mut upload, "atvopt-absent\n").contains("if [ -d"));
+        assert!(serve_upload_phase(&mut upload, "atvopt-safe-shell\n").contains("KSH_VERSION"));
+        let mkdir = serve_upload_phase(&mut upload, "atvopt-created\n");
+        assert!(mkdir.contains("mkdir '/sdcard/.atvopt-upload-"));
+        let (path, data) = serve_push(&mut upload, false, || {});
+        assert!(path.starts_with("/sdcard/.atvopt-upload-"));
+        assert!(path.contains("/payload,"));
+        assert_eq!(data, b"abc");
+        assert!(serve_upload_phase(&mut upload, "3\n").contains("stat -c %s"));
+        let commit = serve_upload_phase(&mut upload, "atvopt-committed\n");
+        assert!(commit.contains("set -C"));
+        assert!(commit.contains("/proc/self/fd/1"));
+        assert!(serve_upload_phase(&mut upload, "atvopt-clean\n").contains("rmdir"));
+        serve_download_identity(&mut selected);
+    })
+    .await;
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    let result = connected
+        .driver
+        .upload_file(
+            &connected.serial,
+            "fixture-tv",
+            local.path(),
+            "/sdcard/movie",
+            3,
+            false,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        atv_optimizer_core::adb::upload::UploadResult::Uploaded { verified: true }
+    );
+    assert_eq!(
+        connected
+            .driver
+            .verified_owned_hardware_id(&connected.serial, Duration::from_secs(2))
+            .await
+            .unwrap(),
+        "fixture-tv"
+    );
+    connected.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn dropping_upload_during_commit_cancels_dedicated_socket_not_selected_tv() {
+    let (commit_tx, commit_rx) = std::sync::mpsc::channel();
+    let connected = connected_driver(move |mut selected, listener| {
+        serve_download_identity(&mut selected);
+        let mut upload = accept(&listener);
+        assert_eq!(receive(&mut upload).0, b"CNXN");
+        send(&mut upload, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        serve_download_identity(&mut upload);
+        serve_upload_phase(&mut upload, "atvopt-absent\n");
+        serve_upload_phase(&mut upload, "atvopt-created\n");
+        serve_push(&mut upload, false, || {});
+        serve_upload_phase(&mut upload, "3\n");
+        let (kind, _, payload) = receive(&mut upload);
+        assert_eq!(kind, b"OPEN");
+        assert!(String::from_utf8_lossy(&payload).contains("mv -fT"));
+        commit_tx.send(()).unwrap();
+        let mut byte = [0];
+        assert_eq!(
+            upload.read(&mut byte).unwrap(),
+            0,
+            "parent cancellation closes phase socket"
+        );
+        serve_download_identity(&mut selected);
+    })
+    .await;
+    let driver = Arc::new(connected.driver);
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    let worker_driver = driver.clone();
+    let serial = connected.serial.clone();
+    let path = local.path().to_owned();
+    let worker = tokio::spawn(async move {
+        worker_driver
+            .upload_file(&serial, "fixture-tv", &path, "/sdcard/movie", 3, true)
+            .await
+    });
+    tokio::task::spawn_blocking(move || commit_rx.recv_timeout(Duration::from_secs(5)).unwrap())
+        .await
+        .unwrap();
+    worker.abort();
+    assert!(worker.await.unwrap_err().is_cancelled());
+    assert_eq!(
+        driver
+            .verified_owned_hardware_id(&connected.serial, Duration::from_secs(2))
+            .await
+            .unwrap(),
+        "fixture-tv"
+    );
+    connected.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn queued_upload_refuses_new_generation_at_the_same_endpoint_before_identity_probe() {
+    let connected = connected_driver(|selected_a, listener| {
+        // A new connection B at the same address is ready to replace A while the
+        // upload's identity worker waits for conn. Neither may get an upload probe.
+        let mut selected_b = accept(&listener);
+        assert_eq!(receive(&mut selected_b).0, b"CNXN");
+        send(&mut selected_b, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        drop(selected_a);
+        // The only service allowed on B is this explicitly requested later liveness
+        // check. A mistaken hardware probe would fail this exact OPEN assertion.
+        serve_shell(&mut selected_b, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+        listener.set_nonblocking(true).unwrap();
+        assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock), "no dedicated upload connection may have opened");
+    }).await;
+    let address: SocketAddr = connected.serial.parse().unwrap();
+    let key = connected._key.path().to_owned();
+    let replacement = tokio::task::spawn_blocking(move || {
+        ADBTcpDevice::new_with_custom_private_key_and_auth_timeout(
+            address,
+            key,
+            Duration::from_secs(2),
+        )
+        .unwrap()
+    })
+    .await
+    .unwrap();
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    let mut upload = Box::pin(connected.driver.upload_file(
+        &connected.serial,
+        "fixture-tv",
+        local.path(),
+        "/sdcard/movie",
+        3,
+        false,
+    ));
+    {
+        use std::future::Future;
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        let mut guard = lock_recovering(&connected.driver.conn);
+        // Polling reaches spawn_blocking only AFTER atomically capturing generation 1.
+        // Holding conn makes the worker wait, so replacement ordering is deterministic.
+        assert!(upload.as_mut().poll(&mut context).is_pending());
+        assert_eq!(guard.as_ref().unwrap().request_id, 1);
+        *guard = Some(Connection {
+            device: replacement,
+            serial: connected.serial.clone(),
+            request_id: 2,
+        });
+        lock_recovering(&connected.driver.identity)
+            .as_mut()
+            .unwrap()
+            .request_id = 2;
+    }
+    let error = upload.await.unwrap_err().to_string();
+    assert!(
+        error.contains("connection changed while the upload was waiting"),
+        "{error}"
+    );
+    assert_eq!(
+        connected
+            .driver
+            .shell(&connected.serial, "echo ok")
+            .await
+            .unwrap()
+            .stdout,
+        "ok\n"
+    );
+    connected.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn upload_rejects_stale_frontend_hardware_identity_before_dedicated_connection() {
+    let connected = connected_driver(|mut selected, listener| {
+        serve_download_identity(&mut selected); // Actually fixture-tv, not caller's original-tv.
+        serve_shell(&mut selected, "echo ok", &[(1, b"ok\n"), (3, &[0])]);
+        listener.set_nonblocking(true).unwrap();
+        assert!(matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock));
+    }).await;
+    let local = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(local.path(), b"abc").unwrap();
+    // Empty/placeholder identities fail before even querying the selected socket.
+    for expected in ["", " unknown "] {
+        let error = connected
+            .driver
+            .upload_file(
+                &connected.serial,
+                expected,
+                local.path(),
+                "/sdcard/movie",
+                3,
+                false,
+            )
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("needs a verified TV hardware identity"),
+            "{error}"
+        );
+    }
+    let error = connected
+        .driver
+        .upload_file(
+            &connected.serial,
+            "original-tv",
+            local.path(),
+            "/sdcard/movie",
+            3,
+            true,
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("hardware identity changed since the upload was selected"),
+        "{error}"
+    );
+    assert_eq!(
+        connected
+            .driver
+            .shell(&connected.serial, "echo ok")
+            .await
+            .unwrap()
+            .stdout,
+        "ok\n"
+    );
+    connected.peer.join().unwrap();
+}

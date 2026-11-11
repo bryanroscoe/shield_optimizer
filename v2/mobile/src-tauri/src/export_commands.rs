@@ -9,12 +9,13 @@
 //!   atv-adb Kotlin plugin, which streams the file to the chosen document. No storage permission.
 //! - **Share** copies the file into `<cache>/exports/<unique>/`, the only folder the app's
 //!   FileProvider maps, and opens the share sheet with a temporary read grant. Staged copies are
-//!   removed after [`STAGE_TTL`].
+//!   eligible for cleanup after [`STAGE_TTL`], at the next share or app startup.
 //!
 //! Screenshots leave under a name without the TV's address (`tv-screenshot-<time>.png`).
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 use atv_optimizer_core::commands::AppState;
@@ -24,11 +25,11 @@ use tauri_plugin_atv_adb::AdbExt;
 
 /// The folder under the app cache dir that `res/xml/file_paths.xml` exposes. Keep in step.
 pub const EXPORTS_DIR: &str = "exports";
-/// How long a staged share copy is kept for the receiving app to read it.
+/// Age at which a staged share copy becomes eligible for lazy cleanup.
 pub const STAGE_TTL: Duration = Duration::from_secs(60 * 60);
 /// Share stages a copy; anything larger goes through Save a copy, which streams.
 pub const MAX_SHARE_BYTES: u64 = 512 * 1024 * 1024;
-/// The picker can stay open while the user browses; past this the request is given up.
+/// Bound the caller wait, not the native operation; ownership survives this deadline.
 const SAVE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const SHARE_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -60,20 +61,20 @@ pub struct Exportable {
 
 /// One save or share at a time; the system UI covers the app anyway.
 #[derive(Default)]
-pub struct ExportGate(AtomicBool);
+pub struct ExportGate(Arc<AtomicBool>);
 
-pub struct ExportBusy<'a>(&'a AtomicBool);
+pub struct ExportBusy(Arc<AtomicBool>);
 
 impl ExportGate {
-    pub fn try_begin(&self) -> Option<ExportBusy<'_>> {
+    pub fn try_begin(&self) -> Option<ExportBusy> {
         self.0
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .ok()
-            .map(|_| ExportBusy(&self.0))
+            .map(|_| ExportBusy(Arc::clone(&self.0)))
     }
 }
 
-impl Drop for ExportBusy<'_> {
+impl Drop for ExportBusy {
     fn drop(&mut self) {
         self.0.store(false, Ordering::Release);
     }
@@ -238,11 +239,18 @@ pub fn prune_at_startup(cache_dir: &Path) {
 }
 
 async fn blocking<T: Send + 'static>(
+    busy: ExportBusy,
     timeout: Duration,
     late: &str,
     f: impl FnOnce() -> Result<T, String> + Send + 'static,
 ) -> Result<T, String> {
-    match tokio::time::timeout(timeout, tokio::task::spawn_blocking(f)).await {
+    // A timeout or dropped caller detaches this worker, but cannot cancel native work.
+    // Move ownership into the worker, releasing only after its terminal result.
+    let worker = tokio::task::spawn_blocking(move || {
+        let _busy = busy;
+        f()
+    });
+    match tokio::time::timeout(timeout, worker).await {
         Ok(Ok(result)) => result,
         Ok(Err(join)) => Err(join.to_string()),
         Err(_) => Err(late.to_string()),
@@ -260,17 +268,18 @@ pub async fn export_file(
     mode: ExportMode,
 ) -> Result<ExportOutcome, String> {
     let item = resolve_exportable(&state.data_dir, Path::new(&path))?;
-    let _busy = gate
+    let busy = gate
         .try_begin()
-        .ok_or("Another save or share is still open.")?;
+        .ok_or("Another save or share is still pending. Finish or dismiss its Android screen and wait for it to finish.")?;
     match mode {
         ExportMode::Save => {
             let source = item.source.to_string_lossy().into_owned();
             let (name, mime) = (item.suggested_name.clone(), item.mime);
             let handle = app.clone();
             let saved = blocking(
+                busy,
                 SAVE_TIMEOUT,
-                "The save didn't finish in time. Check the folder you picked before trying again.",
+                "The save result is unknown and it may still finish. Check the chosen folder. Another export stays blocked until Android answers.",
                 move || {
                     handle
                         .adb()
@@ -292,20 +301,21 @@ pub async fn export_file(
                 .map_err(|e| format!("prepare share: {e}"))?
                 .join(EXPORTS_DIR);
             let mime = item.mime;
-            // No timeout on the local copy (at most MAX_SHARE_BYTES), so the gate stays held
-            // until it ends and never overlaps another export.
-            let staged = tokio::task::spawn_blocking(move || {
-                stage_for_share(&exports, &item, SystemTime::now())
-            })
-            .await
-            .map_err(|e| e.to_string())??;
             let handle = app.clone();
-            blocking(SHARE_TIMEOUT, "The share sheet didn't open.", move || {
-                handle
-                    .adb()
-                    .share_file(&staged.to_string_lossy(), mime)
-                    .map_err(|e| e.to_string())
-            })
+            blocking(
+                busy,
+                SHARE_TIMEOUT,
+                "The share result is unknown. The sheet may still open. Another export stays blocked until Android answers.",
+                move || {
+                    // Keep the stage and native dispatch under the same owned gate, even
+                    // if the caller leaves this screen while the local copy is running.
+                    let staged = stage_for_share(&exports, &item, SystemTime::now())?;
+                    handle
+                        .adb()
+                        .share_file(&staged.to_string_lossy(), mime)
+                        .map_err(|e| e.to_string())
+                },
+            )
             .await?;
             Ok(ExportOutcome::ShareOpened)
         }
@@ -480,6 +490,96 @@ mod tests {
         let busy = gate.try_begin().unwrap();
         assert!(gate.try_begin().is_none());
         drop(busy);
+        assert!(gate.try_begin().is_some());
+    }
+
+    async fn wait_until_released(gate: &ExportGate) {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(busy) = gate.try_begin() {
+                    drop(busy);
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("terminal worker must release export ownership");
+    }
+
+    #[tokio::test]
+    async fn timeout_retains_ownership_until_late_success_or_failure() {
+        for succeeds in [true, false] {
+            let gate = ExportGate::default();
+            let busy = gate.try_begin().unwrap();
+            let (release, receive) = std::sync::mpsc::channel();
+            let result = blocking(
+                busy,
+                Duration::from_millis(10),
+                "result unknown",
+                move || {
+                    receive.recv().unwrap();
+                    if succeeds {
+                        Ok(())
+                    } else {
+                        Err("provider refused".into())
+                    }
+                },
+            )
+            .await;
+            assert_eq!(result, Err("result unknown".into()));
+            // A second export cannot overlap the late provider write or delayed share UI.
+            let still_owned = gate.try_begin().is_none();
+            release.send(()).unwrap();
+            assert!(still_owned);
+            wait_until_released(&gate).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn caller_cancellation_does_not_release_running_export() {
+        let gate = ExportGate::default();
+        let busy = gate.try_begin().unwrap();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, receive) = std::sync::mpsc::channel();
+        let caller = tokio::spawn(blocking(
+            busy,
+            Duration::from_secs(60),
+            "unknown",
+            move || {
+                started.send(()).unwrap();
+                receive.recv().unwrap();
+                Ok(())
+            },
+        ));
+        ready.await.unwrap();
+        caller.abort();
+        assert!(caller.await.unwrap_err().is_cancelled());
+        let still_owned = gate.try_begin().is_none();
+        release.send(()).unwrap();
+        assert!(still_owned);
+        wait_until_released(&gate).await;
+    }
+
+    #[tokio::test]
+    async fn terminal_error_and_panic_release_export() {
+        let gate = ExportGate::default();
+        let result: Result<(), String> = blocking(
+            gate.try_begin().unwrap(),
+            Duration::from_secs(2),
+            "unknown",
+            || Err("failed".into()),
+        )
+        .await;
+        assert_eq!(result, Err("failed".into()));
+        let result: Result<(), String> = blocking(
+            gate.try_begin().unwrap(),
+            Duration::from_secs(2),
+            "unknown",
+            || panic!("simulated worker panic"),
+        )
+        .await;
+        assert!(result.is_err());
         assert!(gate.try_begin().is_some());
     }
 
