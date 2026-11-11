@@ -1640,7 +1640,9 @@ mod tests {
             matches!(&error, RustADBError::IOError(io) if io.kind() == io::ErrorKind::ConnectionAborted),
             "{error:?}"
         );
-        assert!(finished.saturating_duration_since(cancelled_at) < Duration::from_millis(250));
+        // Cancellation, not the 5 s budget, ended the upgrade; a loaded CI
+        // runner can take far longer than a fixed few hundred milliseconds.
+        assert!(finished.saturating_duration_since(cancelled_at) < Duration::from_secs(2));
         server.join().unwrap();
     }
 

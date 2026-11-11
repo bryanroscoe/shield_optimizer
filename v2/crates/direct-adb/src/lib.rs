@@ -1544,10 +1544,26 @@ fn pair_error_message(error: &PairingError) -> String {
 /// upgrade path requires the file to be present on disk — so we create it up
 /// front rather than letting adb_client generate an ephemeral in-memory key.
 fn ensure_adb_key(path: &Path, allow_creation: bool) -> Result<(), String> {
+    ensure_adb_key_with(path, allow_creation, generate_identity_pem)
+}
+
+fn ensure_adb_key_with(
+    path: &Path,
+    allow_creation: bool,
+    generate: impl FnOnce() -> Result<Vec<u8>, String>,
+) -> Result<(), String> {
     static KEY_INITIALIZATION: Mutex<()> = Mutex::new(());
     let _initialization = lock_recovering(&KEY_INITIALIZATION);
-    if path.exists() {
-        return Ok(());
+    // Only a definite "not there" may create a key: a new key de-authorizes
+    // every TV that trusted the old one, so a transient error must not.
+    match path.try_exists() {
+        Ok(true) => return check_existing_key(path),
+        Ok(false) => {}
+        Err(e) => {
+            return Err(format!(
+                "Could not check this device's ADB identity ({e}); it was left as it was."
+            ))
+        }
     }
     if !allow_creation {
         return Err(
@@ -1555,18 +1571,73 @@ fn ensure_adb_key(path: &Path, allow_creation: bool) -> Result<(), String> {
                 .into(),
         );
     }
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| format!("create key dir: {e}"))?;
+    let parent = match path.parent() {
+        Some(parent) if !parent.as_os_str().is_empty() => parent,
+        _ => Path::new("."),
+    };
+    std::fs::create_dir_all(parent).map_err(|e| format!("create key dir: {e}"))?;
+    let pem = generate().map_err(|e| format!("generate ADB key: {e}"))?;
+    // tempfile creates the file owner-only, like the key it becomes.
+    let mut staged = tempfile::Builder::new()
+        .prefix(".adb_key.")
+        .tempfile_in(parent)
+        .map_err(|e| format!("write ADB key: {e}"))?;
+    std::io::Write::write_all(&mut staged, &pem).map_err(|e| format!("write ADB key: {e}"))?;
+    staged
+        .as_file()
+        .sync_all()
+        .map_err(|e| format!("write ADB key: {e}"))?;
+    match staged.persist_noclobber(path) {
+        Ok(_) => {}
+        // Another caller published one first; use it.
+        Err(e) if e.error.kind() == std::io::ErrorKind::AlreadyExists => {
+            return check_existing_key(path)
+        }
+        Err(e) => return Err(format!("write ADB key: {}", e.error)),
     }
-    use rsa::pkcs8::{EncodePrivateKey, LineEnding};
-    let key = rsa::RsaPrivateKey::new(&mut rsa::rand_core::OsRng, 2048)
-        .map_err(|e| format!("generate ADB key: {e}"))?;
-    let pem = key
-        .to_pkcs8_pem(LineEnding::LF)
-        .map_err(|e| format!("encode ADB key: {e}"))?;
-    std::fs::write(path, pem.as_bytes()).map_err(|e| format!("write ADB key: {e}"))?;
+    #[cfg(unix)]
+    if let Ok(dir) = std::fs::File::open(parent) {
+        let _ = dir.sync_all();
+    }
     tracing::info!(path = %path.display(), "generated persistent ADB RSA key");
     Ok(())
+}
+
+/// Starts every error about a key file that exists but cannot be used. The
+/// key is never replaced automatically; the app has to offer a deliberate
+/// reset, since every TV must then approve this device again.
+pub const DAMAGED_ADB_IDENTITY: &str = "This device's ADB identity is damaged";
+
+/// A structural check only (PEM, PKCS#8, RSA key sequence): it catches a
+/// truncated or overwritten file without the RSA arithmetic that full
+/// validation costs on every connect.
+fn key_file_is_well_formed(bytes: &[u8]) -> Result<(), &'static str> {
+    use rsa::pkcs8::der::Decode;
+    if bytes.len() > 32768 {
+        return Err("larger than any RSA key");
+    }
+    let text = std::str::from_utf8(bytes).map_err(|_| "not PEM text")?;
+    let (label, document) =
+        rsa::pkcs8::SecretDocument::from_pem(text).map_err(|_| "not a complete PEM key")?;
+    if label != "PRIVATE KEY" {
+        return Err("not a PKCS#8 private key");
+    }
+    let info = rsa::pkcs8::PrivateKeyInfo::from_der(document.as_bytes())
+        .map_err(|_| "not a PKCS#8 private key")?;
+    rsa::pkcs1::RsaPrivateKey::from_der(info.private_key).map_err(|_| "not an RSA key")?;
+    Ok(())
+}
+
+fn check_existing_key(path: &Path) -> Result<(), String> {
+    let bytes = std::fs::read(path).map_err(|e| {
+        format!("Could not read this device's ADB identity ({e}); it was left as it was.")
+    })?;
+    key_file_is_well_formed(&bytes).map_err(|reason| {
+        format!(
+            "{DAMAGED_ADB_IDENTITY} ({reason}). It was not replaced, because a new identity \
+             means every TV has to approve this device again."
+        )
+    })
 }
 
 /// Live connection state for the frontend watchdog (`wireless_status`).
@@ -2015,12 +2086,65 @@ mod lifecycle_tests {
         assert!(ensure_adb_key(&missing, false).is_err());
         assert!(!missing.exists());
         let existing = temp.path().join("existing-key");
-        std::fs::write(&existing, b"public test marker, not a credential").unwrap();
+        let pem = std::fs::read(crate::connection_tests::fixture_key().path()).unwrap();
+        std::fs::write(&existing, &pem).unwrap();
         ensure_adb_key(&existing, false).unwrap();
-        assert_eq!(
-            std::fs::read(existing).unwrap(),
-            b"public test marker, not a credential"
-        );
+        assert_eq!(std::fs::read(existing).unwrap(), pem);
+    }
+
+    #[test]
+    fn a_damaged_identity_is_reported_and_never_replaced() {
+        let temp = tempfile::tempdir().unwrap();
+        for body in [
+            &b""[..],
+            b"public test marker, not a credential",
+            b"-----BEGIN PRIVATE KEY-----\nAAAA",
+        ] {
+            let damaged = temp.path().join("damaged-key");
+            std::fs::write(&damaged, body).unwrap();
+            for allow in [true, false] {
+                let error = ensure_adb_key(&damaged, allow).unwrap_err();
+                assert!(error.starts_with(super::DAMAGED_ADB_IDENTITY), "{error}");
+                assert_eq!(std::fs::read(&damaged).unwrap(), body);
+            }
+        }
+    }
+
+    #[test]
+    fn a_new_identity_is_complete_private_and_leaves_no_temp() {
+        let temp = tempfile::tempdir().unwrap();
+        let key = temp.path().join("keys").join("adb_key");
+        // The test key, so the suite does no slow debug-build RSA generation.
+        let fixture = std::fs::read(crate::connection_tests::fixture_key().path()).unwrap();
+        ensure_adb_key_with(&key, true, || Ok(fixture.clone())).unwrap();
+        assert_eq!(std::fs::read(&key).unwrap(), fixture);
+        let names: Vec<_> = std::fs::read_dir(key.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, vec![std::ffi::OsString::from("adb_key")]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&key).unwrap().permissions().mode();
+            assert_eq!(mode & 0o077, 0, "{mode:o}");
+        }
+        ensure_adb_key_with(&key, true, || {
+            panic!("an existing key is never regenerated")
+        })
+        .unwrap();
+        assert_eq!(std::fs::read(&key).unwrap(), fixture);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_identity_that_cannot_be_checked_is_not_regenerated() {
+        let temp = tempfile::tempdir().unwrap();
+        let not_a_dir = temp.path().join("file");
+        std::fs::write(&not_a_dir, b"x").unwrap();
+        let error = ensure_adb_key(&not_a_dir.join("adb_key"), true).unwrap_err();
+        assert!(error.contains("left as it was"), "{error}");
+        assert_eq!(std::fs::read(&not_a_dir).unwrap(), b"x");
     }
 
     #[tokio::test]

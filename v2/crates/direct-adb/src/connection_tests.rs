@@ -2,7 +2,7 @@ use super::*;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 
-fn fixture_key() -> tempfile::NamedTempFile {
+pub(crate) fn fixture_key() -> tempfile::NamedTempFile {
     // Reuse the vendor's public test key; never read a user's ADB identity.
     let source =
         include_str!("../../../vendor/adb_client/src/message_devices/models/adb_rsa_key.rs");
@@ -1103,7 +1103,16 @@ async fn an_approval_request_offers_the_key_and_waits_for_allow_within_its_budge
         .await
         .expect("the request offers the public key")
         .unwrap();
-    assert!(driver.awaiting_authorization());
+    // The peer reports the offer as soon as it reads the AUTH packet; the
+    // driver raises the flag only once its own write has returned.
+    let flagged = tokio::time::Instant::now() + OFFER_OR_CONNECT_DEADLINE;
+    while !driver.awaiting_authorization() {
+        assert!(
+            tokio::time::Instant::now() < flagged,
+            "the driver never reported that it awaits authorization"
+        );
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     // Longer than a quiet connect would ever wait for an answer.
     tokio::time::sleep(Duration::from_millis(1500)).await;
     assert!(
