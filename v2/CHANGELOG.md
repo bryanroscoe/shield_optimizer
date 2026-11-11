@@ -32,6 +32,15 @@ this file and shows the newest few sections, dated, from its version button.
 - Desktop: Install APK shows a bad drop's error and the drag highlight while a folder is listed or a file is staged, not only on the empty tab, and a listed APK reads Installed right after you install it.
 - Desktop: Disable and Uninstall on a protected app say Protected and why.
 - Android: Back closes the top dialog or sheet before leaving the screen.
+- Desktop: an APK install the TV refuses (for example `INSTALL_FAILED_VERSION_DOWNGRADE`) shows the decoded reason instead of a bare error, for Install APK and Copy to another device.
+- Desktop: downloading platform-tools has a timeout, and the new copy is installed only once it is complete, so a failed or interrupted download leaves the working adb in place.
+- Desktop: Scan LAN no longer port-sweeps the network behind a VPN or other tunnel when that is where the default route goes; it says why it skipped the sweep.
+- Desktop: APK backup file names are cleaned of anything that isn't a plain file-name character, and every backup stays inside the folder you chose.
+- Desktop: the App List's per-row badges no longer add a Tab stop per row; the App, RAM and Last used column headers each have a **?** that explains them by keyboard.
+- Android: the phone's ADB key is written safely in one step, and a damaged key is reported as such instead of being replaced silently, which would have un-paired every TV.
+- Android: APK backups are capped at 2 GiB.
+- Android: switching the phone to a right-to-left language no longer drops the TV session.
+- Android: Send Text keeps what you typed when the app silently reconnects to the same TV; it still closes when a different TV answers. A Reboot or Emergency recovery confirmed across a reconnect asks you to confirm again, and a reboot's result is shown even when the TV drops the connection as it goes down.
 
 - Desktop and Android: DIRECTV, DisneyNOW and Live Channels now have reviewed Caution recommendations, starting at Keep. DIRECTV explains the operator-box and subscription caveats; retired DisneyNOW warns that it has no current Play download; Live Channels warns about tuner viewing, its guide and TV input shortcuts. None is selected automatically (#307, #318, #321).
 

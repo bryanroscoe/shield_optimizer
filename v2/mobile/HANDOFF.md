@@ -215,7 +215,9 @@ deferred.
   history on the device: Chromium skips entries pushed from `popstate` without a user gesture, so
   the second Back left the app. The spare-history-entry path remains only for the browser tests.
   A font or display size change must not recreate the activity (`fontScale|density` in
-  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom.
+  `configChanges`); `MainActivity` passes the new font scale to the WebView's text zoom. Neither
+  must a switch to a right-to-left language (`locale|layoutDirection`): recreating the activity
+  dropped the TV session.
 - **Reconnect safety.** The session generation is reactive. Launcher, app sheets and file actions
   discard reads, picker intent, polling and continuations when the generation or liveness changes,
   including a reconnect to the same endpoint. Tweaks keys screensaver originals by verified
