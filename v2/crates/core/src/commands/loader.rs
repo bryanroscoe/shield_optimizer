@@ -222,31 +222,76 @@ mod tests {
         );
     }
 
-    /// A curated entry must never be able to claim a package is safe when the
-    /// protected list says it bricks the device.
+    /// No shipped entry may name a protected package at all: a catalog row
+    /// for it is a disable the app would offer and then refuse.
     #[test]
-    fn no_shipped_entry_overrides_the_protected_list() {
+    fn no_shipped_entry_is_on_the_protected_list() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let protected: Vec<&str> = bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+            .map(|entry| entry.package.as_str())
+            .filter(|package| crate::engine::is_never_disable(package))
+            .collect();
+        assert!(
+            protected.is_empty(),
+            "protected packages in the catalog: {protected:?}"
+        );
+    }
+
+    /// Optimize pre-selects `default_optimize` entries. One the safety rules
+    /// call Caution would be ticked by default while its row warns against it.
+    #[test]
+    fn no_default_optimize_entry_is_classified_caution() {
+        let bundle = load_embedded_app_lists().expect("embedded lists parse");
+        let cautioned: Vec<&str> = bundle
+            .common
+            .iter()
+            .chain(bundle.shield.iter())
+            .chain(bundle.googletv.iter())
+            .filter(|entry| entry.default_optimize)
+            .filter(|entry| {
+                !matches!(
+                    classify_with_catalog(
+                        &entry.package,
+                        Some(CatalogVerdict {
+                            risk: entry.risk,
+                            description: &entry.optimize_description,
+                        }),
+                    ),
+                    Safety::Safe { .. }
+                )
+            })
+            .map(|entry| entry.package.as_str())
+            .collect();
+        assert!(
+            cautioned.is_empty(),
+            "pre-selected but not Safe: {cautioned:?}"
+        );
+    }
+
+    /// The engine's caution list outranks the catalog, so an entry for one of
+    /// its packages must not claim Safe.
+    #[test]
+    fn no_shipped_entry_marked_safe_is_on_the_caution_list() {
         let bundle = load_embedded_app_lists().expect("embedded lists parse");
         for entry in bundle
             .common
             .iter()
             .chain(bundle.shield.iter())
             .chain(bundle.googletv.iter())
+            .filter(|entry| entry.risk == crate::engine::RiskTier::Safe)
         {
-            let verdict = classify_with_catalog(
-                &entry.package,
-                Some(CatalogVerdict {
-                    risk: entry.risk,
-                    description: &entry.optimize_description,
-                }),
+            assert!(
+                !matches!(
+                    crate::engine::classify_safety(&entry.package),
+                    Safety::Caution { .. }
+                ),
+                "{} is catalog Safe but on the caution list",
+                entry.package
             );
-            if crate::engine::is_never_disable(&entry.package) {
-                assert!(
-                    matches!(verdict, Safety::NeverDisable { .. }),
-                    "{} is protected but classified {verdict:?}",
-                    entry.package
-                );
-            }
         }
     }
 
@@ -1194,8 +1239,11 @@ mod tests {
 
     /// Components that ship with the TV and that nobody installs, so they are
     /// neither default bloat nor "remove only if unused". Each one is listed in
-    /// docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md with its reason.
+    /// docs/OPTIMIZE-CATALOG-REVIEW-2026-11-08.md with its reason, except
+    /// Google Feedback and Nvidia Games: no longer pre-selected (2026-11-11)
+    /// because the safety rules call them Caution.
     const PREINSTALLED_NOT_REVIEW: &[&str] = &[
+        "com.google.android.feedback",
         "com.android.printspooler",
         "com.android.gallery3d",
         "com.android.dreams.basic",
@@ -1205,6 +1253,7 @@ mod tests {
         "com.nvidia.osc",
         "com.nvidia.shieldtech.hooks",
         "com.nvidia.nvgamecast",
+        "com.nvidia.tegrazone3",
         "com.google.android.tungsten.overscan",
         "com.droidlogic.launcher.provider",
     ];
