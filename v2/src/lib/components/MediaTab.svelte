@@ -72,7 +72,7 @@
     {#if caps.verdicts.length}
       <h3>Verdict</h3>
       <ul class="verdicts">
-        {#each caps.verdicts as v (v.title)}
+        {#each caps.verdicts as v, i (i)}
           <li class="verdict {v.level}">
             <div class="verdict-title">{v.title}</div>
             <div class="verdict-detail">{v.detail}</div>
@@ -89,7 +89,7 @@
         <tr><th>Format</th><th>Reported configuration</th><th class="mime">MIME</th></tr>
       </thead>
       <tbody>
-        {#each caps.video as v (v.mime)}
+        {#each caps.video as v, i (i)}
           {@const support = formatSupport(v)}
           <tr>
             <td>{v.label}</td>

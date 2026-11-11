@@ -91,7 +91,7 @@
         <section class="report-group" aria-label="Network interfaces">
           <h4>Network interfaces</h4>
           <ul class="network-list">
-            {#each resources.interfaces as network (network.name)}
+            {#each resources.interfaces as network, i (i)}
               <li class="network-interface" aria-label={`Interface ${network.name}`}>
                 <h5 class="mono">{network.name}</h5>
                 <dl class="network-rates">

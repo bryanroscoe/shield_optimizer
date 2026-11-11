@@ -2710,7 +2710,7 @@
                   <tr><th>Interface</th><th class="right">RX</th><th class="right">TX</th></tr>
                 </thead>
                 <tbody>
-                  {#each resource.interfaces as network (network.name)}
+                  {#each resource.interfaces as network, i (i)}
                     <tr>
                       <td class="mono">{network.name}</td>
                       <td class="right mono">{formatRate(network.rx_bytes_per_s)}</td>
