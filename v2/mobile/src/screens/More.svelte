@@ -39,6 +39,12 @@
     return line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
   }
 
+  // Spelled in pieces: Vite's dependency scanner strips HTML comments from a
+  // .svelte file before parsing its script, and literal markers here cut the
+  // script short and fail the scan (tests/optimize-deps.test.mjs).
+  const COMMENT_OPEN = "<" + "!--";
+  const COMMENT_CLOSE = "--" + ">";
+
   /// The generated third-party notices are Markdown with a little HTML (a
   /// generator comment, <details>/<summary>). This only splits them into
   /// blocks of plain text; the template renders every block as text, so
@@ -63,14 +69,14 @@
         blocks.push({ kind: "code", text: code.join("\n") });
         continue;
       }
-      if (line.includes("<!--")) {
-        line = line.replace(/<!--[\s\S]*?-->/g, "");
-        const open = line.indexOf("<!--");
+      if (line.includes(COMMENT_OPEN)) {
+        line = line.replace(/<!-{2}[\s\S]*?-{2}>/g, "");
+        const open = line.indexOf(COMMENT_OPEN);
         if (open >= 0) {
           // A comment that runs onto later lines.
           let end = i + 1;
-          while (end < lines.length && !lines[end].includes("-->")) end++;
-          line = line.slice(0, open) + (end < lines.length ? lines[end].slice(lines[end].indexOf("-->") + 3) : "");
+          while (end < lines.length && !lines[end].includes(COMMENT_CLOSE)) end++;
+          line = line.slice(0, open) + (end < lines.length ? lines[end].slice(lines[end].indexOf(COMMENT_CLOSE) + 3) : "");
           i = end;
         }
       }

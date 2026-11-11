@@ -1,6 +1,12 @@
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
 
+/// Every bare package the app imports, pre-bundled before the first page
+/// load. Vite's own scan finds these too; the list makes a scan failure (as
+/// More.svelte once caused) unable to reload a page mid-test.
+/// tests/optimize-deps.test.mjs keeps it complete.
+export const OPTIMIZE_DEPS_INCLUDE = ["@tauri-apps/api/app", "@tauri-apps/api/core", "@tauri-apps/api/event"];
+
 /// Start a Vite dev server for a browser suite.
 ///
 /// Every browser suite must come through here (GitHub #113): a suite that
@@ -18,15 +24,26 @@ export async function startViteServer() {
   const server = await createServer({
     root: fileURLToPath(new URL("../../", import.meta.url)),
     logLevel: "silent",
-    // Vite's dependency scan fails on src/screens/More.svelte (its "<!--" /
-    // "-->" string literals break the scanner's comment stripping), so deps
-    // are only found lazily and a late one reloads the page mid-test. List
-    // every bare package import from src/ here.
-    optimizeDeps: {
-      include: ["@tauri-apps/api/app", "@tauri-apps/api/core", "@tauri-apps/api/event"],
-    },
+    optimizeDeps: { include: OPTIMIZE_DEPS_INCLUDE },
     server: { host: "127.0.0.1", port: 5200, strictPort: false },
   });
   await server.listen();
-  return { server, origin: `http://127.0.0.1:${server.httpServer.address().port}` };
+  const origin = `http://127.0.0.1:${server.httpServer.address().port}`;
+  // Compile the app once here so a cold server's transform time is not
+  // charged to the first test's timeout.
+  await warm(server, origin);
+  return { server, origin };
+}
+
+async function warm(server, origin) {
+  try {
+    const html = await (await fetch(`${origin}/`)).text();
+    await server.transformIndexHtml("/", html);
+    await server.warmupRequest("/src/main.ts");
+    // warmupRequest follows static imports; wait for that graph and the
+    // dependency optimizer to settle.
+    await server.waitForRequestsIdle?.("/src/main.ts");
+  } catch {
+    // Warming is best effort; a real failure surfaces in the test itself.
+  }
 }
