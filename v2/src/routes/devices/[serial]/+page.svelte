@@ -1,7 +1,7 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
-  import { onMount, onDestroy, tick } from "svelte";
+  import { onMount, onDestroy, tick, untrack } from "svelte";
   import { page } from "$app/stores";
   import { goto } from "$app/navigation";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -2093,9 +2093,11 @@
   $effect(() => {
     visited[activeTab] = true;
     if (activeTab === "health") {
-      if ((report === null || healthStale) && !reportLoading) {
+      // A failed first load leaves `report` null; without the reportErr check
+      // this would retry forever. Refresh (or a stale mark) retries explicitly.
+      if (((report === null && reportErr === null) || healthStale) && !reportLoading) {
         healthStale = false;
-        loadHealth();
+        untrack(() => loadHealth());
       }
       // Preload the app tab so its own inventory is ready when visited.
       if (!appsLoaded && !appsLoading) loadApps();
@@ -2174,7 +2176,7 @@
     // Unmount the extracted tab components — their state dies with them.
     visited = {};
     device = null; deviceErr = null;
-    report = null; reportErr = null; reportLastRefreshed = null; memorySafety = {};
+    report = null; reportErr = null; reportLoading = false; reportLastRefreshed = null; memorySafety = {};
     memoryConfirmed = new Set();
     launchers = []; launchersLoaded = false; currentLauncher = null; channelDisabled = null;
     launcherErr = null; launcherActionMessage = ""; launcherSetResult = null;
