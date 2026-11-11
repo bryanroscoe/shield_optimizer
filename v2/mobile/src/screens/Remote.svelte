@@ -180,13 +180,33 @@
     latency = null;
   }
 
+  // Send Text targets the connection it was opened on, never a TV that took
+  // its place while the dialog was up.
+  type Connection = { serial: string; generation: number };
+  let keyboardTarget: Connection | null = null;
+  function isCurrent(target: Connection | null): target is Connection {
+    return (
+      target !== null &&
+      !destroyed &&
+      session.isConnected &&
+      session.serial === target.serial &&
+      session.generation === target.generation
+    );
+  }
+
   async function handleSendText() {
     if (!textToSend || sending) return;
+    const target = keyboardTarget;
+    if (!isCurrent(target)) {
+      modalError = "Not connected to the TV this was opened for. Nothing was sent.";
+      return;
+    }
     sending = true;
     modalError = "";
     try {
       const start = performance.now();
-      const r = await api.sendText(session.serial, textToSend, forceShell);
+      const r = await api.sendText(target.serial, textToSend, forceShell);
+      if (!isCurrent(target)) return;
       noteResult(r.transport, Math.round(performance.now() - start));
       if (r.ok) {
         textToSend = "";
@@ -195,16 +215,35 @@
         modalError = r.message;
       }
     } catch (e) {
-      modalError = String(e);
+      if (isCurrent(target)) modalError = String(e);
     } finally {
       sending = false;
     }
   }
 
   function openKeyboard() {
+    if (!session.isConnected) {
+      remoteMessage = "Not connected to a TV.";
+      return;
+    }
+    keyboardTarget = { serial: session.serial, generation: session.generation };
     modalError = "";
     showKeyboardModal = true;
   }
+
+  // A TV switch, reconnect or lost link closes what was opened for the old one.
+  let watched = `${session.serial}:${session.generation}:${session.isConnected}`;
+  $effect(() => {
+    const key = `${session.serial}:${session.generation}:${session.isConnected}`;
+    if (key === watched) return;
+    watched = key;
+    if (showKeyboardModal) remoteMessage = "The TV connection changed, so Send Text was closed.";
+    showKeyboardModal = false;
+    powerConfirm = false;
+    keyboardTarget = null;
+    textToSend = "";
+    modalError = "";
+  });
 
   function confirmPower() {
     powerConfirm = false;
@@ -212,8 +251,12 @@
   }
 
   function openSettings() {
+    if (!session.isConnected || destroyed || queuedWork >= 8) return;
+    const target = { serial: session.serial, generation: session.generation };
     enqueue(async () => {
-      const r = await api.openSettings(session.serial);
+      if (!isCurrent(target)) return;
+      const r = await api.openSettings(target.serial);
+      if (!isCurrent(target)) return;
       remoteMessage = r.ok ? "" : r.message;
     });
   }

@@ -321,6 +321,38 @@ test("remote queue is discarded after navigation and a TV switch", async (t) => 
   assert.deepEqual(calls.map((c) => c.args.serial), ["A:5555"]);
 });
 
+test("Send Text and Settings stay bound to the TV they were opened on", async (t) => {
+  const page = await open(t);
+  // Send Text opened on A closes when the session moves to B; nothing reaches B.
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await page.getByRole("textbox", { name: "Text to send" }).fill("secret");
+  await page.evaluate(() => window.session.connect("B", 5555));
+  await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
+  await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
+
+  // A Settings press queued behind a slow key on A is dropped after the switch.
+  await page.evaluate(async () => {
+    await window.session.connect("A", 5555);
+    window.handlers.send_key = () => new Promise((resolve) => { window.release = resolve; });
+  });
+  await page.getByRole("button", { name: "Volume up", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await page.evaluate(async () => {
+    await window.session.connect("B", 5555);
+    window.release({ ok: true, transport: "channel" });
+  });
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 30)));
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "open_settings")), false);
+
+  // Lost link: neither opens anything.
+  await page.evaluate(() => { window.session.liveness = "lost"; });
+  await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  assert.equal(await page.getByRole("dialog", { name: "Send Text to TV" }).count(), 0);
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "open_settings")), false);
+});
+
 test("ordinary remote taps cannot accumulate an unlimited backlog", async (t) => {
   const page = await open(t);
   await page.evaluate(() => {
