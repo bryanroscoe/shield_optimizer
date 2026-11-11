@@ -15,8 +15,10 @@
 # logs, listings, hash manifests, registry and shortcut dumps, localStorage
 # dumps) is uploaded as `upgrade-evidence-<scenario>`, pass or fail.
 #
-# The release workflow can call this before tagging (workflow_call); leave
-# `stage-version` empty there so the build keeps the version being released.
+# v2-release.yml does NOT run this. Dispatch it by hand before tagging a
+# release that touches the upgrade path. A future caller using workflow_call
+# should leave `stage-version` empty so the build keeps the version being
+# released.
 
 name: v2 Upgrade Tests
 
