@@ -21,8 +21,8 @@
 # (tested by scripts/test_release_scripts.py); it refuses any version Windows
 # would not see as an upgrade.
 #
-# Pre-release tags are auto-flagged as GitHub prereleases by the workflow's
-# regex (matches -(alpha|beta|rc|preview|pre)([.-]?[0-9]+)?).
+# Any tag with a suffix after X.Y.Z is published as a GitHub prerelease only;
+# it never reaches the updater manifest or the Homebrew cask.
 
 set -euo pipefail
 
