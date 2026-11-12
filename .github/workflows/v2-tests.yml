@@ -171,6 +171,12 @@ jobs:
         working-directory: v2
         run: npm run test:release-notes
 
+      # The release's merge-updater runs this script to verify signatures before
+      # publishing latest.json; it must read real `tauri signer` output.
+      - name: Updater signatures
+        working-directory: v2
+        run: npm run test:updater-signatures
+
       - name: Update notes dialog
         working-directory: v2
         run: npm run test:update-notes-dialog
