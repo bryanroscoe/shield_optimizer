@@ -47,7 +47,7 @@ try {
         const kind = args.package.endsWith('.protected') || t.mode === 'safety-after' && t.reads > 1 ? 'never_disable' : args.package.endsWith('.review') ? 'caution' : 'safe';
         return { kind, reason: 'Synthetic consequence: app functionality is removed.', source: 'reviewed_catalog' };
       }
-      // Installed by the TV's user: Uninstall is suggested only for these.
+      // Third-party packages: source does not prove store origin.
       if (command === 'user_installed_packages') return ['test.fixture.reviewprimary'];
       if (command === 'list_other_packages') return [{ package: 'test.other.app', name: 'Fixture other app', enabled: true, system: false }];
       if (['disable_package', 'enable_package', 'uninstall_package', 'reinstall_existing', 'backup_apk'].includes(command)) throw new Error('Synthetic test blocks all device writes');
@@ -63,8 +63,8 @@ try {
   await row('disable').getByRole('button', { name: 'Disable', exact: true }).waitFor();
   for (const id of ['disable', 'review', 'keep', 'disabled', 'long']) assert.equal(await uninstall(id).count(), baseline ? 0 : 1, id);
   assert.equal(await uninstall('primary').count(), 1, 'primary action must not duplicate');
-  assert.equal(await row('reviewprimary').getByRole('button', { name: 'Review: uninstall if unused', exact: true }).count(), 1);
-  assert.equal(await uninstall('reviewprimary').count(), 0, 'review primary must not duplicate');
+  assert.equal(await row('reviewprimary').getByRole('button', { name: 'Review: disable if unused', exact: true }).count(), 1);
+  assert.equal(await uninstall('reviewprimary').count(), 1, 'explicit Uninstall remains available beside the Disable suggestion');
   // The same store app preinstalled: Disable is suggested, Uninstall still offered.
   assert.equal(await row('reviewshipped').getByRole('button', { name: 'Review: disable if unused', exact: true }).count(), 1);
   assert.equal(await uninstall('reviewshipped').count(), 1, 'a preinstalled store app still offers Uninstall');

@@ -70,9 +70,9 @@ pub struct Snapshot {
     /// Catalog apps that weren't installed for user 0 when this was saved —
     /// uninstalled, or never there; the TV can't say which. Only apps a
     /// restore may turn off: Safe or Medium risk, and not ones the catalog
-    /// says belong on the TV (`default_restore`). A restore disables any of
-    /// these it finds installed and never uninstalls. Schema v4+; older
-    /// snapshots load with none.
+    /// says belong on the TV (`default_restore`). Retained for schema v4
+    /// compatibility, but never acted on: the saved TV's hardware identity
+    /// is not verified. Older snapshots load with none.
     #[serde(default)]
     pub absent_packages: Vec<String>,
 }
@@ -145,22 +145,19 @@ impl Snapshot {
     }
 }
 
-/// A catalog app a restore may turn off because the snapshot didn't have it:
-/// Safe or Medium risk, and not one the catalog says belongs on the TV.
-fn restore_may_disable_absent(entry: &AppEntry) -> bool {
+/// The original v4 recording scope, preserved for file compatibility.
+fn records_absent(entry: &AppEntry) -> bool {
     !entry.default_restore && matches!(entry.risk, RiskTier::Safe | RiskTier::Medium)
 }
 
 /// The catalog apps a snapshot records as absent: not installed for user 0,
-/// and ones a restore may turn off. `installed` must come from a successful,
+/// within the original v4 recording scope. `installed` must come from a successful,
 /// non-empty read.
 pub fn absent_catalog_packages(catalog: &[AppEntry], installed: &[String]) -> Vec<String> {
     let installed: std::collections::HashSet<&str> = installed.iter().map(String::as_str).collect();
     let mut absent: Vec<String> = catalog
         .iter()
-        .filter(|entry| {
-            restore_may_disable_absent(entry) && !installed.contains(entry.package.as_str())
-        })
+        .filter(|entry| records_absent(entry) && !installed.contains(entry.package.as_str()))
         .map(|entry| entry.package.clone())
         .collect();
     absent.sort();
@@ -173,13 +170,16 @@ pub fn absent_catalog_packages(catalog: &[AppEntry], installed: &[String]) -> Ve
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SnapshotApplyPlan {
     /// Packages to be `pm disable-user`d (currently installed and enabled).
-    /// Includes the snapshot's absent apps that are installed here.
+    /// Only explicitly recorded disabled apps, never inferred absent state.
     pub packages_to_disable: Vec<String>,
-    /// Which of `packages_to_disable` the snapshot recorded as not installed,
-    /// so the preview can say why they go off. A restore disables these; it
-    /// never uninstalls.
+    /// Legacy preview field. Always empty: absent state no longer authorizes
+    /// a disable. Retained for callers reading older serialized plans.
     #[serde(default)]
     pub packages_absent_in_snapshot: Vec<String>,
+    /// Recorded absent apps left unchanged because the saved TV's hardware
+    /// identity is unverified. Named in the preview, never counted as actions.
+    #[serde(default)]
+    pub packages_absent_skipped: Vec<String>,
     /// Packages already in the disabled state — no-op, but counted.
     pub packages_already_disabled: Vec<String>,
     /// Packages on the snapshot list but not present on the target device.
@@ -253,8 +253,8 @@ pub struct ApplyPlanInputs<'a> {
     pub home_handlers: Option<&'a [String]>,
     /// The launcher catalog, which says which packages may be Home apps.
     pub launchers: &'a LauncherCatalog,
-    /// The target's app catalog. A snapshot's absent app is turned off only
-    /// while this still lists it as one a restore may turn off.
+    /// The target's app catalog. Catalog membership cannot establish that
+    /// an absent app was removed on this TV.
     pub catalog: &'a [AppEntry],
 }
 
@@ -292,26 +292,12 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
             to_disable.push(pkg.clone());
         }
     }
-    // An app the snapshot didn't have that this TV runs goes off, the
-    // reversible way. One already off or not here needs nothing. The target's
-    // catalog is checked again: the snapshot may be older than the catalog,
-    // from another device type, or edited by hand.
-    let mut absent_to_disable: Vec<String> = Vec::new();
-    for pkg in &snap.absent_packages {
-        let still_allowed = inputs
-            .catalog
-            .iter()
-            .any(|entry| &entry.package == pkg && restore_may_disable_absent(entry));
-        if still_allowed
-            && installed_set.contains(pkg.as_str())
-            && !disabled_set.contains(pkg.as_str())
-            && !to_disable.contains(pkg)
-            && !absent_to_disable.contains(pkg)
-        {
-            absent_to_disable.push(pkg.clone());
-        }
-    }
-    to_disable.extend(absent_to_disable.iter().cloned());
+    // A matching device type or transport serial/IP is not hardware identity.
+    // Absence also cannot distinguish an uninstall from an app never installed.
+    // Preserve the v4 record, but leave every such target app untouched.
+    let mut packages_absent_skipped = snap.absent_packages.clone();
+    packages_absent_skipped.sort();
+    packages_absent_skipped.dedup();
 
     let cross_device_warning = if snap.device_type != inputs.target_device_type {
         Some(format!(
@@ -382,11 +368,6 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         inputs.current_launcher,
         inputs.launchers,
     );
-    let packages_absent_in_snapshot = to_disable
-        .iter()
-        .filter(|pkg| absent_to_disable.contains(pkg))
-        .cloned()
-        .collect();
     let packages_kept = kept
         .into_iter()
         .map(|(package, reason)| KeptPackage {
@@ -397,7 +378,8 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
 
     SnapshotApplyPlan {
         packages_to_disable: to_disable,
-        packages_absent_in_snapshot,
+        packages_absent_in_snapshot: Vec::new(),
+        packages_absent_skipped,
         packages_already_disabled: already_disabled,
         packages_not_installed: not_installed,
         launcher_to_set,
@@ -490,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn only_missing_catalog_apps_a_restore_may_turn_off_are_recorded() {
+    fn v4_recording_scope_is_unchanged() {
         let catalog = [
             entry("com.safe.gone", RiskTier::Safe, false),
             entry("com.medium.gone", RiskTier::Medium, false),
@@ -518,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn absent_apps_installed_here_are_disabled_and_named() {
+    fn absent_apps_are_skipped_and_named_without_changing_explicit_restoration() {
         let mut snap = sample_snapshot();
         snap.absent_packages = vec![
             "com.gone.here".into(),
@@ -562,12 +544,84 @@ mod tests {
                 catalog: &catalog,
             },
         );
-        // Once, even though the file lists it twice.
-        assert_eq!(plan.packages_to_disable, ["com.foo", "com.gone.running"]);
-        assert_eq!(plan.packages_absent_in_snapshot, ["com.gone.running"]);
-        // Already off, or not on this TV either: nothing to do, nothing listed.
+        assert_eq!(plan.packages_to_disable, ["com.foo"]);
+        assert!(plan.packages_absent_in_snapshot.is_empty());
+        assert_eq!(
+            plan.packages_absent_skipped,
+            [
+                "com.gone.here",
+                "com.gone.off",
+                "com.gone.running",
+                "com.not.catalog",
+                "com.now.belongs",
+                "com.now.high",
+            ]
+        );
+        assert_eq!(plan.settings_to_write, snap.settings);
+        // Skipped absent entries are not counted as explicit-disabled matches.
         assert_eq!(plan.packages_already_disabled, Vec::<String>::new());
         assert_eq!(plan.packages_not_installed, ["com.bar", "com.missing"]);
+    }
+
+    #[test]
+    fn absent_state_never_changes_targets_even_when_type_or_transport_matches() {
+        let mut snap = sample_snapshot();
+        snap.disabled_packages.clear();
+        snap.current_launcher = None;
+        snap.absent_packages = vec!["com.example.app".into(), "com.android.systemui".into()];
+        let catalog = [
+            entry("com.example.app", RiskTier::Safe, false),
+            entry("com.android.systemui", RiskTier::Safe, false),
+        ];
+        let installed = snap.absent_packages.clone();
+        for target_device_type in [
+            DeviceType::Shield,
+            DeviceType::GoogleTv,
+            DeviceType::Unknown,
+        ] {
+            for serial in ["same-transport", "another-tv"] {
+                snap.device_serial = serial.into();
+                for (present, disabled) in [
+                    (&installed[..], &[][..]),
+                    (&installed[..], &installed[..]),
+                    (&[][..], &[][..]),
+                ] {
+                    let plan = compute_apply_plan(
+                        &snap,
+                        &ApplyPlanInputs {
+                            target_device_type,
+                            currently_disabled: disabled,
+                            currently_installed: present,
+                            current_settings: &snap.settings,
+                            current_launcher: Some("com.example.app"),
+                            home_handlers: Some(&installed),
+                            launchers: &LauncherCatalog::default(),
+                            catalog: &catalog,
+                        },
+                    );
+                    assert!(plan.packages_to_disable.is_empty());
+                    assert!(plan.packages_absent_in_snapshot.is_empty());
+                    assert_eq!(
+                        plan.packages_absent_skipped,
+                        ["com.android.systemui", "com.example.app"]
+                    );
+                    assert!(plan.packages_already_disabled.is_empty());
+                    assert!(plan.packages_not_installed.is_empty());
+                    assert!(plan.packages_kept.is_empty());
+                    assert!(plan.launcher_to_set.is_none());
+                    assert!(plan.settings_to_write.is_empty());
+                    assert!(plan.settings_to_delete.is_empty());
+                    assert_eq!(
+                        plan.settings_already_set,
+                        snap.settings.keys().cloned().collect::<Vec<_>>()
+                    );
+                    assert_eq!(
+                        plan.cross_device_warning.is_some(),
+                        target_device_type != snap.device_type
+                    );
+                }
+            }
+        }
     }
 
     #[test]

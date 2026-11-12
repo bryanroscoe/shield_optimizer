@@ -19,6 +19,8 @@ export interface DiscoveryRow {
   source: "discovery" | "saved";
   host: string;
   name: string;
+  /// Current scan display metadata, never saved or used as identity.
+  advertisedName?: string;
   connectPorts: number[];
   pairingPorts: number[];
   legacyConnectPorts: number[];
@@ -140,7 +142,7 @@ export function buildDiscoveryRows(
       legacyConnectPorts: new Set<number>(),
     };
     const name = discovery.name?.trim();
-    if (name) group.instances.push({ name, service: discovery.service });
+    group.instances.push({ name: name ?? "", service: discovery.service });
     if (name && !name.toLowerCase().startsWith("adb-")) group.names.add(name);
     const friendlyName = discovery.friendly_name?.trim();
     if (friendlyName) group.friendlyNames.add(friendlyName);
@@ -183,6 +185,15 @@ export function buildDiscoveryRows(
       );
     }
     if (savedMatch) verified.add(savedMatch);
+    // Keep the saved label, including intentional names. Only associate a
+    // second current-scan label when every advert agrees on this saved id;
+    // sharing an address (or a label) alone must never name a saved TV.
+    const advertisedName = savedMatch?.hardwareId &&
+      group.friendlyNames.size === 1 &&
+      (!live.connected || group.host !== live.host || liveId === normalizeHardwareId(savedMatch.hardwareId)) &&
+      group.instances.every((instance) => advertisedMatch([instance], savedMatch.hardwareId))
+      ? [...group.friendlyNames][0]
+      : undefined;
     rows.push({
       key: `discovery:${group.host}`,
       source: "discovery",
@@ -191,6 +202,7 @@ export function buildDiscoveryRows(
       // under is the honest label -- more useful than a generic fallback when
       // several TVs advertise nothing but their adb id.
       name: savedMatch?.name ?? displayName(group.friendlyNames.size > 0 ? group.friendlyNames : group.names),
+      ...(advertisedName && advertisedName !== savedMatch?.name ? { advertisedName } : {}),
       connectPorts,
       pairingPorts: [...group.pairingPorts].sort((a, b) => a - b),
       legacyConnectPorts: [...group.legacyConnectPorts].sort((a, b) => a - b),

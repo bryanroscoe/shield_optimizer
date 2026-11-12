@@ -28,7 +28,7 @@ async function main() {
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 } });
+    const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, ...(evidence ? { recordVideo: { dir: evidence, size: { width: 1280, height: 1000 } } } : {}) });
     page.setDefaultTimeout(10000);
     const errors = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -46,6 +46,12 @@ async function main() {
 
     const line = "2 settings in this file are not ones snapshots restore and will be skipped.";
     async function checkWarning(scope, shot) {
+      const absent = scope.locator('[data-plan-item="absent-skipped"]');
+      await absent.getByText("Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.").waitFor();
+      await absent.locator("summary").click();
+      await absent.getByText("tv.twitch.android.app", { exact: true }).waitFor();
+      assert.equal(await scope.locator("table").getByText("tv.twitch.android.app", { exact: true }).count(), 0, "recorded absence never appears among actions");
+      if (evidence) await scope.screenshot({ path: join(evidence, shot.replace("refused-settings", "absent-unchanged")) });
       const warning = scope.locator('[data-plan-item="refused"]');
       await warning.getByText(line).waitFor();
       const help = warning.locator("summary", { hasText: "Skipped settings" });
