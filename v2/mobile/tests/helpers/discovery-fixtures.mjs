@@ -5,8 +5,12 @@ export async function discoveryPage(browser, origin, options = {}) {
     ...(options.videoDir ? { recordVideo: { dir: options.videoDir, size: { width: 384, height: 812 } } } : {}),
   });
   const page = await context.newPage();
-  await page.addInitScript(() => {
+  await page.addInitScript((savedDevices) => {
     localStorage.clear();
+    if (savedDevices.length) {
+      localStorage.setItem("atv.savedDevices.v1", JSON.stringify(savedDevices));
+      localStorage.setItem("atv.autoConnect.v1", "0");
+    }
     window.connects = [];
     window.pendingConnections = [];
     window.discoveryMode = "named";
@@ -28,8 +32,9 @@ export async function discoveryPage(browser, origin, options = {}) {
         default: return null;
       }
     } };
-  });
+  }, options.savedDevices ?? []);
   await page.goto(origin);
+  if (options.savedDevices?.length) await page.getByRole("button", { name: "Scan for a different TV" }).click();
   await page.getByRole("button", { name: "Scan network" }).click();
   await page.getByRole("button", { name: /Studio TV/ }).waitFor();
   return { page, context };
