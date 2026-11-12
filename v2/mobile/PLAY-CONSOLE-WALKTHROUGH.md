@@ -306,7 +306,7 @@ Set up your app** list links to each page.
 
 - **AGENT:** draft the policy from `DATA-INVENTORY.md` and `v2/telemetry-worker/README.md`. It
   must cover the operator and contact, data on the phone, data sent to the TV, the anonymous
-  reports and their fields, the 90-day raw retention, what is never sent, Google Play billing
+  reports and their fields, the 30-day raw retention, what is never sent, Google Play billing
   (payment handled by Google; the purchase record stays on the phone), and how to turn reports off
   and request deletion. Label it "Privacy Policy" and name the app. Add a **Privacy policy** link
   in More (it opens in the browser) through a normal PR. Both are required by
@@ -425,7 +425,7 @@ country, and stores no IP address), and Installed apps (TV package lists are nev
 TVs, ADB keys and snapshots never leave the phone, so they aren't "collected".
 
 **Deletion.** Be honest; this is an owner decision. What exists today:
-- Raw events are deleted automatically 90 days after receipt (daily cron).
+- Raw events are deleted automatically 30 days after receipt (daily cron).
 - Aggregate tables keep the install id per device group (`agg_device_installs`) indefinitely.
   That means Google's "automatically deleted or anonymized within 90 days" description isn't fully
   met.
@@ -436,11 +436,12 @@ TVs, ADB keys and snapshots never leave the phone, so they aren't "collected".
 
 `<<OWNER: choose one>>`
 1. **Answer No for now.** It's truthful, and there are no accounts, so no deletion mechanism is
-   required. The privacy policy explains the opt-out and the 90-day raw retention.
+   required. The privacy policy explains the opt-out and the 30-day raw retention.
 2. **Make it Yes (agent work, about half a day):** show a copyable install id in More > Privacy,
    name the support email in the privacy policy as the deletion channel, and have the owner run
    the README's `DELETE` statements on request. Optionally also purge or anonymize
-   `agg_device_installs.install_id` after 90 days, so the automatic-deletion description fits.
+   `agg_device_installs.install_id` within 90 days, so the automatic-deletion description fits. Raw
+   retention (30 days) already meets it; the install ids in the aggregates are what don't.
 
 **Telemetry consent: decided 2026-11-01.** Reports start at launch, before the user taps
 anything; the first-launch notice is non-blocking. Google requires prominent in-app disclosure

@@ -239,15 +239,15 @@ describe("POST /v1/events", () => {
     expect(await counter()).toBe(before + eventBytes(clean.value));
     expect(eventBytes(clean.value)).toBeGreaterThan(new TextEncoder().encode(clean.value.log_excerpt ?? "").length);
 
-    // wrangler.toml's GLOBAL_DAILY_EVENT_BYTES (1.5 MiB): a full byte budget
+    // wrangler.toml's GLOBAL_DAILY_EVENT_BYTES (10 MiB): a full byte budget
     // refuses the next event as the global cap and stores nothing.
-    await env.DB.prepare("UPDATE rate_daily SET events = ?3 WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY, 1572864 - 10).run();
+    await env.DB.prepare("UPDATE rate_daily SET events = ?3 WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY, 10485760 - 10).run();
     const fresh = newInstallId();
     const res = await post("/v1/events", { events: [event({ install_id: fresh })] });
     expect(res.status).toBe(429);
     expect(await res.json()).toEqual({ error: "global_daily_cap" });
     expect(await rowsFor(fresh)).toHaveLength(0);
-    expect(await counter()).toBe(1572864 - 10);
+    expect(await counter()).toBe(10485760 - 10);
     await env.DB.prepare("UPDATE rate_daily SET events = ?3 WHERE day = ?1 AND key = ?2").bind(day, EVENT_BYTES_KEY, before).run();
   });
 

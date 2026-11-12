@@ -74,7 +74,7 @@ export function formatSupportReport(r: Report): string {
   const plural = r.matches === 1 ? "install" : "installs";
   out.push(`Support ID ${r.query}: ${r.matches} ${plural} matched${r.truncated ? " (showing the 5 most recent)" : ""}`);
   if (r.matches === 0) {
-    out.push("", "Nothing stored under that ID. Raw events are kept 90 days and logs 30 days; an ID changes when");
+    out.push("", "Nothing stored under that ID. Raw events and logs are kept 30 days; an ID changes when");
     out.push("the user turns reports off and on again.");
   }
   for (const i of r.installs) {

@@ -421,7 +421,13 @@ describe("log retention", () => {
       ).bind(recent, id),
     ]);
 
-    await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "17 3 * * *" }), env);
+    // wrangler.toml keeps raw events no longer than log text (both 30 days), so
+    // the 40-day event would simply be deleted. Longer raw retention shows the
+    // excerpt being cleared from an event that stays.
+    await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "17 3 * * *" }), {
+      ...env,
+      RAW_RETENTION_DAYS: "90",
+    });
 
     const events = (await env.DB.prepare("SELECT diag, log_excerpt FROM events WHERE install_id = ?1 ORDER BY received_at")
       .bind(id)

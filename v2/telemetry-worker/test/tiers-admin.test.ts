@@ -154,21 +154,31 @@ describe("GET /v1/admin/devices", () => {
 });
 
 describe("retention cron", () => {
-  it("purges raw events past 90 days and keeps aggregates", async () => {
+  it("purges raw events past 30 days and keeps aggregates", async () => {
     const id = newInstallId();
     const dev = { manufacturer: "OldCo", model: "Old", device: "old", profile: "androidtv" };
     expect((await post("/v1/events", { events: [event({ install_id: id, device: dev })] })).status).toBe(204);
-    await env.DB.prepare(
+    const now = new Date();
+    const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000).toISOString();
+    const insert = env.DB.prepare(
       `INSERT INTO events (received_at, client_ts, install_id, app, app_version, os, kind)
-       VALUES ('2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', ?1, 'desktop', '1.0.0', 'linux', 'device_seen')`,
-    ).bind(id).run();
+       VALUES (?1, ?1, ?2, 'desktop', '1.0.0', 'linux', 'device_seen')`,
+    );
+    await env.DB.batch([
+      insert.bind("2000-01-01T00:00:00.000Z", id),
+      insert.bind(daysAgo(31), id),
+      insert.bind(daysAgo(29), id),
+    ]);
     await env.DB.prepare("INSERT INTO rate_daily (day, key, events) VALUES ('2000-01-01', ?1, 5)").bind(id).run();
 
-    await worker.scheduled(createScheduledController({ scheduledTime: new Date(), cron: "17 3 * * *" }), env);
+    await worker.scheduled(createScheduledController({ scheduledTime: now, cron: "17 3 * * *" }), env);
 
-    const left = await env.DB.prepare("SELECT received_at FROM events WHERE install_id = ?1").bind(id).all();
-    expect(left.results).toHaveLength(1);
-    expect((left.results[0] as { received_at: string }).received_at.startsWith("2000")).toBe(false);
+    // wrangler.toml's RAW_RETENTION_DAYS (30): 31 days old goes, 29 days old stays.
+    const left = await env.DB.prepare("SELECT received_at FROM events WHERE install_id = ?1 ORDER BY received_at").bind(id).all<{
+      received_at: string;
+    }>();
+    // The 29-day-old row, then the one just posted.
+    expect(left.results.map((r) => r.received_at)).toEqual([daysAgo(29), expect.any(String)]);
     const rate = await env.DB.prepare("SELECT COUNT(*) AS n FROM rate_daily WHERE day = '2000-01-01'").first();
     expect(rate).toEqual({ n: 0 });
     const agg = await env.DB.prepare("SELECT COUNT(*) AS n FROM agg_device_daily WHERE manufacturer = 'OldCo'").first();

@@ -29,29 +29,40 @@ crons = ["17 3 * * *"]
 
 [vars]
 PRIVACY_CONTACT_EMAIL = "bryanroscoe+atv@gmail.com"
-# Raw event rows older than this are purged by the cron trigger.
-RAW_RETENTION_DAYS = "90"
-# Log text (event log_excerpt, diag_uploads rows) is kept for less.
+# Raw event rows older than this are purged by the cron trigger. Only rows of the
+# `events` table: the aggregate tables (device report, distinct-install counts)
+# are not governed by it.
+RAW_RETENTION_DAYS = "30"
+# Log text (event log_excerpt, diag_uploads rows) is kept for no longer.
 LOG_RETENTION_DAYS = "30"
 # Per install_id, per UTC day. Requests over the cap get 429 and store nothing.
 PER_INSTALL_DAILY_EVENTS = "500"
 # Across all installs, per UTC day. Sized to D1's free-tier write quota (100k rows
-# written/day). Worst case per event is about 8 row writes on arrival (2 quota rows,
-# the raw row and its two index entries, 3 aggregate rows) plus about 4 when the cron
-# later deletes it (quota row, raw row and its index entries): ~12 per event-day under
-# a sustained flood, so 7k events stays near 84k writes. See README.md.
+# written/day). Worst case per event is about 9 row writes on arrival (3 quota rows,
+# the raw row and its two index entries, 3 aggregate rows, for a one-event batch
+# under a made-up install id) plus about 4 when the cron later deletes it (quota row,
+# raw row and its index entries): ~13 per event-day under a sustained flood, so 7k
+# events is ~91k writes, ~63k of them on arrival. See README.md.
+#
+# Which cap binds: 10 MiB / 7,000 is ~1,500 bytes an event. Measured 2026-11-11 the
+# average is 1.25-1.6 KB, so in normal use the two bind at about the same point:
+# the count cap first on days of small events, the byte cap on error-heavy days
+# (log excerpts are ~2.2-2.8 KB). The busiest day so far (~2,250 events, ~3.5 MB)
+# is about a third of both.
 GLOBAL_DAILY_EVENTS = "7000"
 # Storage. The Workers Free plan caps ONE D1 database at 500 MB (5 GB is the
 # account total); past it every write, so every ingest, upload and tier sync,
 # fails with 503. Worst case under a flood of made-up install ids, with the
-# caps below: events 1.5 MiB/day x 90 days ~ 142 MB, uploads 6 MiB/day x 30
-# days ~ 189 MB, plus row overhead and counters, ~ 335 MB of estimated data:
-# more than STORAGE_BUDGET_BYTES, so in that case the cron's trim holds it at
-# the budget. See "Storage budget" in README.md. Raise these only on a paid plan.
+# caps below: events 10 MiB/day x 30 days ~ 315 MB, uploads 6 MiB/day x 30
+# days ~ 189 MB, plus row overhead and counters, ~ 508 MB of estimated data:
+# well over STORAGE_BUDGET_BYTES, so in that case the cron's trim holds it at
+# the budget (uploads first, then raw events). See "Storage budget" in
+# README.md. Raise these only on a paid plan.
 #
 # Stored bytes of accepted events per UTC day across everyone: each event costs
-# its string bytes plus 256 for the row and its index entries.
-GLOBAL_DAILY_EVENT_BYTES = "1572864"
+# its string bytes plus 256 for the row and its index entries. Sized at three
+# times the busiest day measured (3,487,846 bytes on 2026-11-10).
+GLOBAL_DAILY_EVENT_BYTES = "10485760"
 # Send logs uploads (POST /v1/diagnostics). The per-install cap is checked first,
 # so one install can't spend the shared budget. The global caps are a count and
 # a byte total per UTC day (24 full-size 256 KiB uploads, or up to 200 small
@@ -68,7 +79,10 @@ GLOBAL_DAILY_UPLOAD_BYTES = "6291456"
 # estimated stored bytes pass it. Kept well under 500 MB because the estimate
 # counts data, not SQLite's page overhead.
 STORAGE_BUDGET_BYTES = "300000000"
-# Row writes (index entries included) one cron run may spend on that trim. The
-# event and upload caps use up to ~63k of the Free plan's 100k a day, so 20k
-# leaves room; a bigger overshoot is worked off over several days.
-STORAGE_TRIM_MAX_ROW_WRITES = "20000"
+# Row writes (index entries included) one cron run may spend on its deletes: the
+# retention purge's come out of it first and the trim gets the rest. Arrivals
+# use up to ~64k of the Free plan's 100k a day (events ~63k, uploads ~1.2k), so
+# 30k keeps the day near 94k. Under the worst-case flood the purge's quota-row
+# deletes take ~7k, leaving the trim ~23k: a day's uploads plus ~7.4k raw
+# events, more than a day adds. A bigger overshoot is worked off over days.
+STORAGE_TRIM_MAX_ROW_WRITES = "30000"
