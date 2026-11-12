@@ -81,12 +81,11 @@ export function installSource(pkg: string, userInstalled: ReadonlySet<string> | 
   return userInstalled.has(pkg) ? "user" : "preinstalled";
 }
 
-/// The removal a "remove if unused" row suggests — mirrors desktop's
-/// `suggestedMethod` and the engine's `AppEntry::suggested_method`. Uninstall
-/// only for an ordinary store app this TV's user installed; preinstalled,
-/// sideloaded or unknown gets the reversible Disable.
-export function suggestedMethod(a: AppEntry, source: InstallSource): RemovalMethod {
-  return source === "user" && canOfferStoreUninstall(a) ? "uninstall" : "disable";
+/// Android's third-party package list does not verify Play Store origin.
+/// Review rows always suggest the reversible Disable; explicit Uninstall
+/// availability is still controlled by canOfferUninstall.
+export function suggestedMethod(_a: AppEntry, _source: InstallSource): RemovalMethod {
+  return "disable";
 }
 
 export function reviewLabel(method: RemovalMethod): string {
@@ -97,7 +96,7 @@ export function reviewLabel(method: RemovalMethod): string {
 /// `act` = recommended by default. `review` = worth removing if you don't use
 /// it, never a default. `restore` = gone, and worth bringing back.
 /// `done` / `keep` = nothing to do. `unavailable` = we can't say yet.
-/// `source` only changes which removal a review row suggests.
+/// Install source alone never establishes store provenance.
 export function recommendation(
   a: AppEntry,
   state: PackageState | null,

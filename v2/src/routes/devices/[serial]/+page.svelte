@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AbsentSnapshotApps from "../../../../shared/components/AbsentSnapshotApps.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import RefusedSettings from "$lib/components/RefusedSettings.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
@@ -3680,6 +3681,7 @@
           <div class="warning">{preview.cross_device_warning}</div>
         {/if}
         <RefusedSettings keys={preview.settings_refused ?? []} />
+        <AbsentSnapshotApps packages={preview.packages_absent_skipped ?? []} />
         <!-- Row per item, as the board has it: what it is now and what this
              snapshot would make it. "Now" is left blank where the device has
              not told us — a preview that guesses is worse than one that says
@@ -3691,11 +3693,7 @@
             </thead>
             <tbody>
               {#each preview.packages_to_disable as pkg (pkg)}
-                {#if preview.packages_absent_in_snapshot?.includes(pkg)}
-                  <tr data-plan-item="absent"><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED (not installed in snapshot)</td></tr>
-                {:else}
-                  <tr><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
-                {/if}
+                <tr><td class="mono"><BreakableId text={pkg} /></td><td class="plan-now">ENABLED</td><td class="plan-next change">→ DISABLED</td></tr>
               {/each}
               {#if preview.launcher_to_set}
                 <tr data-plan-item="launcher">

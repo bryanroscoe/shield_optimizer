@@ -59,15 +59,16 @@ export function previewRows(plan: SnapshotApplyPlan, snapshotLauncher: string | 
   const acting: PreviewRow[] = [];
   const unchanged: PreviewRow[] = [];
 
-  const absent = new Set(plan.packages_absent_in_snapshot ?? []);
   for (const pkg of plan.packages_to_disable) {
     acting.push({
       item: pkg,
       now: "enabled",
-      // A restore never uninstalls: an app the snapshot didn't have goes off.
-      result: absent.has(pkg) ? "Not installed in snapshot — will be disabled" : "Disable",
+      result: "Disable",
       kind: "disable",
     });
+  }
+  for (const pkg of plan.packages_absent_skipped ?? []) {
+    unchanged.push({ item: pkg, now: "—", result: "Recorded absent; unchanged because saved-TV hardware identity is unverified", kind: "disable" });
   }
   if (plan.launcher_to_set) {
     acting.push({
@@ -131,6 +132,8 @@ export function previewSummary(plan: SnapshotApplyPlan): string {
     `${settings} setting${settings === 1 ? "" : "s"} to write`,
     `${plan.settings_to_delete.length} to reset`,
   ];
+  const absent = plan.packages_absent_skipped?.length ?? 0;
+  if (absent > 0) parts.push(`${absent} recorded absent; unchanged`);
   const kept = homeSafety(plan).packages_kept.length;
   if (kept > 0) parts.push(`${kept} kept on for Home`);
   if (plan.launcher_to_set) parts.push("Home app");
