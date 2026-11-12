@@ -23,6 +23,13 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Discovery shows a current, unambiguous advertised name above a differing saved label, marked
+“Advertised · saved as …”. Saved names/storage and connection identity are unchanged. The extra
+label requires all current adverts to match the saved hardware serial and no conflicting live
+identity at that host, including a different port. Missing/conflicting/lost metadata removes the
+extra label; it is never identity proof. Fixture upgrade tests cover legacy “Android TV” labels
+and intentional room labels. Physical post-update discovery remains to be checked.
+
 Manual retained-candidate runtime QA is implemented in `.github/workflows/mobile-16kb-runtime.yml`.
 It verifies a successful signed main build's provenance and APK/AAB hashes before testing the
 unchanged APK on an Android 16 x86_64 emulator reporting actual 16384-byte pages. It records native

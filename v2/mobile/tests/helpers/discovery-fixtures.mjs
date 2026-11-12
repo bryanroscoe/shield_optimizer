@@ -2,7 +2,7 @@ export async function discoveryPage(browser, origin, options = {}) {
   const context = await browser.newContext({
     viewport: options.viewport ?? { width: 384, height: 812 },
     colorScheme: options.colorScheme ?? "dark",
-    ...(options.videoDir ? { recordVideo: { dir: options.videoDir, size: { width: 384, height: 812 } } } : {}),
+    ...(options.videoDir ? { recordVideo: { dir: options.videoDir, size: options.viewport ?? { width: 384, height: 812 } } } : {}),
   });
   const page = await context.newPage();
   await page.addInitScript((savedDevices) => {
