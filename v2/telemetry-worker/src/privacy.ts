@@ -19,7 +19,7 @@ main{max-width:740px;margin:auto;padding:40px 24px 72px}h1{font-size:2rem;line-h
 h2{font-size:1.25rem;margin-top:2rem}a{overflow-wrap:anywhere}li{margin:.4rem 0}
 </style></head><body><main>
 <h1>ATV Optimizer Privacy Policy</h1>
-<p>Effective November 3, 2026. ATV Optimizer is operated by Bryan Roscoe.
+<p>Effective November 12, 2026. ATV Optimizer is operated by Bryan Roscoe.
 This policy describes the Android phone and tablet app, package <code>com.atvoptimizer.mobile</code>.</p>
 <h2>Your phone and TV</h2>
 <p>The app connects to a TV you authorize over your local network. Saved TVs, their addresses,
