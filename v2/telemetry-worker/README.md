@@ -118,11 +118,13 @@ How that is enforced server-side, so a client bug cannot break it:
 
 ## Retention
 
-- Raw events (`events` table) are deleted 90 days after they were received, by a daily Cron
-  Trigger at 03:17 UTC. Change `RAW_RETENTION_DAYS` in `wrangler.toml` to adjust.
-- Log text is kept 30 days (`LOG_RETENTION_DAYS`): the same cron clears `log_excerpt` on older
-  events (the event and its `diag` stay until the 90 days are up) and deletes older
-  `diag_uploads` rows.
+- Raw events (`events` table) are deleted 30 days after they were received, by a daily Cron
+  Trigger at 03:17 UTC. Change `RAW_RETENTION_DAYS` in `wrangler.toml` to adjust (until this is
+  deployed production still keeps 90 days; see [Production](#production)). It governs `events` rows and nothing else: the aggregate tables below, and
+  so the device report and its distinct-install counts, are not shortened by it.
+- Log text is kept 30 days (`LOG_RETENTION_DAYS`): the same cron deletes older `diag_uploads`
+  rows and clears `log_excerpt` on older events. With both settings at 30 the excerpt goes with
+  its event; if raw retention is ever set longer, the event and its `diag` stay without it.
 - Aggregates are kept: per-day counts per device/app version (`agg_device_daily`), per-day error
   code counts (`agg_error_daily`) and the install ids seen per device group
   (`agg_device_installs`, used to count distinct installs). These hold no free text.
@@ -267,7 +269,7 @@ it does not substitute for a native app or physical TV test.
 | URL | https://atv-optimizer-telemetry.bryanroscoe.workers.dev |
 | Worker | `atv-optimizer-telemetry` |
 | D1 | `telemetry`, id `e86ca0a5-fc1d-4692-9602-01407920ce61` (the committed binding in `wrangler.toml`) |
-| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events past 90 days, log excerpts and uploads past 30 days, and old rate counters; then enforce the [storage budget](#storage-budget) |
+| Cron | `17 3 * * *` (03:17 UTC daily): purge raw events, log excerpts and uploads past 30 days, and old rate counters; then enforce the [storage budget](#storage-budget) with what the purge left of the run's row-write allowance |
 | Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it, and so do the PR's native test packages (`v2-tests.yml`), which also set `ATVOPT_TEST_BUILD` to the merge commit they build and the PR head; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
 
@@ -294,13 +296,14 @@ Both skip with a notice if the secret or variable is missing.
 
 **Not yet deployed (2026-11-11):** the storage budget (`GLOBAL_DAILY_EVENT_BYTES`,
 `STORAGE_BUDGET_BYTES`, `STORAGE_TRIM_MAX_ROW_WRITES`, the lower upload caps and the cron's
-oldest-first trim) and the `400` for a
+oldest-first trim), the 30-day raw retention (production still keeps raw events 90 days) and the
+`400` for a
 malformed support id are on `main` but reach production only with an owner-approved
 `npx wrangler deploy` (see Redeploy below). No migration is needed: the new caps are rows in the
 existing `rate_daily` table and the trim uses existing tables. Until then production keeps the old
 caps, which can fill the 500 MB database. After deploying, delete this note.
 
-Before deploying, check that `GLOBAL_DAILY_EVENT_BYTES` (1.5 MiB/day) clears real traffic with
+Before deploying, check that `GLOBAL_DAILY_EVENT_BYTES` (10 MiB/day) clears real traffic with
 room to spare; once it is live, events over it are refused with `429 global_daily_cap` for the rest
 of the UTC day. This read-only query (`sql/event-volume.sql`) lists the last 14 days' event counts,
 their average stored size and each day's total as the cap counts it (string bytes plus 256 per
@@ -310,11 +313,26 @@ row):
 npx wrangler d1 execute telemetry --remote --file sql/event-volume.sql
 ```
 
-Size the cap from the busiest day's `day_bytes`: keep the cap at least three times that. If the
-busiest day is already over about 0.5 MiB, raise `GLOBAL_DAILY_EVENT_BYTES` in `wrangler.toml`
-before deploying (and check that `GLOBAL_DAILY_EVENTS` × `avg_bytes` is not far below the new
-cap, or the count cap binds first), then redo the "Storage budget" arithmetic below: raw events
-are kept 90 days, so each extra MiB/day is about 94 MB at the worst case.
+Size the cap from the busiest day's `day_bytes`: keep the cap at least three times that, and
+check that `GLOBAL_DAILY_EVENTS` × `avg_bytes` is not far below it, or the count cap binds first.
+After raising either, redo the "Storage budget" arithmetic below: raw events are kept 30 days, so
+each extra MiB/day is about 31 MB at the worst case.
+
+The check was run read-only against production on 2026-11-11. Since desktop 2.5.0 shipped:
+1,900-2,250 events a day from about 130-170 desktop installs, `avg_bytes` 1,250-1,600 and
+`day_bytes` 2.7-3.5 MB, the busiest 3,487,846 on 2026-11-10. About 70% of the bytes are
+`log_excerpt` (2.2-2.8 KB on errors, failed actions and diagnostics). The 1.5 MiB cap first
+merged would have refused more than half of each day's events, so the cap is now 10 MiB
+(three times the busiest day), and raw retention went from 90 to 30 days to keep the worst case
+inside the Free plan. 7,000 events at that average is 8.3-10.7 MiB, so the two caps bind at about
+the same point (see [Free-tier limits](#free-tier-limits-and-abuse-protection)). Rerun the check
+before deploying if more than a few days have passed.
+
+The first cron after the deploy deletes every raw event older than 30 days in one statement, at
+three row writes each. The production database was created on 2026-11-01, so a deploy before
+2026-12-01 has nothing extra to delete. A later one should first count
+`SELECT COUNT(*) FROM events WHERE received_at < strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '-30 days')`:
+over about 10,000 rows, that day's purge alone takes a large share of the 100,000 daily writes.
 
 ### Redeploy
 
@@ -446,16 +464,20 @@ Abuse protection:
 
 - 64 KB body cap, enforced while reading the stream, and at most 50 events per request.
 - Per-install cap: `PER_INSTALL_DAILY_EVENTS` (500) events per install id per UTC day.
-- Global caps: `GLOBAL_DAILY_EVENTS` (7,000) events and `GLOBAL_DAILY_EVENT_BYTES` (1.5 MiB) of
-  stored event data per UTC day across everyone (`rate_daily` keys `*` and `event-bytes:*`). The
-  write budget is about nine row writes per event on arrival in the worst case (a one-event error
-  batch) plus about four for the cron's deletes (its quota row after two days, the raw row and its
-  two index entries after 90). Under a sustained flood that is roughly thirteen writes per event
-  per day. The byte cap admits at most about 4,800 events a day (each costs at least ~330
-  bytes), about 62,000 of the 100,000 free writes, and the count cap bounds it at 91,000 if the
-  byte cap is ever raised; uploads add at most about 1,200 more (200 a day at about six writes
-  each), and the storage trim at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000) a day, for about
-  83,000 in the worst case. Raise them only together with a paid plan.
+- Global caps: `GLOBAL_DAILY_EVENTS` (7,000) events and `GLOBAL_DAILY_EVENT_BYTES` (10 MiB) of
+  stored event data per UTC day across everyone (`rate_daily` keys `*` and `event-bytes:*`).
+  10 MiB / 7,000 is about 1,500 bytes an event, close to the measured average (1,250-1,600), so
+  in normal use the count cap binds first on days of small events and the byte cap on
+  error-heavy days; a flood of minimal events (~330 bytes each) meets the count cap at about
+  2.2 MiB. The write budget is about nine row writes per event on arrival in the worst case (a
+  one-event error batch under a made-up install id) plus about four for the cron's deletes (its
+  quota row after two days, the raw row and its two index entries after 30). Under a sustained
+  flood that is roughly thirteen writes per event per day: 7,000 events is about 63,000 writes on
+  arrival and 28,000 in the cron's retention purge. Uploads add at most about 1,200 on arrival
+  (200 a day at about six writes each) and 600 when they expire. The cron run as a whole, purge
+  and storage trim together, spends at most `STORAGE_TRIM_MAX_ROW_WRITES` (30,000): the purge
+  first, the trim what is left. So the worst case is about 63,000 + 1,200 + 30,000 ≈ 94,000 of the
+  100,000 free writes a day. Raise them only together with a paid plan.
 - Uploads: `PER_INSTALL_DAILY_UPLOADS` (5), `GLOBAL_DAILY_UPLOADS` (200) and
   `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB, 24 full-size uploads) per UTC day, counted in
   `rate_daily` under `upload:<install id>`, `upload:*` and `upload-bytes:*`. The install's own cap
@@ -480,17 +502,18 @@ its stored string bytes plus 256 for the row and its index entries (`eventBytes`
 
 | Data | Worst case |
 | --- | --- |
-| Raw events: 1.5 MiB/day × 90 days (`RAW_RETENTION_DAYS`) | 1,572,864 × 90 ≈ 142 MB |
+| Raw events: 10 MiB/day × 30 days (`RAW_RETENTION_DAYS`) | 10,485,760 × 30 ≈ 315 MB |
 | Uploads: 6 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 6,291,456 × 30 ≈ 189 MB |
 | Upload rows: 200/day × 30 days × ~400 bytes | ≈ 2.4 MB |
 | `rate_daily`: 3 days × ~7,000 keys × ~100 bytes | ≈ 2.1 MB |
-| **Total data** | **≈ 335 MB** |
+| **Total data** | **≈ 508 MB** |
 
-(Log excerpts are counted in the raw events' 90 days though they are cleared after 30, so this
-overstates.) That is more than the 300 MB storage budget, so under a sustained worst-case flood the
-budget, not the caps, sets the size: the trim below keeps the estimate at or under 300 MB by
-deleting the oldest Send logs uploads first. SQLite pages are not packed full, so the file runs
-larger than the data: at a generous 1.4× the budget is about 420 MB of the 500 MB.
+That is far more than the 300 MB storage budget (and more than the database's 500 MB), so under a
+sustained worst-case flood the budget, not the caps, sets the size: the trim below keeps the
+estimate at or under 300 MB by deleting the oldest Send logs uploads first, then raw events.
+SQLite pages are not packed full, so the file runs larger than the data: at a generous 1.4× the
+budget is about 420 MB of the 500 MB. Real traffic is far below this: at the measured 3.5 MB a
+day, 30 days of raw events is about 105 MB, so the trim does not run.
 
 The upload byte cap is deliberately larger than the events': a few made-up install ids can spend
 it and lock "Send logs" out for everyone until the next UTC midnight, so it buys 24 full-size
@@ -511,14 +534,22 @@ The trim must not cause the outage it prevents, so its cost is bounded in rows, 
   oldest rows as it may delete.
 - **Writes.** D1 counts every row and index entry a statement changes. Deleting an upload or a raw
   event costs three row writes (the row and its two index entries), clearing an excerpt or
-  deleting an aggregate row one. One run spends at most `STORAGE_TRIM_MAX_ROW_WRITES` (20,000), in
-  capped oldest-first batches (`… WHERE rowid IN (SELECT rowid … ORDER BY received_at LIMIT n)`),
-  leaving room for the ingest caps' ~63,000 inside the 100,000 a day.
+  deleting an aggregate row one. One cron run spends at most `STORAGE_TRIM_MAX_ROW_WRITES`
+  (30,000) on its deletes. The retention purge runs first and its writes count against that; the
+  trim gets the rest, in capped oldest-first batches
+  (`… WHERE rowid IN (SELECT rowid … ORDER BY received_at LIMIT n)`). That leaves room for the
+  ingest caps' ~64,000 inside the 100,000 a day even on a day when the purge and the trim both
+  run, which a trim with its own separate allowance would not.
 - **Convergence.** A run that reaches the cap stops and the next day's run carries on while the
-  estimate is still over the budget, so a large overshoot is worked off over several days. 20,000
-  writes free about 6,600 uploads, 2 MB of raw events or 4 MB of aggregate rows a day, more than a
-  worst-case day adds of each, so the trim keeps up with a sustained flood. Between two runs the
-  caps add at most ~7.5 MiB of raw data plus aggregate rows, inside the 80 MB of headroom.
+  estimate is still over the budget, so a large overshoot is worked off over several days. Under a
+  worst-case flood the purge's quota-row deletes take about 7,000 writes, leaving the trim about
+  23,000: all of a day's uploads (at most 600 writes) and about 7,400 raw events, more than the
+  7,000 a day can add. What it cannot also keep up with is a flood of made-up device names, which
+  adds up to three aggregate rows per event (about 21,000 rows, roughly 4 MB a day); those are
+  freed only after uploads, excerpts and raw events, and the daily write quota leaves no room to
+  delete them as fast as such a flood adds them, so one sustained for weeks would eventually
+  outgrow the budget. That was already so with the earlier caps, more slowly. Between two runs the caps add at most ~16 MiB of raw data
+  plus aggregate rows, inside the 80 MB of headroom.
 
 On a paid plan (10 GB per database) the caps and the budget can be raised together; keep the
 budget under the plan's per-database limit divided by about 1.4.

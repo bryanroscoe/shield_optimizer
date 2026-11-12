@@ -1,4 +1,5 @@
 import { intVar, type Env } from "./env";
+import { DEFAULT_RAW_RETENTION_DAYS } from "./ingest";
 
 export function privacyPolicy(env: Env, head = false): Response {
   const contact = env.PRIVACY_CONTACT_EMAIL?.trim();
@@ -8,7 +9,7 @@ export function privacyPolicy(env: Env, head = false): Response {
       headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" },
     });
   }
-  const days = intVar(env.RAW_RETENTION_DAYS, 90);
+  const days = intVar(env.RAW_RETENTION_DAYS, DEFAULT_RAW_RETENTION_DAYS);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ATV Optimizer Privacy Policy</title>

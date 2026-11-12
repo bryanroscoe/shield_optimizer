@@ -890,7 +890,7 @@
         <HelpSheet title="What's sent">
           <p class="card-desc">{MOBILE_NOTICE_TEXT}</p>
           <p class="card-desc">
-            Reports go to a server the app's developer runs; raw reports are kept for 90 days.
+            Reports go to a server the app's developer runs; raw reports are kept for 30 days.
             Turning reports back on starts a new random install ID.
           </p>
         </HelpSheet>

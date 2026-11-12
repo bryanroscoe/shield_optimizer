@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Env } from "../src/env";
 import worker from "../src/index";
-import { enforceStorageBudget, estimateStorageBytes, EVENT_ROW_OVERHEAD } from "../src/ingest";
+import { enforceStorageBudget, estimateStorageBytes, EVENT_ROW_OVERHEAD, purgeExpired } from "../src/ingest";
 
 // Each test file gets its own D1, but tests within a file share it, so every
 // test here starts from empty data tables (the support-tier seed stays).
@@ -131,6 +131,31 @@ describe("storage budget", () => {
       .results;
     expect(left).toHaveLength(17);
     expect(left[0]?.received_at).toBe("2000-01-04T00:00:00.000Z");
+  });
+
+  it("gives the trim only what the run's retention purge left of the allowance", async () => {
+    await seedUploads();
+    // 9 writes allowed, 3 already spent by the purge: 6 left, so 2 uploads.
+    const r = await enforceStorageBudget(withBudget(1, 9), 3);
+    expect(r).toMatchObject({ trimmed: ["uploads"], rowWrites: 6, capped: true });
+    expect(await count("SELECT COUNT(*) AS n FROM diag_uploads")).toBe(18);
+    // A purge that spent it all leaves the trim nothing, and says so.
+    const spent = await enforceStorageBudget(withBudget(1, 9), 9);
+    expect(spent).toMatchObject({ trimmed: [], rowWrites: 0, capped: true });
+    expect(await count("SELECT COUNT(*) AS n FROM diag_uploads")).toBe(18);
+  });
+
+  it("counts the cron's retention deletes against the trim's allowance", async () => {
+    await seedUploads();
+    // Three uploads past LOG_RETENTION_DAYS cost the purge 9 writes of the 15:
+    // the trim may then delete two more uploads, not five.
+    const result = await purgeExpired(
+      { ...withBudget(1, 15), LOG_RETENTION_DAYS: "1", RAW_RETENTION_DAYS: "1" } as Env,
+      new Date("2000-01-04T03:17:00Z"),
+    );
+    expect(result.uploads).toBe(3);
+    expect(result.storage).toMatchObject({ trimmed: ["uploads"], rowWrites: 6, capped: true });
+    expect(await count("SELECT COUNT(*) AS n FROM diag_uploads")).toBe(15);
   });
 
   it("converges over several runs, oldest first, and stops once under the target", async () => {

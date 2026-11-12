@@ -3,8 +3,8 @@
 --   npx wrangler d1 execute telemetry --remote --file sql/device-report.sql
 --
 -- Reads only the aggregate tables, so it still covers devices whose raw events
--- were purged after 90 days. An empty manufacturer/model is an error that was
--- not tied to a device.
+-- were purged after RAW_RETENTION_DAYS (30). An empty manufacturer/model is an
+-- error that was not tied to a device.
 WITH totals AS (
   SELECT manufacturer, model, device, profile,
          SUM(events) AS events, SUM(seen) AS seen,

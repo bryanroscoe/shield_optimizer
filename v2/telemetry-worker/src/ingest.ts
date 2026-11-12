@@ -70,9 +70,10 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
   return { ok: false, scope: global ? "global" : "install" };
 }
 
-// 1.5 MiB a day kept RAW_RETENTION_DAYS (90) is at most ~142 MB of events.
+// 10 MiB a day kept RAW_RETENTION_DAYS (30) is at most ~315 MB of events.
 // See "Storage budget" in README.md before raising it.
-export const DEFAULT_DAILY_EVENT_BYTES = 1536 * 1024;
+export const DEFAULT_DAILY_EVENT_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_RAW_RETENTION_DAYS = 30;
 
 // Bumps every counter in `rows` by its `n`, or none of them when any would
 // pass its `cap`. One statement; see consumeQuota.
@@ -236,11 +237,12 @@ export interface PurgeResult {
   storage: StorageTrim;
 }
 
-// Raw events go after RAW_RETENTION_DAYS (90). Log text is kept for less:
+// Raw events go after RAW_RETENTION_DAYS (30). Log text never outlives them:
 // excerpts are cleared from their events, and Send logs uploads deleted,
-// after LOG_RETENTION_DAYS (30). Then the storage budget is enforced.
+// after LOG_RETENTION_DAYS (30). Then the storage budget is enforced with
+// whatever is left of the run's row-write allowance.
 export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
-  const days = intVar(env.RAW_RETENTION_DAYS, 90);
+  const days = intVar(env.RAW_RETENTION_DAYS, DEFAULT_RAW_RETENTION_DAYS);
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
   const logDays = intVar(env.LOG_RETENTION_DAYS, 30);
   const logCutoff = new Date(now.getTime() - logDays * 86_400_000).toISOString();
@@ -253,13 +255,17 @@ export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
     ),
     env.DB.prepare("DELETE FROM diag_uploads WHERE received_at < ?1").bind(logCutoff),
   ]);
-  return {
+  const result = {
     events: ev?.meta.changes ?? 0,
     rate: rate?.meta.changes ?? 0,
     excerpts: excerpts?.meta.changes ?? 0,
     uploads: uploads?.meta.changes ?? 0,
-    storage: await enforceStorageBudget(env),
   };
+  // The same per-row costs as the trim's tiers: a raw event or an upload is
+  // the row and its two index entries; a rate_daily row (WITHOUT ROWID, no
+  // other index) or a cleared excerpt is one.
+  const spent = result.events * 3 + result.rate + result.excerpts + result.uploads * 3;
+  return { ...result, storage: await enforceStorageBudget(env, spent) };
 }
 
 // The storage budget. A Workers Free D1 database stops taking writes at 500 MB,
@@ -278,11 +284,13 @@ export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
 // spend most of the writes under a flood. So the estimate (a read of every
 // row) runs once per cron, and each run deletes at most
 // STORAGE_TRIM_MAX_ROW_WRITES row writes' worth (index entries included),
-// in capped oldest-first batches. A large overshoot converges over several
-// days instead of in one burst: a run that hit the cap resumes the next day
-// for as long as the estimate is still over the budget.
+// in capped oldest-first batches. That allowance covers the whole cron run:
+// the retention purge's writes come out of it first, so a day on which both
+// run still fits the daily quota beside a flood of ingest. A large overshoot
+// converges over several days instead of in one burst: a run that hit the cap
+// resumes the next day for as long as the estimate is still over the budget.
 export const DEFAULT_STORAGE_BUDGET_BYTES = 300_000_000;
-export const DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES = 20_000;
+export const DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES = 30_000;
 const TARGET_FRACTION = 0.8;
 
 const textBytes = (cols: string[]) => `LENGTH(CAST(${cols.map((c) => `COALESCE(${c}, '')`).join(" || ")} AS BLOB))`;
@@ -388,9 +396,13 @@ export interface StorageTrim {
   capped: boolean;
 }
 
-export async function enforceStorageBudget(env: Env): Promise<StorageTrim> {
+// `alreadySpent` is the row writes the same cron run used before the trim.
+export async function enforceStorageBudget(env: Env, alreadySpent = 0): Promise<StorageTrim> {
   const budget = intVar(env.STORAGE_BUDGET_BYTES, DEFAULT_STORAGE_BUDGET_BYTES);
-  const maxWrites = intVar(env.STORAGE_TRIM_MAX_ROW_WRITES, DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES);
+  const maxWrites = Math.max(
+    0,
+    intVar(env.STORAGE_TRIM_MAX_ROW_WRITES, DEFAULT_STORAGE_TRIM_MAX_ROW_WRITES) - alreadySpent,
+  );
   const before = await estimateStorageBytes(env);
   const result: StorageTrim = { before, after: before, budget, trimmed: [], rowWrites: 0, capped: false };
   if (before <= budget) return result;
