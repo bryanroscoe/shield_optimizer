@@ -109,9 +109,24 @@ then repeats signature/certificate, manifest and static APK verification before 
 The job uses one standard `ubuntu-24.04` runner, a 35-minute limit and seven-day evidence
 retention. It is manual-only and restricted to the public repository: GitHub documents standard
 public-repository runners as free. It uses only read permissions and the ephemeral GitHub token,
-never the `google-play` environment or signing/Play credentials. It requires existing usable KVM
-access, sufficient disk and accepted Android SDK licenses. Missing prerequisites fail clearly;
-it does not change device permissions, accept new agreements or fall back to software emulation.
+never the `google-play` environment or signing/Play credentials. By default it requires existing
+usable KVM access and makes no permission changes. It records device/ACL, runner identity,
+CPU virtualization and available emulator diagnostics before rejecting missing access.
+
+Only after separate approval for that concrete run, dispatch with `-f allow_kvm_acl=true` to
+allow a temporary read/write ACL for the current runner UID on the existing root-owned `/dev/kvm`
+character device. This opt-in is false by default and is not standing authorization. Missing,
+symlinked or unexpected devices and non-basic ACLs fail closed. The helper saves the original
+ACL before the grant, uses no world-writable modes, udev rules or group changes, and restores
+and verifies the original ACL in an always-run cleanup step. Interrupted cleanup still depends
+on disposal of the GitHub-hosted VM. Processes running as this job's runner user can access the
+KVM kernel interface during the grant; untrusted job code could abuse that access. No permission
+change applies to a local computer or physical device.
+
+Sufficient disk and already accepted Android SDK licenses remain mandatory. Missing prerequisites
+fail clearly; the job never accepts new agreements or falls back to software emulation.
+KVM permission guidance: https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/ .
+The user-only ACL here is narrower than that article's all-user udev example.
 
 Google's official `system-images;android-36;google_apis_ps16k;x86_64` image must report
 `getconf PAGE_SIZE` **16384**, API 36 and x86_64. A fresh emulator installs the pinned APK and
