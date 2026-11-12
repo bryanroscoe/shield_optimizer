@@ -22,6 +22,13 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+## v2-2.5.1 — 2026-11-12
+
+A fix for confirmations, which didn't stop anything in 2.5.0. Update if you use the desktop app.
+
+- Desktop: **Fixed: confirmations didn't stop anything in the installed app (2.5.0 and earlier).** On macOS, Windows and Linux the "Are you sure?" questions never appeared and every action went ahead as if you had said OK: deleting files or snapshots, reboot, snapshot restore, Re-enable all, Optimize's Run plan, display scaling, uninstall and the rest. They now open a native dialog, and Cancel cancels. Naming a snapshot uses the app's own dialog, so Save snapshot and the Launcher's "Save snapshot first" work on macOS, where they did nothing.
+- Linux AppImage: updating in the app works. Each AppImage was repacked after it was signed, so since in-app updates arrived in 2.0.0-beta.14 the app rejected every AppImage update as having an invalid signature and stayed on its version. The release now signs the repacked file and checks every update signature before publishing, so an AppImage from 2.0.0-beta.14 through 2.5.0 can update to this version in the app.
+
 ## v2-2.5.0 — 2026-11-04
 
 ATV Optimizer now uses its own name everywhere and moves your settings and snapshots over on first launch. On a Mac, click **Allow** when macOS asks to find devices on your local network. TVs that disappeared after updating on a Mac are found again. Also new: a Settings screen, a support ID and Send logs to developer, each TV's support status, clearer connection errors, and Shell bookmark, App List and snapshot improvements.
