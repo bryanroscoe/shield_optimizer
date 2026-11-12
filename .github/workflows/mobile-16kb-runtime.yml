@@ -107,6 +107,9 @@ jobs:
       - name: Install official 16 KB image and verification tools
         timeout-minutes: 15
         run: |
+          # Even headless emulator builds link libpulse; Ubuntu 24.04 runners omit it.
+          sudo -n apt-get update
+          sudo -n apt-get install --no-install-recommends -y libpulse0
           sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
           # Use the runner's existing accepted SDK licenses; never accept new agreements here.
           "$sdk/sdkmanager" --install 'emulator' 'platform-tools' 'build-tools;36.0.0' \

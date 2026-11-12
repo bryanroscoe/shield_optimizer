@@ -195,7 +195,7 @@ class PrimitiveTests(unittest.TestCase):
         for value in ('-accel on', '"$ANDROID_HOME/emulator/emulator" -accel-check', 'timeout-minutes: 35',
                       'retention-days: 7', 'runtime-16kb.py select', 'runtime-16kb.py candidate', 'runtime-16kb.py runtime'):
             self.assertIn(value, workflow)
-        for value in ('sudo ', 'chmod', 'udev', '--licenses', 'secrets.', 'continue-on-error:'):
+        for value in ('sudo -n setfacl', 'chmod', 'udev', '--licenses', 'secrets.', 'continue-on-error:'):
             self.assertNotIn(value, workflow)
 
 

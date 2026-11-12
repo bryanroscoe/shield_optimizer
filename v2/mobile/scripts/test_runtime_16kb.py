@@ -209,6 +209,19 @@ class RuntimeEvidence(unittest.TestCase):
                 qa.verify_process('41', '41', log, crashes)
         qa.verify_process('41', '41', self.logs, 'Process: unrelated.system.app, PID: 40')
 
+    def test_workflow_installs_only_required_official_emulator_dependency(self):
+        workflow = (Path(__file__).resolve().parents[3] /
+                    '.github/workflows/mobile-16kb-runtime.yml').read_text()
+        privileged = [line.strip() for line in workflow.splitlines() if 'sudo ' in line]
+        self.assertEqual(privileged, [
+            'sudo -n apt-get update',
+            'sudo -n apt-get install --no-install-recommends -y libpulse0',
+        ])
+        self.assertLess(workflow.index(privileged[1]),
+                        workflow.index('"$ANDROID_HOME/emulator/emulator" -version'))
+        for forbidden in ('add-apt-repository', '--allow-unauthenticated', 'trusted=yes'):
+            self.assertNotIn(forbidden, workflow)
+
     def test_workflow_stays_manual_public_bounded_and_without_release_secrets(self):
         root = Path(__file__).resolve().parents[3]
         workflow = (root / '.github/workflows/mobile-16kb-runtime.yml').read_text()
@@ -216,7 +229,7 @@ class RuntimeEvidence(unittest.TestCase):
         self.assertIn('workflow_dispatch:', triggers)
         for forbidden in ('pull_request:', 'push:', 'schedule:', 'workflow_run:'):
             self.assertNotIn(forbidden, triggers)
-        for forbidden in ('secrets.', 'environment:', 'sudo ', '--licenses', 'play-publish.py',
+        for forbidden in ('secrets.', 'environment:', '--licenses', 'play-publish.py',
                           'build-play-release.py', 'continue-on-error:'):
             self.assertNotIn(forbidden, workflow)
         for required in ('runs-on: ubuntu-24.04', 'timeout-minutes: 35', 'retention-days: 7',
