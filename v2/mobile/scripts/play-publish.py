@@ -177,11 +177,14 @@ def highest(play):
         play.discard_edit(edit)
 
 
-def upload(play, aab, track, status, version_code, release_name, notes=None):
+def upload(play, aab, track, status, version_code, release_name, notes=None, expected_sha256=None):
     if status not in ['draft', 'completed']:
         raise PlayError('Release status must be draft or completed')
     data = Path(aab).read_bytes()
     digest = hashlib.sha256(data).hexdigest()
+    if expected_sha256 is not None and (not re.fullmatch(r'[0-9a-f]{64}', expected_sha256)
+                                         or digest != expected_sha256):
+        raise PlayError('AAB differs from the explicitly verified SHA-256; no Play edit opened')
     edit = play.open_edit()
     committed = False
     try:
@@ -225,6 +228,7 @@ def main(argv=None):
     up.add_argument('--version-code', type=int, required=True)
     up.add_argument('--release-name', required=True)
     up.add_argument('--notes-file', type=Path)
+    up.add_argument('--expected-aab-sha256', help='Reject changed bytes before opening a Play edit')
     args = parser.parse_args(argv)
     try:
         if args.command == 'version':
@@ -234,7 +238,7 @@ def main(argv=None):
         else:
             notes = args.notes_file.read_text().strip() if args.notes_file else None
             result = upload(Play.from_file(args.service_account, package=args.package), args.aab,
-                            args.track, args.status, args.version_code, args.release_name, notes)
+                            args.track, args.status, args.version_code, args.release_name, notes, args.expected_aab_sha256)
             print(json.dumps(result, indent=2))
     except (PlayError, OSError, ValueError, subprocess.SubprocessError) as error:
         print(f'Play publish failed: {error}', file=sys.stderr)

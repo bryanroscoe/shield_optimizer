@@ -109,9 +109,24 @@ then repeats signature/certificate, manifest and static APK verification before 
 The job uses one standard `ubuntu-24.04` runner, a 35-minute limit and seven-day evidence
 retention. It is manual-only and restricted to the public repository: GitHub documents standard
 public-repository runners as free. It uses only read permissions and the ephemeral GitHub token,
-never the `google-play` environment or signing/Play credentials. It requires existing usable KVM
-access, sufficient disk and accepted Android SDK licenses. Missing prerequisites fail clearly;
-it does not change device permissions, accept new agreements or fall back to software emulation.
+never the `google-play` environment or signing/Play credentials. By default it requires existing
+usable KVM access and makes no permission changes. It records device/ACL, runner identity,
+CPU virtualization and available emulator diagnostics before rejecting missing access.
+
+Only after separate approval for that concrete run, dispatch with `-f allow_kvm_acl=true` to
+allow a temporary read/write ACL for the current runner UID on the existing root-owned `/dev/kvm`
+character device. This opt-in is false by default and is not standing authorization. Missing,
+symlinked or unexpected devices and non-basic ACLs fail closed. The helper saves the original
+ACL before the grant, uses no world-writable modes, udev rules or group changes, and restores
+and verifies the original ACL in an always-run cleanup step. Interrupted cleanup still depends
+on disposal of the GitHub-hosted VM. Processes running as this job's runner user can access the
+KVM kernel interface during the grant; untrusted job code could abuse that access. No permission
+change applies to a local computer or physical device.
+
+Sufficient disk and already accepted Android SDK licenses remain mandatory. Missing prerequisites
+fail clearly; the job never accepts new agreements or falls back to software emulation.
+KVM permission guidance: https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/ .
+The user-only ACL here is narrower than that article's all-user udev example.
 
 Google's official `system-images;android-36;google_apis_ps16k;x86_64` image must report
 `getconf PAGE_SIZE` **16384**, API 36 and x86_64. A fresh emulator installs the pinned APK and
@@ -540,3 +555,38 @@ evidence is reviewed.
 | [#123 Glance/Daydream](https://github.com/bryanroscoe/shield_optimizer/issues/123) | Current screensaver controls are not proof that the reporter's server-delivered Glance variant is covered. Obtain exact package/device behavior and reporter confirmation; retain vendor restore/reconnect tests. |
 | [#161 Launcher sources/default](https://github.com/bryanroscoe/shield_optimizer/issues/161) | Desktop shows source-site links for installed and current-default launchers, and mobile parity includes them. Confirm the requested case and release availability; do not reimplement or auto-close. |
 | [#162 Logcat](https://github.com/bryanroscoe/shield_optimizer/issues/162) | Desktop has a read-only Logs tab; mobile does not expose it. Confirm the requested filtering/live-display acceptance and release availability; it is not a reason to add mobile features before release. |
+
+## Promote an already tested candidate without rebuilding
+
+`Promote verified mobile candidate` (`mobile-play-promote.yml`) is a manual, Internal-only
+handoff from the existing signed-build and 16 KB runtime workflows. It never compiles, signs,
+changes runner permissions, or uploads to production. It reuses the existing `google-play`
+environment and service account; no additional credentials are needed.
+
+1. Run `Mobile Play release` in `build` mode on the selected merged source and retain its
+   successful run ID and exact APK/AAB hashes. Its native build/signature checks must pass.
+2. Require the exact source's main `v2 Tests` run, including all six substantive jobs and its
+   aggregate verdict. A PR merge-ref test or a skipped job is not the exact main-source gate.
+3. Run `Mobile 16 KB runtime QA` on that retained APK; inspect the successful receipt for
+   the same source, artifact, version and byte hashes. Any permission opt-in still requires
+   separate approval for the concrete runtime job; promotion never supplies that approval.
+4. Dispatch `Promote verified mobile candidate` on main with `build_run_id`, `source_sha`,
+   `apk_sha256`, `aab_sha256`, `runtime_run_id` and `ci_run_id`. Choose `draft` (the default)
+   to leave an Internal draft or `completed` only when rollout to existing Internal testers
+   is authorized. This workflow has no arbitrary track input.
+
+The promotion rejects missing/expired/ambiguous artifacts, foreign or unsuccessful runs,
+non-main source/QA revisions, incomplete current-attempt CI jobs, mismatched receipts/hashes,
+and a certificate different from the configured upload certificate. The explicit AAB hash
+is checked again inside the uploader before opening a Play edit. The uploader rechecks Play's
+highest versionCode, requires Google's returned bundle hash to match, validates, then commits.
+The release concurrency group is shared with the existing build/publish workflow, so those
+jobs cannot race one another. External Console edits can still conflict; do not retry an
+uncertain upload/commit until Play's actual state is checked. A code already accepted by Play
+cannot be reused. No workflow retries publication automatically.
+
+Promotion records source/QA/CI identities, qualified-byte hashes and the actual upload receipt
+for 30 days. A draft is not a rollout, and a committed rollout can still take time to appear
+on the phone. Verify Console and the enrolled account's Store view before saying Update is
+available. This path establishes automated candidate gates, not physical phone/TV, ARM64,
+Play-generated split, billing or pre-launch acceptance; those requirements remain separate.
