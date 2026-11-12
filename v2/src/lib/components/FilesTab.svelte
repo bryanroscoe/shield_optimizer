@@ -3,6 +3,7 @@
   import { onDestroy, onMount } from "svelte";
   import { open as openDialog } from "@tauri-apps/plugin-dialog";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import Icon from "$lib/components/Icon.svelte";
   import type { IconName } from "$lib/icons";
   import appFilesCatalog from "$lib/app-files-catalog.json";
@@ -126,8 +127,11 @@
     const prefix = outsideSdcard
       ? `⚠️ SYSTEM PATH (${filesPath}). Deleting here can break the device.\n\n`
       : "";
-    if (!confirm(`${prefix}Delete ${what} "${entry.name}" from the device? This cannot be undone.`))
-      return;
+    if (filesBusy) return;
+    const dir = filesPath;
+    if (!(await confirmAction(`${prefix}Delete ${what} "${entry.name}" from the device? This cannot be undone.`))
+      || filesBusy
+      || filesPath !== dir) return;
     filesBusy = entry.name;
     filesMessage = "";
     try {

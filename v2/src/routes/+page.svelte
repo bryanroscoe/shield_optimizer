@@ -4,6 +4,7 @@
   import { onMount, tick } from "svelte";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
+  import { confirmAction } from "$lib/confirm";
   import type { Device, DeviceReport, PairedConnectProbe } from "$lib/types";
   import {
     explainAdbFailure,
@@ -647,7 +648,8 @@
     const retryAddress = failedConnectAddress && failedConnectAddress === connectAddress.trim()
       ? failedConnectAddress : "";
     const retryPrompt = retryAddress ? ` Then retry Add by IP for ${retryAddress} once.` : "";
-    if (!confirm(`Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.${retryPrompt}`)) return;
+    if (restartBusy) return;
+    if (!(await confirmAction(`Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.${retryPrompt}`)) || restartBusy) return;
     restartBusy = true;
     restartMessage = "";
     try {

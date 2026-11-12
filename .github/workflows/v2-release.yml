@@ -244,11 +244,15 @@ jobs:
       # linuxdeploy excludes libwayland for exactly this reason; Tauri's
       # bundler doesn't yet, so strip it here, repack, and replace the asset
       # tauri-action already uploaded.
+      #
+      # tauri-action signed the AppImage before the repack, so the next step
+      # signs the repacked file again with the same updater key. latest.json
+      # still carries the old signature after that (and the other legs may
+      # rewrite it), so merge-updater copies the new one in and checks every
+      # signature before publishing the manifest.
       - name: Strip bundled libwayland from AppImage (issue #60)
         if: matrix.os == 'ubuntu-22.04'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.notes.outputs.tag }}
+        id: strip
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -277,11 +281,34 @@ jobs:
           # runner may lack FUSE.
           ARCH=x86_64 /tmp/appimagetool --appimage-extract-and-run \
             "$workdir/squashfs-root" "$appimage"
+          rm -f "$appimage.sig"
+          echo "appimage=$appimage" >> "$GITHUB_OUTPUT"
 
-          # Replace the unpatched asset tauri-action uploaded. GitHub turns
-          # spaces in filenames into dots, so the names match up.
-          gh release upload "$TAG" "$appimage" --clobber
-          echo "patched + re-uploaded: $appimage"
+      # The only step that holds the signing key. It's never printed; the
+      # signer's output is the public signature.
+      - name: Sign the repacked AppImage
+        if: steps.strip.outputs.appimage != ''
+        env:
+          APPIMAGE: ${{ steps.strip.outputs.appimage }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        working-directory: v2
+        run: npx --no-install tauri signer sign "$GITHUB_WORKSPACE/$APPIMAGE"
+
+      # Replace the unpatched asset and its signature that tauri-action
+      # uploaded. GitHub turns spaces in filenames into dots, so the names
+      # match up.
+      - name: Upload the repacked AppImage
+        if: steps.strip.outputs.appimage != ''
+        env:
+          APPIMAGE: ${{ steps.strip.outputs.appimage }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.notes.outputs.tag }}
+        run: |
+          set -euo pipefail
+          node v2/scripts/updater-signatures.mjs file "$APPIMAGE" "$APPIMAGE.sig"
+          gh release upload "$TAG" "$APPIMAGE" "$APPIMAGE.sig" --clobber
+          echo "patched, re-signed + re-uploaded: $APPIMAGE"
 
   # Bump the Homebrew tap (bryanroscoe/homebrew-shield-optimizer) to point at
   # the new universal macOS DMG. Runs after all three bundlers succeed so the
@@ -289,12 +316,12 @@ jobs:
   # Requires the HOMEBREW_TAP_TOKEN secret — a fine-grained PAT scoped to
   # bryanroscoe/homebrew-shield-optimizer with contents:write. If the secret
   # is missing, this job is skipped (not failed) so the rest of the release
-  # still ships.
+  # still ships. Stable tags only: the cask is what `brew upgrade` installs.
   bump-tap:
     needs: [notes, build]
     name: Bump Homebrew tap
     runs-on: ubuntu-latest
-    if: success()
+    if: success() && needs.notes.outputs.prerelease == 'false'
     steps:
       - name: Check secret presence
         id: secret
@@ -370,18 +397,23 @@ jobs:
   # update is available. Each matrix leg's tauri-action run merges its platform
   # into the single latest.json release asset, so the asset already lists every
   # platform. Committing it makes the raw.githubusercontent endpoint in
-  # tauri.conf.json resolve.
+  # tauri.conf.json resolve. Stable tags only: it is the one update channel.
   merge-updater:
     needs: [notes, build]
     name: Publish updater manifest
     runs-on: ubuntu-latest
-    if: success()
+    if: success() && needs.notes.outputs.prerelease == 'false'
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v5
         with:
           ref: ${{ github.event.repository.default_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
 
       - name: Download latest.json from release
         env:
@@ -404,6 +436,35 @@ jobs:
           cp /tmp/latest.json v2/updater/latest.json
           echo "Updater manifest for $TAG:"
           cat v2/updater/latest.json
+
+      # Every installed copy rejects an update whose signature doesn't verify
+      # against plugins.updater.pubkey, so check each artifact the manifest
+      # names before publishing it. An entry that fails is taken from that
+      # artifact's own .sig when that one verifies: the build job re-signs the
+      # AppImage after repacking it, but the matrix legs merge latest.json
+      # among themselves and can leave the old signature in. Anything still
+      # failing stops the release here, before the manifest goes live.
+      #
+      # This job checks out the default branch, so it runs main's copy of
+      # v2/scripts/updater-signatures.mjs (the same file as this branch's).
+      - name: Verify updater signatures
+        env:
+          TAG: ${{ needs.notes.outputs.tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          assets=$(mktemp -d)
+          gh release download "$TAG" --dir "$assets" --pattern '*.AppImage*' --pattern '*.deb*' \
+            --pattern '*.rpm*' --pattern '*.msi*' --pattern '*.exe*' --pattern '*.app.tar.gz*'
+          cp v2/updater/latest.json "$assets/latest.json"
+          # Every platform 2.5.0 published, so a leg's merge can't drop one unnoticed.
+          node v2/scripts/updater-signatures.mjs manifest "$assets/latest.json" "$assets" --repair \
+            --expect linux-x86_64,linux-x86_64-appimage,linux-x86_64-deb,linux-x86_64-rpm,windows-x86_64,windows-x86_64-msi,windows-x86_64-nsis,darwin-aarch64,darwin-x86_64,darwin-aarch64-app,darwin-x86_64-app
+          if ! cmp -s "$assets/latest.json" v2/updater/latest.json; then
+            cp "$assets/latest.json" v2/updater/latest.json
+            gh release upload "$TAG" v2/updater/latest.json --clobber
+            echo "Replaced latest.json on release $TAG with the corrected signatures."
+          fi
 
       - name: Commit updater manifest
         env:
@@ -439,11 +500,15 @@ jobs:
   # from one regenerated locally on a Mac; that's expected and accepted as the
   # price of hands-off release-time refresh. The UI fonts are bundled
   # (v2/src/fonts/), so the typeface itself matches.
+  #
+  # Off on release/2.5.x: this job checks out and captures the default branch,
+  # so a hotfix tag would commit main's unreleased UI to main under the
+  # hotfix's name. main's own next release refreshes the gallery.
   refresh-screenshots:
     needs: [notes, build]
     name: Regenerate gallery GIF
     runs-on: ubuntu-latest
-    if: success()
+    if: false
     steps:
       - name: Checkout default branch
         uses: actions/checkout@v5
