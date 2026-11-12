@@ -2,10 +2,10 @@ name: Mobile release preflight tools
 on:
   push:
     branches: [main]
-    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml', '.github/workflows/mobile-play-release.yml', '.github/workflows/mobile-16kb-runtime.yml']
+    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml', '.github/workflows/mobile-play-release.yml', '.github/workflows/mobile-16kb-runtime.yml', '.github/workflows/mobile-play-promote.yml']
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, closed]
-    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml', '.github/workflows/mobile-play-release.yml', '.github/workflows/mobile-16kb-runtime.yml']
+    paths: ['v2/mobile/scripts/**', '.github/workflows/mobile-release-preflight.yml', '.github/workflows/mobile-play-release.yml', '.github/workflows/mobile-16kb-runtime.yml', '.github/workflows/mobile-play-promote.yml']
   workflow_dispatch:
 permissions:
   contents: read
