@@ -437,6 +437,7 @@ const tweaks: TweaksState = {
   screensaver_enabled: "1",
 };
 
+let savedSnapshots = 0;
 const snapshots: SnapshotFile[] = [
   {
     path: "/Users/you/Library/Application Support/ATVOptimizer/snapshots/shield-living-room-2026-05-12.json",
@@ -917,6 +918,28 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return { ok: true, message: "Private DNS updated.", reverted: false };
     case "list_snapshots":
       return [...snapshots];
+    case "save_snapshot": {
+      const label = typeof args.label === "string" ? args.label : null;
+      // Each save is a new file, as on disk: the Snapshot list keys rows by path.
+      savedSnapshots++;
+      const filename = `shield-living-room-2026-06-02-${String(savedSnapshots).padStart(2, "0")}.json`;
+      const saved: SnapshotFile = {
+        path: `/Users/you/Library/Application Support/ATVOptimizer/snapshots/${filename}`,
+        filename,
+        saved_at: new Date(Date.UTC(2026, 5, 2, 14, 51, 10) + savedSnapshots * 60_000)
+          .toISOString()
+          .replace(".000Z", "Z"),
+        label,
+        device_name: "NVIDIA SHIELD Android TV",
+        device_serial: SERIAL,
+        device_type: "shield",
+        disabled_count: DISABLED.size,
+        settings_count: 6,
+        launcher: "com.spocky.projengmenu",
+      };
+      snapshots.unshift(saved);
+      return saved;
+    }
     case "delete_snapshot": {
       const index = snapshots.findIndex((snapshot) => snapshot.path === args.snapshotPath);
       if (index === -1) throw new Error("Snapshot not found");
