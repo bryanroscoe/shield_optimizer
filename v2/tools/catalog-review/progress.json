@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-11",
+  "updated_at": "2026-11-16",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1179,6 +1179,49 @@
         "context": "Unused streaming app disabled by owner choice, not vendor removal guidance; full model/firmware/keep comments preserved in pinned source."
       },
       "independent_review": "One read-only reviewer independently checked both exact URLs and vendor help; agrees hold. No formal GitHub approval or hardware test."
+    },
+    "com.android.providers.calendar": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-16",
+      "reconsider_after": "2026-12-16",
+      "reason": "AOSP binds the exact package to shared calendar storage, exported data access, reminders and upgrade receivers. TV/firmware callers, their absence and lossless recovery remain unverified. Disabling storage cannot be inferred safe from the absence of a visible calendar app.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-16.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/providers/CalendarProvider/+/refs/tags/android-14.0.0_r1/AndroidManifest.xml",
+        "https://developer.android.com/identity/providers/calendar-provider"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 3,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/oneplus-tv-dosa/debloat.txt#L26",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L126"
+      ]
+    },
+    "com.tcl.dashboard": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-16",
+      "reconsider_after": "2026-12-16",
+      "reason": "Exact developer listing establishes shortcut-panel, app-launch and smart-home functionality. Pinned sources conflict over settings/gear and TCL HOME access; successful Input access on one unit does not prove settings access elsewhere. Firmware dependency and recovery scope cannot be enforced by common/family lists.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-16.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.tcl.dashboard",
+        "https://support.tcl.com/tcl-google-tv-walkthrough-settings?kb_language=en_US"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 34,
+        "commented_profiles": 5,
+        "note_profiles": 20
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c725/debloat.txt#L51",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5400a/debloat.txt#L23",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L139"
+      ]
     }
   }
 }
