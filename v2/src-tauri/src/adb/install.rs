@@ -241,17 +241,16 @@ fn usable_adb(path: &Path) -> bool {
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };
-    if !metadata.is_file() || metadata.len() == 0 {
-        return false;
-    }
+    let usable = metadata.is_file() && metadata.len() > 0;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        if metadata.permissions().mode() & 0o111 == 0 {
-            return false;
-        }
+        usable && metadata.permissions().mode() & 0o111 != 0
     }
-    true
+    #[cfg(not(unix))]
+    {
+        usable
+    }
 }
 
 pub(crate) async fn finish_extraction<F>(

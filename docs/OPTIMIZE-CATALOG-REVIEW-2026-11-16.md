@@ -81,6 +81,16 @@ Hosted CI remains required for the pushed revision.
 Next queue leads are `com.google.android.tv.assistant` and
 `com.sony.dtv.demosupport`; neither is accepted by this note.
 
+## Windows CI recovery
+
+Windows Clippy 1.100 rejected a pre-existing redundant boolean guard in
+`usable_adb` after compiling out its Unix-only branch. The helper now returns
+the non-empty regular-file predicate directly on non-Unix systems, and also
+requires an executable bit on Unix. The checks and installer behavior are
+preserved; no lint suppression or skipped test is introduced. Replacement-head
+cross-platform CI must pass, including the Windows tests the failed lint step
+prevented from running.
+
 ## Automation recovery
 
 PR295 and batches through PR359 were already merged. The old daily job's
