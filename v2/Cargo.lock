@@ -428,7 +428,7 @@ dependencies = [
 
 [[package]]
 name = "atv-optimizer-mobile"
-version = "0.1.2"
+version = "0.1.3"
 dependencies = [
  "adb_client",
  "async-trait",

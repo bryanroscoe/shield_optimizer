@@ -77,6 +77,14 @@ purchase script; those stay in [Testing-candidate gates](#testing-candidate-gate
    environment so every run waits for an approval click; re-running the script keeps the
    environment's reviewers, wait timer and self-review setting.
 
+**Current setup (2026-11-06).** Google Cloud project `atv-optimizer-play` holds the service account
+`play-release@atv-optimizer-play.iam.gserviceaccount.com` (no Cloud roles). Its key is in
+1Password, vault *Bryan Code*, as *ATV Optimizer Play service account (play-release)*, and in
+`~/.config/atv-optimizer/play-service-account.json`. In Play Console it has only *View app
+information* and *Release apps to testing tracks* on ATV Optimizer. The Play invite can also be
+sent through the API (`developers/{id}/users`, with the grants in the create body) by an account
+owner whose OAuth token carries the `androidpublisher` scope.
+
 If a run fails, read the step that failed: credential and versionCode problems stop before the
 build, and a rejected artifact is never uploaded. Delete a wrong tag with
 `git push origin :refs/tags/mobile-vX.Y.Z` before re-tagging; a versionCode Play has already

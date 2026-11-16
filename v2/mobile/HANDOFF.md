@@ -30,8 +30,9 @@ Play listing's six portrait screenshots, icon and feature graphic in `store-list
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
 
-Current source prepares mobile `0.1.2` / versionCode `1002`; it is not a released or physically
-accepted update. Play `0.1.1` / `1001` (binary source `33a215d`) was installed from Google Play on
+Current source is mobile `0.1.3` / versionCode `1003`, the first build uploaded by CI
+(`mobile-v0.1.3`, an internal-track draft); it is not a released or physically accepted update.
+Play also holds `0.1.2` / `1002`, uploaded by hand as an internal draft (2026-11-06). Play `0.1.1` / `1001` (binary source `33a215d`) was installed from Google Play on
 a Pixel 10 Pro running Android 17 on 2026-11-05. Native startup and discovery of four LAN
 endpoints passed. Phone-to-TV authorization, connected features and Play billing acceptance
 remain incomplete. A physical SHIELD received authorization requests without displaying its
