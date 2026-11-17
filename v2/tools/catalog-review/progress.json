@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-16",
+  "updated_at": "2026-11-17",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1221,6 +1221,52 @@
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c725/debloat.txt#L51",
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5400a/debloat.txt#L23",
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L139"
+      ]
+    },
+    "com.android.health.connect.backuprestore": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-17",
+      "reconsider_after": "2026-12-17",
+      "reason": "AOSP binds this exact ID to a system-process full-backup agent with HEALTH_CONNECT_BACKUP_INTER_AGENT. TV firmware callers, backup/restore dependencies and lossless recovery are unverified. No absence of health data or callers is inferred from TV use.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-17.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/modules/HealthFitness/+/refs/tags/android-14.0.0_r1/backuprestore/AndroidManifest.xml",
+        "https://developer.android.com/health-and-fitness/health-connect/architecture"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 31,
+        "commented_profiles": 3,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/acer-ar3-r3/debloat.txt#L92",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-d2426/debloat.txt#L69",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/kalley-r10g/debloat.txt#L68",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L202"
+      ]
+    },
+    "com.android.healthconnect.controller": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-17",
+      "reconsider_after": "2026-12-17",
+      "reason": "AOSP binds this exact ID to health permission requests/management, data management, migration, Settings and Safety Center integration. Disabling may remove access to those controls; TV firmware dependencies and recovery are unverified. Generic common/family scope cannot enforce absence of callers.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-17.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/modules/HealthFitness/+/refs/tags/android-14.0.0_r1/apk/AndroidManifest.xml",
+        "https://developer.android.com/health-and-fitness/health-connect/architecture"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 31,
+        "commented_profiles": 4,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/acer-ar3-r3/debloat.txt#L91",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-d2426/debloat.txt#L68",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/kalley-r10g/debloat.txt#L67",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L201"
       ]
     }
   }
