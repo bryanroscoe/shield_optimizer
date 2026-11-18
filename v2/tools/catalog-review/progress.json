@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-17",
+  "updated_at": "2026-11-18",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1268,6 +1268,32 @@
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/kalley-r10g/debloat.txt#L67",
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L201"
       ]
+    },
+    "com.amazon.bueller.music": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-18",
+      "reconsider_after": "2026-12-18",
+      "reason": "Primary Amazon documentation confirms Fire TV music playback, including device-bound subscriptions, but does not bind this exact package to its components/callers or establish firmware-specific disable/recovery effects. Pinned profiles contain owner-choice keep and disable observations; hold until exact identity, Alexa/media integrations and enforceable applicability are established.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-18.md",
+      "primary_evidence": [
+        "https://digprjsurvey.amazon.com/csad/help/node/G42KQB42DMBMT8DW",
+        "https://developer.amazon.com/docs/fire-tv/faq-general.html"
+      ],
+      "independent_review": "Exactly one independent read-only reviewer agrees hold; primary functional context does not close exact-package dependency/recovery and scope gaps."
+    },
+    "com.amazon.bueller.photos": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-18",
+      "reconsider_after": "2026-12-18",
+      "reason": "Primary Amazon documentation describes Photos integration with Fire TV screensavers, but does not bind the exact package to those components or establish dependencies and recovery across firmware. Pinned profiles include keep and disable choices; hold pending exact-package evidence and screensaver/ambient recovery assessment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-18.md",
+      "primary_evidence": [
+        "https://digprjsurvey.amazon.com/csad/help/node/TMlFkNlI8OsVODP4xs",
+        "https://developer.amazon.com/docs/fire-tv/faq-general.html"
+      ],
+      "independent_review": "Exactly one independent read-only reviewer agrees hold; primary functional context does not close exact-package dependency/recovery and scope gaps."
     }
   }
 }
