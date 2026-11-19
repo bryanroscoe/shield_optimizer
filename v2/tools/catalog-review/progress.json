@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-18",
+  "updated_at": "2026-11-19",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1294,6 +1294,53 @@
         "https://developer.amazon.com/docs/fire-tv/faq-general.html"
       ],
       "independent_review": "Exactly one independent read-only reviewer agrees hold; primary functional context does not close exact-package dependency/recovery and scope gaps."
+    },
+    "com.sony.dtv.demosupport": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-19",
+      "reconsider_after": "2026-12-19",
+      "reason": "Sony documents demo-mode settings but does not establish the exact package components/callers, equivalence of package disable to those settings, firmware-specific dependencies or recovery. Upstream retail-demo labels and 33 disable observations are not primary removal-safety evidence. Hold until exact identity and enforceable dependency/recovery scope are established.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-19.md",
+      "primary_evidence": [
+        "https://www.sony.com/electronics/support/televisions-projectors-lcd-tvs-android-/k-75s30c/articles/00050389"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-ur3/debloat.txt#L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21/debloat.txt#L86"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, function, dependencies, consequences, recovery and applicability; both recommend hold."
+    },
+    "com.sony.dtv.smarthelp": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-19",
+      "reconsider_after": "2026-12-19",
+      "reason": "Sony developer listing identifies BRAVIA Help support/troubleshooting functionality. Pinned sources report HELP-key loss, a search provider, intentional Keep and factory-disabled variants. Primary Sony diagnostics documentation does not bind exact components/callers to all firmware; package disable/re-enable does not prove full help/search/diagnostics recovery. Hold pending enforceable dependency and recovery scope.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-19.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.sony.dtv.smarthelp",
+        "https://www.sony.com/electronics/support/articles/00090165"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 2,
+        "note_profiles": 3
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu1/debloat.txt#L61",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu2/debloat.txt#L24",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-ur2/debloat.txt#L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-55xe8596/debloat.txt#L79",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21-tw/debloat.txt#L21",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21/debloat.txt#L80"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, function, dependencies, consequences, recovery and applicability; both recommend hold."
     }
   }
 }
