@@ -2242,6 +2242,27 @@
     "reviewed_at": "2026-11-10"
   },
   {
+    "package": "com.mitv.tvhome.mitvplus",
+    "name": "Xiaomi TV+",
+    "method": "disable",
+    "risk": "medium",
+    "optimize_description": "Disabling stops Xiaomi TV+ live streaming channels, its programme guide, viewing history access and recommendations. Its TV+ launch shortcut may stop opening the app. Keep it if anyone here watches Xiaomi TV+.",
+    "restore_description": "Re-enables Xiaomi TV+ if still installed. Does not guarantee restored app settings, viewing history, channels or regional availability.",
+    "default_optimize": false,
+    "default_restore": false,
+    "play_store": true,
+    "review": true,
+    "reviewed_at": "2026-11-20",
+    "sources": [
+      "https://play.google.com/store/apps/details?id=com.mitv.tvhome.mitvplus",
+      "https://www.mi.com/sa-en/support/article/KA-124775/",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mi-box-s-2nd-gen/debloat.txt#L74",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-mooq0/debloat.txt#L141",
+      "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-moeu0/debloat.txt#L26",
+      "Two-agent source-based optional functional review; docs/OPTIMIZE-CATALOG-REVIEW-2026-11-20.md. Exact installed app only; no model/firmware compatibility or hardware recovery certification."
+    ]
+  },
+  {
     "package": "com.nvidia.stats",
     "name": "Nvidia Telemetry",
     "method": "disable",

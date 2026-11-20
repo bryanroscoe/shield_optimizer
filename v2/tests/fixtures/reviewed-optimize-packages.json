@@ -256,5 +256,15 @@
       "streams, chat, live notifications and home-channel updates",
       "links targeting it stop working"
     ]
+  },
+  {
+    "package": "com.mitv.tvhome.mitvplus",
+    "name": "Xiaomi TV+",
+    "consequence_fragments": [
+      "live streaming channels",
+      "programme guide",
+      "viewing history",
+      "TV+ launch shortcut"
+    ]
   }
 ]
