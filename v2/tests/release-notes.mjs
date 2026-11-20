@@ -37,7 +37,11 @@ assert.ok(firstItemWords, "fixture has a list item");
 
 // A hotfix's notes can be one paragraph and a short list with no headings
 // (2.5.1), so only the list is required of every release.
-assert.ok(real.length >= 2, "the real notes parse into blocks");
+assert.equal(
+  real.filter((b) => b.kind === "item").length,
+  shown.split("\n").filter((line) => line.startsWith("- ")).length,
+  "every list item in the shipped notes becomes one item block",
+);
 if (firstHeading) {
   assert.ok(
     real.some((b) => b.kind === "heading" && text(b) === firstHeading),
