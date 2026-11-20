@@ -25,8 +25,9 @@ const manifest = JSON.parse(
 const real = parseReleaseNotes(manifest.notes);
 
 // Expectations come from the manifest itself, which every release replaces.
-const firstHeading = manifest.notes.match(/^###\s+(.+)$/m)?.[1].trim();
-const firstItemWords = manifest.notes
+const shown = stripTrailingBoilerplate(manifest.notes);
+const firstHeading = shown.match(/^###\s+(.+)$/m)?.[1].trim();
+const firstItemWords = shown
   .match(/^- (.+)$/m)?.[1]
   .replace(/[*`]/g, "")
   .split(/\s+/)
