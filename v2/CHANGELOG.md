@@ -22,7 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
-## v2-2.5.1 — 2026-11-12
+## v2-2.5.1 — 2026-11-20
 
 A fix for confirmations, which didn't stop anything in 2.5.0. Update if you use the desktop app.
 
