@@ -32,13 +32,17 @@ const firstItemWords = manifest.notes
   .split(/\s+/)
   .slice(0, 4)
   .join(" ");
-assert.ok(firstHeading && firstItemWords, "fixture has a heading and a list item");
+assert.ok(firstItemWords, "fixture has a list item");
 
-assert.ok(real.length > 10, "the real notes parse into many blocks");
-assert.ok(
-  real.some((b) => b.kind === "heading" && text(b) === firstHeading),
-  `section headings survive: ${firstHeading}`,
-);
+// A hotfix's notes can be one paragraph and a short list with no headings
+// (2.5.1), so only the list is required of every release.
+assert.ok(real.length >= 2, "the real notes parse into blocks");
+if (firstHeading) {
+  assert.ok(
+    real.some((b) => b.kind === "heading" && text(b) === firstHeading),
+    `section headings survive: ${firstHeading}`,
+  );
+}
 assert.ok(
   real.some((b) => b.kind === "item" && text(b).includes(firstItemWords)),
   `list items survive: ${firstItemWords}`,
