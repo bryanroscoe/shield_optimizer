@@ -185,12 +185,17 @@
     busy = false;
   }
 
+  function selectedName(row: DiscoveryRow): string {
+    if (row.advertisedName) return `${row.advertisedName} (advertised; saved as ${row.name})`;
+    return row.name === "Name unavailable" ? "" : row.name;
+  }
+
   function connectFound(row: DiscoveryRow, advertisedPort: number) {
     leaveScan();
     error = "";
     notice = "";
     host = row.host;
-    connectingName = row.name === "Name unavailable" ? "" : row.name;
+    connectingName = selectedName(row);
     connectPort = advertisedPort;
     connectAfterPair = null;
     needsPairing = false;
@@ -202,7 +207,7 @@
     error = "";
     notice = "";
     host = row.host;
-    connectingName = row.name === "Name unavailable" ? "" : row.name;
+    connectingName = selectedName(row);
     pairPort = advertisedPort;
     connectAfterPair = row.connectPorts.length === 1 ? row.connectPorts[0] : null;
     if (connectAfterPair !== null) connectPort = connectAfterPair;
@@ -475,7 +480,10 @@
       {#snippet deviceBody(row: DiscoveryRow)}
         <span class="device-icon"><span class="msr">cast</span></span>
         <span class="device-body">
-          <span class="device-name">{row.name}</span>
+          <span class="device-name">{row.advertisedName ?? row.name}</span>
+          {#if row.advertisedName}
+            <span class="device-advertised">Advertised · saved as {row.name}</span>
+          {/if}
           <span class="mono device-addr">{endpointLabel(row)}</span>
           {#if row.status === "connected"}
             <span class="device-tag">Connected on :{session.connectPort}</span>
@@ -763,5 +771,11 @@
     padding-left: 18px;
     display: grid;
     gap: 6px;
+  }
+  .device-advertised {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
   }
 </style>

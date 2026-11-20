@@ -17,10 +17,14 @@ the next release:
 
 - **Built-in ADB is the default desktop engine** (PR #268, merged 2026-11-09); Settings › ADB ›
   ADB engine switches to platform-tools. See below and `DIRECT-ADB.md`.
-- **Snapshot schema is 4** (PR #353): snapshots record catalog apps that weren't installed, and
-  restore disables any of them that are back (never uninstalls). 2.5.0 and earlier refuse v4
-  files as newer than they support.
-- Review rows suggest Uninstall only for a store app in `pm list packages -3`; see
+- **Snapshot schema remains 4** (PR #353): snapshots retain catalog apps that weren't installed,
+  but restore leaves those entries unchanged and names them as skipped. The saved TV's hardware
+  identity is unverified; matching device type or transport address cannot authorize turning off
+  target-only apps. Explicitly recorded disabled apps still restore with the existing safety/Home
+  guards. 2.5.0 and earlier refuse v4 files as newer than they support.
+- Review rows suggest reversible Disable until installer provenance is verified. `pm list
+  packages -3` includes sideloaded store apps and does not prove Play origin. Default Keep,
+  curated bulk defaults and explicitly chosen Uninstall are unchanged; see
   `AppEntry::suggested_method`.
 
 `v2-2.5.0` (2026-11-04) shipped the rename (identifier `com.atvoptimizer.app`, data

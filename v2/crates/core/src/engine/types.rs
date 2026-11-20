@@ -231,28 +231,21 @@ impl AppEntry {
             && matches!(self.risk, RiskTier::Safe | RiskTier::Medium)
     }
 
-    /// The removal we suggest for a "remove if unused" row. Uninstall only for
-    /// an ordinary store app this TV's user installed: the Play Store gives it
-    /// back and uninstalling frees its storage. Anything preinstalled or
-    /// sideloaded, and anything whose install source we couldn't read, gets
-    /// the reversible Disable. Mirrors `suggestedMethod` in
-    /// `src/lib/recommendation.ts`.
-    ///
-    /// Default Optimize rows (`default_optimize`) keep `safe_method`; this
-    /// only decides what a review row suggests.
-    pub fn suggested_method(&self, source: InstallSource) -> ActionMethod {
-        if source == InstallSource::User && self.ordinary_store_app() {
-            ActionMethod::Uninstall
-        } else {
-            ActionMethod::Disable
-        }
+    /// Review rows suggest reversible Disable until installer provenance is
+    /// verified. `User` (-3) includes sideloaded store apps and does not prove
+    /// that Play can restore the installed version or its data. Mirrors both
+    /// frontend `suggestedMethod` functions. Default Optimize rows keep
+    /// `safe_method`; this only decides what a review row suggests.
+    pub fn suggested_method(&self, _source: InstallSource) -> ActionMethod {
+        ActionMethod::Disable
     }
 }
 
 /// How a package got onto this TV, for user 0. `User` is in
 /// `pm list packages -3`; `Preinstalled` was listed but not there. `Unknown`
 /// means the third-party read failed or the package isn't installed, and
-/// claims nothing.
+/// claims nothing. `User` does not identify the installer: it includes both
+/// Play-installed and sideloaded apps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallSource {

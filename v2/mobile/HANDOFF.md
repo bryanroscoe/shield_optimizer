@@ -23,6 +23,13 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Discovery shows a current, unambiguous advertised name above a differing saved label, marked
+“Advertised · saved as …”. Saved names/storage and connection identity are unchanged. The extra
+label requires all current adverts to match the saved hardware serial and no conflicting live
+identity at that host, including a different port. Missing/conflicting/lost metadata removes the
+extra label; it is never identity proof. Fixture upgrade tests cover legacy “Android TV” labels
+and intentional room labels. Physical post-update discovery remains to be checked.
+
 Manual retained-candidate runtime QA is implemented in `.github/workflows/mobile-16kb-runtime.yml`.
 It verifies a successful signed main build's provenance and APK/AAB hashes before testing the
 unchanged APK on an Android 16 x86_64 emulator reporting actual 16384-byte pages. It records native
@@ -266,6 +273,13 @@ deferred.
 - **Restore keeps a Home app and never re-enables anything.** Core decides; the plan's
   `launcher_disabled` and `packages_kept` and the result's `(kept: …)` entries are shown with their
   reasons. A preview with one of them never says the TV already matches the snapshot.
+- **Snapshot v4 absence is recorded, not applied.** The shared engine leaves every
+  `absent_packages` entry unchanged because the saved TV's hardware identity is unverified.
+  Preview names skipped apps. Explicitly disabled apps, tracked settings and Home protection
+  retain their existing restore behavior; v1–v4 remain readable.
+- **Review suggestions use Disable until installer provenance is verified.** `pm list packages
+  -3` distinguishes non-system apps, not Play installs from sideloads. Default Keep, curated bulk
+  defaults and explicitly confirmed Uninstall remain unchanged.
 
 ## 4. Licensing and commerce
 

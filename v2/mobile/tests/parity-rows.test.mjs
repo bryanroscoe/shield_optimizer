@@ -223,21 +223,20 @@ test("snapshot preview: launcher change, skipped launcher, and an unset Now", ()
   assert.equal(snap.previewRows(legacy, null).unchanged[0].now, "unset");
 });
 
-test("snapshot preview: an app the snapshot didn't have is disabled, never uninstalled", () => {
-  const { acting } = snap.previewRows(
-    plan({ packages_to_disable: ["com.a", "com.new"], packages_absent_in_snapshot: ["com.new"] }),
-    null,
+test("snapshot preview: recorded absent apps remain unchanged, without guessing current state", () => {
+  const { acting, unchanged } = snap.previewRows(
+    plan({ packages_to_disable: ["com.a"], packages_absent_in_snapshot: [], packages_absent_skipped: ["com.new", "com.missing", "com.disabled"] }), null,
   );
-  assert.deepEqual(
-    acting.map((r) => [r.item, r.result, r.kind]),
-    [
-      ["com.a", "Disable", "disable"],
-      ["com.new", "Not installed in snapshot — will be disabled", "disable"],
-    ],
-  );
+  assert.deepEqual(acting.map(r => [r.item, r.result]), [["com.a", "Disable"]]);
+  assert.deepEqual(unchanged.map(r => r.item), ["com.new", "com.missing", "com.disabled"]);
+  for (const row of unchanged) {
+    assert.equal(row.now, "—");
+    assert.match(row.result, /unchanged because saved-TV hardware identity is unverified/);
+  }
+  assert.match(snap.previewSummary(plan({ packages_absent_skipped: ["com.new"] })), /1 recorded absent; unchanged/);
 });
 
-test("Health: a review app's suggestion follows how it got onto the TV", () => {
+test("Health: review apps suggest Disable for every install source", () => {
   const store = entry({ play_store: true, review: true, default_optimize: false });
   const catalog = { status: "ready", entries: new Map([["com.example.app", store]]) };
   const read = (userInstalled) =>
@@ -247,7 +246,7 @@ test("Health: a review app's suggestion follows how it got onto the TV", () => {
       catalog,
       ready("safe"),
     ).rec.label;
-  assert.equal(read(new Set(["com.example.app"])), "Review: uninstall if unused");
+  assert.equal(read(new Set(["com.example.app"])), "Review: disable if unused");
   assert.equal(read(new Set(["com.other"])), "Review: disable if unused");
   assert.equal(read(null), "Review: disable if unused");
   assert.equal(read(undefined), "Review: disable if unused");

@@ -40,10 +40,17 @@ const plan = (over = {}) => ({
   ...over,
 });
 
-async function open(t, screen, { width = 384, setup } = {}) {
-  const page = await browser.newPage({ viewport: { width, height: 812 } });
+async function open(t, screen, { width = 384, setup, record = false } = {}) {
+  const evidence = record && process.env.REFUSED_SETTINGS_EVIDENCE;
+  const page = await browser.newPage({ viewport: { width, height: 812 }, ...(evidence ? { recordVideo: { dir: evidence, size: { width, height: 812 } } } : {}) });
   page.setDefaultTimeout(10000);
-  t.after(() => page.close());
+  t.after(async () => {
+    await page.close();
+    if (evidence) {
+      await page.video().saveAs(`${evidence}/mobile-absent-restore-simulated.webm`);
+      await page.video().delete();
+    }
+  });
   await page.addInitScript((setup) => {
     localStorage.clear();
     window.calls = [];
@@ -274,6 +281,10 @@ test("a plan with only a skipped Home app never claims the TV already matches", 
   await card.getByText("Nothing to change. Everything else already matches the snapshot.", { exact: true }).waitFor();
   assert.doesNotMatch(await card.innerText(), /This TV already matches the snapshot/);
   assert.equal(await card.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) {
+    await card.screenshot({ path: `${process.env.REFUSED_SETTINGS_EVIDENCE}/mobile-absent-only.png` });
+    await page.waitForTimeout(1200);
+  }
 });
 
 test("restore preview counts settings the file names that snapshots never restore, keys on demand", async (t) => {
@@ -314,6 +325,60 @@ test("restore preview counts settings the file names that snapshots never restor
   await page.getByRole("button", { name: "Preview restore" }).click();
   await card.getByRole("button", { name: "Restore", exact: true }).waitFor();
   assert.equal(await card.getByTestId("refused-settings").count(), 0, "nothing shows when no setting is refused");
+});
+
+test("restore preview names recorded absent apps without acting on them", async (t) => {
+  const page = await open(t, "snapshots", {
+    record: true,
+    setup: () => {
+      window.snapshots = [{ path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Saved TV",
+        device_name: "Example TV", device_serial: "fixture", device_type: "shield", disabled_count: 1, settings_count: 0, launcher: null }];
+      window.handlers.preview_apply = () => ({
+        cross_device_warning: null, packages_to_disable: ["com.bloat"], packages_absent_in_snapshot: [],
+        packages_absent_skipped: ["com.recorded.absent"], packages_already_disabled: [], packages_not_installed: [],
+        launcher_to_set: null, current_launcher: null, launcher_not_installed: null, packages_kept: [],
+        settings_to_write: {}, settings_to_delete: [], settings_already_set: [], settings_refused: [], current_values: {},
+      });
+    },
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  const card = page.locator(".plan-card");
+  const disclosure = card.locator('[data-plan-item="absent-skipped"]');
+  await disclosure.getByText("Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.").waitFor();
+  await disclosure.locator("summary").click();
+  await disclosure.getByText("com.recorded.absent", { exact: true }).waitFor();
+  assert.equal(await count(page, "apply_snapshot"), 0);
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) await card.screenshot({ path: `${process.env.REFUSED_SETTINGS_EVIDENCE}/mobile-absent-unchanged.png` });
+  await page.evaluate(() => {
+    window.handlers.apply_snapshot = () => ({ packages_disabled: ["com.bloat"], packages_failed: [],
+      packages_absent_skipped: ["com.actual.absent"], launcher_set: false, launcher_message: "",
+      settings_written: [], settings_deleted: [], settings_failed: [], summary: "Disabled 1 package. Left 1 recorded absent app unchanged." });
+  });
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) await page.waitForTimeout(800);
+  await card.getByRole("button", { name: "Restore", exact: true }).click();
+  const result = page.getByRole("region", { name: "Recorded absent apps left unchanged" });
+  await result.waitFor();
+  await result.locator("summary").click();
+  await result.getByText("com.actual.absent", { exact: true }).waitFor();
+  assert.equal(await page.locator(".toast.success").count(), 0, "skipped absence is informational, not a clean success");
+  assert.equal(await page.getByRole("list", { name: "Not restored" }).count(), 0, "skipped absence is not a failure");
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) await result.screenshot({ path: `${process.env.REFUSED_SETTINGS_EVIDENCE}/mobile-absent-result.png` });
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) await page.waitForTimeout(1200);
+  await page.evaluate(async () => { await window.session.connect("A", 5555); });
+  await result.waitFor({ state: "detached" });
+  await page.evaluate(() => {
+    const original = window.handlers.preview_apply;
+    window.handlers.preview_apply = () => ({ ...original(), packages_to_disable: [] });
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  await card.getByText("No changes will be made. Recorded absent apps are left unchanged.", { exact: true }).waitFor();
+  assert.doesNotMatch(await card.innerText(), /TV already matches/);
+  assert.equal(await card.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
+  if (process.env.REFUSED_SETTINGS_EVIDENCE) {
+    await card.screenshot({ path: `${process.env.REFUSED_SETTINGS_EVIDENCE}/mobile-absent-only.png` });
+    await page.waitForTimeout(1200);
+  }
+
 });
 
 // ---- Remote ----

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AbsentSnapshotApps from "../../../shared/components/AbsentSnapshotApps.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import RefusedSettings from "$lib/components/RefusedSettings.svelte";
   import { onMount } from "svelte";
@@ -207,6 +208,7 @@
       <div class="warning"><Icon name="warning" size={16} /> {plan.cross_device_warning}</div>
     {/if}
     <RefusedSettings keys={plan.settings_refused ?? []} />
+        <AbsentSnapshotApps packages={plan.packages_absent_skipped ?? []} />
 
     <div class="plan-summary">
       <strong>{plan.packages_to_disable.length}</strong> to disable ·
@@ -222,8 +224,7 @@
       <thead><tr><th>Item</th><th>Now</th><th>What happens</th></tr></thead>
       <tbody>
         {#each plan.packages_to_disable as pkg (pkg)}
-          {@const absent = plan.packages_absent_in_snapshot?.includes(pkg) ?? false}
-          <tr class="acting" data-plan-item={absent ? "absent" : undefined}><td class="mono small">{pkg}</td><td class="mono small">enabled</td><td><span class="plan-act disable">{absent ? "Not installed in snapshot — will be disabled" : "Disable"}</span></td></tr>
+          <tr class="acting" ><td class="mono small">{pkg}</td><td class="mono small">enabled</td><td><span class="plan-act disable">Disable</span></td></tr>
         {/each}
         {#if plan.launcher_to_set}
           <tr class="acting"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="plan-act launcher">Set Home → {plan.launcher_to_set}</span></td></tr>

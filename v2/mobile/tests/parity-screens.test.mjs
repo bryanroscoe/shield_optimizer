@@ -191,7 +191,7 @@ test("Safe to remove and review chips stay on one line at 384px", async (t) => {
   const box = await chip.boundingBox();
   assert.ok(box.height < 22, `chip wrapped: ${box.height}px tall`);
   await page.getByRole("button", { name: "Optional apps", exact: true }).click();
-  const pill = page.locator(".tier-chip.review", { hasText: "Review: uninstall if unused" });
+  const pill = page.locator(".tier-chip.review", { hasText: "Review: disable if unused" });
   await pill.waitFor();
   assert.ok((await pill.boundingBox()).height < 22);
 });
