@@ -1385,6 +1385,26 @@
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50ep680/debloat.txt#L15",
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g06-us-google-tv/debloat.txt#L57"
       ]
+    },
+    "com.mitv.gallery": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-21",
+      "reconsider_after": "2026-12-21",
+      "reason": "Primary vendor media documentation does not bind the exact package to components/callers or recovery. Pinned MSSP1 says Gallery doubles as Photos screensaver; AXFU0 keep-for-USB warning conflicts with its active disable. Firmware-specific media/screensaver dependencies and enforceable applicability remain unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-21.md; MSSP1:64-67 Photos screensaver keep/reassign warning; AXFU0:18-19 keep for USB vs active line62; AXSO1:51 and MOOR2:166 commented choices; MOOQ0:112 MiCloud/market SDK.",
+      "independent_evidence": "https://www.mi.com/sg/support/article/KA-12981/",
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "com.mitv.tvhome.michannel": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-21",
+      "reconsider_after": "2026-12-21",
+      "reason": "Vendor PatchWall documentation does not establish this exact package identity, exported components, launcher/content callers or disable/recovery consequences. Source recommendation-row descriptions and frequency cannot justify action coverage across firmware.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-21.md; 23 active/0 commented/1 note profiles. AFMU1:82 one unit only, already firmware-disabled on another; MSSP3 Android9:52 absent on PI.4663 Italy; MOOR2:96 content rows; MOOQ0:103 recommendation channels/Firebase/GMS.",
+      "independent_evidence": "https://www.mi.com/global/support/article/KA-124771/",
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
     }
   }
 }
