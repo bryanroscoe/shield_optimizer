@@ -16,40 +16,42 @@ What Google Play holds, read through the Play Developer API on 2026-11-21:
 | Closed testing (`alpha`) | 0.1.1 (1001) | Rolled out on the track; no Google Group attached. Whether Google approved and published it is shown only in Console's **Publishing overview** |
 | Production | none | |
 
-The one thing that blocks sharing: **nobody has connected a Play-installed build to a TV yet.**
-On 2026-11-05 Play 0.1.1 installed on the Pixel 10 Pro, started and found four TVs, but the
-Shield never showed its "Allow debugging?" dialog. An app that can't connect is useless to a
-tester and burns the goodwill you need for the 14-day clock. Purchases have also never run
-against a real Play account.
+Two things block sharing. **No Play-installed build has connected to a TV yet**: on 2026-11-05
+Play 0.1.1 installed on the Pixel 10 Pro, started and discovered four LAN endpoints, but the Shield
+never showed its "Allow debugging?" dialog. An app that can't connect is useless to a tester and
+burns the goodwill you need for the 14-day clock. And **purchases have never run against a real
+Play account.**
 
 It is ready to share when these four steps pass, in order:
 
-1. **Put the current build on your phone through Play.** Roll out the 0.1.2 internal draft
-   (Test and release > Internal testing > the 0.1.2 draft > Review release > Start rollout), then
-   update ATV Optimizer from the Play Store on the Pixel. `main` has moved since `26a783a` only by
-   app-list and support-tier data, a server-side telemetry change and CI, so 0.1.2 is the right
-   build to test. If step 2 needs a code fix, an agent cuts 0.1.3 instead (RELEASE.md, "Automated
-   release (CI)").
-2. **Connect it to two TVs yourself** (about 45 minutes). For the Shield, use Network debugging and
-   *Enter IP address manually*, port 5555. For a Google TV, use Wireless debugging > *Pair device
-   with pairing code*. On each TV: approve the prompt, open the Dashboard and the app list, use the
-   remote, turn off one unneeded app and turn it back on, open More > Emergency recovery, then
-   force-stop the app, reopen it and check that it reconnects to the same TV. A failure here is the
-   blocker to fix before anyone else sees the app. Send the agent the time it happened and the
-   More > Debug log.
-3. **Buy Pro as a license tester** (about 15 minutes). Add your account under Console Settings >
-   License testing, buy with "Test instrument, always approves", wait 5 minutes, confirm in Order
-   management that the order is still charged (not auto-refunded), force-stop and reopen the app,
-   then refund it. The full script is RELEASE.md §6.
+1. **Put a current build on your phone through Play.** Use 0.1.3, cut from `main` by an agent
+   (RELEASE.md, "Automated release (CI)"), which lands as an Internal testing draft. The 0.1.2 draft
+   would also work, but its More > Privacy still says raw reports are kept 90 days while the live
+   policy says 30 (#363 changed both after 0.1.2 was built). Roll the draft out (Test and release >
+   Internal testing > the draft > Review release > Start rollout). The Pixel got 0.1.1, which only
+   the closed track holds, so its account is probably a closed tester: add it to the Internal
+   testing email list and opt in through the internal link first, or the Play Store keeps offering
+   0.1.1.
+2. **Connect it to two TVs yourself** (about 45 minutes, on Free). Shield: Network debugging,
+   *Enter IP address manually*, port 5555, then approve "Allow debugging?" on the TV. Google TV:
+   Wireless debugging > *Pair device with pairing code*; a paired TV shows no prompt. On each TV:
+   open the Dashboard and the app list, use the remote, open More > Emergency recovery, then
+   force-stop the app, reopen it, pick the TV under "Which TV?" and confirm it connects with no new
+   prompt. Any failure is the blocker to fix before anyone else sees the app: send the agent the
+   time it happened and More > Show debug log > Copy.
+3. **Run the purchase script as a license tester** (about 30 minutes): RELEASE.md §6, in its order.
+   Add your account under Console Settings > License testing first. While you own Pro, turn off one
+   unneeded app on a TV and turn it back on (Disable is a Pro action), before the script's refund.
 4. **Point the closed track at that build and open it to the group in §2.** Closed testing >
    Create new release > add the build that passed steps 2 and 3 > send it for review. With managed
    publishing on, click **Publish changes** in Publishing overview once Google approves.
 
-Not required before the first testers: Fast-remote Phase 4, the app-restart report (#105), the
-16 KB emulator runtime check (its runner currently fails to start the emulator with a missing
-`libpulse.so.0`) and the P1 product work. Testers can find those problems with you during the
-14 days. Production access still needs 12 testers opted in for 14 days in a row; that clock starts
-when the first 12 join, so the sooner step 4 happens the better.
+This is a smaller gate than RELEASE.md "First install through Google Play" step 5, which asks for
+the full phone/TV matrix before Closed testing. Recommended, as your call: open the closed test
+after these four steps and finish the rest of the matrix, Fast-remote Phase 4, the app-restart
+report (#105) and the 16 KB emulator check during the 14 days. That emulator check currently fails
+before testing: its runner is missing `libpulse.so.0`. Production access needs 12 testers opted in
+for 14 days in a row, so the clock starts only once 12 have joined.
 
 ## 2. How people get it: one Google Group, two links
 
@@ -77,7 +79,8 @@ into links you can post anywhere.
    **Become a tester** > **Download it on Google Play**.
 
 The opt-in page works only after the closed release is published, and only for an account in the
-group. Joining can take a few minutes to reach Play. After production launch, the only link you
+group. Google doesn't say how long a new group member takes to reach Play, and after the first
+publish the opt-in link itself can take hours to work. After production launch, the only link you
 need is <https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile>.
 
 **Invite message** (paste into email, Discord, Reddit or Ko-fi; it carries no private data):
@@ -102,12 +105,13 @@ Phase 5). Keep their codes and every tester address out of this repository.
 
 Ask every reporter for four things first. Most problems resolve from them alone.
 
-- The app version: Android Settings > Apps > ATV Optimizer (the version is at the bottom), or the
-  Play Store page. The app itself doesn't show it yet.
+- The app version: Android Settings > Apps > ATV Optimizer (at the bottom), or the first line of
+  More > Bug report.
 - Phone model and Android version; TV model and Android version.
 - What they tapped, what they expected and the exact message on screen (a screenshot is best).
 - When it matters: More > **Bug report** (they review it, then it copies to the clipboard; nothing
-  is sent), More > **Debug log** > Copy, and More > Privacy > **Copy Support ID**.
+  is sent), More > **Show debug log** > Copy, and More > Privacy > **Copy Support ID**. The
+  Support ID exists only while reports are on.
 
 Never ask for a pairing code, a password or a Google order number in public. Move anything with
 TV names, addresses or serial numbers to email.
@@ -117,7 +121,7 @@ TV names, addresses or serial numbers to email.
 1. Not published yet: the link only works once the closed release is published (§1 step 4).
 2. Wrong Google account: they must join the group and open the link on the account their Play
    Store uses. On a phone with several accounts, switch accounts in the Play Store.
-3. Just joined: group membership can take a few minutes to reach Play. Wait, then reopen the link.
+3. Just joined: group membership isn't instant. Wait a while, then reopen the link.
 4. They joined Internal testing earlier: internal enrollment can take precedence over the closed
    track. Remove them from the internal list.
 5. Phone too old: the app needs Android 7.0 or later.
@@ -136,27 +140,31 @@ TV names, addresses or serial numbers to email.
 
 ### It finds the TV but won't connect
 
-- **"Allow debugging?" never shows on the TV.** If the error is a timeout, "refused" or
-  "unreachable", the phone never reached the TV: check the address and port, and that debugging is
-  still on. If it did reach the TV, look at the TV within 30 seconds, choose *Always allow*, then
-  *Allow*. Some Android 11 Shields keep a stale prompt; restarting the TV clears it.
-- **Pairing failed or wrong code.** The code expires when the TV's pairing dialog closes, and the
-  pairing port is different from the connect port. Keep the dialog open, use the code and port it
-  shows right now, and try once more.
+- **"Allow debugging?" never shows on the TV.** Read the error. "Refused", "unreachable" or
+  "Connection timed out" with nothing answering mean the phone never reached the TV: check the
+  address and port, and that debugging is still on. "Timed out during setup" means it reached the
+  TV and waited 30 seconds for approval: look at the TV, choose *Always allow*, then *Allow*. Some
+  Android 11 Shields hold a stale prompt and never show the phone's. The app advises restarting the
+  TV; whether that clears it hasn't been confirmed on hardware yet, so report it if it doesn't.
+- **Pairing failed or wrong code.** Each code allows one attempt and dies when the TV's pairing
+  dialog closes, and the pairing port differs from the connect port. Reopen *Pair device with
+  pairing code* on the TV for a fresh code and use the code and port it shows now.
 
 ### Connected, then lost
 
-The banner with *Retry* and *Switch TV* appears when the TV sleeps, reboots or the phone changes
-network. Wake the TV and tap Retry. If it keeps happening, ask for the debug log and the time.
+The banner with *Retry* and *Switch TV* appears when the TV stops answering: a reboot, a network
+change, or sleep on TVs that drop debugging while asleep (a Shield keeps it up). Wake the TV and tap Retry. If it keeps happening, ask for the debug log and the time.
 
 ### "I turned something off and now the TV misbehaves"
 
 1. More > **Emergency recovery** turns every disabled app back on. It is always free.
-2. Home screen gone: Launcher, or Emergency recovery, from the phone. Debugging stays on, so the
-   phone can still connect.
+2. Home screen gone: Launcher, or Emergency recovery, from the phone while it is still connected.
+   Don't restart the TV first: Wireless debugging can switch itself off after a restart, and with
+   no Home screen it is hard to turn back on.
 3. Emergency recovery re-enables apps only. It doesn't undo settings changes or reinstall an app
-   that was uninstalled. An uninstalled app comes back from the Play Store, or for one that came
-   with the TV, through Reinstall in its app sheet while its APK is still on the TV.
+   that was uninstalled. An uninstalled store app comes back from the Play Store. One that came
+   with the TV may come back through **Reinstall**: a recognised app stays in Apps as not installed
+   with Reinstall, and any other app offers it in its sheet right after the uninstall.
 
 ### Pro and payments
 
@@ -165,19 +173,22 @@ network. Wake the TV and tap Retry. If it keeps happening, ask for the debug log
 - Refund: Play Console > Order management > the order > Refund, and tick removing the
   entitlement. Users can also ask Google directly through their Play order history.
 - Promo code: they redeem it in the Play Store (profile menu > Redeem code) or with
-  `https://play.google.com/redeem?code=<CODE>`, then reopen the app. Promo redemptions don't appear in Order management.
-- Testers never need to pay. If a tester's payment sheet shows a real card, they aren't on the
-  License testing list: tell them to cancel.
+  `https://play.google.com/redeem?code=<CODE>`, then reopen the app. Promo redemptions don't
+  appear in Order management.
+- Testers never need to pay. If a tester's payment sheet offers only a real card, they aren't on
+  the License testing list: tell them to cancel.
 
 ### Delete my data
 
-Ask for the Support ID (More > Privacy > Copy Support ID), then follow the deletion steps under
+Ask for the Support ID (More > Privacy > Copy Support ID; it shows only while reports are on, so
+they should copy it before turning reports off). Then follow the deletion steps under
 [Retention in `../telemetry-worker/README.md`](../telemetry-worker/README.md#retention). The public
 policy is <https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy>.
 
 ### Where reports go
 
 Reproducible bugs become GitHub issues with private details removed; mention the TV model and
-app version in the title. Device-support evidence feeds the weekly "Device support report"
-issue (`docs/DEVICE-SUPPORT.md`). Answer every tester within a day or two during the 14 days:
+app version in the title. The weekly "Device support report" issue is built from telemetry alone;
+a tester's report is a reason to look, not evidence, so add context as a comment there and never
+edit its body (`docs/DEVICE-SUPPORT.md`). Answer every tester within a day or two during the 14 days:
 engaged testers are what Google's production-access review asks about.
