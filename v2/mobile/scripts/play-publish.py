@@ -4,7 +4,8 @@
 Subcommands:
   version   Read tauri.conf.json, check a mobile-v* tag against it, print the versionCode.
   highest   Print the highest versionCode Play already holds (every bundle, APK and track).
-  upload    Upload a verified AAB to one track, as a draft release unless told otherwise.
+  upload    Upload a verified AAB once and release it on one or more tracks (comma-separated),
+            as a draft unless told otherwise, in a single edit.
 
 Standard library plus the `openssl` binary only, so the release path has no third-party Python
 dependency. Credentials are read from files and never printed; API errors print Google's
@@ -177,9 +178,22 @@ def highest(play):
         play.discard_edit(edit)
 
 
+def parse_tracks(track):
+    tracks = str(track).split(',')
+    for name in tracks:
+        if not re.fullmatch(r'[a-z0-9:_-]+', name):
+            raise PlayError(f'Unexpected track id {name!r}: give track ids separated by commas, no spaces')
+        if name == 'production' or name.endswith(':production'):
+            raise PlayError('This tool does not release to production; promote a tested release in Play Console')
+    if len(set(tracks)) != len(tracks):
+        raise PlayError('A Play track is listed twice')
+    return tracks
+
+
 def upload(play, aab, track, status, version_code, release_name, notes=None, expected_sha256=None):
     if status not in ['draft', 'completed']:
         raise PlayError('Release status must be draft or completed')
+    tracks = parse_tracks(track)
     data = Path(aab).read_bytes()
     digest = hashlib.sha256(data).hexdigest()
     if expected_sha256 is not None and (not re.fullmatch(r'[0-9a-f]{64}', expected_sha256)
@@ -199,14 +213,15 @@ def upload(play, aab, track, status, version_code, release_name, notes=None, exp
         release = {'name': release_name, 'versionCodes': [str(version_code)], 'status': status}
         if notes:
             release['releaseNotes'] = [{'language': 'en-US', 'text': notes}]
-        play.call('PUT', f'edits/{edit}/tracks/{track}', {'track': track, 'releases': [release]})
+        for name in tracks:
+            play.call('PUT', f'edits/{edit}/tracks/{name}', {'track': name, 'releases': [release]})
         play.call('POST', f'edits/{edit}:validate')
         play.call('POST', f'edits/{edit}:commit')
         committed = True
     finally:
         if not committed:
             play.discard_edit(edit)
-    return {'package': play.package, 'track': track, 'status': status, 'version_code': version_code,
+    return {'package': play.package, 'track': ','.join(tracks), 'status': status, 'version_code': version_code,
             'release_name': release_name, 'aab_sha256': digest, 'previous_highest_version_code': current}
 
 

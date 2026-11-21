@@ -13,7 +13,7 @@ What Google Play holds, read through the Play Developer API on 2026-11-21:
 | --- | --- | --- |
 | Internal testing | 0.1.2 (versionCode 1002), built from `26a783a` | **Draft**: never rolled out |
 | Internal testing | 0.1.0 (1000) | Rolled out |
-| Closed testing (`alpha`) | 0.1.1 (1001) | Rolled out on the track; no Google Group attached. Whether Google approved and published it is shown only in Console's **Publishing overview** |
+| Closed testing (`alpha`) | 0.1.1 (1001) | Live (Console shows the app in Closed testing). The tester Google Group replaced the owner's email list on 2026-11-21; that change is in Google's review |
 | Production | none | |
 
 Two things block sharing. **No Play-installed build has connected to a TV yet**: on 2026-11-05
@@ -22,16 +22,23 @@ never showed its "Allow debugging?" dialog. An app that can't connect is useless
 burns the goodwill you need for the 14-day clock. And **purchases have never run against a real
 Play account.**
 
+**How a build reaches people** (owner decision, 2026-11-21). Merging to `main` releases nothing.
+An agent bumps the version, merges it and pushes a `mobile-vX.Y.Z` tag. The tag's CI run builds and
+verifies the app, uploads it once, and releases it as *completed* on two tracks
+(RELEASE.md, "Automated release (CI)"):
+
+- **Internal testing**: available within minutes to accounts on its tester list.
+- **Closed testing** (`alpha`): goes to Google's review and reaches the tester group as soon as it
+  is approved, usually within hours to a few days. Managed publishing was turned off on
+  2026-11-21, so nobody has to click Publish. To stop a closed release that is still in review:
+  Play Console > Publishing overview > **Remove changes**.
+
 It is ready to share when these four steps pass, in order:
 
-1. **Put a current build on your phone through Play.** Use 0.1.3, cut from `main` by an agent
-   (RELEASE.md, "Automated release (CI)"), which lands as an Internal testing draft. The 0.1.2 draft
-   would also work, but its More > Privacy still says raw reports are kept 90 days while the live
-   policy says 30 (#363 changed both after 0.1.2 was built). Roll the draft out (Test and release >
-   Internal testing > the draft > Review release > Start rollout). The Pixel got 0.1.1, which only
-   the closed track holds, so its account is probably a closed tester: add it to the Internal
-   testing email list and opt in through the internal link first, or the Play Store keeps offering
-   0.1.1.
+1. **Update to 0.1.3 from the Play Store** once its tag has run. It carries the saved-TV name fix
+   (#370) and the 30-day retention copy (#363). Your account gets it at once if it is on the
+   Internal testing list. Otherwise it arrives with the closed release after Google's review; as
+   the group's creator you are a member, and the group is now the only way into the closed test.
 2. **Connect it to two TVs yourself** (about 45 minutes, on Free). Shield: Network debugging,
    *Enter IP address manually*, port 5555, then approve "Allow debugging?" on the TV. Google TV:
    Wireless debugging > *Pair device with pairing code*; a paired TV shows no prompt. On each TV:
@@ -42,14 +49,11 @@ It is ready to share when these four steps pass, in order:
 3. **Run the purchase script as a license tester** (about 30 minutes): RELEASE.md §6, in its order.
    Add your account under Console Settings > License testing first. While you own Pro, turn off one
    unneeded app on a TV and turn it back on (Disable is a Pro action), before the script's refund.
-4. **Point the closed track at that build and open it to the group in §2.** Closed testing >
-   Create new release > add the build that passed steps 2 and 3 > send it for review. With managed
-   publishing on, click **Publish changes** in Publishing overview once Google approves.
+4. **Share the group link in §2.** The closed track already carries every tagged build, so there
+   is nothing to promote by hand.
 
-This is a smaller gate than RELEASE.md "First install through Google Play" step 5, which asks for
-the full phone/TV matrix before Closed testing. Recommended, as your call: open the closed test
-after these four steps and finish the rest of the matrix, Fast-remote Phase 4, the app-restart
-report (#105) and the 16 KB emulator check during the 14 days. That emulator check currently fails
+The rest of the phone/TV matrix, Fast-remote Phase 4, the app-restart report (#105) and the 16 KB
+emulator check happen during the 14 days. That emulator check currently fails
 before testing: its runner is missing `libpulse.so.0`. Production access needs 12 testers opted in
 for 14 days in a row, so the clock starts only once 12 have joined.
 
@@ -61,20 +65,24 @@ into links you can post anywhere.
 
 **One-time setup (about 10 minutes, owner):**
 
-1. At <https://groups.google.com>, **Create group**: name `ATV Optimizer testers`, email
-   for example `atv-optimizer-testers@googlegroups.com`.
+1. Done 2026-11-21: <https://groups.google.com/g/atv-optimizer-testers>
+   (`atv-optimizer-testers@googlegroups.com`). For a new group: <https://groups.google.com>,
+   **Create group**.
 2. Settings: *Who can search for group*: anyone on the web. *Who can join group*: anyone can join.
-   *Who can view conversations* and *Who can post*: group managers (so nobody can spam
-   testers). *Who can view members*: group managers.
+   *Who can view conversations*: anyone on the web. Only managers can post, so there is nothing
+   private to see, and with a narrower setting the group's page shows non-members "Content
+   unavailable" instead of a **Join group** button (seen 2026-11-21). *Who can post*: group
+   managers, so nobody can spam testers. *Who can view members*: group managers.
 3. Play Console > ATV Optimizer > Test and release > Testing > Closed testing > Manage track >
    **Testers** > **Google Groups** > add the group's email. Set *Feedback URL or email address* to
-   `bryanroscoe+atv@gmail.com`. Save. An agent can attach the group through the Play API instead,
-   once you give it the group's address.
-4. Keep your existing email list ticked too if it already holds people.
+   `bryanroscoe+atv@gmail.com`. Save. This has to be done in Console: the Play Developer API
+   refuses tester changes on this track ("upgraded to use open or closed testing", 2026-11-21).
+4. Console takes email lists *or* Google Groups, not both; choosing the group dropped the old
+   one-address owner list on 2026-11-21. Anyone who needs closed access joins the group.
 
 **What you share** (the same for everyone):
 
-1. Join the group: `https://groups.google.com/g/<group-name>` > **Join group**.
+1. Join the group: <https://groups.google.com/g/atv-optimizer-testers> > **Join group**.
 2. Become a tester: <https://play.google.com/apps/testing/com.atvoptimizer.mobile> >
    **Become a tester** > **Download it on Google Play**.
 
@@ -88,7 +96,7 @@ need is <https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile>.
 > I'm testing the Android phone version of ATV Optimizer. It cleans up and manages an Android TV,
 > Google TV or NVIDIA Shield from your phone over Wi-Fi, with no PC. Fire TV isn't supported.
 >
-> 1. Join the tester group: `https://groups.google.com/g/<group-name>`
+> 1. Join the tester group: https://groups.google.com/g/atv-optimizer-testers
 > 2. Then open https://play.google.com/apps/testing/com.atvoptimizer.mobile on the same Google
 >    account, tap **Become a tester**, and install from the Play Store.
 > 3. Please stay opted in for 14 days. Google needs 12 testers for 14 days in a row before the app
@@ -118,7 +126,8 @@ TV names, addresses or serial numbers to email.
 
 ### Can't install, or the test link says "not available"
 
-1. Not published yet: the link only works once the closed release is published (§1 step 4).
+1. Not live yet: the link only works for a closed release Google has approved, and for the group
+   change itself (in review since 2026-11-21).
 2. Wrong Google account: they must join the group and open the link on the account their Play
    Store uses. On a phone with several accounts, switch accounts in the Play Store.
 3. Just joined: group membership isn't instant. Wait a while, then reopen the link.

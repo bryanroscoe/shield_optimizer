@@ -66,4 +66,4 @@ Project information: https://bryanroscoe.com/atv-optimizer/
 
 ## Developer launch gate
 
-Before distributing the closed test: verify the exact signed Play build, real phone/TV acceptance, purchase/restore/acknowledgment/pending/refund behavior, Google review outcome, selected tester access and the opt-in/install link. Keep managed publishing on until the owner is ready to begin. This guide is preparation, not a claim that those checks passed.
+Before distributing the closed test: verify the exact signed Play build, real phone/TV acceptance, purchase/restore/acknowledgment/pending/refund behavior, Google review outcome, selected tester access and the opt-in/install link. Since 2026-11-21 every `mobile-v*` tag is released on the closed track automatically and reaches the group as soon as Google approves it (managed publishing is off), whatever these checks find. The gate is sharing the group link: run these checks on the Internal copy before you share it. The group is searchable and anyone can join, so anyone who finds it gets each approved build. This guide is preparation, not a claim that those checks passed.

@@ -111,6 +111,29 @@ class Publish(unittest.TestCase):
             {'name': '0.1.2 (1002)', 'versionCodes': ['1002'], 'status': 'draft'}]})
         self.assertNotIn(('DELETE', 'edits/e1'), calls)
 
+    def test_one_upload_released_on_internal_and_closed_in_one_commit(self):
+        fake = FakePlay(bundles=[1002], uploaded_code=1003)
+        result = play.upload(client(fake), self.aab, 'internal,alpha', 'completed', 1003, '0.1.3 (1003)')
+        self.assertEqual(result['track'], 'internal,alpha')
+        calls = fake.calls()
+        self.assertEqual(sum(1 for m, u in calls if m == 'POST' and 'bundles' in u), 1)
+        self.assertEqual(calls[-4:], [('PUT', 'edits/e1/tracks/internal'), ('PUT', 'edits/e1/tracks/alpha'),
+                                      ('POST', 'edits/e1:validate'), ('POST', 'edits/e1:commit')])
+        bodies = [json.loads(b) for m, u, _, b in fake.requests if m == 'PUT']
+        self.assertEqual([b['track'] for b in bodies], ['internal', 'alpha'])
+        for body in bodies:
+            self.assertEqual(body['releases'], [{'name': '0.1.3 (1003)', 'versionCodes': ['1003'], 'status': 'completed'}])
+
+    def test_refuses_production_duplicate_or_odd_tracks_before_any_request(self):
+        for track, pattern in [('internal,production', 'production'), ('tv:production', 'production'),
+                               ('alpha,alpha', 'twice'), ('internal,Alpha Track', 'Unexpected'),
+                               ('internal,', 'Unexpected'), ('', 'Unexpected'), ('internal, alpha', 'Unexpected'),
+                               ('internal\nalpha', 'Unexpected')]:
+            fake = FakePlay(uploaded_code=1003)
+            with self.assertRaisesRegex(play.PlayError, pattern):
+                play.upload(client(fake), self.aab, track, 'completed', 1003, 'x')
+            self.assertEqual(fake.calls(), [])
+
     def test_refuses_reused_code_before_uploading(self):
         fake = FakePlay(tracks=[{'track': 'alpha', 'releases': [{'versionCodes': ['1002']}]}], uploaded_code=1002)
         with self.assertRaisesRegex(play.PlayError, 'not above'):
