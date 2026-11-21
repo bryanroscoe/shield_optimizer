@@ -162,6 +162,9 @@ implementation as the eventual public release; do not substitute a debug or fixt
    not product acceptance. Then finish listing/declarations and roll out Closed testing to
    start the account's required production-access clock. Send invited testers
    [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
+   [`SHARING.md`](SHARING.md) §1 proposes a smaller first gate (two TVs plus this purchase
+   script) with the rest of the matrix finished during the closed test; which gate applies is the
+   owner's call.
 
 ## 0. Prerequisites (one time)
 
