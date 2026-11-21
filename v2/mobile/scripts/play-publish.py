@@ -179,16 +179,14 @@ def highest(play):
 
 
 def parse_tracks(track):
-    tracks = [name.strip() for name in str(track).split(',') if name.strip()]
-    if not tracks:
-        raise PlayError('No Play track given')
+    tracks = str(track).split(',')
+    for name in tracks:
+        if not re.fullmatch(r'[a-z0-9:_-]+', name):
+            raise PlayError(f'Unexpected track id {name!r}: give track ids separated by commas, no spaces')
+        if name == 'production' or name.endswith(':production'):
+            raise PlayError('This tool does not release to production; promote a tested release in Play Console')
     if len(set(tracks)) != len(tracks):
         raise PlayError('A Play track is listed twice')
-    for name in tracks:
-        if name == 'production':
-            raise PlayError('This tool does not release to production; promote a tested release in Play Console')
-        if not re.fullmatch(r'[a-z0-9:_-]+', name):
-            raise PlayError(f'Unexpected track id {name!r}')
     return tracks
 
 

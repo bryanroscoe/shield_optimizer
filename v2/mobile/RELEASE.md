@@ -41,9 +41,14 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
 **Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
 and verified, no upload), `publish` (one track or several comma-separated: `internal`, `alpha` for the default
 Closed testing track, or a custom closed track id; and `draft` or `completed`) or `smoke`. The `production`
-track is refused: promote a tested release to production in Play Console. `completed` is refused
-by Play while the app has never been published. A versionCode override is there for re-spinning
-one version; it must still be above everything on Play.
+track is refused (including form-factor ids such as `tv:production`): promote a tested release to
+production in Play Console. A versionCode override is there for re-spinning one version; it must
+still be above everything on Play.
+
+The two tracks share one Play edit, so if Play refuses the closed-track part (for example a
+Console edit made during the upload), the whole edit is discarded and Internal gets nothing
+either. Check Play's state, then re-run by hand: mode `publish`, track `internal`, status
+`completed`, the same version.
 
 The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or their shared
 inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
@@ -162,13 +167,12 @@ implementation as the eventual public release; do not substitute a debug or fixt
    Google Play. Verify the installed version and that Free access and recovery work.
 4. Add the owner's account to License testing before purchase tests; use Google's test payment
    instruments, not a real charge. Complete the purchase/restore/pending/refund matrix in §6.
-5. Complete the physical phone/TV matrix and fix any failures. Internal availability alone is
-   not product acceptance. Then finish listing/declarations and roll out Closed testing to
-   start the account's required production-access clock. Send invited testers
-   [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
-   Since 2026-11-21 every `mobile-v*` tag also releases to Closed testing (see "Automated
-   release (CI)"), so the owner's gate is [`SHARING.md`](SHARING.md) §1 (two TVs plus this
-   purchase script) and the rest of the matrix is finished during the closed test.
+5. Since 2026-11-21 every `mobile-v*` tag also releases to Closed testing (see "Automated
+   release (CI)"), so the gate before inviting anyone is sharing the tester group link, not the
+   rollout. Pass [`SHARING.md`](SHARING.md) §1 (two TVs plus this purchase script) on the
+   Internal copy first, then share the link and send testers [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
+   The rest of the physical matrix is finished during the closed test; Internal availability
+   alone is not product acceptance.
 
 ## 0. Prerequisites (one time)
 

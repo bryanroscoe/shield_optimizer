@@ -125,8 +125,10 @@ class Publish(unittest.TestCase):
             self.assertEqual(body['releases'], [{'name': '0.1.3 (1003)', 'versionCodes': ['1003'], 'status': 'completed'}])
 
     def test_refuses_production_duplicate_or_odd_tracks_before_any_request(self):
-        for track, pattern in [('internal,production', 'production'), ('alpha,alpha', 'twice'),
-                               ('internal,Alpha Track', 'Unexpected'), (' , ', 'No Play track')]:
+        for track, pattern in [('internal,production', 'production'), ('tv:production', 'production'),
+                               ('alpha,alpha', 'twice'), ('internal,Alpha Track', 'Unexpected'),
+                               ('internal,', 'Unexpected'), ('', 'Unexpected'), ('internal, alpha', 'Unexpected'),
+                               ('internal\nalpha', 'Unexpected')]:
             fake = FakePlay(uploaded_code=1003)
             with self.assertRaisesRegex(play.PlayError, pattern):
                 play.upload(client(fake), self.aab, track, 'completed', 1003, 'x')

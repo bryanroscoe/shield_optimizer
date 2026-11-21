@@ -69,7 +69,7 @@ on:
         type: string
         default: internal
       status:
-        description: 'draft waits for a rollout in Play Console; completed rolls out at once (not allowed while the app is unpublished)'
+        description: 'draft waits for a rollout in Play Console; completed rolls out (internal at once, closed tracks after Google review)'
         type: choice
         options: [draft, completed]
         default: draft
@@ -222,14 +222,18 @@ jobs:
             echo "::error::$GITHUB_SHA is not on main. Release only revisions merged into main; verify their CI separately."
             exit 1
           fi
+          if [[ ! "$TRACK" =~ ^[a-z0-9:_-]+(,[a-z0-9:_-]+)*$ ]]; then
+            echo "::error::Unexpected track list '$TRACK': track ids separated by commas, no spaces"
+            exit 1
+          fi
           IFS=',' read -ra tracks <<< "$TRACK"
+          if [[ "$(printf '%s\n' "${tracks[@]}" | sort | uniq -d)" ]]; then
+            echo "::error::A track is listed twice in '$TRACK'"
+            exit 1
+          fi
           for track in "${tracks[@]}"; do
-            if [[ "$track" == production ]]; then
+            if [[ "$track" == production || "$track" == *:production ]]; then
               echo "::error::This workflow does not release to production. Upload to a testing track and promote the release to production in Play Console."
-              exit 1
-            fi
-            if [[ ! "$track" =~ ^[a-z0-9:_-]+$ ]]; then
-              echo "::error::Unexpected track id '$track'"
               exit 1
             fi
           done

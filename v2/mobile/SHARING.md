@@ -37,7 +37,8 @@ It is ready to share when these four steps pass, in order:
 
 1. **Update to 0.1.3 from the Play Store** once its tag has run. It carries the saved-TV name fix
    (#370) and the 30-day retention copy (#363). Your account gets it at once if it is on the
-   Internal testing list. Otherwise it arrives with the closed release after Google's review.
+   Internal testing list. Otherwise it arrives with the closed release after Google's review; as
+   the group's creator you are a member, and the group is now the only way into the closed test.
 2. **Connect it to two TVs yourself** (about 45 minutes, on Free). Shield: Network debugging,
    *Enter IP address manually*, port 5555, then approve "Allow debugging?" on the TV. Google TV:
    Wireless debugging > *Pair device with pairing code*; a paired TV shows no prompt. On each TV:
@@ -74,7 +75,8 @@ into links you can post anywhere.
    **Testers** > **Google Groups** > add the group's email. Set *Feedback URL or email address* to
    `bryanroscoe+atv@gmail.com`. Save. This has to be done in Console: the Play Developer API
    refuses tester changes on this track ("upgraded to use open or closed testing", 2026-11-21).
-4. Keep your existing email list ticked too if it already holds people.
+4. Console takes email lists *or* Google Groups, not both; choosing the group dropped the old
+   one-address owner list on 2026-11-21. Anyone who needs closed access joins the group.
 
 **What you share** (the same for everyone):
 
@@ -122,7 +124,8 @@ TV names, addresses or serial numbers to email.
 
 ### Can't install, or the test link says "not available"
 
-1. Not published yet: the link only works once the closed release is published (§1 step 4).
+1. Not live yet: the link only works for a closed release Google has approved, and for the group
+   change itself (in review since 2026-11-21).
 2. Wrong Google account: they must join the group and open the link on the account their Play
    Store uses. On a phone with several accounts, switch accounts in the Play Store.
 3. Just joined: group membership isn't instant. Wait a while, then reopen the link.
