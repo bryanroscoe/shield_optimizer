@@ -50,6 +50,9 @@ test("reviewed source leads appear in mobile Optimize as unchecked Caution choic
       assert.equal(await row.getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"), "true", entry.package);
       assert.equal(await row.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-pressed"), "false", entry.package);
       await row.getByText("Review: disable if unused", { exact: true }).waitFor();
+      // The consequence is one tap away on the row's own toggle.
+      const explain = row.getByRole("button", { name: `If you remove it, ${entry.name}`, exact: true });
+      if ((await explain.getAttribute("aria-expanded")) !== "true") await explain.click();
       for (const fragment of entry.consequence_fragments ?? []) {
         assert.ok((await row.innerText()).includes(fragment), `visible consequence: ${entry.package}: ${fragment}`);
       }

@@ -163,16 +163,68 @@ test("an Optimize row prints the catalog sentence once when the safety reason al
   });
   await openScreen(page, "optimize");
   await page.getByText("Photos", { exact: true }).waitFor();
-  const rowText = (pkg) => page.locator(".optimize-item", { has: page.getByText(pkg) }).innerText();
-  const count = (text, sentence) => text.split(sentence).length - 1;
   await page.waitForFunction(() => document.querySelectorAll(".row-reason").length === 3);
-  assert.equal(count(await rowText("Prime Video"), safe.entry.optimize_description), 1);
-  assert.equal(count(await rowText("Remote Keyboard"), caution.entry.optimize_description), 1);
-  assert.match(await rowText("Remote Keyboard"), /medium risk/);
+  const row = (name) => page.locator(".optimize-item", { has: page.getByText(name, { exact: true }) });
+  const count = (text, sentence) => text.split(sentence).length - 1;
+  for (const name of ["Prime Video", "Remote Keyboard", "Photos"]) {
+    await row(name).getByRole("button", { name: `If you remove it, ${name}`, exact: true }).click();
+  }
+  assert.equal(count(await row("Prime Video").innerText(), safe.entry.optimize_description), 1);
+  assert.equal(count(await row("Remote Keyboard").innerText(), caution.entry.optimize_description), 1);
+  assert.match(await row("Remote Keyboard").innerText(), /medium risk/);
   // A reason that doesn't repeat the description keeps both lines.
-  const photos = await rowText("Photos");
+  const photos = await row("Photos").innerText();
   assert.equal(count(photos, own.entry.optimize_description), 1);
   assert.match(photos, /Review whether you use this app\./);
+});
+
+test("an Optimize row folds its explanation behind a toggle that works by tap and keyboard", async (t) => {
+  const updater = item("System Updater", { package: "com.example.ota" });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [updater] } },
+    safety: {
+      "com.example.ota": {
+        kind: "caution",
+        reason: "Reviewed and rated high risk — read this before removing it. Disabling stops security updates.",
+      },
+    },
+  });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await openScreen(page, "optimize");
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  const row = page.locator(".optimize-item", { has: page.getByText("System Updater", { exact: true }) });
+  const toggle = row.getByRole("button", { name: "If you remove it, System Updater", exact: true });
+  const consequence = row.getByText(/stops security updates/);
+  await toggle.waitFor();
+  // Folded: name, status and controls only, with the explanation one tap away.
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await consequence.isVisible(), false);
+  assert.ok((await toggle.boundingBox()).height >= 44, "44px touch target");
+  const panelId = await toggle.getAttribute("aria-controls");
+  assert.equal(await page.locator(`#${panelId}`).count(), 1);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await consequence.isVisible(), true);
+  await toggle.click();
+  assert.equal(await consequence.isVisible(), false);
+  // Keyboard: Enter and Space both toggle, and focus is visible.
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await consequence.isVisible(), true);
+  await page.keyboard.press("Space");
+  assert.equal(await consequence.isVisible(), false);
+  assert.notEqual(await toggle.evaluate((el) => getComputedStyle(el).outlineStyle), "none");
+  // The trailing controls center on the name / status block, not on the explanation.
+  const details = await row.getByRole("button", { name: "Details for System Updater" }).boundingBox();
+  const choice = await row.getByRole("group", { name: "Choice for System Updater" }).boundingBox();
+  assert.ok(Math.abs((details.y + details.height / 2) - (choice.y + choice.height / 2)) <= 2, "controls are centered");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  // Choosing to remove a Caution app unfurls what it costs, and the confirmation repeats it.
+  await row.getByRole("button", { name: "Disable", exact: true }).click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await consequence.isVisible(), true);
+  await page.getByRole("button", { name: /Apply optimization/ }).click();
+  assert.match(await page.locator(".dialog-card").innerText(), /Disable System Updater — Reviewed and rated high risk.*stops security updates/s);
 });
 
 test("Safe to remove and review chips stay on one line at 384px", async (t) => {

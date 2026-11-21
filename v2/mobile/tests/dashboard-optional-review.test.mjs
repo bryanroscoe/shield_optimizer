@@ -230,7 +230,8 @@ test("protected defaults stay visible and blocked in Optional", async (t) => {
   assert.equal(await choices.getByRole("button", { name: "Disable", exact: true }).isDisabled(), true);
   // The reason only lands once the async safety lookup resolves, and every
   // assertion above passes on the fail-closed defaults without waiting for it,
-  // so wait for the reason text itself rather than snapshotting innerText.
+  // so wait for the row's own toggle and then the reason text behind it.
+  await page.getByRole("button", { name: "Why it's protected, Protected Default", exact: true }).click();
   await page.getByText("Required for the TV system interface.", { exact: false }).waitFor();
 });
 
@@ -268,7 +269,7 @@ test("a user's tab choice survives pending safety resolution", async (t) => {
   await page.evaluate(() => {
     for (const pending of window.pendingSafety) pending.resolve(pending.verdict);
   });
-  await page.getByText("Review whether you use this app.", { exact: true }).waitFor();
+  await page.locator(".optimize-item", { hasText: "Visible Optional" }).locator(".tier-chip.caution").waitFor();
   assert.match(await optionalTab.getAttribute("class"), /active/);
   assert.equal(await page.getByText("Late Caution", { exact: true }).count(), 0);
 });
@@ -331,12 +332,15 @@ test("protected and unresolved optional actions remain blocked while Unknown is 
   assert.equal(await unknownAction.getAttribute("aria-pressed"), "false");
   await unknownAction.click();
   assert.equal(await unknownAction.getAttribute("aria-pressed"), "true");
-  // A Caution/Protected reason is specific to its package, so it stays on the
-  // row. Every Unknown verdict carries the same sentence, so it is stated once
-  // above the list instead of repeated on each row.
-  assert.match(await page.locator(".optimize-list").innerText(), /Required for the system UI/);
-  assert.doesNotMatch(await page.locator(".optimize-list").innerText(), /No audited rule matched/);
-  await page.getByText(/No audited rule matched/).first().waitFor();
+  // Each row keeps its own reason behind its own toggle. Choosing to remove an
+  // Unknown app unfurls its reason at that moment; the protected one stays folded.
+  const unknownRow = page.locator(".optimize-item", { hasText: "Unknown App" });
+  const protectedRow = page.locator(".optimize-item", { hasText: "Protected App" });
+  assert.equal(await unknownRow.getByRole("button", { name: "If you remove it, Unknown App" }).getAttribute("aria-expanded"), "true");
+  assert.match(await unknownRow.innerText(), /No audited rule matched this package\./);
+  assert.doesNotMatch(await protectedRow.innerText(), /Required for the system UI/);
+  await protectedRow.getByRole("button", { name: "Why it's protected, Protected App" }).click();
+  assert.match(await protectedRow.innerText(), /Required for the system UI/);
 });
 
 test("Restore keeps Recommended and All curated tabs with its prior defaults", async (t) => {
@@ -374,10 +378,12 @@ test("differing Unknown reasons stay on their own rows", async (t) => {
   await openScreen(page, "optimize");
   await page.getByText("First Unknown", { exact: true }).waitFor();
 
-  // Nothing is hoisted when the reasons differ, so neither row loses its own.
-  const list = page.locator(".optimize-list");
-  assert.match(await list.innerText(), /Not in the reviewed registry\./);
-  assert.match(await list.innerText(), /Reviewed registry was unreachable\./);
+  // Each row says its own reason behind its own toggle.
+  for (const [name, reason] of [["First Unknown", /Not in the reviewed registry\./], ["Second Unknown", /Reviewed registry was unreachable\./]]) {
+    const row = page.locator(".optimize-item", { hasText: name });
+    await row.getByRole("button", { name: `If you remove it, ${name}`, exact: true }).click();
+    assert.match(await row.innerText(), reason);
+  }
 });
 
 // `safe` is a reviewed verdict just like `caution`. Treating only

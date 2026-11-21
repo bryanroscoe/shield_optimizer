@@ -1,10 +1,11 @@
 <script lang="ts">
   import HelpSheet from "../components/HelpSheet.svelte";
+  import Unfurl from "../components/Unfurl.svelte";
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { router, type Screen } from "../lib/router.svelte";
-  import { isBlocked, reasonOf, tierOf, type SafetyStatus } from "../lib/safety";
+  import { isBlocked, reasonOf, tierOf, type SafetyStatus, type SafetyTier } from "../lib/safety";
   import { reviewLabel, suggestedMethod, uninstallOutcome } from "../lib/recommendation";
   import {
     applyConfirmation,
@@ -71,6 +72,9 @@
   let selected = $state<Set<string>>(new Set());
   let selectionVersion = $state(0);
   let selectionTouched = new Set<string>();
+  /// Rows whose explanation is unfurled. Each row's reason and purpose sit
+  /// behind its own toggle rather than printed on every row.
+  let explained = $state<Set<string>>(new Set());
   let applying = $state(false);
   let cancelRequested = $state(false);
   let applyDone = $state(0);
@@ -160,6 +164,7 @@
     applyIntent = null;
     selected = new Set();
     selectionTouched = new Set();
+    explained = new Set();
     ++selectionVersion;
     safetyMap = {};
     safetyFailed = false;
@@ -354,23 +359,6 @@
   );
   const visibleItems = $derived(tabItems.filter((it) => matchesPlanQuery(it, searchQuery)));
 
-  // Core hands every Unknown verdict the same sentence today, which put the
-  // identical paragraph on every row. When they are all the same it is stated
-  // once above the list; if core ever distinguishes them, each row says its
-  // own again, so nothing package-specific is ever hidden.
-  const unknownReasons = $derived(
-    new Set(
-      visibleItems
-        .filter((it) => it.action.kind !== "enable")
-        .map((it) => safetyMap[it.entry.package])
-        .filter((verdict) => verdict?.kind === "unknown")
-        .map((verdict) => verdict.reason),
-    ),
-  );
-  const sharedUnknownReason = $derived(
-    unknownReasons.size === 1 ? [...unknownReasons][0] : "",
-  );
-
   // Enabling is never destructive, so the never-disable guard only applies to
   // the disable / uninstall directions.
   function isHardBlocked(it: OptimizePlanItem): boolean {
@@ -419,9 +407,40 @@
     }
     const next = new Set(selected);
     if (next.has(it.entry.package)) next.delete(it.entry.package);
-    else next.add(it.entry.package);
+    else {
+      next.add(it.entry.package);
+      revealConsequence(it);
+    }
     selected = next;
     selectionChanged(it.entry.package);
+  }
+
+  function toggleExplained(pkg: string) {
+    const next = new Set(explained);
+    if (next.has(pkg)) next.delete(pkg);
+    else next.add(pkg);
+    explained = next;
+  }
+
+  /// Choosing to remove a Caution or Unknown app unfurls what that costs, at
+  /// the moment of the decision. Safe rows and defaults stay folded.
+  function revealConsequence(it: OptimizePlanItem) {
+    if (it.action.kind === "enable") return;
+    const kind = safetyMap[it.entry.package]?.kind;
+    if ((kind === "caution" || kind === "unknown") && !explained.has(it.entry.package)) {
+      explained = new Set(explained).add(it.entry.package);
+    }
+  }
+
+  function explainLabel(it: OptimizePlanItem, tier: SafetyTier | null): string {
+    if (it.action.kind === "enable") return "What it does";
+    if (tier?.kind === "never_disable") return "Why it's protected";
+    return "If you remove it";
+  }
+
+  function explainTone(it: OptimizePlanItem, tier: SafetyTier | null): "neutral" | "caution" | "blocked" {
+    if (it.action.kind === "enable" || !tier) return "neutral";
+    return tier.cls === "caution" ? "caution" : tier.cls === "blocked" ? "blocked" : "neutral";
   }
 
   function keepOptional(it: OptimizePlanItem) {
@@ -827,12 +846,6 @@
     </div>
     <div class="spacer"></div>
   {:else if plan}
-    <p class="mode-hint">
-      {mode === "optimize"
-        ? "Disables or uninstalls curated bloat for this TV. Undo a Disable with Restore. Uninstall can't always be undone, so check the row's note before you apply."
-        : "Re-enables curated apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest."}
-    </p>
-
     {#if actionable.length > 0}
       <div class="search-box">
         <span class="msr search-icon">search</span>
@@ -863,28 +876,25 @@
         {mode === "optimize" ? "Optional apps" : "All curated"}
       </button>
     </div>
-    {#if mode === "optimize" && activeTab === "optional"}
-      <p class="tab-hint">Keep anything you use. Nothing changes until you confirm.</p>
-    {:else}
-      <HelpSheet title="About this plan"><p>These are curated choices for this TV. Everything else installed on the device lives in the Apps tab.</p></HelpSheet>
-    {/if}
-    {#if mode === "optimize"}
-      <HelpSheet title="Undoing a run">
-        <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers curated apps only; Emergency recovery in More re-enables every disabled package on the TV.</p>
-        <p><b>Uninstall:</b> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
-      </HelpSheet>
-    {:else}
-      <HelpSheet title="What Restore covers">
-        <p>Restore lists the curated apps that are disabled on this TV. It never reinstalls an app that was uninstalled.</p>
-        <p>To turn on a disabled app that isn't curated, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled package on the TV at once.</p>
-      </HelpSheet>
-    {/if}
-    {#if sharedUnknownReason}
-      <p class="tab-hint">
-        <b>Unknown</b> means no safety rule matched the app — not that removing it
-        is safe. {sharedUnknownReason}
-      </p>
-    {/if}
+    <div class="help-row">
+      {#if mode === "optimize"}
+        <HelpSheet title="About this plan">
+          <p>These are curated choices for this TV. Recommended apps start selected. Optional apps start on Keep: keep anything you use. Nothing changes until you confirm, and everything else installed on the TV is in the Apps tab.</p>
+          <p>Tap a row's <b>If you remove it</b> to see what the app does and what removing it costs. Tap its name for the full app details.</p>
+          <p><b>Unknown</b> means no safety rule matched the app, not that removing it is safe.</p>
+          <p><b>RAM in play</b> is what the selected apps' processes are using right now, not a guaranteed saving: Android reclaims and restarts memory on its own.</p>
+        </HelpSheet>
+        <HelpSheet title="Undoing a run">
+          <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers curated apps only; Emergency recovery in More re-enables every disabled package on the TV.</p>
+          <p><b>Uninstall:</b> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
+        </HelpSheet>
+      {:else}
+        <HelpSheet title="What Restore covers">
+          <p>Restore re-enables curated apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest.</p>
+          <p>It never reinstalls an app that was uninstalled. To turn on a disabled app that isn't curated, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled package on the TV at once.</p>
+        </HelpSheet>
+      {/if}
+    </div>
 
     <div class="optimize-summary-card">
       <span class="summary-text">
@@ -901,13 +911,6 @@
         <button class="select-all-btn" onclick={keepAll} disabled={applying || selectedCount === 0}>Keep all</button>
       </span>
     </div>
-    {#if runningMb > 0}
-      <p class="mb-note">
-        That's what these processes are using right now, not a guaranteed saving — Android reclaims
-        and re-spawns memory on its own.
-      </p>
-    {/if}
-
     {#if safetyFailed}
       <div class="stale-warning" role="alert">
         <span class="msr">warning</span>
@@ -939,83 +942,88 @@
         {#each visibleItems as item (item.entry.package)}
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
-          {@const showReason = item.action.kind !== "enable" && !!tier && !(tier.kind === "unknown" && sharedUnknownReason)}
-          {@const shownReason = showReason ? reasonOf(safetyMap[item.entry.package]) : ""}
+          {@const shownReason = item.action.kind !== "enable" && tier ? reasonOf(safetyMap[item.entry.package]) : ""}
           {@const purpose = rowPurpose(
             mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description,
             shownReason,
           )}
           <div class="optimize-item" class:blocked-row={hardBlocked}>
-            <button
-              class="item-details"
-              disabled={applying}
-              onclick={() => openSheet(item)}
-              aria-label="Details for {item.entry.name}"
-            >
-              <span class="item-name">{item.entry.name}</span>
-              {#if mode === "optimize" && activeTab === "optional"}
-                <span class="mono item-package">{item.entry.package}</span>
-              {/if}
-              <div class="item-meta">
-                {#if item.action.kind === "enable"}
-                  <span class="tier-chip restore">Restore</span>
-                {:else if safetyLoading}
-                  <span class="tier-chip pending">Checking safety…</span>
-                {:else if tier}
-                  <span class="tier-chip {tier.cls}">{tier.label}</span>
-                {:else}
-                  <span class="tier-chip pending">Safety unavailable</span>
-                {/if}
-                {#if mode === "optimize" && isReviewRow(item, statusOf(item))}
-                  <span class="tier-chip review">{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
-                {/if}
-                <span class="mono meta-text">
-                  {actionLabel(item)}{item.memory_mb != null
-                    ? ` · ${Math.round(item.memory_mb)} MB`
-                    : ""}
-                </span>
-              </div>
-              {#if showReason && tier}
-                <span class="row-reason {tier.cls}">{shownReason}</span>
-              {:else if item.action.kind !== "enable" && safetyFailed}
-                <span class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</span>
-              {/if}
-              {#if purpose}
-                <span class="row-purpose">{purpose}</span>
-              {/if}
-              {#if naturalAction(item) === "uninstall" && selected.has(item.entry.package)}
-                <!-- Whether an uninstall can be taken back depends on the app,
-                     so a row set to Uninstall says which case it is. -->
-                <span class="row-uninstall">{uninstallOutcome(item.entry.package, item.entry).short}</span>
-              {/if}
-            </button>
-            {#if mode === "optimize" && activeTab === "optional"}
-              <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">
-                <button
-                  class="choice-btn"
-                  class:active={!selected.has(item.entry.package)}
-                  disabled={applying}
-                  aria-pressed={!selected.has(item.entry.package)}
-                  onclick={() => keepOptional(item)}
-                >Keep</button>
-                <button
-                  class="choice-btn action"
-                  class:active={selected.has(item.entry.package) && isSelectable(item)}
-                  disabled={applying || !isSelectable(item)}
-                  aria-pressed={selected.has(item.entry.package) && isSelectable(item)}
-                  onclick={() => chooseOptionalAction(item)}
-                >{actionLabel(item)}</button>
-              </div>
-            {:else}
+            <div class="row-main">
               <button
-                class="toggle-switch"
-                class:checked={selected.has(item.entry.package) && isSelectable(item)}
-                disabled={applying || !isSelectable(item)}
-                onclick={() => toggle(item)}
-                aria-label="Toggle {item.entry.name}"
+                class="item-details"
+                disabled={applying}
+                onclick={() => openSheet(item)}
+                aria-label="Details for {item.entry.name}"
               >
-                <span class="toggle-knob"></span>
+                <span class="item-name">{item.entry.name}</span>
+                {#if mode === "optimize" && activeTab === "optional"}
+                  <span class="mono item-package">{item.entry.package}</span>
+                {/if}
+                <div class="item-meta">
+                  {#if item.action.kind === "enable"}
+                    <span class="tier-chip restore">Restore</span>
+                  {:else if safetyLoading}
+                    <span class="tier-chip pending">Checking safety…</span>
+                  {:else if tier}
+                    <span class="tier-chip {tier.cls}">{tier.label}</span>
+                  {:else}
+                    <span class="tier-chip pending">Safety unavailable</span>
+                  {/if}
+                  {#if mode === "optimize" && isReviewRow(item, statusOf(item))}
+                    <span class="tier-chip review">{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
+                  {/if}
+                  <span class="mono meta-text">
+                    {actionLabel(item)}{item.memory_mb != null
+                      ? ` · ${Math.round(item.memory_mb)} MB`
+                      : ""}
+                  </span>
+                </div>
+                {#if naturalAction(item) === "uninstall" && selected.has(item.entry.package)}
+                  <!-- Whether an uninstall can be taken back depends on the app,
+                       so a row set to Uninstall says which case it is. -->
+                  <span class="row-uninstall">{uninstallOutcome(item.entry.package, item.entry).short}</span>
+                {/if}
               </button>
+              {#if mode === "optimize" && activeTab === "optional"}
+                <div class="choice-group" role="group" aria-label="Choice for {item.entry.name}">
+                  <button
+                    class="choice-btn"
+                    class:active={!selected.has(item.entry.package)}
+                    disabled={applying}
+                    aria-pressed={!selected.has(item.entry.package)}
+                    onclick={() => keepOptional(item)}
+                  >Keep</button>
+                  <button
+                    class="choice-btn action"
+                    class:active={selected.has(item.entry.package) && isSelectable(item)}
+                    disabled={applying || !isSelectable(item)}
+                    aria-pressed={selected.has(item.entry.package) && isSelectable(item)}
+                    onclick={() => chooseOptionalAction(item)}
+                  >{actionLabel(item)}</button>
+                </div>
+              {:else}
+                <button
+                  class="toggle-switch"
+                  class:checked={selected.has(item.entry.package) && isSelectable(item)}
+                  disabled={applying || !isSelectable(item)}
+                  onclick={() => toggle(item)}
+                  aria-label="Toggle {item.entry.name}"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              {/if}
+            </div>
+            {#if shownReason || purpose}
+              <Unfurl
+                label={explainLabel(item, tier)}
+                context={item.entry.name}
+                open={explained.has(item.entry.package)}
+                onToggle={() => toggleExplained(item.entry.package)}
+                tone={explainTone(item, tier)}
+              >
+                {#if shownReason}<p class="row-reason">{shownReason}</p>{/if}
+                {#if purpose}<p class="row-purpose">{purpose}</p>{/if}
+              </Unfurl>
             {/if}
           </div>
         {/each}
@@ -1173,12 +1181,6 @@
     opacity: 0.5;
     cursor: not-allowed;
   }
-  .mode-hint {
-    margin: 0 0 12px;
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.4;
-  }
   .tab-pill-box {
     display: flex;
     padding: 4px;
@@ -1206,11 +1208,11 @@
     color: var(--accent-ink);
     font-weight: 600;
   }
-  .tab-hint {
-    margin: 0 0 12px;
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.4;
+  .help-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 20px;
+    margin-bottom: 4px;
   }
 
   .search-box {
@@ -1336,12 +1338,6 @@
   .snapshot-result.failed {
     color: var(--danger);
   }
-  .mb-note {
-    margin: 0 0 12px;
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.4;
-  }
 
   .stale-warning {
     display: flex;
@@ -1381,14 +1377,28 @@
   }
   .optimize-item {
     content-visibility: auto;
-    contain-intrinsic-size: auto 66px;
+    contain-intrinsic-size: auto 110px;
     display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 13px 14px;
+    flex-direction: column;
+    padding: 13px 14px 4px;
     border-radius: 15px;
     background: var(--surface);
     border: 1px solid var(--line);
+  }
+  /* Trailing controls center on the whole name / status block. */
+  .row-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .row-main:last-child {
+    padding-bottom: 9px;
+  }
+  .optimize-item > :global(.unfurl-toggle) {
+    margin-top: -4px;
+  }
+  .optimize-item > :global(.unfurl-panel) {
+    margin-bottom: 10px;
   }
   .optimize-item.blocked-row {
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);
@@ -1467,22 +1477,6 @@
   .meta-text {
     font-size: 10px;
     color: var(--muted);
-  }
-  .row-reason {
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.35;
-  }
-  .row-reason.caution {
-    color: var(--amber);
-  }
-  .row-reason.blocked {
-    color: var(--danger);
-  }
-  .row-purpose {
-    font-size: 11px;
-    color: var(--muted);
-    line-height: 1.35;
   }
   .choice-group {
     width: min(138px, 42%);
