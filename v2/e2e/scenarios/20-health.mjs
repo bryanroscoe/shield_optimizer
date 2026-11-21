@@ -27,8 +27,8 @@ export const scenarios = [
       const katniss = rowFor("com.google.android.katniss:interactor");
       await katniss.waitFor();
       ctx.assert.match(await katniss.innerText(), /pid\s+15826/);
-      // Plex is installed and reviewed: the App List's suggestion, not a guess.
-      ctx.assert.match(await rowFor("com.plexapp.android").innerText(), /Review: uninstall if unused/);
+      // Installed/reviewed is not installer provenance: keep the suggestion reversible.
+      ctx.assert.match(await rowFor("com.plexapp.android").innerText(), /Review: disable if unused/);
       ctx.assert.match(await rowFor("com.google.android.gms").innerText(), /PROTECTED/);
       ctx.assert.match(await rowFor("surfaceflinger").innerText(), /Not an app/);
       ctx.assert.match(await rowFor("surfaceflinger").innerText(), /not a package/);

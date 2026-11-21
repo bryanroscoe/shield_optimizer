@@ -44,8 +44,8 @@ pub struct OptimizePlan {
 ///   "already uninstalled" branch since they're both absent from `pm list packages`)
 /// - Otherwise → `Disable` or `Uninstall`: `safe_method` for default
 ///   Optimize rows, and for review rows the suggestion
-///   (`AppEntry::suggested_method`), which uninstalls only an ordinary store
-///   app the user installed.
+///   (`AppEntry::suggested_method`), which uses reversible Disable while
+///   installer provenance is unverified.
 ///
 /// Restore mode:
 /// - Not installed → `Skip(NotInstalled)` (host can surface Play Store
@@ -110,8 +110,7 @@ fn decide(
             }
             // Gate uninstall to reinstallable apps — never recommend removing
             // something the user can't get back from the Play Store. A review
-            // row follows the suggestion: Uninstall only for a store app the
-            // user installed.
+            // row stays reversible while installer provenance is unverified.
             let method = if entry.review && !entry.default_optimize {
                 entry.suggested_method(source)
             } else {
@@ -306,14 +305,14 @@ mod tests {
     }
 
     #[test]
-    fn suggestion_uninstalls_only_an_ordinary_store_app_the_user_installed() {
+    fn suggestion_disables_store_apps_without_verified_installer_provenance() {
         for method in [ActionMethod::Disable, ActionMethod::Uninstall] {
             let a = review_store_app("com.store", method);
-            assert_eq!(
-                a.suggested_method(InstallSource::User),
-                ActionMethod::Uninstall
-            );
-            for source in [InstallSource::Preinstalled, InstallSource::Unknown] {
+            for source in [
+                InstallSource::User,
+                InstallSource::Preinstalled,
+                InstallSource::Unknown,
+            ] {
                 assert_eq!(
                     a.suggested_method(source),
                     ActionMethod::Disable,
@@ -347,12 +346,43 @@ mod tests {
         medium.risk = RiskTier::Medium;
         assert_eq!(
             medium.suggested_method(InstallSource::User),
-            ActionMethod::Uninstall
+            ActionMethod::Disable
         );
     }
 
     #[test]
-    fn review_rows_follow_the_install_source_and_default_rows_do_not() {
+    fn no_current_install_source_proves_play_origin_for_any_review_entry() {
+        for source in [
+            InstallSource::User,
+            InstallSource::Preinstalled,
+            InstallSource::Unknown,
+        ] {
+            for risk in [
+                RiskTier::Safe,
+                RiskTier::Medium,
+                RiskTier::High,
+                RiskTier::Advanced,
+            ] {
+                for play_store in [false, true] {
+                    for defunct in [false, true] {
+                        for default_restore in [false, true] {
+                            for method in [ActionMethod::Disable, ActionMethod::Uninstall] {
+                                let mut a = review_store_app("com.review", method);
+                                a.risk = risk;
+                                a.play_store = play_store;
+                                a.defunct = defunct;
+                                a.default_restore = default_restore;
+                                assert_eq!(a.suggested_method(source), ActionMethod::Disable);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn review_rows_disable_and_default_rows_keep_their_curated_method() {
         let mine = review_store_app("com.mine", ActionMethod::Disable);
         let shipped = review_store_app("com.shipped", ActionMethod::Uninstall);
         let mut defunct_default = app("com.defunct", ActionMethod::Uninstall);
@@ -371,7 +401,7 @@ mod tests {
             },
         );
         assert_eq!(plan.items[0].install_source, InstallSource::User);
-        assert_eq!(plan.items[0].action, OptimizeAction::Uninstall);
+        assert_eq!(plan.items[0].action, OptimizeAction::Disable);
         assert_eq!(plan.items[1].install_source, InstallSource::Preinstalled);
         assert_eq!(plan.items[1].action, OptimizeAction::Disable);
         // A default Optimize row keeps its curated, store-gated method.

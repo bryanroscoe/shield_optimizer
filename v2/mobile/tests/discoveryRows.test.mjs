@@ -716,3 +716,49 @@ test("one named advert names its host even when the host's other adverts carry n
   ]);
   assert.equal(rows[0].savedTarget, undefined);
 });
+
+test("upgraded saved generic and intentional labels keep storage while exposing current TV name", () => {
+  for (const name of ["Android TV", "My custom room label"]) {
+    const stored = saved({ hardwareId: "serial-a", name });
+    const before = structuredClone(stored);
+    const rows = buildDiscoveryRows([
+      { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Kitchen TV" },
+    ], [stored], offline);
+    assert.equal(rows[0].name, name);
+    assert.equal(rows[0].advertisedName, "Kitchen TV");
+    assert.equal(rows[0].status, "saved-verified");
+    assert.equal(rows[0].savedTarget, stored);
+    assert.deepEqual(stored, before);
+  }
+});
+
+test("saved TV extra label requires complete unambiguous current identity and name evidence", () => {
+  const stored = saved({ host: "192.0.2.10", hardwareId: "serial-a", name: "Android TV" });
+  const known = { ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Kitchen TV" };
+  for (const adverts of [
+    [], [{ ...known, friendly_name: null }],
+    [known, { ...known, port: 5556, friendly_name: "Other name" }],
+    [known, { ...known, port: 5556, name: "adb-stranger" }],
+    [known, { ...known, port: 5556, name: "" }],
+    [{ ...known, name: "adb-stranger" }],
+  ]) {
+    const rows = buildDiscoveryRows(adverts, [stored], offline);
+    assert.equal(rows.some(row => row.advertisedName), false);
+  }
+  assert.equal(buildDiscoveryRows([known], [stored], offline)[0].advertisedName, "Kitchen TV");
+  assert.equal(buildDiscoveryRows([{ ...known, friendly_name: null }], [stored], offline)[0].advertisedName, undefined);
+  // A current live identity outranks stale matching adverts at its address.
+  for (const port of [5555, 37123]) {
+    assert.equal(buildDiscoveryRows([known], [stored], liveAt("192.0.2.10", port, "different-tv")).some(row => row.advertisedName), false);
+    assert.equal(buildDiscoveryRows([known], [stored], liveAt("192.0.2.10", port, undefined)).some(row => row.advertisedName), false);
+  }
+  assert.equal(buildDiscoveryRows([known], [{ ...stored, hardwareId: undefined }], liveAt("192.0.2.10", 5555, undefined)).some(row => row.advertisedName), false);
+});
+
+test("matching displayed names add no duplicate label or new targets", () => {
+  const adverts = [{ ...advert("192.0.2.10", 5555, LEGACY, "adb-serial-a"), friendly_name: "Kitchen TV" }];
+  const rows = buildDiscoveryRows(adverts, [saved({ hardwareId: "serial-a", name: "Kitchen TV" })], offline);
+  assert.equal(rows[0].advertisedName, undefined);
+  assert.deepEqual(rows[0].connectPorts, [5555]);
+  assert.deepEqual(rows[0].pairingPorts, []);
+});

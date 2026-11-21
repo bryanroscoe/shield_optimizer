@@ -460,6 +460,9 @@ async fn preview_apply_impl(
 #[derive(Serialize)]
 pub struct ApplyResult {
     pub packages_disabled: Vec<String>,
+    /// Informational skips, separate from failed actions. Taken from the
+    /// executed plan so the result remains accurate after the preview closes.
+    pub packages_absent_skipped: Vec<String>,
     pub packages_failed: Vec<String>,
     pub launcher_set: bool,
     pub launcher_message: Option<String>,
@@ -738,15 +741,15 @@ async fn apply_snapshot_impl(
         settings_deleted.len(),
         settings_failed.len()
     );
-    let absent_disabled: Vec<&str> = packages_disabled
-        .iter()
-        .filter(|pkg| plan.packages_absent_in_snapshot.contains(pkg))
-        .map(String::as_str)
-        .collect();
-    if !absent_disabled.is_empty() {
+    if !plan.packages_absent_skipped.is_empty() {
         summary.push_str(&format!(
-            " Not installed in the snapshot, so disabled (a restore never uninstalls): {}.",
-            absent_disabled.join(", ")
+            " Left {} {} recorded as absent unchanged (saved TV identity is unverified).",
+            plan.packages_absent_skipped.len(),
+            if plan.packages_absent_skipped.len() == 1 {
+                "app"
+            } else {
+                "apps"
+            }
         ));
     }
     if !kept.is_empty() {
@@ -762,6 +765,7 @@ async fn apply_snapshot_impl(
 
     Ok(ApplyResult {
         packages_disabled,
+        packages_absent_skipped: plan.packages_absent_skipped,
         packages_failed,
         launcher_set,
         launcher_message,
@@ -1161,6 +1165,7 @@ mod tests {
         let plan = super::SnapshotApplyPlan {
             packages_to_disable: vec![],
             packages_absent_in_snapshot: vec![],
+            packages_absent_skipped: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: None,
@@ -1215,6 +1220,7 @@ mod tests {
         super::SnapshotApplyPlan {
             packages_to_disable: vec![],
             packages_absent_in_snapshot: vec![],
+            packages_absent_skipped: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: None,
@@ -1325,8 +1331,7 @@ mod tests {
         }
     }
 
-    /// A TV whose catalog lists `packages` as Safe review apps a restore may
-    /// turn off when the snapshot didn't have them.
+    /// A TV whose catalog lists `packages` as Safe review apps.
     fn catalog_state(mock: MockAdb, packages: &[&str]) -> crate::commands::AppState {
         use crate::engine::{ActionMethod, AppEntry, AppListBundle, RiskTier};
         let common = packages
@@ -1361,7 +1366,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restore_skips_an_absent_app_the_catalog_no_longer_lets_it_turn_off() {
+    async fn a_restore_skips_an_absent_app_outside_the_current_catalog() {
         const GONE: &str = "com.example.gone";
         let mock = restore_tv(&[SETTINGS, GONE], &[], &[SETTINGS], "");
         let log = mock.shell_log();
@@ -1376,7 +1381,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_restore_disables_an_app_the_snapshot_did_not_have_and_never_uninstalls_it() {
+    async fn a_restore_leaves_absent_apps_unchanged_but_restores_explicit_disables() {
         const GONE: &str = "com.example.gone";
         let mock = restore_tv(&[SETTINGS, BLOAT, GONE], &[], &[SETTINGS], "");
         let log = mock.shell_log();
@@ -1385,21 +1390,22 @@ mod tests {
         let res = apply_snapshot_impl(&catalog_state(mock, &[GONE]), "serial", &snap)
             .await
             .unwrap();
-        assert_eq!(res.packages_disabled, [BLOAT, GONE]);
+        assert_eq!(res.packages_disabled, [BLOAT]);
+        assert_eq!(res.packages_absent_skipped, [GONE, "com.example.missing"]);
         assert!(res.packages_failed.is_empty(), "{:?}", res.packages_failed);
         assert!(
-            res.summary.starts_with("Disabled 2 packages (0 failed)."),
+            res.summary.starts_with("Disabled 1 packages (0 failed)."),
             "{}",
             res.summary
         );
         assert!(
-            res.summary.contains(&format!(
-                "Not installed in the snapshot, so disabled (a restore never uninstalls): {GONE}."
-            )),
+            res.summary.contains(
+                "Left 2 apps recorded as absent unchanged (saved TV identity is unverified)."
+            ),
             "{}",
             res.summary
         );
-        assert!(disabled_any(&log, GONE));
+        assert!(!disabled_any(&log, GONE));
         assert!(
             !log.lock().unwrap().iter().any(|c| c.contains("uninstall")),
             "a restore must never uninstall"
@@ -1407,7 +1413,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_never_disable_app_the_snapshot_did_not_have_is_refused() {
+    async fn a_never_disable_app_recorded_absent_is_skipped_without_an_action() {
         const PROTECTED: &str = "com.android.systemui";
         assert!(crate::engine::is_never_disable(PROTECTED));
         let mock = restore_tv(&[SETTINGS, PROTECTED], &[], &[SETTINGS], "");
@@ -1418,11 +1424,44 @@ mod tests {
             .await
             .unwrap();
         assert!(res.packages_disabled.is_empty());
-        assert_eq!(
-            res.packages_failed,
-            [format!("{PROTECTED} (refused: brick risk)")]
-        );
+        assert!(res.packages_failed.is_empty());
+        assert!(res
+            .summary
+            .contains("Left 1 app recorded as absent unchanged"));
         assert!(!disabled_any(&log, PROTECTED));
+    }
+
+    #[tokio::test]
+    async fn absent_state_does_not_mutate_enabled_disabled_missing_or_home_apps() {
+        const GONE: &str = "com.example.gone";
+        for (installed, disabled, home) in [
+            (vec![SETTINGS, GONE], vec![], vec![SETTINGS]),
+            (vec![SETTINGS, GONE], vec![GONE], vec![SETTINGS]),
+            (vec![SETTINGS], vec![], vec![SETTINGS]),
+            (vec![GONE], vec![], vec![GONE]),
+        ] {
+            let mock = restore_tv(&installed, &disabled, &home, "");
+            let log = mock.shell_log();
+            let mut snap = snapshot(None, &[]);
+            snap.absent_packages = vec![GONE.into(), GONE.into()];
+            let state = catalog_state(mock, &[GONE]);
+            let (plan, _) = super::plan_for(&state, "serial", &snap).await.unwrap();
+            assert!(plan.packages_to_disable.is_empty());
+            assert_eq!(plan.packages_absent_skipped, [GONE]);
+            let result = apply_snapshot_impl(&state, "serial", &snap).await.unwrap();
+            assert!(result.packages_disabled.is_empty());
+            assert_eq!(result.packages_absent_skipped, [GONE]);
+            assert!(result.packages_failed.is_empty());
+            let log = log.lock().unwrap();
+            assert!(
+                !log.iter().any(|c| c.contains("disable-user")
+                    || c.contains("pm enable")
+                    || c.contains("uninstall")
+                    || c.contains("settings put")
+                    || c.contains("settings delete")),
+                "{log:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1633,6 +1672,7 @@ mod tests {
         super::SnapshotApplyPlan {
             packages_to_disable: vec![],
             packages_absent_in_snapshot: vec![],
+            packages_absent_skipped: vec![],
             packages_already_disabled: vec![],
             packages_not_installed: vec![],
             launcher_to_set: to_set.map(str::to_string),
