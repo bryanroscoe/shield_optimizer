@@ -69,8 +69,10 @@ into links you can post anywhere.
    (`atv-optimizer-testers@googlegroups.com`). For a new group: <https://groups.google.com>,
    **Create group**.
 2. Settings: *Who can search for group*: anyone on the web. *Who can join group*: anyone can join.
-   *Who can view conversations* and *Who can post*: group managers (so nobody can spam
-   testers). *Who can view members*: group managers.
+   *Who can view conversations*: anyone on the web. Only managers can post, so there is nothing
+   private to see, and with a narrower setting the group's page shows non-members "Content
+   unavailable" instead of a **Join group** button (seen 2026-11-21). *Who can post*: group
+   managers, so nobody can spam testers. *Who can view members*: group managers.
 3. Play Console > ATV Optimizer > Test and release > Testing > Closed testing > Manage track >
    **Testers** > **Google Groups** > add the group's email. Set *Feedback URL or email address* to
    `bryanroscoe+atv@gmail.com`. Save. This has to be done in Console: the Play Developer API
