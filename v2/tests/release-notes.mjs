@@ -25,20 +25,29 @@ const manifest = JSON.parse(
 const real = parseReleaseNotes(manifest.notes);
 
 // Expectations come from the manifest itself, which every release replaces.
-const firstHeading = manifest.notes.match(/^###\s+(.+)$/m)?.[1].trim();
-const firstItemWords = manifest.notes
+const shown = stripTrailingBoilerplate(manifest.notes);
+const firstHeading = shown.match(/^###\s+(.+)$/m)?.[1].trim();
+const firstItemWords = shown
   .match(/^- (.+)$/m)?.[1]
   .replace(/[*`]/g, "")
   .split(/\s+/)
   .slice(0, 4)
   .join(" ");
-assert.ok(firstHeading && firstItemWords, "fixture has a heading and a list item");
+assert.ok(firstItemWords, "fixture has a list item");
 
-assert.ok(real.length > 10, "the real notes parse into many blocks");
-assert.ok(
-  real.some((b) => b.kind === "heading" && text(b) === firstHeading),
-  `section headings survive: ${firstHeading}`,
+// A hotfix's notes can be one paragraph and a short list with no headings
+// (2.5.1), so only the list is required of every release.
+assert.equal(
+  real.filter((b) => b.kind === "item").length,
+  shown.split("\n").filter((line) => line.startsWith("- ")).length,
+  "every list item in the shipped notes becomes one item block",
 );
+if (firstHeading) {
+  assert.ok(
+    real.some((b) => b.kind === "heading" && text(b) === firstHeading),
+    `section headings survive: ${firstHeading}`,
+  );
+}
 assert.ok(
   real.some((b) => b.kind === "item" && text(b).includes(firstItemWords)),
   `list items survive: ${firstItemWords}`,

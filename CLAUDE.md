@@ -25,16 +25,20 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-11)
+### What is in flight right now (2026-11-20)
 
-`v2-2.5.0` (2026-11-04) is the latest desktop release. It completed the rename to ATV Optimizer
+`v2-2.5.1` (2026-11-20) is the latest desktop release: a hotfix cut from `release/2.5.x` that makes
+confirmations work in the installed app and fixes in-app AppImage updates (#365), with nothing else
+from `main`. Version files on `main` still say 2.5.0, so cut the next release from `main` with
+`--minor` or `--set` (a bare `--beta` would make `2.5.1-beta.1`, below the published 2.5.1).
+`v2-2.5.0` (2026-11-04) completed the rename to ATV Optimizer
 (identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
 device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
 
 **Unreleased on `main`:** PR #268 (merged 2026-11-09) made built-in Rust ADB the default desktop
 engine, with Settings › ADB › ADB engine switching to Google platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md));
 the release that ships it waits for `docs/DEVICE-TEST-SCRIPT.md` N1–N18. Snapshot schema is 4
-(#353), which 2.5.0 and earlier refuse. The full list is `v2/CHANGELOG.md`'s `## Unreleased`.
+(#353), which 2.5.1 and earlier refuse. The full list is `v2/CHANGELOG.md`'s `## Unreleased`.
 
 Shipped in 2.5.0 or live on the server side:
 
