@@ -102,12 +102,32 @@ need is <https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile>.
 > 3. Please stay opted in for 14 days. Google needs 12 testers for 14 days in a row before the app
 >    can go public.
 >
-> The app is free. Don't buy Pro to help test. Setup steps and what to try:
-> https://github.com/bryanroscoe/shield_optimizer/blob/main/v2/mobile/TESTER-GUIDE.md
+> The app is free, and the first 12 testers get Pro free: after you install it, email
+> bryanroscoe+atv@gmail.com from the Google account you joined with and I'll send a Google Play
+> code. Don't buy Pro to help test. Setup steps and what to try:
+> https://bryanroscoe.com/atv-optimizer/testing/
 > Problems or ideas: bryanroscoe+atv@gmail.com
 
-Ko-fi supporters get the same message plus a Pro promo code (PLAY-CONSOLE-WALKTHROUGH.md
-Phase 5). Keep their codes and every tester address out of this repository.
+**Free Pro** (owner decision, 2026-11-21). Joining the closed test does not make Pro free: Play
+charges real money unless the account is on License testing (kept for the owner's purchase tests)
+or redeems a promo code. So:
+
+- **The first 12 testers** who email from the account they joined with get a one-time-use promo
+  code for `atvopt_pro`. Count them in order of their first email.
+- **Ko-fi supporters** get one regardless (README, "Support the project"); they don't count toward
+  the 12. When the twelfth tester code goes out, remove the offer from README.md (banner and
+  Android section), the invite above, TESTER-GUIDE.md and the website, and tell later emailers the
+  free places are taken.
+- Don't add anyone who gets a code to License testing: Google doesn't document how a promo code
+  behaves on a license-test account (PLAY-CONSOLE-WALKTHROUGH.md 3.4).
+
+Create codes in Play Console > Monetize with Play > Promo codes (one-time-use, product
+`atvopt_pro`, purchase option `buy`; 500 per quarter across products; PLAY-CONSOLE-WALKTHROUGH.md
+Phase 5). A redeemed code is a real Play entitlement on that account and carries over to the public
+release. Send each code privately with `https://play.google.com/redeem?code=<CODE>`; the tester
+then opens the app within three days (or taps More > Restore purchases) so the app acknowledges
+the purchase; Play refunds unacknowledged purchases after three days. Keep codes, the list of who got one, and
+every tester address out of this repository.
 
 ## 3. Helping people
 
