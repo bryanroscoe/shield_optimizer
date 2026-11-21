@@ -30,13 +30,17 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
    validate`, manifest package and versionCode, then the universal APK bundletool generates and the
    Gradle universal APK through `verify-release-apk.py` with the same certificate check;
 6. keeps the AAB, APK, build receipt and verification JSON as a 30-day workflow artifact;
-7. uploads the AAB with `scripts/play-publish.py` and creates a **draft** release on the
-   **internal** track. Nothing reaches testers until you open Play Console → Test and release →
-   Internal testing → the draft → **Review release** → **Start rollout**.
+7. uploads the AAB once with `scripts/play-publish.py` and, in the same Play edit, releases it as
+   **completed** on the **internal** track and on the **alpha** (Closed testing) track. Internal
+   testers get it within minutes. The closed release goes to Google's review and reaches the
+   tester group (`atv-optimizer-testers@googlegroups.com`) as soon as it is approved, because
+   managed publishing is off (owner decision, 2026-11-21). To stop a closed release still in
+   review: Play Console → Publishing overview → **Remove changes**. Pushing the tag is the release
+   decision; merging to `main` is not.
 
 **Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
-and verified, no upload), `publish` (pick the track, e.g. `alpha` for the default Closed testing
-track, or a custom closed track id, and `draft` or `completed`) or `smoke`. The `production`
+and verified, no upload), `publish` (one track or several comma-separated: `internal`, `alpha` for the default
+Closed testing track, or a custom closed track id; and `draft` or `completed`) or `smoke`. The `production`
 track is refused: promote a tested release to production in Play Console. `completed` is refused
 by Play while the app has never been published. A versionCode override is there for re-spinning
 one version; it must still be above everything on Play.
@@ -162,9 +166,9 @@ implementation as the eventual public release; do not substitute a debug or fixt
    not product acceptance. Then finish listing/declarations and roll out Closed testing to
    start the account's required production-access clock. Send invited testers
    [`TESTER-GUIDE.md`](TESTER-GUIDE.md).
-   [`SHARING.md`](SHARING.md) §1 proposes a smaller first gate (two TVs plus this purchase
-   script) with the rest of the matrix finished during the closed test; which gate applies is the
-   owner's call.
+   Since 2026-11-21 every `mobile-v*` tag also releases to Closed testing (see "Automated
+   release (CI)"), so the owner's gate is [`SHARING.md`](SHARING.md) §1 (two TVs plus this
+   purchase script) and the rest of the matrix is finished during the closed test.
 
 ## 0. Prerequisites (one time)
 
