@@ -294,17 +294,16 @@ What runs against production on its own:
 
 Both skip with a notice if the secret or variable is missing.
 
-**Not yet deployed (2026-11-11):** the storage budget (`GLOBAL_DAILY_EVENT_BYTES`,
-`STORAGE_BUDGET_BYTES`, `STORAGE_TRIM_MAX_ROW_WRITES`, the lower upload caps and the cron's
-oldest-first trim), the 30-day raw retention (production still keeps raw events 90 days) and the
-`400` for a
-malformed support id are on `main` but reach production only with an owner-approved
-`npx wrangler deploy` (see Redeploy below). No migration is needed: the new caps are rows in the
-existing `rate_daily` table and the trim uses existing tables. Until then production keeps the old
-caps, which can fill the 500 MB database. After deploying, delete this note.
+Storage budget deployed 2026-11-12: Worker version `c2a36241-c0a0-41bf-91f2-66a9ae1a25d4` serves
+the code from main `76b2e029d95197a7594e51b6223b6872f3d0b5d9`, with the storage budget
+(`GLOBAL_DAILY_EVENT_BYTES`, `STORAGE_BUDGET_BYTES`, `STORAGE_TRIM_MAX_ROW_WRITES`, the lower
+upload caps and the cron's oldest-first trim), the 30-day raw retention and the `400` for a
+malformed support id. No migration was needed. After the deploy `/privacy` showed 30 days,
+`/v1/support-tiers` answered `200`, and events kept arriving (26 in the 20 minutes before the
+check). The database was 25 MB.
 
-Before deploying, check that `GLOBAL_DAILY_EVENT_BYTES` (10 MiB/day) clears real traffic with
-room to spare; once it is live, events over it are refused with `429 global_daily_cap` for the rest
+Before changing `GLOBAL_DAILY_EVENT_BYTES` (10 MiB/day), check that it clears real traffic with
+room to spare; events over it are refused with `429 global_daily_cap` for the rest
 of the UTC day. This read-only query (`sql/event-volume.sql`) lists the last 14 days' event counts,
 their average stored size and each day's total as the cap counts it (string bytes plus 256 per
 row):
@@ -326,7 +325,7 @@ merged would have refused more than half of each day's events, so the cap is now
 (three times the busiest day), and raw retention went from 90 to 30 days to keep the worst case
 inside the Free plan. 7,000 events at that average is 8.3-10.7 MiB, so the two caps bind at about
 the same point (see [Free-tier limits](#free-tier-limits-and-abuse-protection)). Rerun the check
-before deploying if more than a few days have passed.
+before changing either cap.
 
 The first cron after the deploy deletes every raw event older than 30 days in one statement, at
 three row writes each. The production database was created on 2026-11-01, so a deploy before

@@ -1,23 +1,23 @@
 # ATV Optimizer — Android closed-test guide
 
-This guide is for invited testers once the closed test is published. A draft or an approved-but-unpublished release cannot be installed through the closed-test link. The developer is preparing the test; invitations have not been sent.
+This guide is for invited testers once the closed test is published. A draft or an approved-but-unpublished release cannot be installed through the closed-test link.
 
 ## Before you start
 
-- Use an Android phone with Google Play and the Google account you gave the developer.
+- Use an Android phone with Google Play, signed into the Google account you will test with.
 - Have an Android TV or Google TV you own or are authorized to manage, on the same Wi-Fi/local network as the phone. Fire TV is unsupported.
 - Keep the TV remote nearby. Know how to reach the TV's settings before changing anything.
 - Start with connection, diagnostics and remote checks. Do not change system apps or your Home app just to complete a test.
 
 ## Join and install
 
-1. Wait for the developer to confirm that the closed test is published and your account has access.
-2. Open https://play.google.com/apps/testing/com.atvoptimizer.mobile while signed into that Google account. If a Google Group is used, join that group first.
+1. Wait for the developer to confirm that the closed test is published.
+2. If the developer sent a Google Group link, join that group with the Google account your Play Store uses. Then open https://play.google.com/apps/testing/com.atvoptimizer.mobile while signed into that account.
 3. Opt in, then follow the Google Play download link. Install or update **ATV Optimizer** from Google Play. If you previously joined the internal test, tell the developer: an internal-test enrollment can take precedence over the closed track, and the developer must verify your closed-test enrollment before counting you.
 4. If the page says unavailable, confirm the Google account first, then send the developer the exact message. Do not install an APK from a third-party site.
-5. Open the app and record the installed app version, phone model and Android version with your first report.
+5. Open the app. With your first report, send the installed app version (Android Settings › Apps › ATV Optimizer, at the bottom), phone model and Android version.
 
-Joining the email list is not enrollment. You must opt in using the test link, use the app and stay opted in for at least 14 consecutive days. Google evaluates the closed test before production access; completing 14 days is not an automatic public launch.
+Joining the group or the email list is not enrollment. You must opt in using the test link, use the app and stay opted in for at least 14 consecutive days. Google evaluates the closed test before production access; completing 14 days is not an automatic public launch.
 
 ## Connect your TV
 

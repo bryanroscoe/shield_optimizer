@@ -3,7 +3,8 @@
 Built-in desktop ADB (PR #268, merged 2026-11-09): see [NATIVE-ADB-HANDOFF.md](NATIVE-ADB-HANDOFF.md)
 for its history and remaining hardware acceptance, and [DIRECT-ADB.md](DIRECT-ADB.md) for how it works.
 
-v2 is a shipping desktop app. Latest **published** version: **2.5.0** (2026-11-04). The `v2-2.4.0` tag's build
+v2 is a shipping desktop app. Latest **published** version: **2.5.1** (2026-11-20), cut from `release/2.5.x`: 2.5.0 plus the
+confirmations fix and the AppImage update-signature fix, nothing else from `main`. The `v2-2.4.0` tag's build
 failed, so 2.4.0 was never published.
 
 Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
@@ -21,7 +22,7 @@ the next release:
   but restore leaves those entries unchanged and names them as skipped. The saved TV's hardware
   identity is unverified; matching device type or transport address cannot authorize turning off
   target-only apps. Explicitly recorded disabled apps still restore with the existing safety/Home
-  guards. 2.5.0 and earlier refuse v4 files as newer than they support.
+  guards. 2.5.1 and earlier refuse v4 files as newer than they support.
 - Review rows suggest reversible Disable until installer provenance is verified. `pm list
   packages -3` includes sideloaded store apps and does not prove Play origin. Default Keep,
   curated bulk defaults and explicitly chosen Uninstall are unchanged; see

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-11",
+  "updated_at": "2026-11-21",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1179,6 +1179,232 @@
         "context": "Unused streaming app disabled by owner choice, not vendor removal guidance; full model/firmware/keep comments preserved in pinned source."
       },
       "independent_review": "One read-only reviewer independently checked both exact URLs and vendor help; agrees hold. No formal GitHub approval or hardware test."
+    },
+    "com.android.providers.calendar": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-16",
+      "reconsider_after": "2026-12-16",
+      "reason": "AOSP binds the exact package to shared calendar storage, exported data access, reminders and upgrade receivers. TV/firmware callers, their absence and lossless recovery remain unverified. Disabling storage cannot be inferred safe from the absence of a visible calendar app.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-16.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/providers/CalendarProvider/+/refs/tags/android-14.0.0_r1/AndroidManifest.xml",
+        "https://developer.android.com/identity/providers/calendar-provider"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 3,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/oneplus-tv-dosa/debloat.txt#L26",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L126"
+      ]
+    },
+    "com.tcl.dashboard": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-16",
+      "reconsider_after": "2026-12-16",
+      "reason": "Exact developer listing establishes shortcut-panel, app-launch and smart-home functionality. Pinned sources conflict over settings/gear and TCL HOME access; successful Input access on one unit does not prove settings access elsewhere. Firmware dependency and recovery scope cannot be enforced by common/family lists.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-16.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.tcl.dashboard",
+        "https://support.tcl.com/tcl-google-tv-walkthrough-settings?kb_language=en_US"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 34,
+        "commented_profiles": 5,
+        "note_profiles": 20
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c725/debloat.txt#L51",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5400a/debloat.txt#L23",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L139"
+      ]
+    },
+    "com.android.health.connect.backuprestore": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-17",
+      "reconsider_after": "2026-12-17",
+      "reason": "AOSP binds this exact ID to a system-process full-backup agent with HEALTH_CONNECT_BACKUP_INTER_AGENT. TV firmware callers, backup/restore dependencies and lossless recovery are unverified. No absence of health data or callers is inferred from TV use.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-17.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/modules/HealthFitness/+/refs/tags/android-14.0.0_r1/backuprestore/AndroidManifest.xml",
+        "https://developer.android.com/health-and-fitness/health-connect/architecture"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 31,
+        "commented_profiles": 3,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/acer-ar3-r3/debloat.txt#L92",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-d2426/debloat.txt#L69",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/kalley-r10g/debloat.txt#L68",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L202"
+      ]
+    },
+    "com.android.healthconnect.controller": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-17",
+      "reconsider_after": "2026-12-17",
+      "reason": "AOSP binds this exact ID to health permission requests/management, data management, migration, Settings and Safety Center integration. Disabling may remove access to those controls; TV firmware dependencies and recovery are unverified. Generic common/family scope cannot enforce absence of callers.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-17.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/modules/HealthFitness/+/refs/tags/android-14.0.0_r1/apk/AndroidManifest.xml",
+        "https://developer.android.com/health-and-fitness/health-connect/architecture"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 31,
+        "commented_profiles": 4,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/acer-ar3-r3/debloat.txt#L91",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/anker-nebula-d2426/debloat.txt#L68",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/kalley-r10g/debloat.txt#L67",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-q7c-google-tv/debloat.txt#L201"
+      ]
+    },
+    "com.amazon.bueller.music": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-18",
+      "reconsider_after": "2026-12-18",
+      "reason": "Primary Amazon documentation confirms Fire TV music playback, including device-bound subscriptions, but does not bind this exact package to its components/callers or establish firmware-specific disable/recovery effects. Pinned profiles contain owner-choice keep and disable observations; hold until exact identity, Alexa/media integrations and enforceable applicability are established.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-18.md",
+      "primary_evidence": [
+        "https://digprjsurvey.amazon.com/csad/help/node/G42KQB42DMBMT8DW",
+        "https://developer.amazon.com/docs/fire-tv/faq-general.html"
+      ],
+      "independent_review": "Exactly one independent read-only reviewer agrees hold; primary functional context does not close exact-package dependency/recovery and scope gaps."
+    },
+    "com.amazon.bueller.photos": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-18",
+      "reconsider_after": "2026-12-18",
+      "reason": "Primary Amazon documentation describes Photos integration with Fire TV screensavers, but does not bind the exact package to those components or establish dependencies and recovery across firmware. Pinned profiles include keep and disable choices; hold pending exact-package evidence and screensaver/ambient recovery assessment.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-18.md",
+      "primary_evidence": [
+        "https://digprjsurvey.amazon.com/csad/help/node/TMlFkNlI8OsVODP4xs",
+        "https://developer.amazon.com/docs/fire-tv/faq-general.html"
+      ],
+      "independent_review": "Exactly one independent read-only reviewer agrees hold; primary functional context does not close exact-package dependency/recovery and scope gaps."
+    },
+    "com.sony.dtv.demosupport": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-19",
+      "reconsider_after": "2026-12-19",
+      "reason": "Sony documents demo-mode settings but does not establish the exact package components/callers, equivalence of package disable to those settings, firmware-specific dependencies or recovery. Upstream retail-demo labels and 33 disable observations are not primary removal-safety evidence. Hold until exact identity and enforceable dependency/recovery scope are established.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-19.md",
+      "primary_evidence": [
+        "https://www.sony.com/electronics/support/televisions-projectors-lcd-tvs-android-/k-75s30c/articles/00050389"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 0,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-ur3/debloat.txt#L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21/debloat.txt#L86"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, function, dependencies, consequences, recovery and applicability; both recommend hold."
+    },
+    "com.sony.dtv.smarthelp": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-19",
+      "reconsider_after": "2026-12-19",
+      "reason": "Sony developer listing identifies BRAVIA Help support/troubleshooting functionality. Pinned sources report HELP-key loss, a search provider, intentional Keep and factory-disabled variants. Primary Sony diagnostics documentation does not bind exact components/callers to all firmware; package disable/re-enable does not prove full help/search/diagnostics recovery. Hold pending enforceable dependency and recovery scope.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-19.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.sony.dtv.smarthelp",
+        "https://www.sony.com/electronics/support/articles/00090165"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 33,
+        "commented_profiles": 2,
+        "note_profiles": 3
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu1/debloat.txt#L61",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-vu2/debloat.txt#L24",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-ur2/debloat.txt#L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-55xe8596/debloat.txt#L79",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21-tw/debloat.txt#L21",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh21/debloat.txt#L80"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, function, dependencies, consequences, recovery and applicability; both recommend hold."
+    },
+    "com.mitv.tvhome.mitvplus": {
+      "status": "accepted",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-20",
+      "reason": "Both agents agree exact developer identity and optional live-channel/guide function support Caution Disable suggestion, review=true, both defaults=false, initially Keep; no Safe or model/firmware certification. Re-enable only while installed, with history/settings/content recovery unverified.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-20.md",
+      "primary_evidence": [
+        "https://play.google.com/store/apps/details?id=com.mitv.tvhome.mitvplus",
+        "https://www.mi.com/sa-en/support/article/KA-124775/"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 23,
+        "commented_profiles": 1,
+        "note_profiles": 1
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mi-box-s-2nd-gen/debloat.txt#L74",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-mooq0/debloat.txt#L141",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-moeu0/debloat.txt#L26"
+      ]
+    },
+    "com.google.android.apps.nbu.smartconnect.tv": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-20",
+      "reconsider_after": "2026-12-20",
+      "reason": "AOSP TV Settings binds this exact authority to data-saver and data-alert providers. Network/settings and firmware-specific callers, configured state recovery and enforceable scope remain unverified; cannot treat as only optional casting/file transfer.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-20.md",
+      "primary_evidence": [
+        "https://android.googlesource.com/platform/packages/apps/TvSettings/+/47b9cd0ba958b1de2e489a4a3690731291032cb7/Settings/res/xml/network.xml",
+        "https://blog.google/intl/en-in/products/platforms/watch-up-to-3x-more-with-data-saver-on/"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 28,
+        "commented_profiles": 1,
+        "note_profiles": 12
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g03-google-tv/debloat.txt#L231",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/hisense-hismarttv-a4-android11/debloat.txt#L24",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50ep680/debloat.txt#L15",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-g06-us-google-tv/debloat.txt#L57"
+      ]
+    },
+    "com.mitv.gallery": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-21",
+      "reconsider_after": "2026-12-21",
+      "reason": "Primary vendor media documentation does not bind the exact package to components/callers or recovery. Pinned MSSP1 says Gallery doubles as Photos screensaver; AXFU0 keep-for-USB warning conflicts with its active disable. Firmware-specific media/screensaver dependencies and enforceable applicability remain unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-21.md; MSSP1:64-67 Photos screensaver keep/reassign warning; AXFU0:18-19 keep for USB vs active line62; AXSO1:51 and MOOR2:166 commented choices; MOOQ0:112 MiCloud/market SDK.",
+      "independent_evidence": "https://www.mi.com/sg/support/article/KA-12981/",
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "com.mitv.tvhome.michannel": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-21",
+      "reconsider_after": "2026-12-21",
+      "reason": "Vendor PatchWall documentation does not establish this exact package identity, exported components, launcher/content callers or disable/recovery consequences. Source recommendation-row descriptions and frequency cannot justify action coverage across firmware.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-21.md; 23 active/0 commented/1 note profiles. AFMU1:82 one unit only, already firmware-disabled on another; MSSP3 Android9:52 absent on PI.4663 Italy; MOOR2:96 content rows; MOOQ0:103 recommendation channels/Firebase/GMS.",
+      "independent_evidence": "https://www.mi.com/global/support/article/KA-124771/",
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
     }
   }
 }

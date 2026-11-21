@@ -641,6 +641,9 @@ Help: <https://support.google.com/googleplay/android-developer/answer/6062777>,
 1. **Test and release > Testing > Closed testing** > the default track > **Manage track**.
 2. **Testers** tab: **Create email list** named `ko-fi + early testers`, paste every email from
    0.4 (comma-separated or CSV) > **Save changes** > **Create**. Tick the list.
+   Simpler for open recruiting: add an anyone-can-join Google Group under **Google Groups**
+   instead, so testers join it themselves and you never collect addresses. Setup and the invite
+   text: [`SHARING.md`](SHARING.md) §2.
 3. **Feedback URL or email address:** `<<OWNER: support email>>`. It shows on the opt-in page.
 4. **Countries/regions** (if asked): all. Country choices apply to every track.
 5. **Releases** tab: **Create new release** > **Add from library** > the same AAB as internal >

@@ -3,6 +3,11 @@ name: Mobile 16 KB runtime QA
 on:
   workflow_dispatch:
     inputs:
+      allow_kvm_acl:
+        description: Separately approved permission grant to this temporary runner user for this run only
+        required: false
+        type: boolean
+        default: false
       source_run_id:
         description: Successful Mobile Play release build run on main (not a smoke run)
         required: true
@@ -30,6 +35,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
+      ALLOW_KVM_ACL: ${{ inputs.allow_kvm_acl }}
+      REPOSITORY_VISIBILITY: ${{ github.event.repository.visibility }}
       SOURCE_RUN_ID: ${{ inputs.source_run_id }}
       SOURCE_SHA: ${{ inputs.source_sha }}
       APK_SHA256: ${{ inputs.apk_sha256 }}
@@ -38,7 +45,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Verify runner prerequisites without changing permissions
+      - name: Diagnose runner prerequisites and apply only explicit per-run ACL opt-in
         run: |
           EVIDENCE="$RUNNER_TEMP/runtime-evidence"
           {
@@ -50,10 +57,18 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$APK_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
-            echo '::error::This runner has no usable KVM access. No permission changes or software-emulation fallback will be attempted.'
-            exit 1
-          fi
+          {
+            uname -m
+            id
+            ls -ld /dev/kvm 2>&1 || true
+            grep -m1 -E '^flags.*(vmx|svm)' /proc/cpuinfo || true
+            if [[ -x "$ANDROID_HOME/emulator/emulator" ]]; then
+              "$ANDROID_HOME/emulator/emulator" -accel-check || true
+            fi
+          } > "$EVIDENCE/kvm-host.txt" 2>&1
+          python3 v2/mobile/scripts/runtime-kvm.py prepare \
+            --state "$RUNNER_TEMP/runtime-kvm-state.json" --evidence "$EVIDENCE" \
+            --allow-acl "$ALLOW_KVM_ACL"
           python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 12 * 1024**3, "Require at least 12 GiB free for image and disposable AVD"'
 
       - name: Validate source run and select its release artifact
@@ -136,6 +151,13 @@ jobs:
           python3 v2/mobile/scripts/runtime-16kb.py runtime --root "$CANDIDATE" \
             --evidence "$EVIDENCE" --provenance "$EVIDENCE/candidate.json"
 
+      - name: Restore original KVM ACL if this run changed it
+        id: kvm_cleanup
+        if: always()
+        run: |
+          python3 v2/mobile/scripts/runtime-kvm.py restore \
+            --state "$RUNNER_TEMP/runtime-kvm-state.json" --evidence "$EVIDENCE"
+
       - name: Keep bounded runtime evidence, never release artifacts or credentials
         if: always()
         uses: actions/upload-artifact@v4
@@ -149,9 +171,12 @@ jobs:
         if: always()
         env:
           OUTCOME: ${{ steps.smoke.outcome }}
+          KVM_CLEANUP: ${{ steps.kvm_cleanup.outcome }}
         run: |
-          if [[ "$OUTCOME" == success ]] && jq -e '.status == "passed" and .page_size == 16384' "$EVIDENCE/runtime-receipt.json" >/dev/null; then
+          if [[ "$OUTCOME" == success && "$KVM_CLEANUP" == success ]] && jq -e '.status == "passed" and .page_size == 16384' "$EVIDENCE/runtime-receipt.json" >/dev/null; then
             echo 'Signed candidate passed x86_64 Android 16 16 KB startup and restart checks.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$KVM_CLEANUP" != success ]]; then
+            echo 'KVM cleanup failed or did not complete; this job is not qualified. Inspect cleanup logs and the separate runtime receipt (if produced).' >> "$GITHUB_STEP_SUMMARY"
           else
             echo '16 KB runtime was not confirmed. Inspect the failed step and retained evidence.' >> "$GITHUB_STEP_SUMMARY"
           fi

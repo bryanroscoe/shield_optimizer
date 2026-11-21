@@ -4,6 +4,8 @@ Read this top-to-bottom before doing any mobile work. It is the authoritative de
 current state. Companion docs in this directory:
 
 - **[`BACKLOG.md`](BACKLOG.md)** — the ordered queue of remaining work.
+- **[`SHARING.md`](SHARING.md)** — the owner's ready-to-share gate, tester invites (Google Group
+  plus opt-in link) and the support playbook for helping testers.
 - [`LIFECYCLE-EVIDENCE.md`](LIFECYCLE-EVIDENCE.md) — the app-restart report (#105): host matrix and
   the physical evidence still needed.
 - [`PAIRING-PLAN.md`](PAIRING-PLAN.md) — the Android 11+ code-pairing protocol and its manual test.

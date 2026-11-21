@@ -1,0 +1,149 @@
+name: Promote verified mobile candidate
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful signed build-only main run
+        required: true
+        type: string
+      source_sha:
+        description: Exact candidate source commit
+        required: true
+        type: string
+      apk_sha256:
+        description: Exact retained APK SHA-256
+        required: true
+        type: string
+      aab_sha256:
+        description: Exact retained AAB SHA-256 to upload unchanged
+        required: true
+        type: string
+      runtime_run_id:
+        description: Successful 16 KB runtime run for these exact bytes
+        required: true
+        type: string
+      ci_run_id:
+        description: Successful v2 Tests main run for the exact source
+        required: true
+        type: string
+      status:
+        description: draft waits in Console; completed rolls out to existing Internal testers
+        type: choice
+        options: [draft, completed]
+        default: draft
+permissions:
+  contents: read
+  actions: read
+# Share the existing release mutex: a retained promotion must not race a fresh publish.
+concurrency:
+  group: Mobile Play release-release
+  cancel-in-progress: false
+jobs:
+  promote:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: google-play
+    env:
+      BUILD_RUN: ${{ inputs.build_run_id }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      APK_SHA: ${{ inputs.apk_sha256 }}
+      AAB_SHA: ${{ inputs.aab_sha256 }}
+      QA_RUN: ${{ inputs.runtime_run_id }}
+      CI_RUN: ${{ inputs.ci_run_id }}
+      RELEASE_STATUS: ${{ inputs.status }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Validate selection and fetch public provenance
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          [[ "$BUILD_RUN" =~ ^[0-9]+$ && "$QA_RUN" =~ ^[0-9]+$ && "$CI_RUN" =~ ^[0-9]+$ ]]
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ && "$APK_SHA" =~ ^[0-9a-f]{64}$ && "$AAB_SHA" =~ ^[0-9a-f]{64}$ ]]
+          [[ "$RELEASE_STATUS" == draft || "$RELEASE_STATUS" == completed ]]
+          mkdir -p "$RUNNER_TEMP/promotion/metadata"
+          echo "PROMOTION=$RUNNER_TEMP/promotion" >> "$GITHUB_ENV"
+          cd "$RUNNER_TEMP/promotion/metadata"
+          repo="repos/$GITHUB_REPOSITORY"
+          gh api "$repo/actions/runs/$BUILD_RUN" > build_run.json
+          gh api "$repo/actions/runs/$BUILD_RUN/artifacts?per_page=100" > build_artifacts.json
+          gh api "$repo/compare/$SOURCE_SHA...main" > source_comparison.json
+          gh api "$repo/actions/runs/$QA_RUN" > qa_run.json
+          qa_sha="$(jq -r .head_sha qa_run.json)"
+          [[ "$qa_sha" =~ ^[0-9a-f]{40}$ ]]
+          gh api "$repo/compare/$qa_sha...main" > qa_comparison.json
+          gh api "$repo/actions/runs/$QA_RUN/artifacts?per_page=100" > qa_artifacts.json
+          gh api "$repo/actions/runs/$CI_RUN" > ci_run.json
+          gh api "$repo/actions/runs/$CI_RUN/jobs?per_page=100&filter=latest" > ci_jobs.json
+      - name: Require exact successful build, runtime and source CI
+        id: plan
+        run: |
+          python3 v2/mobile/scripts/promote-candidate.py plan \
+            --metadata "$PROMOTION/metadata" --repository "$GITHUB_REPOSITORY" \
+            --build-run-id "$BUILD_RUN" --source-sha "$SOURCE_SHA" \
+            --qa-run-id "$QA_RUN" --ci-run-id "$CI_RUN" --output "$PROMOTION/plan.json"
+      - name: Download only the selected signed candidate
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run_id }}
+          artifact-ids: ${{ steps.plan.outputs.build_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/promotion/candidate
+      - name: Download only the successful runtime evidence
+        uses: actions/download-artifact@v4
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.runtime_run_id }}
+          artifact-ids: ${{ steps.plan.outputs.qa_artifact_id }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/promotion/runtime
+      - name: Bind selected bytes, runtime receipt and configured certificate
+        id: candidate
+        env:
+          UPLOAD_CERT: ${{ vars.ATVOPT_UPLOAD_CERT_SHA256 }}
+        run: |
+          certificate="$(printf '%s' "$UPLOAD_CERT" | tr -d ': ' | tr 'A-F' 'a-f')"
+          python3 v2/mobile/scripts/promote-candidate.py verify \
+            --root "$PROMOTION/candidate" --evidence "$PROMOTION/runtime" \
+            --plan "$PROMOTION/plan.json" --apk-sha256 "$APK_SHA" --aab-sha256 "$AAB_SHA" \
+            --certificate "$certificate" --output "$PROMOTION/qualified.json"
+      - name: Upload exact retained AAB to Internal only
+        id: upload
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          VERSION_CODE: ${{ steps.candidate.outputs.version_code }}
+        run: |
+          set -o pipefail
+          umask 077
+          account="$RUNNER_TEMP/promotion-account.json"
+          trap 'rm -f "$account"' EXIT
+          printf '%s' "$SERVICE_ACCOUNT" > "$account"
+          python3 v2/mobile/scripts/play-publish.py upload \
+            --service-account "$account" \
+            --aab "$PROMOTION/candidate/bundle/universalRelease/app-universal-release.aab" \
+            --track internal --status "$RELEASE_STATUS" --version-code "$VERSION_CODE" --expected-aab-sha256 "$AAB_SHA" \
+            --release-name "Internal candidate $VERSION_CODE" | tee "$PROMOTION/publish.json"
+      - name: Keep promotion receipts without credentials or app binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-promotion-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/promotion/plan.json
+            ${{ runner.temp }}/promotion/qualified.json
+            ${{ runner.temp }}/promotion/publish.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Report actual publication outcome
+        if: always()
+        env:
+          OUTCOME: ${{ steps.upload.outcome }}
+          VERSION_CODE: ${{ steps.candidate.outputs.version_code }}
+        run: |
+          python3 v2/mobile/scripts/release-evidence.py publish \
+            --outcome "$OUTCOME" --receipt "$RUNNER_TEMP/promotion/publish.json" \
+            --track internal --status "$RELEASE_STATUS" --version-code "${VERSION_CODE:-0}" >> "$GITHUB_STEP_SUMMARY"
+          echo 'No rebuild, signing, physical-device operation or production release. Internal distribution does not establish phone/TV, billing, ARM64 or Play pre-launch acceptance.' >> "$GITHUB_STEP_SUMMARY"
