@@ -66,6 +66,7 @@ async function createPage(t, options = {}) {
             return options.installed ?? [];
           case "prepare_optimize": return options.plans?.[args.mode] ?? { mode: args.mode, items: [] };
           case "safety_info":
+            if (options.safetyFails) throw new Error("safety lookup failed");
             return options.safety?.[args.package] ?? { kind: "caution", reason: "Review whether you use this app." };
           case "process_safety_info":
             return { kind: "unknown", reason: "Not an installed package." };
@@ -163,16 +164,133 @@ test("an Optimize row prints the catalog sentence once when the safety reason al
   });
   await openScreen(page, "optimize");
   await page.getByText("Photos", { exact: true }).waitFor();
-  const rowText = (pkg) => page.locator(".optimize-item", { has: page.getByText(pkg) }).innerText();
-  const count = (text, sentence) => text.split(sentence).length - 1;
   await page.waitForFunction(() => document.querySelectorAll(".row-reason").length === 3);
-  assert.equal(count(await rowText("Prime Video"), safe.entry.optimize_description), 1);
-  assert.equal(count(await rowText("Remote Keyboard"), caution.entry.optimize_description), 1);
-  assert.match(await rowText("Remote Keyboard"), /medium risk/);
+  const row = (name) => page.locator(".optimize-item", { has: page.getByText(name, { exact: true }) });
+  const count = (text, sentence) => text.split(sentence).length - 1;
+  // Selected Caution rows start unfurled; open the rest.
+  for (const name of ["Prime Video", "Remote Keyboard", "Photos"]) {
+    const toggle = row(name).getByRole("button", { name: `If you remove it, ${name}`, exact: true });
+    if ((await toggle.getAttribute("aria-expanded")) !== "true") await toggle.click();
+  }
+  assert.equal(count(await row("Prime Video").innerText(), safe.entry.optimize_description), 1);
+  assert.equal(count(await row("Remote Keyboard").innerText(), caution.entry.optimize_description), 1);
+  assert.match(await row("Remote Keyboard").innerText(), /medium risk/);
   // A reason that doesn't repeat the description keeps both lines.
-  const photos = await rowText("Photos");
+  const photos = await row("Photos").innerText();
   assert.equal(count(photos, own.entry.optimize_description), 1);
   assert.match(photos, /Review whether you use this app\./);
+});
+
+test("an Optimize row folds its explanation behind a toggle that works by tap and keyboard", async (t) => {
+  const updater = item("System Updater", { package: "com.example.ota" });
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [updater] } },
+    safety: {
+      "com.example.ota": {
+        kind: "caution",
+        reason: "Reviewed and rated high risk — read this before removing it. Disabling stops security updates.",
+      },
+    },
+  });
+  await page.setViewportSize({ width: 320, height: 720 });
+  await openScreen(page, "optimize");
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  const row = page.locator(".optimize-item", { has: page.getByText("System Updater", { exact: true }) });
+  const toggle = row.getByRole("button", { name: "If you remove it, System Updater", exact: true });
+  const consequence = row.getByText(/stops security updates/);
+  await toggle.waitFor();
+  // Folded: name, status and controls only, with the explanation one tap away.
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await consequence.isVisible(), false);
+  assert.ok((await toggle.boundingBox()).height >= 44, "44px touch target");
+  const panelId = await toggle.getAttribute("aria-controls");
+  assert.equal(await page.locator(`#${panelId}`).count(), 1);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await consequence.isVisible(), true);
+  await toggle.click();
+  assert.equal(await consequence.isVisible(), false);
+  // Keyboard: Enter and Space both toggle, and focus is visible.
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await consequence.isVisible(), true);
+  await page.keyboard.press("Space");
+  assert.equal(await consequence.isVisible(), false);
+  assert.notEqual(await toggle.evaluate((el) => getComputedStyle(el).outlineStyle), "none");
+  // The toggle's target never covers the details button, and its focus ring is
+  // drawn inside the card (which clips paint).
+  const details = await row.getByRole("button", { name: "Details for System Updater" }).boundingBox();
+  const target = await toggle.boundingBox();
+  assert.ok(target.y >= details.y + details.height - 0.5, "toggle does not overlap the details button");
+  const ring = await toggle.evaluate((el) => {
+    const offset = parseFloat(getComputedStyle(el).outlineOffset) + parseFloat(getComputedStyle(el).outlineWidth);
+    const box = el.getBoundingClientRect();
+    const card = el.closest(".optimize-item");
+    const inner = card.getBoundingClientRect();
+    const border = parseFloat(getComputedStyle(card).borderBottomWidth);
+    return { bottom: box.bottom + offset, cardBottom: inner.bottom - border, top: box.top - offset, cardTop: inner.top };
+  });
+  assert.ok(ring.bottom <= ring.cardBottom + 0.5 && ring.top >= ring.cardTop, `focus ring inside the card: ${JSON.stringify(ring)}`);
+  // The removal choice is described by the consequence even while folded.
+  const describedBy = await row.getByRole("button", { name: "Disable", exact: true }).getAttribute("aria-describedby");
+  assert.match(await page.locator(`[id="${describedBy}"]`).textContent(), /stops security updates/);
+  // The trailing controls center on the name / status block, not on the explanation.
+  const choice = await row.getByRole("group", { name: "Choice for System Updater" }).boundingBox();
+  assert.ok(Math.abs((details.y + details.height / 2) - (choice.y + choice.height / 2)) <= 2, "controls are centered");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  // Choosing to remove a Caution app unfurls what it costs, and the confirmation repeats it.
+  await row.getByRole("button", { name: "Disable", exact: true }).click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await consequence.isVisible(), true);
+  await page.getByRole("button", { name: /Apply optimization/ }).click();
+  assert.match(await page.locator(".dialog-card").innerText(), /Disable System Updater — Reviewed and rated high risk.*stops security updates/s);
+});
+
+test("a Caution app the plan selects starts unfurled; a Safe one stays folded; a mode switch folds rows", async (t) => {
+  const caution = item("Selected Caution", { defaultOptimize: true, package: "com.example.selected-caution" });
+  const safe = item("Selected Safe", { defaultOptimize: true, package: "com.example.selected-safe" });
+  const page = await createPage(t, {
+    plans: {
+      optimize: { mode: "optimize", items: [caution, safe] },
+      restore: { mode: "restore", items: [] },
+    },
+    safety: {
+      [caution.entry.package]: { kind: "caution", reason: "Disabling stops crash reports from the TV." },
+      [safe.entry.package]: { kind: "safe", reason: safe.entry.optimize_description },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("2 selected", { exact: false }).waitFor();
+  const cautionToggle = page.getByRole("button", { name: "If you remove it, Selected Caution", exact: true });
+  const safeToggle = page.getByRole("button", { name: "If you remove it, Selected Safe", exact: true });
+  assert.equal(await cautionToggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await page.getByText("Disabling stops crash reports from the TV.").isVisible(), true);
+  assert.equal(await safeToggle.getAttribute("aria-expanded"), "false");
+  // Choosing a Safe app again keeps it folded.
+  await page.getByRole("button", { name: "Toggle Selected Safe" }).click();
+  await page.getByRole("button", { name: "Toggle Selected Safe" }).click();
+  assert.equal(await safeToggle.getAttribute("aria-expanded"), "false");
+  await safeToggle.click();
+  assert.equal(await safeToggle.getAttribute("aria-expanded"), "true");
+  await page.getByRole("button", { name: "Restore", exact: true }).click();
+  await page.getByRole("button", { name: "Optimize", exact: true }).click();
+  await page.getByText("2 selected", { exact: false }).waitFor();
+  assert.equal(await safeToggle.getAttribute("aria-expanded"), "false", "a reloaded plan starts folded");
+});
+
+test("when safety can't be loaded, a row's toggle says what the app does and that guidance is missing", async (t) => {
+  const row = item("Unchecked App", { package: "com.example.unchecked" });
+  const page = await createPage(t, {
+    safetyFails: true,
+    plans: { optimize: { mode: "optimize", items: [row] } },
+  });
+  await openScreen(page, "optimize");
+  await page.getByText("Couldn't check what's safe to change", { exact: false }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "If you remove it, Unchecked App" }).count(), 0);
+  const toggle = page.getByRole("button", { name: "What it does, Unchecked App", exact: true });
+  await toggle.click();
+  await page.getByText("Safety guidance could not be loaded. Retry before selecting this action.").waitFor();
+  await page.getByText("Unchecked App is optional on this TV.").waitFor();
 });
 
 test("Safe to remove and review chips stay on one line at 384px", async (t) => {

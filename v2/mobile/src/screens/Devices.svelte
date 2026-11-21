@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
   import { api } from "../lib/api";
@@ -302,10 +303,9 @@
       </div>
     {/if}
 
-    <div class="callout teal">
-      <span class="msr">verified_user</span>
-      <span class="callout-text">Your phone remembers each paired TV, so reconnecting is one tap — no code needed.</span>
-    </div>
+    <HelpSheet title="About saved TVs">
+      <p>Your phone remembers each paired TV, so reconnecting is one tap — no code needed.</p>
+    </HelpSheet>
   </div>
 
   <div class="spacer"></div>

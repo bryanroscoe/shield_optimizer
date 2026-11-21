@@ -118,6 +118,31 @@ test('legacy100C stays unknown; a device-reported critical status is shown even 
   await page.getByText('No current sensor reading was supplied; showing a cached value.', { exact: true }).waitFor();
 });
 
+test('routine RAM and thermal notes sit behind help; throttling advice stays on the card', async t => {
+  const page = await open(t);
+  const region = page.getByRole('region', { name: 'Temperature context' });
+  await show(page, health({ thermal_status: 0 }));
+  await region.getByText('Device status: No throttling reported', { exact: true }).waitFor();
+  assert.equal(await page.getByText(/not a temperature safety rating/).count(), 0, 'routine status note is not inline');
+  await region.getByRole('button', { name: 'About temperature readings', exact: true }).click();
+  await page.getByRole('dialog', { name: 'About temperature readings' }).getByText(/not a temperature safety rating/).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  assert.equal(await page.getByText(/High RAM use alone does not establish memory pressure/).count(), 0);
+  await page.getByRole('button', { name: 'About RAM use', exact: true }).click();
+  await page.getByRole('dialog', { name: 'About RAM use' }).getByText(/High RAM use alone does not establish memory pressure/).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  // A sensor reporting throttling keeps the status sentence beside it, even when the device says none.
+  await show(page, health({ thermal_status: 0, temperature_reading: reading(30, { status: 4 }) }));
+  await region.getByText('Selected sensor: Critical thermal status', { exact: true }).waitFor();
+  assert.equal(await region.locator('.temp-note', { hasText: /not a temperature safety rating/ }).count(), 1);
+  await show(page, health({ thermal_status: 3 }));
+  await region.getByText(/Pause heavy workloads and recheck/).waitFor();
+  assert.equal(await region.getByRole('button', { name: 'About temperature readings' }).count(), 0);
+  // With no severity, the sentence about the limits below stays beside them.
+  await show(page, health({ temperature_c: 70, temperature_reading: reading(70) }));
+  await region.locator('.temp-note', { hasText: /the limits below belong to this reported sensor/ }).waitFor();
+});
+
 if (process.env.METRICS_EVIDENCE === '1') test('capture synthetic capacity and sensor-aware thermal boundaries', async t => {
   const dir = 'evidence/metric-context-2026-10-17'; await mkdir(dir, { recursive: true }); const page = await open(t, true);
   await page.screenshot({ path: `${dir}/usage-and-30c-simulated.png`, fullPage: true }); await page.waitForTimeout(700);

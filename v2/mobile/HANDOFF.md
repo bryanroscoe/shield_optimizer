@@ -114,7 +114,10 @@ directory by core `engine::apk_abis`, which desktop's `inspect_apk` rule now sha
 TV's, and links to the shared popular-sideloads list. It can't show the package id: that needs the
 binary manifest decoder desktop uses, a new Rust dependency on the phone. Free. Not yet run on a
 phone.
-Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule.
+Routine explanations sit behind help controls, per the repo's "disclose help on demand" rule:
+screen-wide help in `HelpSheet` (a "?" bottom sheet) and a row's own explanation in `Unfurl`
+(Optimize's "If you remove it", which unfurls in place and opens by itself when someone chooses
+to remove a Caution or Unknown app).
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab
 through core `commands::logcat::read_device_logs` and the shared `v2/shared/log-poller.ts`; it never

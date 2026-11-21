@@ -701,10 +701,9 @@
                 </span>
               </div>
             </div>
-            <p class="t-note">Controls whether the Xbox Guide button acts as Home.</p>
             <HelpSheet title="About System Hooks">
               <p class="t-note">
-                Turning the hooks off can fix
+                The hooks make the Xbox Guide button act as Home. Turning the hooks off can fix
                 Guide button conflicts in Steam Link and Moonlight. This doesn't change the Shield
                 remote's Netflix button, which is handled in firmware; use a button remapper app for
                 that. Turning the hooks back on is always free.
@@ -829,7 +828,6 @@
               <span class="msr t-icon" aria-hidden="true">settings_input_hdmi</span>
               <div class="t-info">
                 <span class="t-title">HDMI-CEC</span>
-                <span class="t-desc">Lets the TV and this box control each other over HDMI</span>
               </div>
               <button
                 class="reset-btn"
@@ -917,16 +915,20 @@
                 <span class="msr">restart_alt</span>Reset
               </button>
             </div>
-            <p class="t-note">
-              Manual overrides can cause silence on unsupported equipment. Actual playback depends on receiver and app support.
-            </p>
+            <p class="t-note">Manual overrides can cause silence on unsupported equipment.</p>
+            <HelpSheet title="About audio passthrough">
+              <p class="t-note">
+                Actual playback depends on receiver and app support. In Manual, of the formats listed,
+                only the ones you tick are enabled; encodings this list doesn't show are left as they are.
+              </p>
+            </HelpSheet>
             <div class="segmented">
               {#each surroundModes as mode (mode.value)}
                 <button class="seg" class:active={surroundMode === mode.value} class:busy={busy === `audio-${mode.value}`} disabled={busy !== ""} onclick={() => setSurroundMode(mode.value)} aria-label={`Surround ${mode.label}`}>{mode.label}</button>
               {/each}
             </div>
             {#if surroundMode === "3"}
-              <p class="t-desc" id="audio-formats-note">Enable only formats supported by your receiver. Existing encodings not listed below are preserved.</p>
+              <p class="t-desc" id="audio-formats-note">Enable only formats supported by your receiver.</p>
               <div class="format-list" role="group" aria-label="Manual audio formats" aria-describedby="audio-formats-note">
                 {#each audioChoices as format (format.value)}
                   <label class="format-row">
@@ -999,6 +1001,9 @@
                 built into Android. Names come from the app catalog; Restore previous also brings
                 back a custom screensaver this app can't name.
               </p>
+              <p class="t-note">
+                Previous is what was set when Tweaks first read this TV.
+              </p>
             </HelpSheet>
             <div class="segmented">
               <button
@@ -1034,7 +1039,6 @@
                   <span class="mono restore-value">{screensaverLabel(screensaverOriginal.components, screensaverOriginal.enabled)}</span>
                 </span>
               </button>
-              <span class="t-desc">Previous is what was set when Tweaks first read this TV.</span>
             {/if}
             <details class="screensaver-details">
               <summary>Component details</summary>
@@ -1137,9 +1141,7 @@
               </span>
             </div>
           </div>
-          <p class="t-note">
-            Custom uses your chosen DNS server. A failed test switches the TV back to Automatic.
-          </p>
+          <p class="t-note">A failed test switches the TV back to Automatic.</p>
           <div class="segmented">
             <button class="seg" class:active={dnsMode === "off"} aria-pressed={dnsMode === "off"} class:busy={busy === "dns-off"} disabled={busy !== ""} onclick={() => setDns("off")}>Off</button>
             <button class="seg" class:active={dnsMode === "opportunistic"} aria-pressed={dnsMode === "opportunistic"} class:busy={busy === "dns-opportunistic"} disabled={busy !== ""} onclick={() => setDns("opportunistic")}>Auto</button>

@@ -254,5 +254,6 @@ test("disconnected state and APK-only limits are stated plainly", async (t) => {
     await page.locator(".drive-note").textContent(),
     /Exporting, file sharing, and cloud sync are[\s\S]*not available/,
   );
-  await page.getByText("Base only").waitFor();
+  await page.getByText("Base only", { exact: true }).waitFor();
+  assert.match(await page.locator(".drive-note").textContent(), /Base only marks an older backup that may be missing split APKs/);
 });

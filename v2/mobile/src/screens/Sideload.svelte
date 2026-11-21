@@ -186,6 +186,10 @@
         by the same developer.
       </p>
       <p class="card-desc">
+        Get opens a popular app's official download page in your browser. Download the APK on this
+        phone, then pick it here.
+      </p>
+      <p class="card-desc">
         The architecture check reads which CPUs the APK ships native code for and compares them
         with what the TV reports. It doesn't read the app's name or version, and it doesn't check
         the signature or what the app does.
@@ -277,10 +281,7 @@
     {/each}
   </ul>
   {#if linkError}<p class="error" role="alert">{linkError}</p>{/if}
-  <p class="card-desc rail-note">
-    Official download pages open in your browser. Download the APK on this phone, then pick it here.
-    <button class="ghost-link" onclick={() => openLink(ISSUES_URL)}>Suggest one on GitHub</button>
-  </p>
+  <button class="ghost-link" onclick={() => openLink(ISSUES_URL)}>Suggest an app for this list on GitHub</button>
   <div class="spacer"></div>
 </div>
 
@@ -474,12 +475,6 @@
     font-size: 11px;
     color: var(--dim);
     overflow-wrap: anywhere;
-  }
-  .rail-note {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    align-items: center;
   }
   .error {
     margin: 0;

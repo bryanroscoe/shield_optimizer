@@ -360,6 +360,10 @@
         Choose exactly one installed app. Its base APK and every installed split APK are copied to
         this phone. System apps are hidden by default; you can reveal and copy them too.
       </p>
+      <p class="drive-note">
+        Backups stay in this app's private phone storage. Exporting, file sharing, and cloud sync are
+        not available. Base only marks an older backup that may be missing split APKs.
+      </p>
     </HelpSheet>
     {#if backupOperation}
       <p class="operation-note" role="status">
@@ -447,7 +451,7 @@
     <p class="error">{error}</p>
     <button class="primary" onclick={loadBackups}>Retry</button>
   {:else if backups.length === 0}
-    <p class="lede empty">No backups yet. Back up an app above to save its APK to this phone.</p>
+    <p class="lede empty">No backups yet.</p>
   {:else}
     <div class="backup-list">
       {#each backups as b (b.path)}
@@ -479,9 +483,9 @@
                 {/if}
               </button>
             {:else if b.unreadable}
-              <span class="legacy-badge" title={b.unreadable}>Unreadable</span>
+              <span class="legacy-badge">Unreadable</span>
             {:else}
-              <span class="legacy-badge" title="This older backup may be missing split APKs">Base only</span>
+              <span class="legacy-badge">Base only</span>
             {/if}
             <button
               class="del-btn"
@@ -500,11 +504,6 @@
       {/each}
     </div>
   {/if}
-
-  <p class="drive-note">
-    Backups stay in this app's private phone storage. Exporting, file sharing, and cloud sync are
-    not available.
-  </p>
 
   <div class="spacer"></div>
   <Toast message={toast} type={toastType} />
@@ -872,12 +871,5 @@
     font-weight: 650;
     text-transform: uppercase;
     letter-spacing: 0.04em;
-  }
-
-  .drive-note {
-    margin: 16px 0 0;
-    font-size: 11px;
-    line-height: 1.45;
-    color: var(--dim);
   }
 </style>

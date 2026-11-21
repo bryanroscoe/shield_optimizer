@@ -323,7 +323,6 @@
     <!-- Create -->
     <div class="create-card">
       <span class="card-label">Save current setup</span>
-      <p class="card-desc">Records this TV's disabled apps, Home app and tracked settings.</p>
       <div class="create-row">
         <input class="label-input" aria-label="Snapshot label (optional)" bind:value={label} placeholder="Label (optional)" onkeydown={(e) => e.key === "Enter" && save()} />
         <button class="primary small-inline" disabled={saving} onclick={save}>
@@ -334,10 +333,7 @@
 
     <span class="section-label">Saved snapshots</span>
     {#if snapshots.length === 0}
-      <p class="lede empty">
-        No snapshots yet. Save one above to record which apps are disabled, your Home app and the
-        tracked settings.
-      </p>
+      <p class="lede empty">No snapshots yet.</p>
       <div class="spacer"></div>
     {:else}
       <div class="snap-list">
@@ -591,12 +587,6 @@
     letter-spacing: 0.12em;
     color: var(--dim);
     text-transform: uppercase;
-  }
-  .card-desc {
-    font-size: 12px;
-    color: var(--muted);
-    line-height: 1.45;
-    margin: 0;
   }
   .create-row {
     display: flex;
