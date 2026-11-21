@@ -221,7 +221,7 @@ async function main() {
       const entry = catalog.find((a) => a.package === pkg);
       const retired = pkg === "com.disney.datg.videoplatforms.android.watchdc";
       for (const source of ["user", "preinstalled", "unknown"]) {
-        assert.equal(suggestedMethod(entry, source), source === "user" && !retired ? "uninstall" : "disable", `${pkg}: ${source}`);
+        assert.equal(suggestedMethod(entry, source), "disable", `${pkg}: ${source}`);
       }
       if (retired) {
         assert.equal(entry.play_store, false);
@@ -230,20 +230,20 @@ async function main() {
     }
     const ready = { status: "ready", verdict: { kind: "safe", source: "reviewed_catalog", reason: "Optional." } };
     const store = { package: "x.store", name: "Store", method: "disable", risk: "safe", play_store: true, defunct: false, review: true, default_optimize: false, default_restore: false, optimize_description: "", restore_description: "" };
-    // Uninstall only for an ordinary store app the user installed.
-    assert.equal(suggestedMethod(store, "user"), "uninstall");
+    // Third-party status never establishes store provenance.
+    assert.equal(suggestedMethod(store, "user"), "disable");
     assert.equal(suggestedMethod({ ...store, method: "uninstall" }, "preinstalled"), "disable");
     assert.equal(suggestedMethod(store, "unknown"), "disable");
     for (const other of [{ play_store: false }, { defunct: true }, { default_restore: true }, { risk: "high" }, { risk: "advanced" }]) {
       assert.equal(suggestedMethod({ ...store, ...other }, "user"), "disable", JSON.stringify(other));
     }
-    assert.equal(suggestedMethod({ ...store, risk: "medium" }, "user"), "uninstall");
-    assert.deepEqual(recommendation(store, "enabled", ready, "user"), { kind: "review", label: "Review: uninstall if unused", action: "uninstall" });
+    assert.equal(suggestedMethod({ ...store, risk: "medium" }, "user"), "disable");
+    assert.deepEqual(recommendation(store, "enabled", ready, "user"), { kind: "review", label: "Review: disable if unused", action: "disable" });
     assert.deepEqual(recommendation(store, "enabled", ready, "preinstalled"), { kind: "review", label: "Review: disable if unused", action: "disable" });
     assert.deepEqual(recommendation(store, "enabled", ready), { kind: "review", label: "Review: disable if unused", action: "disable" });
     // An unknown-verdict row follows the same rule.
     const unknown = { status: "ready", verdict: { kind: "unknown", source: "none", reason: "" } };
-    assert.equal(recommendation({ ...store, review: false }, "enabled", unknown, "user").action, "uninstall");
+    assert.equal(recommendation({ ...store, review: false }, "enabled", unknown, "user").action, "disable");
     assert.equal(recommendation({ ...store, review: false }, "enabled", unknown, "preinstalled").action, "disable");
     // Default Optimize rows keep their curated, store-gated method.
     const defunct = { ...store, method: "uninstall", play_store: false, defunct: true, review: false, default_optimize: true };

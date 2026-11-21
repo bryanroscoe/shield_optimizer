@@ -86,9 +86,9 @@ async function checkRemovalHelp(page, root, where) {
   await page.keyboard.press("Enter");
   await panel.waitFor({ state: "visible" });
   const text = await panel.innerText();
-  assert.match(text, /Uninstall is suggested for Play Store apps that were added to this TV/);
-  assert.match(text, /Disable is suggested for apps that came with the TV or were sideloaded/);
-  assert.match(text, /Snapshots record both/);
+  assert.match(text, /Disable is suggested for every review app/);
+  assert.match(text, /does not prove Play Store origin/);
+  assert.match(text, /Recorded absent apps are left unchanged/);
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "hidden" });
   assert.equal(await trigger.evaluate((el) => document.activeElement === el), true, `${where}: Escape returns focus`);
@@ -195,14 +195,12 @@ async function exercise({ browser, base }) {
   const appRemove = appLabels.filter((l) => /\bremove\b/i.test(l));
   assert.deepEqual(appRemove, [], `App List action labels must never say Remove: ${JSON.stringify(appRemove)}`);
 
-  // Uninstall is suggested only for a store app this TV's user installed.
-  // In the demo, Netflix came with the Shield and Plex was installed from the
-  // Play Store; both are catalog "uninstall if unused" store apps.
+  // Both preinstalled and third-party review apps suggest Disable.
   const reviewRec = async (root, pkg) =>
     root.locator("tr", { has: page.locator(".pkg-id", { hasText: new RegExp(`^${pkg.replaceAll(".", "\\.")}\\s*$`) }) })
       .first().locator("[data-rec]").first().getAttribute("data-rec");
   assert.equal(await reviewRec(apps, PREINSTALLED_STORE_APP), "Review: disable if unused", "a preinstalled store app suggests Disable");
-  assert.equal(await reviewRec(apps, USER_STORE_APP), "Review: uninstall if unused", "a store app the user installed suggests Uninstall");
+  assert.equal(await reviewRec(apps, USER_STORE_APP), "Review: disable if unused", "a third-party store-listed app still suggests Disable");
   await checkRemovalHelp(page, apps, "App List");
 
   // Optimize.
@@ -215,7 +213,7 @@ async function exercise({ browser, base }) {
   const reviewPill = async (pkg) =>
     (await opt.locator("tr", { has: page.locator(".pkg-id", { hasText: pkg }) }).first().locator(".review-pill").innerText()).trim();
   assert.equal(await reviewPill(PREINSTALLED_STORE_APP), "Review: disable if unused", "Optimize agrees for a preinstalled store app");
-  assert.equal(await reviewPill(USER_REVIEW_IN_PLAN), "Review: uninstall if unused", "Optimize agrees for a user-installed store app");
+  assert.equal(await reviewPill(USER_REVIEW_IN_PLAN), "Review: disable if unused", "Optimize agrees for a user-installed store app");
   await checkRemovalHelp(page, opt, "Optimize");
 
   const optLabels = await actionLabels(opt);
@@ -277,6 +275,16 @@ async function main() {
     server = await createServer({ root: V2, server: { host: "127.0.0.1", port: await freePort(), strictPort: true, hmr: false } });
     await server.listen();
     browser = await chromium.launch();
+    const rec = await server.ssrLoadModule("/src/lib/recommendation.ts");
+    for (const source of ["user", "preinstalled", "unknown"]) {
+      for (const method of ["disable", "uninstall"]) {
+        for (const play_store of [true, false]) {
+          for (const defunct of [true, false]) {
+            assert.equal(rec.suggestedMethod({ method, play_store, defunct, review: true, risk: "safe" }, source), "disable");
+          }
+        }
+      }
+    }
     await exercise({ browser, base: serverURL(server) });
   } finally {
     await browser?.close().catch((e) => console.error("browser cleanup failed", e));

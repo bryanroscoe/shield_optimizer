@@ -21,12 +21,12 @@
     {
       label: "Disable",
       icon: "block",
-      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it. Suggested for apps that came with the TV or were sideloaded.",
+      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it. Suggested for every review app. Android’s third-party app list does not prove Play Store origin.",
     },
     {
       label: "Uninstall",
       icon: "delete",
-      desc: "Removes the app for the TV's current user. Suggested only for Play Store apps that were added to the TV rather than built in: you can get them back from the store, and it frees their storage. A preinstalled system app still sits in the read-only system image, so uninstalling it frees little or no storage.",
+      desc: "Removes the app for the TV's current user. An explicit choice where offered. Getting it back depends on an available APK or store listing; deleted app data is not restored. A preinstalled system app still sits in the read-only system image, so uninstalling it frees little or no storage.",
     },
   ];
 </script>
@@ -85,7 +85,7 @@
       <span class="callout-text">
         Reinstall runs <span class="mono">install-existing</span> and works only when an APK still
         exists on the TV. Otherwise, look for the app in the Play Store. Snapshots don't reinstall
-        apps: they record which packages are disabled, plus the launcher and tracked settings.
+        apps: they record disabled and absent packages, plus the launcher and tracked settings. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.
       </span>
     </div>
   </div>

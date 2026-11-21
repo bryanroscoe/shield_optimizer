@@ -514,9 +514,10 @@ export interface PrivateDnsResult {
 
 export interface SnapshotApplyPlan {
   packages_to_disable: string[];
-  /// Which of `packages_to_disable` weren't installed when the snapshot was
-  /// saved. A restore disables them; it never uninstalls.
+  /// Legacy compatibility field; current plans leave this empty.
   packages_absent_in_snapshot?: string[];
+  /// Recorded absent apps left unchanged: saved-TV hardware identity is unverified.
+  packages_absent_skipped?: string[];
   packages_already_disabled: string[];
   packages_not_installed: string[];
   launcher_to_set: string | null;
@@ -546,6 +547,8 @@ export interface KeptPackage {
 }
 
 export interface ApplyResult {
+  /// Recorded absent apps left unchanged by the applied plan.
+  packages_absent_skipped?: string[];
   packages_disabled: string[];
   packages_failed: string[];
   launcher_set: boolean;
