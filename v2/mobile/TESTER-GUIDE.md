@@ -41,9 +41,9 @@ Only if you intentionally test a change: review the warning and preview, change 
 
 ## Pro and payments
 
-The app is a free download. Pro is an optional one-time Google Play purchase, with no subscription. Do not pay money merely to participate in the test. The first 12 testers get Pro free: email bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a single-use Google Play code (Play Store › profile › Payments & subscriptions › Redeem code, then reopen the app or tap More › Restore purchases).
+The app is a free download. Pro is an optional one-time Google Play purchase, with no subscription. Do not pay money merely to participate in the test. The first 12 testers get Pro free: email bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a single-use Google Play code (Play Store › profile › Payments & subscriptions › Redeem code), then open the app within three days (or tap More › Restore purchases) so Google Play keeps the purchase. Ko-fi supporters get a code too and don't count toward the 12.
 
-The developer must separately add your Google account to **License testing** before asking you to exercise purchases. Closed-test membership alone does not make purchases free. In Google's payment sheet, use only an explicitly named **test** payment instrument. If the sheet offers only your real card or another real payment method, cancel and contact the developer.
+If you received a promo code, skip the rest of this paragraph. The developer must separately add your Google account to **License testing** before asking you to exercise purchases. Closed-test membership alone does not make purchases free. In Google's payment sheet, use only an explicitly named **test** payment instrument. If the sheet offers only your real card or another real payment method, cancel and contact the developer.
 
 For purchase testers, follow the developer's ordered test script in [RELEASE.md](RELEASE.md#purchase-test-script-license-tester-closed-or-internal-track-build-installed-from-play): cancellation/decline and pending purchase before successful ownership, then acknowledgment, restore and refund/revocation checks. Never report a purchase/restore as passed from a paywall screenshot alone.
 

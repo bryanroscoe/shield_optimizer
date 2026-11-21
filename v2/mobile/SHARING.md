@@ -114,13 +114,19 @@ or redeems a promo code. So:
 
 - **The first 12 testers** who email from the account they joined with get a one-time-use promo
   code for `atvopt_pro`. Count them in order of their first email.
-- **Ko-fi supporters** get one regardless (README, "Support the project").
+- **Ko-fi supporters** get one regardless (README, "Support the project"); they don't count toward
+  the 12. When the twelfth tester code goes out, remove the offer from README.md (banner and
+  Android section), the invite above, TESTER-GUIDE.md and the website, and tell later emailers the
+  free places are taken.
+- Don't add anyone who gets a code to License testing: Google doesn't document how a promo code
+  behaves on a license-test account (PLAY-CONSOLE-WALKTHROUGH.md 3.4).
 
 Create codes in Play Console > Monetize with Play > Promo codes (one-time-use, product
 `atvopt_pro`, purchase option `buy`; 500 per quarter across products; PLAY-CONSOLE-WALKTHROUGH.md
 Phase 5). A redeemed code is a real Play entitlement on that account and carries over to the public
 release. Send each code privately with `https://play.google.com/redeem?code=<CODE>`; the tester
-then reopens the app or taps More > Restore purchases. Keep codes, the list of who got one, and
+then opens the app within three days (or taps More > Restore purchases) so the app acknowledges
+the purchase; Play refunds unacknowledged purchases after three days. Keep codes, the list of who got one, and
 every tester address out of this repository.
 
 ## 3. Helping people

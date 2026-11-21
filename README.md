@@ -226,19 +226,20 @@ involved: the same app list, safety checks, launcher switching and tweaks as the
 Google TV or NVIDIA Shield (not Fire TV). The guide covers joining, installing, connecting your TV
 and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.com/atv-optimizer/testing/)**.
 
-- Everything a test needs is free: connecting, the remote, the app list, diagnostics, files and
-  backups, re-enabling apps and emergency recovery. Don't buy Pro to help test; Google Play
+- Everything the test asks for is free, apart from the optional app change: connecting, the
+  remote, the app list, diagnostics, files and backups, re-enabling apps and emergency recovery. Don't buy Pro to help test; Google Play
   charges real money even during the test.
 - **The first 12 testers get Pro free.** After you join and install, email
   bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
-  code that unlocks Pro on that account for good, including after the public release.
+  code. Redeem it, then open the app within three days, and Pro stays on that account for good,
+  including after the public release. Ko-fi supporters don't use up one of the 12.
 
 <img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
 
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
-The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching and
-snapshots) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
+The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching,
+changing tweaks, and snapshots) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
 more. Every price unlocks the same Pro.
 
 ## Support the project
@@ -247,8 +248,9 @@ The desktop app is free. If it saved you an afternoon of fiddling, you can
 [buy me a coffee on Ko-fi](https://ko-fi.com/bryanroscoe).
 
 **Donated on Ko-fi? You get the Android app's Pro for free.** Leave a note with your donation (or
-message me on Ko-fi afterwards) and I'll send you a Google Play code that unlocks Pro once the app
-is out.
+message me on Ko-fi afterwards) and I'll send you a Google Play code that unlocks Pro. Redeem it now
+by [joining the Android test](https://bryanroscoe.com/atv-optimizer/testing/), or once the app is
+public.
 
 ## Legacy: PowerShell script (v1)
 

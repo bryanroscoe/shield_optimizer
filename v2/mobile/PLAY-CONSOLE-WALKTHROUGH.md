@@ -239,9 +239,9 @@ telemetry consent decision in 0.3 (on by default, opt-out):
 action worked; never serial numbers, IP addresses, TV names or app lists). You can turn that off
 in More."
 
-For testers who aren't supporters, use the same message without the promo-code paragraph and
-item 5. Tell them they can try purchases with Google's test payment methods and won't be charged
-(they go on the license-tester list in Phase 3.4).
+For testers who aren't supporters, use the invite in [`SHARING.md`](SHARING.md) §2 instead: the
+first 12 get a promo code too (owner decision, 2026-11-21). Keep anyone who gets a code off the
+license-tester list in Phase 3.4; it is for the owner's own purchase tests.
 
 Keep the tester list and emails **out of this repo** (store them in 1Password or a private note).
 
