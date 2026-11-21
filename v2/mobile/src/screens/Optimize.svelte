@@ -252,6 +252,7 @@
       // Only resolved Caution defaults are recommendations. Unknown always
       // starts unchecked, and a user's explicit choice is never resurrected.
       const next = new Set(selected);
+      const unfurl = new Set(explained);
       for (const item of p.items) {
         const verdict = map[item.entry.package];
         if (
@@ -259,9 +260,15 @@
           verdict &&
           isPlanRecommended(item, "optimize", { status: "ready", verdict }) &&
           !selectionTouched.has(item.entry.package)
-        ) next.add(item.entry.package);
+        ) {
+          next.add(item.entry.package);
+          // A Caution app the plan selects for the person shows what removing it
+          // costs, as one they chose would.
+          if (verdict.kind === "caution") unfurl.add(item.entry.package);
+        }
       }
       selected = next;
+      explained = unfurl;
       chooseInitialTab(p, identity);
     } catch {
       if (request !== safetyRequest || !planCurrent(identity)) return;
@@ -423,7 +430,7 @@
   }
 
   /// Choosing to remove a Caution or Unknown app unfurls what that costs, at
-  /// the moment of the decision. Safe rows and defaults stay folded.
+  /// the moment of the decision. Safe rows stay folded.
   function revealConsequence(it: OptimizePlanItem) {
     if (it.action.kind === "enable") return;
     const kind = safetyMap[it.entry.package]?.kind;
@@ -432,10 +439,19 @@
     }
   }
 
+  /// Without a verdict there is no cost to state yet, so the row only says
+  /// what the app does.
   function explainLabel(it: OptimizePlanItem, tier: SafetyTier | null): string {
-    if (it.action.kind === "enable") return "What it does";
-    if (tier?.kind === "never_disable") return "Why it's protected";
+    if (it.action.kind === "enable" || !tier) return "What it does";
+    if (tier.kind === "never_disable") return "Why it's protected";
     return "If you remove it";
+  }
+
+  /// The reason a removal decision should be read with: the person's Disable,
+  /// Uninstall or switch is described by it even while the row is folded.
+  function consequenceId(it: OptimizePlanItem, tier: SafetyTier | null): string | undefined {
+    if (it.action.kind === "enable" || !tier || tier.kind === "safe") return undefined;
+    return `why-${it.entry.package.replace(/[^A-Za-z0-9_-]/g, "-")}`;
   }
 
   function explainTone(it: OptimizePlanItem, tier: SafetyTier | null): "neutral" | "caution" | "blocked" {
@@ -943,6 +959,7 @@
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
           {@const shownReason = item.action.kind !== "enable" && tier ? reasonOf(safetyMap[item.entry.package]) : ""}
+          {@const unavailable = item.action.kind !== "enable" && !tier && safetyFailed}
           {@const purpose = rowPurpose(
             mode === "optimize" ? item.entry.optimize_description : item.entry.restore_description,
             shownReason,
@@ -998,6 +1015,7 @@
                     class:active={selected.has(item.entry.package) && isSelectable(item)}
                     disabled={applying || !isSelectable(item)}
                     aria-pressed={selected.has(item.entry.package) && isSelectable(item)}
+                    aria-describedby={shownReason ? consequenceId(item, tier) : undefined}
                     onclick={() => chooseOptionalAction(item)}
                   >{actionLabel(item)}</button>
                 </div>
@@ -1008,12 +1026,13 @@
                   disabled={applying || !isSelectable(item)}
                   onclick={() => toggle(item)}
                   aria-label="Toggle {item.entry.name}"
+                  aria-describedby={shownReason ? consequenceId(item, tier) : undefined}
                 >
                   <span class="toggle-knob"></span>
                 </button>
               {/if}
             </div>
-            {#if shownReason || purpose}
+            {#if shownReason || purpose || unavailable}
               <Unfurl
                 label={explainLabel(item, tier)}
                 context={item.entry.name}
@@ -1021,7 +1040,8 @@
                 onToggle={() => toggleExplained(item.entry.package)}
                 tone={explainTone(item, tier)}
               >
-                {#if shownReason}<p class="row-reason">{shownReason}</p>{/if}
+                {#if shownReason}<p class="row-reason" id={consequenceId(item, tier)}>{shownReason}</p>{/if}
+                {#if unavailable}<p class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</p>{/if}
                 {#if purpose}<p class="row-purpose">{purpose}</p>{/if}
               </Unfurl>
             {/if}
@@ -1380,7 +1400,7 @@
     contain-intrinsic-size: auto 110px;
     display: flex;
     flex-direction: column;
-    padding: 13px 14px 0;
+    padding: 13px 14px 6px;
     border-radius: 15px;
     background: var(--surface);
     border: 1px solid var(--line);
@@ -1392,15 +1412,13 @@
     gap: 12px;
   }
   .row-main:last-child {
-    padding-bottom: 13px;
+    padding-bottom: 7px;
   }
-  /* The toggle keeps its 44px target; the negative margins only pull its label
-     up to the status line and down to the card's edge. */
-  .optimize-item > :global(.unfurl-toggle) {
-    margin: -8px 0 -2px;
-  }
+  /* No negative margins: the toggle's 44px target must not cover the details
+     button, and its focus ring has to stay inside the card, which clips paint
+     (content-visibility). */
   .optimize-item > :global(.unfurl-panel) {
-    margin: 4px 0 13px;
+    margin: 2px 0 7px;
   }
   .optimize-item.blocked-row {
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);

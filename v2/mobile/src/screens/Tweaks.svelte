@@ -918,8 +918,8 @@
             <p class="t-note">Manual overrides can cause silence on unsupported equipment.</p>
             <HelpSheet title="About audio passthrough">
               <p class="t-note">
-                Actual playback depends on receiver and app support. In Manual, only the formats you
-                tick are enabled; encodings this list doesn't show are left as they are.
+                Actual playback depends on receiver and app support. In Manual, of the formats listed,
+                only the ones you tick are enabled; encodings this list doesn't show are left as they are.
               </p>
             </HelpSheet>
             <div class="segmented">

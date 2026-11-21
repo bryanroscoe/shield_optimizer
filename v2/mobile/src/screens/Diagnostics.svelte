@@ -292,9 +292,13 @@
   const memory = $derived(memoryUsage(health?.ram));
   const storagePercent = $derived(storageUsage(health?.storage));
   const thermal = $derived(temperatureContext(health));
-  /// A reported throttling level asks the person to act, so its advice stays on
-  /// the card; the routine readings' explanations sit behind help.
-  const throttling = $derived(thermal.status != null && thermal.status >= 2);
+  /// The status sentence stays on the card when it asks the person to act (the
+  /// device or the selected sensor reports throttling) or points at the limits
+  /// shown under it; otherwise it is routine and sits behind help.
+  const statusHelpInline = $derived(
+    Math.max(thermal.status ?? -1, thermal.sensorStatus ?? -1) >= 2 ||
+      (thermal.status == null && thermal.throttle != null),
+  );
   const totalRam = $derived(health?.ram?.total_mb ?? null);
 
   // --- Display & audio ---
@@ -439,7 +443,7 @@
         {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
           <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>{thermal.cached ? "Cached sensor" : "Selected sensor"}: {thermal.sensorStatusLabel}</p>
         {/if}
-        {#if throttling}<p class="temp-note">{thermal.statusHelp}</p>{/if}
+        {#if statusHelpInline}<p class="temp-note">{thermal.statusHelp}</p>{/if}
         {#if thermal.value != null && thermal.throttle != null}
           <p class="metric-detail">Reported sensor threshold: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
           <p class="metric-detail" class:threshold-exceeded={thermal.value != null && thermal.value >= thermal.throttle}>{thermal.comparison}</p>
@@ -448,7 +452,7 @@
           <p class="metric-detail">Matching sensor threshold not reported</p>
         {/if}
         {#if thermal.shutdown != null}<p class="metric-detail">Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
-        {#if !throttling}
+        {#if !statusHelpInline}
           <HelpSheet title="About temperature readings"><p>{thermal.statusHelp}</p></HelpSheet>
         {/if}
         {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}

@@ -281,7 +281,7 @@
     {/each}
   </ul>
   {#if linkError}<p class="error" role="alert">{linkError}</p>{/if}
-  <button class="ghost-link" onclick={() => openLink(ISSUES_URL)}>Suggest one on GitHub</button>
+  <button class="ghost-link" onclick={() => openLink(ISSUES_URL)}>Suggest an app for this list on GitHub</button>
   <div class="spacer"></div>
 </div>
 
