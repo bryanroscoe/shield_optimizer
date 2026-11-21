@@ -43,8 +43,9 @@ It is ready to share when these four steps pass, in order:
    Add your account under Console Settings > License testing first. While you own Pro, turn off one
    unneeded app on a TV and turn it back on (Disable is a Pro action), before the script's refund.
 4. **Point the closed track at that build and open it to the group in §2.** Closed testing >
-   Create new release > add the build that passed steps 2 and 3 > send it for review. With managed
-   publishing on, click **Publish changes** in Publishing overview once Google approves.
+   Create new release > add the build that passed steps 2 and 3 > send it for review. Managed
+   publishing is off (the Play API reported on 2026-11-21 that changes are sent for review
+   automatically), so the release reaches the group as soon as Google approves it.
 
 This is a smaller gate than RELEASE.md "First install through Google Play" step 5, which asks for
 the full phone/TV matrix before Closed testing. Recommended, as your call: open the closed test
@@ -61,20 +62,21 @@ into links you can post anywhere.
 
 **One-time setup (about 10 minutes, owner):**
 
-1. At <https://groups.google.com>, **Create group**: name `ATV Optimizer testers`, email
-   for example `atv-optimizer-testers@googlegroups.com`.
+1. Done 2026-11-21: <https://groups.google.com/g/atv-optimizer-testers>
+   (`atv-optimizer-testers@googlegroups.com`). For a new group: <https://groups.google.com>,
+   **Create group**.
 2. Settings: *Who can search for group*: anyone on the web. *Who can join group*: anyone can join.
    *Who can view conversations* and *Who can post*: group managers (so nobody can spam
    testers). *Who can view members*: group managers.
 3. Play Console > ATV Optimizer > Test and release > Testing > Closed testing > Manage track >
    **Testers** > **Google Groups** > add the group's email. Set *Feedback URL or email address* to
-   `bryanroscoe+atv@gmail.com`. Save. An agent can attach the group through the Play API instead,
-   once you give it the group's address.
+   `bryanroscoe+atv@gmail.com`. Save. This has to be done in Console: the Play Developer API
+   refuses tester changes on this track ("upgraded to use open or closed testing", 2026-11-21).
 4. Keep your existing email list ticked too if it already holds people.
 
 **What you share** (the same for everyone):
 
-1. Join the group: `https://groups.google.com/g/<group-name>` > **Join group**.
+1. Join the group: <https://groups.google.com/g/atv-optimizer-testers> > **Join group**.
 2. Become a tester: <https://play.google.com/apps/testing/com.atvoptimizer.mobile> >
    **Become a tester** > **Download it on Google Play**.
 
@@ -88,7 +90,7 @@ need is <https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile>.
 > I'm testing the Android phone version of ATV Optimizer. It cleans up and manages an Android TV,
 > Google TV or NVIDIA Shield from your phone over Wi-Fi, with no PC. Fire TV isn't supported.
 >
-> 1. Join the tester group: `https://groups.google.com/g/<group-name>`
+> 1. Join the tester group: https://groups.google.com/g/atv-optimizer-testers
 > 2. Then open https://play.google.com/apps/testing/com.atvoptimizer.mobile on the same Google
 >    account, tap **Become a tester**, and install from the Play Store.
 > 3. Please stay opted in for 14 days. Google needs 12 testers for 14 days in a row before the app
