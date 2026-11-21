@@ -1380,7 +1380,7 @@
     contain-intrinsic-size: auto 110px;
     display: flex;
     flex-direction: column;
-    padding: 13px 14px 4px;
+    padding: 13px 14px 0;
     border-radius: 15px;
     background: var(--surface);
     border: 1px solid var(--line);
@@ -1392,13 +1392,15 @@
     gap: 12px;
   }
   .row-main:last-child {
-    padding-bottom: 9px;
+    padding-bottom: 13px;
   }
+  /* The toggle keeps its 44px target; the negative margins only pull its label
+     up to the status line and down to the card's edge. */
   .optimize-item > :global(.unfurl-toggle) {
-    margin-top: -4px;
+    margin: -8px 0 -2px;
   }
   .optimize-item > :global(.unfurl-panel) {
-    margin-bottom: 10px;
+    margin: 4px 0 13px;
   }
   .optimize-item.blocked-row {
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);
