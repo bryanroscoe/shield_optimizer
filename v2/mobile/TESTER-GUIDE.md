@@ -1,6 +1,6 @@
 # ATV Optimizer — Android closed-test guide
 
-This guide is for invited testers once the closed test is published. A draft or an approved-but-unpublished release cannot be installed through the closed-test link.
+The public version of this guide, the one to send testers, is https://bryanroscoe.com/atv-optimizer/testing/ (source: the bryanroscoe.com repository); keep the two in step. This guide is for invited testers once the closed test is published. A draft or an approved-but-unpublished release cannot be installed through the closed-test link.
 
 ## Before you start
 

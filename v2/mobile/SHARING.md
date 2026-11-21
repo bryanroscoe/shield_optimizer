@@ -103,7 +103,7 @@ need is <https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile>.
 >    can go public.
 >
 > The app is free. Don't buy Pro to help test. Setup steps and what to try:
-> https://github.com/bryanroscoe/shield_optimizer/blob/main/v2/mobile/TESTER-GUIDE.md
+> https://bryanroscoe.com/atv-optimizer/testing/
 > Problems or ideas: bryanroscoe+atv@gmail.com
 
 Ko-fi supporters get the same message plus a Pro promo code (PLAY-CONSOLE-WALKTHROUGH.md
