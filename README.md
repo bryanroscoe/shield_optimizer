@@ -23,7 +23,8 @@ built-in ADB, finds them on your network, and updates itself. You don't need a t
 TV doesn't get along with the built-in engine, or for a TV connected by USB.
 
 > **📱 Coming soon: [ATV Optimizer for Android](#atv-optimizer-for-android).** A phone and tablet
-> version that runs the same cleanup over Wi-Fi, with no computer involved. It's in testing now.
+> version that runs the same cleanup over Wi-Fi, with no computer involved.
+> [Help test it](https://bryanroscoe.com/atv-optimizer/testing/): the first 12 testers get Pro free.
 
 ## Install
 
@@ -219,16 +220,26 @@ an older copy), drag `Shield Optimizer.app` to the Trash. The Homebrew cask is n
 ## ATV Optimizer for Android
 
 **Coming soon.** A phone and tablet version that drives your TV over Wi-Fi with no computer
-involved: the same app list, safety checks, launcher switching and tweaks as the desktop app. It's
-in testing now and hasn't been released.
-[Watch the repo](https://github.com/bryanroscoe/shield_optimizer) to hear when it ships.
+involved: the same app list, safety checks, launcher switching and tweaks as the desktop app.
+
+**Help test it.** It's in a Google Play closed test. You need an Android phone and an Android TV,
+Google TV or NVIDIA Shield (not Fire TV). The guide covers joining, installing, connecting your TV
+and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.com/atv-optimizer/testing/)**.
+
+- Everything a test needs is free: connecting, the remote, the app list, diagnostics, files and
+  backups, re-enabling apps and emergency recovery. Don't buy Pro to help test; Google Play
+  charges real money even during the test.
+- **The first 12 testers get Pro free.** After you join and install, email
+  bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
+  code that unlocks Pro on that account for good, including after the public release.
 
 <img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
 
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
-The Android app will be free to try, with Pro as a one-time Google Play purchase: US $4.99, or $9.99
-or $19.99 if you'd like to chip in more. Every price unlocks the same Pro.
+The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching and
+snapshots) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
+more. Every price unlocks the same Pro.
 
 ## Support the project
 
