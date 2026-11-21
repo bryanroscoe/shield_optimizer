@@ -4,7 +4,7 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import type { Screen } from "../lib/router.svelte";
-  import { safetyLabel, safetyReason, type SafetyStatus } from "../lib/safety";
+  import { safetyLabel, type SafetyStatus } from "../lib/safety";
   import { installSource, type PackageState } from "../lib/recommendation";
   import {
     memorySuggestion,
@@ -292,6 +292,9 @@
   const memory = $derived(memoryUsage(health?.ram));
   const storagePercent = $derived(storageUsage(health?.storage));
   const thermal = $derived(temperatureContext(health));
+  /// A reported throttling level asks the person to act, so its advice stays on
+  /// the card; the routine readings' explanations sit behind help.
+  const throttling = $derived(thermal.status != null && thermal.status >= 2);
   const totalRam = $derived(health?.ram?.total_mb ?? null);
 
   // --- Display & audio ---
@@ -366,10 +369,6 @@
     <div class="empty-state">
       <span class="msr empty-icon">tv_gen</span>
       <h4>No TV connected</h4>
-      <p class="lede">
-        Diagnostics reads memory, storage, temperature and display straight off the TV, so it needs
-        a live connection.
-      </p>
       <button class="primary" onclick={() => navigate("devices")}>
         <span class="msr">devices_other</span>Connect a TV
       </button>
@@ -402,7 +401,9 @@
           <p class="metric-detail mono">{metricNumber(memory.used)} / {metricNumber(memory.total)} MB used</p>
           <p class="metric-detail">{memory.free == null ? "Free/available RAM not reported" : `${metricNumber(memory.free)} MB reported free/available`}</p>
         {/if}
-        <p class="temp-note">Android can reclaim cached memory. High RAM use alone does not establish memory pressure.</p>
+        <HelpSheet title="About RAM use">
+          <p>Android can reclaim cached memory. High RAM use alone does not establish memory pressure.</p>
+        </HelpSheet>
       </section>
 
       <section class="diagnostic-card" aria-label="Storage usage">
@@ -438,7 +439,7 @@
         {#if thermal.deviceStatus != null && thermal.sensorStatus != null && thermal.deviceStatus !== thermal.sensorStatus}
           <p class="thermal-status" class:thermal-warning={thermal.sensorStatus >= 2} class:thermal-critical={thermal.sensorStatus >= 4}>{thermal.cached ? "Cached sensor" : "Selected sensor"}: {thermal.sensorStatusLabel}</p>
         {/if}
-        <p class="temp-note">{thermal.statusHelp}</p>
+        {#if throttling}<p class="temp-note">{thermal.statusHelp}</p>{/if}
         {#if thermal.value != null && thermal.throttle != null}
           <p class="metric-detail">Reported sensor threshold: <strong>{metricNumber(thermal.throttle)} °C</strong></p>
           <p class="metric-detail" class:threshold-exceeded={thermal.value != null && thermal.value >= thermal.throttle}>{thermal.comparison}</p>
@@ -447,6 +448,9 @@
           <p class="metric-detail">Matching sensor threshold not reported</p>
         {/if}
         {#if thermal.shutdown != null}<p class="metric-detail">Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
+        {#if !throttling}
+          <HelpSheet title="About temperature readings"><p>{thermal.statusHelp}</p></HelpSheet>
+        {/if}
         {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}
       </section>
 
@@ -536,10 +540,7 @@
                   {#if suggestion.kind === "recommendation"}
                     <span class="consumer-pkg">Safety: {safetyLabel(status)}</span>
                   {/if}
-                  <span
-                    class="risk-badge {shownSuggestion.tone}"
-                    title={suggestion.kind === "checking" ? undefined : safetyReason(status)}
-                  >
+                  <span class="risk-badge {shownSuggestion.tone}">
                     {shownSuggestion.label}
                   </span>
                 </span>

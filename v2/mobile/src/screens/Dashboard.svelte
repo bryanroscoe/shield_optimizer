@@ -406,9 +406,10 @@
       </div>
     </div>
 
-    <div class="callout teal bottom-callout">
-      <span class="msr">verified_user</span>
-      <span class="callout-text">Apps your TV needs can't be disabled. Turn an app back on from Apps, or re-enable every disabled app from More. Both are always free.</span>
+    <div class="bottom-help">
+      <HelpSheet title="Turning apps back on">
+        <p>Apps your TV needs can't be disabled. Turn an app back on from Apps, or re-enable every disabled app from More. Both are always free.</p>
+      </HelpSheet>
     </div>
   {/if}
 
@@ -916,12 +917,8 @@
     font-size: 12px;
     font-weight: 600;
   }
-  .bottom-callout {
-    margin-top: 14px;
-  }
-  .callout-text {
-    flex: 1;
-    font-size: 12px;
-    line-height: 1.45;
+  .bottom-help {
+    display: flex;
+    margin-top: 6px;
   }
 </style>

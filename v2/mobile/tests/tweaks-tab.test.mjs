@@ -759,6 +759,8 @@ test("display scaling, screensaver and cached-process help match desktop's visib
     ["About display scaling", /The resolution Android draws its menus at/],
     ["About cached processes", /not a count of running apps/],
     ["About screensavers", /Restore previous also brings\s+back a custom screensaver/],
+    ["About screensavers", /Previous is what was set when Tweaks first read this TV\./],
+    ["About audio passthrough", /Actual playback depends on receiver and app support/],
   ]) {
     const text = page.getByText(routine);
     assert.equal(await text.isVisible(), false, summary);
@@ -771,5 +773,4 @@ test("display scaling, screensaver and cached-process help match desktop's visib
   }
   const legacy = page.getByText(/Removing this deletes only the stored value; it does not set the reported cap\./);
   assert.equal(await legacy.evaluate((el) => !!el.closest("details")), false);
-  await page.getByText("Previous is what was set when Tweaks first read this TV.", { exact: true }).waitFor();
 });

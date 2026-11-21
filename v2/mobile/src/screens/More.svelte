@@ -679,7 +679,6 @@
       {/if}
 
       {#if !session.isPro && billing.licenseKeyEntry}
-        <p class="license-desc">Have a license key? Activate Pro with it here.</p>
         <div class="license-input-row">
           <input
             type="text"
@@ -734,11 +733,13 @@
     <!-- Recovery -->
     <div class="more-card">
       <span class="card-label">Recovery</span>
-      <p class="card-desc">
-        Re-enables every app that is currently disabled on the TV, including ones this app
-        didn't touch. Use it if something stopped working after a debloat. It never uninstalls
-        or installs anything.
-      </p>
+      <HelpSheet title="About emergency recovery">
+        <p class="card-desc">
+          Re-enables every app that is currently disabled on the TV, including ones this app
+          didn't touch. Use it if something stopped working after a debloat. It never uninstalls
+          or installs anything.
+        </p>
+      </HelpSheet>
       <button class="ghost-btn" disabled={recovering || !session.isConnected} onclick={confirmRecovery}>
         {#if recovering}
           <span class="pdot blink"></span>Re-enabling apps…
@@ -778,16 +779,18 @@
 
     <div class="more-card">
       <span class="card-label">Unknown app diagnostics</span>
-      <p class="card-desc">
-        Keeps a small local record of apps we haven't reviewed and processes we couldn't match to
-        an app. Nothing is sent automatically.
-      </p>
+      <p class="card-desc">Kept on this phone. Nothing is sent automatically.</p>
+      <HelpSheet title="About these records">
+        <p class="card-desc">
+          A small local record of apps we haven't reviewed and processes we couldn't match to an
+          app. Repeated refreshes are grouped as observations. Only the most recent records are kept.
+        </p>
+      </HelpSheet>
       {#if diagnosticsCount === 0}
         <p class="diagnostics-empty">Nothing recorded yet.</p>
       {:else}
         <p class="diagnostics-count">
           <strong>{diagnosticsCount}</strong> distinct {diagnosticsCount === 1 ? "record" : "records"}.
-          Repeated refreshes are grouped as observations. Only the most recent records are kept.
         </p>
       {/if}
       {#if diagnosticsStorageError}
