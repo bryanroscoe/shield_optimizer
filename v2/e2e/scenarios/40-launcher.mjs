@@ -154,7 +154,7 @@ export const scenarios = [
       await ctx.page.locator(".home-picker-row").getByRole("button", { name: "Disable stock launcher" }).click();
       await ctx.step("confirm");
       await ctx.page.locator(".home-picker-confirm").getByRole("button", { name: "Disable stock launcher" }).click();
-      await ctx.page.locator(".home-picker-result").getByText("is Home", { exact: false }).waitFor({ timeout: 30_000 });
+      await ctx.page.locator(".home-picker-result").getByText("is now Home", { exact: false }).waitFor({ timeout: 30_000 });
       await ctx.step("stock disabled, Projectivy is Home");
       const d = await ctx.device(SHIELD.serial);
       ctx.assert.ok(d.packages.disabled.includes(STOCK), "stock launcher disabled");
