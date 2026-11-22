@@ -63,7 +63,7 @@ async function captureScreens(page, shot) {
     await pairPin.fill("123456");
     await page.getByRole("button", { name: "Pair", exact: true }).click();
     await page.getByText("Close the pairing dialog on your phone/TV.", { exact: false }).waitFor();
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     if (await pairPin.inputValue()) throw new Error("pairing PIN was not cleared after submission");
     if (await pairAddress.inputValue()) throw new Error("pairing address was not cleared after success");
     // The paired host carries over with a bare trailing colon (#88); the
@@ -166,7 +166,7 @@ async function captureScreens(page, shot) {
     // 18. Settings, reached from the header gear.
     await page.getByRole("link", { name: "Settings" }).click();
     await page.locator("[data-support-id]").waitFor();
-    await page.getByText("Native Rust ADB · direct connection", { exact: false }).waitFor();
+    await page.getByText("Built-in · direct connection", { exact: false }).waitFor();
     await page.mouse.move(0, 0);
     await shot("settings");
 
