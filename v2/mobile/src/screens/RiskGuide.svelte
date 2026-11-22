@@ -17,16 +17,25 @@
   // The three tiers are core's, not ours — see src/lib/safety.ts.
   const tiers = SAFETY_TIER_LIST;
 
-  const actions: { label: string; icon: string; desc: string }[] = [
+  const actions: { label: string; icon: string; points: string[] }[] = [
     {
       label: "Disable",
       icon: "block",
-      desc: "Stops the app and hides it, but leaves it on disk. Enable normally puts it back without reinstalling it. Suggested for every review app. Android’s third-party app list does not prove Play Store origin.",
+      points: [
+        "Stops the app and hides it, but leaves it on disk",
+        "Enable normally puts it back without reinstalling it",
+        "Suggested for every review app: Android’s third-party app list does not prove Play Store origin",
+      ],
     },
     {
       label: "Uninstall",
       icon: "delete",
-      desc: "Removes the app for the TV's current user. An explicit choice where offered. Getting it back depends on an available APK or store listing; deleted app data is not restored. A preinstalled system app still sits in the read-only system image, so uninstalling it frees little or no storage.",
+      points: [
+        "Removes the app for the TV's current user, only as an explicit choice",
+        "Getting it back depends on an available APK or store listing",
+        "Deleted app data is not restored",
+        "A preinstalled system app stays in the read-only system image, so uninstalling it frees little or no storage",
+      ],
     },
   ];
 </script>
@@ -67,7 +76,11 @@
         <div class="action-card">
           <span class="action-icon msr">{a.icon}</span>
           <span class="action-label">{a.label}</span>
-          <span class="action-desc">{a.desc}</span>
+          <ul class="action-desc">
+            {#each a.points as point (point)}
+              <li>{point}</li>
+            {/each}
+          </ul>
         </div>
       {/each}
     </div>
@@ -82,11 +95,14 @@
 
     <div class="callout">
       <span class="msr">restore</span>
-      <span class="callout-text">
-        Reinstall runs <span class="mono">install-existing</span> and works only when an APK still
-        exists on the TV. Otherwise, look for the app in the Play Store. Snapshots don't reinstall
-        apps: they record disabled and absent packages, plus the launcher and tracked settings. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.
-      </span>
+      <ul class="callout-text callout-list" aria-label="Getting apps back">
+        <li>
+          Reinstall runs <span class="mono">install-existing</span> and works only while an APK is
+          still on the TV; otherwise, look for the app in the Play Store
+        </li>
+        <li>Snapshots never reinstall apps: they record disabled and absent packages, the launcher and tracked settings</li>
+        <li>Restoring a snapshot leaves recorded absent apps unchanged, because a saved TV's hardware identity is unverified</li>
+      </ul>
     </div>
   </div>
 
@@ -193,6 +209,11 @@
     font-weight: 700;
   }
   .action-desc {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
     font-size: 12px;
     color: var(--muted);
     line-height: 1.45;
@@ -202,5 +223,12 @@
     flex: 1;
     font-size: 12px;
     line-height: 1.45;
+  }
+  .callout-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
   }
 </style>

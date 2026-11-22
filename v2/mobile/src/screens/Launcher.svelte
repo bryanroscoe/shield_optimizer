@@ -872,6 +872,15 @@
           Changing the launcher is reversible: set stock back as default any time. A snapshot
           records which launcher was active; it never re-enables or reinstalls anything on its own.
         </p>
+        <p>
+          Setup Wraith is Google TV's setup wizard, not a launcher. You don't need to disable it:
+          this screen already shows your real launcher as current. Disabling it only helps if the
+          Home button keeps landing on a setup screen, and it stays off until you re-enable it here.
+        </p>
+        <p>
+          Any installed app can be tried as Home under Advanced. Android only accepts an app that
+          declares a Home screen, and this screen says so when it doesn't.
+        </p>
       </HelpSheet>
 
       <button
@@ -886,9 +895,8 @@
       {#if advancedOpen}
         <div class="adv">
           <p class="adv-note">
-            Any installed app can be tried. Android only accepts an app that declares a Home
-            screen, and this says so when it doesn't. Setting an app never disables anything;
-            taking over from the stock launcher is the separate step below.
+            Setting an app never disables anything; taking over from the stock launcher is the
+            separate step below.
           </p>
 
           {#if pickerOpen}
@@ -993,7 +1001,7 @@
       ? "Disable Setup Wraith?"
       : `Disable ${disableConfirm?.entry.name ?? "launcher"}?`}
     message={disableConfirm?.setup_helper
-      ? "This is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen. It stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset."
+      ? "Android TV needs it for first-time setup. Re-enable it here before a factory reset."
       : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or from the Apps list."}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable"

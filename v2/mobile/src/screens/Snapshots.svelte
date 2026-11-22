@@ -1,6 +1,7 @@
 <script lang="ts">
   import AbsentSnapshotApps from "../../../shared/components/AbsentSnapshotApps.svelte";
   import HelpSheet from "../components/HelpSheet.svelte";
+  import Unfurl from "../components/Unfurl.svelte";
   import { onMount, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
@@ -50,6 +51,7 @@
     generation: number;
   } | null>(null);
   let unchangedOpen = $state(false);
+  let keptOpen = $state(false);
   let absentResult = $state<{ packages: string[]; serial: string; generation: number } | null>(null);
   let deleteTarget = $state<SnapshotFile | null>(null);
 
@@ -250,6 +252,13 @@
   });
 </script>
 
+{#snippet snapshotHelp()}
+  <HelpSheet title="What snapshots include">
+    <p>A snapshot records disabled and absent apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Use it to set this TV up the same way again, for example after a factory reset.</p>
+    <p>Restoring disables recorded disabled apps, with no per-app choice. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.</p>
+  </HelpSheet>
+{/snippet}
+
 <div class="screen">
   <div class="topline">
     <div class="header-left">
@@ -298,12 +307,12 @@
     <div class="locked-card">
       <span class="locked-icon msr">photo_camera_back</span>
       <h2>Snapshots are a Pro feature</h2>
-      <p class="locked-desc">
-        A snapshot records which apps are disabled, which known apps weren't installed, your Home
-        app and a set of display, audio, HDMI-CEC and screensaver settings. Restoring it disables
-        recorded disabled apps if they're on and puts the settings back. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified. It never re-enables anything, and it
-        never uninstalls or reinstalls apps.
-      </p>
+      <ul class="locked-list" aria-label="What a snapshot does">
+        <li>Records disabled apps, known apps that aren't installed, your Home app and display, audio, HDMI-CEC and screensaver settings</li>
+        <li>Restoring disables recorded apps that are on and puts the settings back</li>
+        <li>It never re-enables anything, and never uninstalls or reinstalls apps</li>
+      </ul>
+      {@render snapshotHelp()}
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">bolt</span>Unlock Pro
       </button>
@@ -318,7 +327,7 @@
     <div class="spacer"></div>
   {:else}
     <p class="intro">Restoring disables recorded disabled apps and restores settings. It never re-enables anything or reinstalls apps.</p>
-    <HelpSheet title="What snapshots include"><p>A snapshot records disabled and absent apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Use it to set this TV up the same way again, for example after a factory reset. Restoring disables recorded disabled apps, with no per-app choice. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.</p></HelpSheet>
+    {@render snapshotHelp()}
 
     <!-- Create -->
     <div class="create-card">
@@ -405,13 +414,28 @@
               </p>
             {/if}
             {#if kept.length > 0}
-              <p class="plan-skip" data-testid="kept-for-home">
+              <div class="plan-skip" data-testid="kept-for-home">
                 <span class="msr" aria-hidden="true">info</span>
-                <span>
-                  Kept on so the TV keeps a Home screen:
-                  {kept.map((k) => `${k.package} (${k.reason})`).join(", ")}.
-                </span>
-              </p>
+                <div class="refused-text">
+                  <span>Kept on so the TV keeps a Home screen:</span>
+                  <ul class="kept-list" aria-label="Kept on">
+                    {#each kept as k (k.package)}
+                      <li>
+                        <span class="mono">{k.package}</span>{#if kept.length <= 2}<span class="kept-why">{k.reason}</span>{/if}
+                      </li>
+                    {/each}
+                  </ul>
+                  {#if kept.length > 2}
+                    <Unfurl label="Why each is kept" open={keptOpen} onToggle={() => (keptOpen = !keptOpen)}>
+                      <ul class="kept-list">
+                        {#each kept as k (k.package)}
+                          <li><span class="mono">{k.package}</span><span class="kept-why">{k.reason}</span></li>
+                        {/each}
+                      </ul>
+                    </Unfurl>
+                  {/if}
+                </div>
+              </div>
             {/if}
 
             {#if refused.length > 0}
@@ -481,10 +505,12 @@
             {/if}
 
             <p class="plan-note">
-              Restoring disables recorded disabled apps and writes the recorded settings back, including
-              resetting settings the snapshot recorded as never set. It never re-enables anything or
-              reinstalls apps. A disabled app can be turned back on with Emergency recovery under More.
+              It never re-enables anything or reinstalls apps. Settings the snapshot recorded as never
+              set are reset.
             </p>
+            <HelpSheet title="Turning an app back on">
+              <p>A restore only disables apps. To turn one back on afterwards, use Emergency recovery under More, or Enable in the app's sheet.</p>
+            </HelpSheet>
           </div>
         </div>
 
@@ -560,11 +586,21 @@
     font-size: 20px;
     font-weight: 700;
   }
-  .locked-desc {
-    margin: 0 0 8px;
+  .locked-list {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin: 0;
+    padding-left: 20px;
     font-size: 13px;
     color: var(--muted);
-    line-height: 1.5;
+    line-height: 1.45;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+  .locked-card :global(.help-link) {
+    align-self: center;
   }
   .locked-card .primary {
     max-width: 260px;
@@ -812,6 +848,18 @@
     margin: 8px 0 0;
     padding-left: 20px;
     overflow-wrap: anywhere;
+  }
+  .kept-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 0;
+    padding-left: 18px;
+    overflow-wrap: anywhere;
+  }
+  .kept-why {
+    display: block;
+    color: var(--muted);
   }
   .plan-skip .msr {
     flex: none;
