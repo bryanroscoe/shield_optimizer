@@ -45,7 +45,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Diagnose runner prerequisites and apply only explicit per-run ACL opt-in
+      - name: Initialize evidence and check disk space
         run: |
           EVIDENCE="$RUNNER_TEMP/runtime-evidence"
           {
@@ -57,18 +57,6 @@ jobs:
           [[ "$SOURCE_RUN_ID" =~ ^[0-9]+$ ]]
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$APK_SHA256" =~ ^[0-9a-f]{64}$ ]]
-          {
-            uname -m
-            id
-            ls -ld /dev/kvm 2>&1 || true
-            grep -m1 -E '^flags.*(vmx|svm)' /proc/cpuinfo || true
-            if [[ -x "$ANDROID_HOME/emulator/emulator" ]]; then
-              "$ANDROID_HOME/emulator/emulator" -accel-check || true
-            fi
-          } > "$EVIDENCE/kvm-host.txt" 2>&1
-          python3 v2/mobile/scripts/runtime-kvm.py prepare \
-            --state "$RUNNER_TEMP/runtime-kvm-state.json" --evidence "$EVIDENCE" \
-            --allow-acl "$ALLOW_KVM_ACL"
           python3 -c 'import shutil; assert shutil.disk_usage(".").free >= 12 * 1024**3, "Require at least 12 GiB free for image and disposable AVD"'
 
       - name: Validate source run and select its release artifact
@@ -108,14 +96,8 @@ jobs:
         timeout-minutes: 15
         run: |
           pulse="$RUNNER_TEMP/emulator-libs"
-          mkdir -p "$pulse/lists/partial"
-          apt_lists="Dir::State::lists=$pulse/lists"
-          apt-get -o "$apt_lists" update
-          (
-            cd "$pulse"
-            apt-get download -o "$apt_lists" libpulse0 libasyncns0 libsndfile1 libx11-xcb1
-            for package in ./*.deb; do dpkg-deb -x "$package" "$pulse"; done
-          )
+          bash v2/mobile/scripts/stage-emulator-libraries.sh "$pulse"
+          cp "$pulse/pulse-dependencies.txt" "$EVIDENCE/pulse-dependencies.txt"
           lib="$pulse/usr/lib/x86_64-linux-gnu"
           export LD_LIBRARY_PATH="$lib:$lib/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
           echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
@@ -128,9 +110,23 @@ jobs:
             echo "$ANDROID_HOME/build-tools/36.0.0"
             echo "$sdk"
           } >> "$GITHUB_PATH"
-          "$ANDROID_HOME/emulator/emulator" -accel-check
           "$ANDROID_HOME/emulator/emulator" -version > "$EVIDENCE/emulator-version.txt"
           cp "$ANDROID_HOME/system-images/android-36/google_apis_ps16k/x86_64/source.properties" "$EVIDENCE/system-image.properties"
+
+      - name: Check KVM and apply only explicit per-run ACL opt-in
+        run: |
+          emulator="$ANDROID_HOME/emulator/emulator"
+          {
+            uname -m
+            id
+            ls -ld /dev/kvm 2>&1 || true
+            grep -m1 -E '^flags.*(vmx|svm)' /proc/cpuinfo || true
+            "$emulator" -accel-check || true
+          } > "$EVIDENCE/kvm-host.txt" 2>&1
+          python3 v2/mobile/scripts/runtime-kvm.py prepare \
+            --state "$RUNNER_TEMP/runtime-kvm-state.json" --evidence "$EVIDENCE" \
+            --allow-acl "$ALLOW_KVM_ACL"
+          "$emulator" -accel-check
 
       - name: Boot disposable emulator and verify real 16 KB startup
         id: smoke

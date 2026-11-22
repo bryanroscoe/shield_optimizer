@@ -235,10 +235,15 @@ class RuntimeEvidence(unittest.TestCase):
         for required in ('runs-on: ubuntu-24.04', 'timeout-minutes: 35', 'retention-days: 7',
                          "github.event.repository.visibility == 'public'", 'persist-credentials: false',
                          'contents: read', 'actions: read', 'system-images;android-36;google_apis_ps16k;x86_64',
-                         'apt-get download', 'libpulse0', 'dpkg-deb -x'):
+                         'bash v2/mobile/scripts/stage-emulator-libraries.sh'):
             self.assertIn(required, workflow)
+        stage = (root / 'v2/mobile/scripts/stage-emulator-libraries.sh').read_text()
+        for required in ('--download-only', 'install libpulse0', 'dpkg-deb -x', 'ldd "$pulse"'):
+            self.assertIn(required, stage)
+        self.assertNotIn('sudo ', stage)
         preflight = (root / '.github/workflows/mobile-release-preflight.yml').read_text()
         self.assertEqual(preflight.count("'.github/workflows/mobile-16kb-runtime.yml'"), 2)
+        self.assertIn('bash v2/mobile/scripts/stage-emulator-libraries.sh', preflight)
 
 
 if __name__ == '__main__':

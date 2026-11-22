@@ -16,7 +16,7 @@ use super::{home_tracking, AppState};
 /// question the launcher tab does — a bug report that used a different query
 /// would describe a state the app never saw.
 pub const HOME_HANDLER_QUERY: &str =
-    "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME";
+    "cmd package query-activities -a android.intent.action.MAIN -c android.intent.category.HOME --user 0";
 
 /// Per-step progress sink for `set_default_launcher`. The multi-strategy
 /// switch can take a few seconds (enable → role → set-home-activity → verify,
@@ -685,33 +685,32 @@ pub async fn disable_stock_launcher_impl(
                     }
                 }
             }
-            if failure.is_none()
-                && verify_active(&*adb, serial, target, &mut diagnostics)
+            if failure.is_none() {
+                let verification = verify_active(&*adb, serial, target, &mut diagnostics).await;
+                if let Some(home) = verification.paired_target(target, &disabled) {
+                    match disable_paired_holders(
+                        &*adb,
+                        serial,
+                        home,
+                        &disabled,
+                        Some(&handlers),
+                        progress,
+                        &mut diagnostics,
+                    )
                     .await
-                    .confirmed
-            {
-                match disable_paired_holders(
-                    &*adb,
-                    serial,
-                    target,
-                    &disabled,
-                    Some(&handlers),
-                    progress,
-                    &mut diagnostics,
-                )
-                .await
-                {
-                    Ok(()) => {
-                        return Ok(SetLauncherResult {
-                            ok: true,
-                            strategy: Some("disable_stock_takeover".into()),
-                            current_launcher: Some(target.to_string()),
-                            last_error: None,
-                            stock_takeover_available: false,
-                            diagnostics,
-                        });
+                    {
+                        Ok(()) => {
+                            return Ok(SetLauncherResult {
+                                ok: true,
+                                strategy: Some("disable_stock_takeover".into()),
+                                current_launcher: Some(target.to_string()),
+                                last_error: None,
+                                stock_takeover_available: false,
+                                diagnostics,
+                            });
+                        }
+                        Err(reason) => failure = Some(reason),
                     }
-                    Err(reason) => failure = Some(reason),
                 }
             }
             let mut unrestored: Vec<String> = Vec::new();
@@ -791,7 +790,7 @@ pub async fn current_launcher(
 }
 
 const RESOLVE_HOME: &str =
-    "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+    "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME --user 0";
 const HOME_ROLE_HOLDERS: &str = "cmd role get-role-holders android.app.role.HOME";
 
 /// The current Home app, read the one way every caller uses: the launcher
@@ -1220,45 +1219,64 @@ pub(crate) async fn set_default_launcher_core(
     })
 }
 
-/// After `target` is confirmed as Home with `stocks` disabled, also disable
+enum PairedHomeTarget<'a> {
+    Confirmed(&'a str),
+    BlockedByHelper { target: &'a str, helper: &'a str },
+}
+
+/// With `stocks` disabled, also disable
 /// the transient HOME holders the catalog pairs with those stock launchers
 /// (Setup Wraith on Google TV, #122): with stock gone they take the Home button
-/// back. A device with no such holder enabled is untouched.
+/// back. Some TVs resolve only the helper until it is off and the target is
+/// selected again (#239).
 ///
 /// Every guard of the stock takeover applies: the do-not-disable gate, the
 /// last-Home-handler check, and a second verification that `target` still holds
-/// Home. On any failure the holders disabled here are re-enabled before this
-/// returns `Err`, and the caller re-enables stock, so the TV is never left
-/// switched halfway.
-pub(crate) async fn disable_paired_holders(
+/// Home. On failure this attempts to re-enable the helpers it touched, then
+/// the caller attempts to restore stock.
+async fn disable_paired_holders(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
-    target: &str,
+    home: PairedHomeTarget<'_>,
     stocks: &[String],
     inventory: Option<&[String]>,
     progress: &Progress,
     diagnostics: &mut Vec<String>,
 ) -> Result<(), String> {
+    let (target, blocking_helper) = match home {
+        PairedHomeTarget::Confirmed(target) => (target, None),
+        PairedHomeTarget::BlockedByHelper { target, helper } => (target, Some(helper)),
+    };
     if stocks
         .iter()
         .all(|s| launchers().disable_with_for(s).is_empty())
     {
         return Ok(());
     }
-    // The Home-handler list read before stock was disabled. Without it the
-    // helper can't be checked, and leaving it on with stock off is the #122
-    // state, so that is a failure the caller rolls back.
-    let Some(enabled) = inventory else {
-        diagnostics.push("query-activities HOME (setup helper) -> unavailable".to_string());
-        return Err(
-            "Couldn't read this TV's Home apps before disabling stock, so the setup helper \
-             couldn't be checked"
-                .to_string(),
-        );
+    let refreshed;
+    let enabled = if blocking_helper.is_some() {
+        // The target may have disappeared while the first resolver poll was
+        // settling. Recheck that it can take Home before removing the helper.
+        refreshed = read_enabled_home_handlers(adb, serial).await;
+        refreshed.as_deref()
+    } else {
+        inventory
     };
+    let Some(enabled) = enabled else {
+        diagnostics.push("query-activities HOME (setup helper) -> unavailable".to_string());
+        return Err("Couldn't read this TV's Home apps to check the setup helper".to_string());
+    };
+    let holders = paired_transient_holders(launchers(), stocks, enabled);
+    if let Some(helper) = blocking_helper {
+        if !holders.iter().any(|holder| holder == helper) {
+            return Err(format!(
+                "Couldn't confirm {helper} in the Home app list before trying the switch"
+            ));
+        }
+    }
     let mut disabled: Vec<String> = Vec::new();
     let mut failure = None;
-    for holder in paired_transient_holders(launchers(), stocks, enabled) {
+    for holder in holders {
         if matches!(
             crate::engine::classify_safety(&holder),
             crate::engine::Safety::NeverDisable { .. }
@@ -1294,17 +1312,31 @@ pub(crate) async fn disable_paired_holders(
             None => diagnostics.push(format!("pm disable-user {holder} -> ok")),
         }
     }
-    if disabled.is_empty() {
+    if let Some(helper) = blocking_helper {
+        if !disabled.iter().any(|holder| holder == helper) && failure.is_none() {
+            failure = Some(format!(
+                "Couldn't turn off the setup helper {helper} safely"
+            ));
+        }
+    } else if disabled.is_empty() {
         return Ok(());
     }
     if failure.is_none() {
+        if blocking_helper.is_some() {
+            progress.step("Selecting the new launcher again");
+            let command =
+                format!("cmd role add-role-holder --user 0 android.app.role.HOME {target}");
+            let selected = adb.shell(serial, &command).await;
+            let status = command_failure(&selected).unwrap_or_else(|| "accepted".to_string());
+            diagnostics.push(format!("{command} -> {status}"));
+        }
         let _ = adb
             .shell(
                 serial,
                 "am start -W -a android.intent.action.MAIN -c android.intent.category.HOME",
             )
             .await;
-        if verify_active(adb, serial, target, diagnostics)
+        if poll_home(adb, serial, target, blocking_helper.is_none(), diagnostics)
             .await
             .confirmed
         {
@@ -1380,7 +1412,7 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
     match disable_paired_holders(
         adb,
         serial,
-        &target,
+        PairedHomeTarget::Confirmed(&target),
         &stocks,
         inventory,
         &Progress::Silent,
@@ -1614,13 +1646,14 @@ async fn stock_takeover(
             .await;
         progress.step("Checking whether Home switched over");
         let verification = verify_active(adb, serial, package, diagnostics).await;
+        let stocks = [active.to_string()];
         let mut paired_failure = None;
-        if verification.confirmed {
+        if let Some(home) = verification.paired_target(package, &stocks) {
             match disable_paired_holders(
                 adb,
                 serial,
-                package,
-                &[active.to_string()],
+                home,
+                &stocks,
                 inventory.as_deref(),
                 progress,
                 diagnostics,
@@ -1836,6 +1869,28 @@ struct VerifyOutcome {
     last_active: Option<String>,
 }
 
+impl VerifyOutcome {
+    fn paired_target<'a>(
+        &'a self,
+        target: &'a str,
+        stocks: &[String],
+    ) -> Option<PairedHomeTarget<'a>> {
+        if self.confirmed {
+            return Some(PairedHomeTarget::Confirmed(target));
+        }
+        let helper = self.last_active.as_deref()?;
+        stocks
+            .iter()
+            .any(|stock| {
+                launchers()
+                    .disable_with_for(stock)
+                    .iter()
+                    .any(|paired| paired == helper)
+            })
+            .then_some(PairedHomeTarget::BlockedByHelper { target, helper })
+    }
+}
+
 /// Poll the active-HOME resolver — and the HOME role's holder list — until
 /// one names `package`, with backoff. Propagation after set-home-activity /
 /// role changes isn't instant on every build — a single immediate check
@@ -1852,10 +1907,20 @@ async fn verify_active(
     package: &str,
     diagnostics: &mut Vec<String>,
 ) -> VerifyOutcome {
+    poll_home(adb, serial, package, true, diagnostics).await
+}
+
+async fn poll_home(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+    package: &str,
+    accept_role: bool,
+    diagnostics: &mut Vec<String>,
+) -> VerifyOutcome {
     let mut last_active = None;
     for delay_ms in verify_poll_delays() {
         tokio::time::sleep(std::time::Duration::from_millis(*delay_ms)).await;
-        if role_names_target(adb, serial, package, diagnostics).await {
+        if accept_role && role_names_target(adb, serial, package, diagnostics).await {
             return VerifyOutcome {
                 confirmed: true,
                 last_active: Some(package.to_string()),
@@ -2292,7 +2357,7 @@ mod tests {
         let stock = "com.amazon.tv.launcher";
         let disable = "pm disable-user --user 0 com.amazon.tv.launcher";
         let restore = "pm enable com.amazon.tv.launcher";
-        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let resolve = RESOLVE_HOME;
         let raw = "Security exception: Cannot disable a protected package: com.amazon.tv.launcher java.lang.SecurityException: Cannot disable a protected package: com.amazon.tv.launcher";
         for (disable_protected, restore_fails) in [(true, false), (true, true), (false, true)] {
             for wrapped_error in [false, true] {
@@ -2382,7 +2447,7 @@ mod tests {
     async fn unrelated_exit_255_does_not_claim_protection_even_if_restore_is_rejected() {
         let disable = "pm disable-user --user 0 com.amazon.tv.launcher";
         let restore = "pm enable com.amazon.tv.launcher";
-        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let resolve = RESOLVE_HOME;
         let (script, log) = ScriptedAdb::new(vec![
             ShellStep {
                 command: disable,
@@ -2434,7 +2499,7 @@ mod tests {
         let target = "com.example.launcher";
         let disable = "pm disable-user --user 0 com.google.android.tvlauncher";
         let restore = "pm enable com.google.android.tvlauncher";
-        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let resolve = RESOLVE_HOME;
         let (script, log) = ScriptedAdb::new(vec![
             ShellStep {
                 command: disable,
@@ -2489,7 +2554,7 @@ mod tests {
         let other = "com.vendor.recoveryhome";
         let disable = "pm disable-user --user 0 com.google.android.tvlauncher";
         let restore = "pm enable com.google.android.tvlauncher";
-        let resolve = "cmd package resolve-activity --brief -a android.intent.action.MAIN -c android.intent.category.HOME";
+        let resolve = RESOLVE_HOME;
         let cases = [
             (
                 "transport",
@@ -3238,6 +3303,139 @@ mod tests {
             format!(
                 "    packageName={GTV_STOCK}\n    packageName={WRAITH}\n    packageName=com.example.launcher\n"
             )
+        }
+
+        #[tokio::test]
+        async fn persistent_setup_helper_is_disabled_before_reselecting_home() {
+            const TARGET: &str = "com.example.launcher";
+            for initially_active in [GTV_STOCK, TARGET] {
+                let initial = format!("{initially_active}/.Home");
+                let helper = format!("{WRAITH}/.Wraith");
+                let mut home_answers = vec![initial.as_str()];
+                home_answers.extend(vec![helper.as_str(); verify_poll_delays().len()]);
+                home_answers.push("com.example.launcher/.MainActivity");
+                let mock = MockAdb::default()
+                    .on_shell(HOME_HANDLER_QUERY, &gtv_home_query())
+                    .on_shell_failure(HOME_ROLE_HOLDERS, "Unknown command: get-role-holders")
+                    .on_shell_seq(RESOLVE_HOME, &home_answers);
+                let log = mock.shell_log();
+                let state = state_with(mock);
+
+                let result =
+                    disable_stock_launcher_impl(&state, "serial", TARGET, &Progress::Silent)
+                        .await
+                        .unwrap();
+
+                assert!(result.ok, "{:?}", result.last_error);
+                assert_eq!(result.current_launcher.as_deref(), Some(TARGET));
+                let calls = log.lock().unwrap();
+                let stock_off = calls
+                    .iter()
+                    .position(|c| c == &format!("pm disable-user --user 0 {GTV_STOCK}"))
+                    .unwrap();
+                let helper_off = calls
+                    .iter()
+                    .position(|c| c == &format!("pm disable-user --user 0 {WRAITH}"))
+                    .unwrap();
+                let selected = calls
+                    .iter()
+                    .position(|c| {
+                        c == &format!(
+                            "cmd role add-role-holder --user 0 android.app.role.HOME {TARGET}"
+                        )
+                    })
+                    .unwrap();
+                assert_eq!(
+                    calls[stock_off..helper_off]
+                        .iter()
+                        .filter(|c| *c == RESOLVE_HOME)
+                        .count(),
+                    verify_poll_delays().len()
+                );
+                assert!(stock_off < helper_off && helper_off < selected, "{calls:?}");
+                assert!(calls[selected + 1..].iter().any(|c| c == RESOLVE_HOME));
+                assert!(
+                    !calls.iter().any(|c| c.starts_with("pm enable")),
+                    "{calls:?}"
+                );
+            }
+        }
+
+        #[tokio::test]
+        async fn persistent_setup_helper_fallback_restores_on_unconfirmed_home() {
+            const TARGET: &str = "com.example.launcher";
+            let helper = format!("{WRAITH}/.Wraith");
+            let mut role_answers = vec![""; verify_poll_delays().len()];
+            role_answers.push(TARGET);
+            let mock = MockAdb::default()
+                .on_shell(HOME_HANDLER_QUERY, &gtv_home_query())
+                .on_shell_seq(HOME_ROLE_HOLDERS, &role_answers)
+                .on_shell(RESOLVE_HOME, &helper);
+            let log = mock.shell_log();
+
+            let result = stock_takeover(
+                &mock,
+                "serial",
+                TARGET,
+                GTV_STOCK,
+                true,
+                &Progress::Silent,
+                &mut Vec::new(),
+            )
+            .await
+            .unwrap();
+
+            assert!(!result.ok);
+            let calls = log.lock().unwrap();
+            let helper_back = calls
+                .iter()
+                .position(|c| c == &format!("pm enable {WRAITH}"))
+                .unwrap();
+            let stock_back = calls
+                .iter()
+                .position(|c| c == &format!("pm enable {GTV_STOCK}"))
+                .unwrap();
+            assert!(helper_back < stock_back, "{calls:?}");
+        }
+
+        #[tokio::test]
+        async fn persistent_setup_helper_is_left_alone_if_the_replacement_disappears() {
+            let mock = MockAdb::default()
+                .on_shell_seq(
+                    HOME_HANDLER_QUERY,
+                    &[
+                        &gtv_home_query(),
+                        &format!("packageName={GTV_STOCK}\npackageName={WRAITH}"),
+                    ],
+                )
+                .on_shell_failure(HOME_ROLE_HOLDERS, "Unknown command: get-role-holders")
+                .on_shell(RESOLVE_HOME, &format!("{WRAITH}/.Wraith"));
+            let log = mock.shell_log();
+
+            let result = stock_takeover(
+                &mock,
+                "serial",
+                "com.example.launcher",
+                GTV_STOCK,
+                true,
+                &Progress::Silent,
+                &mut Vec::new(),
+            )
+            .await
+            .unwrap();
+
+            assert!(!result.ok);
+            let calls = log.lock().unwrap();
+            assert!(
+                !calls
+                    .iter()
+                    .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")),
+                "{calls:?}"
+            );
+            assert!(
+                calls.iter().any(|c| c == &format!("pm enable {GTV_STOCK}")),
+                "{calls:?}"
+            );
         }
 
         /// #157: disabling stock from the App List or Optimize while another

@@ -327,6 +327,57 @@ async fn google_tv_takeover_disables_setup_wraith_with_stock() {
     assert!(d.resolve_home(&stock).unwrap().starts_with(PROJECTIVY_PKG));
 }
 
+#[tokio::test]
+async fn google_tv_takeover_reselects_home_when_the_role_query_is_unsupported() {
+    let sim = google_tv_world(true);
+    {
+        let mut world = sim.world();
+        let device = world.devices.get_mut(SHIELD_SERIAL).unwrap();
+        device.home.preferred = None;
+        device.home.role_holder = None;
+        device.home.components.retain(|component| {
+            [GTV_HOME, WRAITH_PKG, PROJECTIVY_PKG].contains(&component.package.as_str())
+        });
+        world.faults.push(FaultRule {
+            serial: None,
+            scope: FaultScope::Shell,
+            matches: "get-role-holders".to_string(),
+            effect: FaultEffect::Fail {
+                stdout: "Unknown command: get-role-holders\n".to_string(),
+                stderr: String::new(),
+                exit_code: 1,
+            },
+            times: None,
+            after: 0,
+        });
+    }
+
+    let result = launcher::disable_stock_launcher_impl(
+        &state(&sim),
+        "192.0.2.1:5555",
+        PROJECTIVY_PKG,
+        &launcher::Progress::Silent,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        result.ok,
+        "{:?} {:?}",
+        result.last_error, result.diagnostics
+    );
+    assert!(!enabled(&sim, GTV_HOME));
+    assert!(!enabled(&sim, WRAITH_PKG));
+    let stock = super::stock_launchers();
+    let mut world = sim.world();
+    let device = world.devices.get_mut(SHIELD_SERIAL).unwrap();
+    assert_eq!(device.home.role_holder.as_deref(), Some(PROJECTIVY_PKG));
+    assert!(device
+        .resolve_home(&stock)
+        .unwrap()
+        .starts_with(PROJECTIVY_PKG));
+}
+
 /// The simulator models the reporter's failure: without the paired disable,
 /// Setup Wraith wins the resolver once stock is gone.
 #[tokio::test]
