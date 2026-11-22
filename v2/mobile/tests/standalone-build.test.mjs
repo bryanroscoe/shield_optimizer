@@ -20,10 +20,11 @@ test("mobile type check, production and demo builds need no desktop generated fi
   t.after(() => rm(root, { recursive: true, force: true }));
   const isolatedDesktop = join(root, "v2");
   const isolatedMobile = join(isolatedDesktop, "mobile");
-  await mkdir(isolatedMobile, { recursive: true });
+  await mkdir(join(isolatedMobile, "src-tauri"), { recursive: true });
   for (const name of ["src", "index.html", "package.json", "tsconfig.json", "vite.config.ts", "svelte.config.js"]) {
     await cp(join(mobile, name), join(isolatedMobile, name), { recursive: true });
   }
+  await cp(join(mobile, "src-tauri", "tauri.conf.json"), join(isolatedMobile, "src-tauri", "tauri.conf.json"));
   await cp(join(desktop, "shared"), join(isolatedDesktop, "shared"), { recursive: true });
   await cp(join(desktop, "catalogs/cleanyourtv"), join(isolatedDesktop, "catalogs/cleanyourtv"), { recursive: true });
   await mkdir(join(isolatedDesktop, "src"), { recursive: true });
