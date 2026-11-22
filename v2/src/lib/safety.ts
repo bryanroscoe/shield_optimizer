@@ -38,21 +38,21 @@ export const SAFETY_TIERS: Record<SafetyKind, SafetyTier> = {
     kind: "safe",
     label: "Safe to remove",
     description:
-      "The reason says what the app is and what you lose. Only ever comes from the reviewed list, never as a fallback.",
+      "The reason says what the app is and what you lose. Only given to catalog apps, never as a fallback.",
     cls: "safety-tier safety-tier--safe",
   },
   unknown: {
     kind: "unknown",
     label: "Unknown",
     description:
-      "No protection or caution rule matched. That does not prove removing this package is safe, so review its purpose and confirm explicitly.",
+      "No protection or caution rule matched. That doesn't prove removing this app is safe, so review its purpose and confirm explicitly.",
     cls: "safety-tier safety-tier--unknown",
   },
   caution: {
     kind: "caution",
     label: "Caution",
     description:
-      "Removing it has a known consequence — the reason says exactly what can stop working. Review that warning first.",
+      "Removing it has a known side effect. Read the reason to see what can stop working before you act.",
     cls: "safety-tier safety-tier--caution",
   },
   never_disable: {

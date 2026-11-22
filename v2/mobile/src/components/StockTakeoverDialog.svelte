@@ -63,8 +63,8 @@
             <p class="dialog-warning">
               <span class="msr" aria-hidden="true">warning</span>
               <span>
-                Also disables Google TV's setup helper (Setup Wraith) so it can't reclaim the Home
-                button. You may need to re-enable it briefly to sign in to Google again or pair a
+                Also disables Google TV's setup helper (Setup Wraith), or it takes the Home button
+                back. You may need to re-enable it briefly to sign in to Google again or pair a
                 remote.
               </span>
             </p>

@@ -164,7 +164,7 @@
   /// paste something different from what was on the clipboard.
   function sendPastedText(raw: string) {
     if (raw.length > MAX_PENDING_BYTES) {
-      rejectInput("That paste is too long for Remote. Nothing from it was sent.");
+      rejectInput("That paste is too long for Remote. Nothing from it was sent, and unsent input was dropped.");
       return;
     }
     const text = raw.replace(/\r\n?/g, "\n");
@@ -173,7 +173,7 @@
     const actions = lines.filter(line => line.length > 0).length + lines.length - 1;
     const bytes = encoder.encode(text).length + encoder.encode(remoteBuffer).length;
     if (pendingActions + actions + (remoteBuffer ? 1 : 0) > MAX_PENDING_ACTIONS || pendingBytes + bytes > MAX_PENDING_BYTES) {
-      rejectInput("That paste is too long for Remote. Nothing from it was sent.");
+      rejectInput("That paste is too long for Remote. Nothing from it was sent, and unsent input was dropped.");
       return;
     }
     remoteFlushBuffer();

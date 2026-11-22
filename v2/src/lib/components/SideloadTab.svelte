@@ -304,7 +304,7 @@
         <dt>Native code</dt>
         <dd class="mono">
           {#if staged.abis.length === 0}
-            none — works on any processor
+            none — runs on any architecture
           {:else}
             {staged.abis.join(", ")}
           {/if}

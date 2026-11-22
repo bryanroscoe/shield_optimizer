@@ -468,7 +468,7 @@
       {#if !stateKnown && !missing && !uninstalled}
         <p class="blocked-note">This app's state couldn't be read. Refresh the list before changing it.</p>
       {:else if blocked}
-        <p class="blocked-note">This app is protected and can't be disabled or uninstalled.</p>
+        <p class="blocked-note">This app is protected and can't be disabled or uninstalled from here.</p>
       {:else if safetyError}
         <p class="blocked-note">
           Couldn't check safety, so Disable and Uninstall aren't available.

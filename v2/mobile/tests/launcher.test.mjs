@@ -314,7 +314,7 @@ test("Save snapshot first leaves stock alone when the snapshot fails", async (t)
   });
   await page.getByRole("button", { name: /Disable stock launcher/ }).click();
   await page.getByRole("button", { name: "Save snapshot first" }).click();
-  await page.getByText(/The snapshot wasn't saved, so the stock launcher was left alone/).waitFor();
+  await page.getByText(/The snapshot wasn't saved, so the stock launcher wasn't changed/).waitFor();
   assert.equal(await count(page, "disable_stock_launcher"), 0);
 });
 

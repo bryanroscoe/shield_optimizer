@@ -643,7 +643,7 @@
         if (valid(serial, connection)) {
           homeResult = {
             ok: false,
-            text: `The snapshot wasn't saved, so the stock launcher was left alone.${isLocked(e) ? "" : ` ${String(e)}`}`,
+            text: `The snapshot wasn't saved, so the stock launcher wasn't changed.${isLocked(e) ? "" : ` ${String(e)}`}`,
           };
         }
         homeBusy = null;
@@ -984,7 +984,7 @@
     title="Disable the stock launcher?"
     message={`On this TV the only way to hand Home to ${takeover?.name ?? "this launcher"} is to disable the stock launcher. Your other launchers are left alone, and the stock launcher can be re-enabled here anytime.`}
     warning={takeoverTurnsOffWraith
-      ? "Also disables Google TV's setup helper (Setup Wraith) so it can't reclaim the Home button. You may need to re-enable it briefly to sign in to Google again or pair a remote."
+      ? "Also disables Google TV's setup helper (Setup Wraith), or it takes the Home button back. You may need to re-enable it briefly to sign in to Google again or pair a remote."
       : ""}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable stock & switch"

@@ -1986,7 +1986,7 @@
     const tierWarning = destructiveWarning(device?.support);
     const path = previewPath;
     const plan = preview;
-    if (!(await confirmAction(`Restore this snapshot?\n\n${total} change(s) will be applied to this TV. Disabled apps can be re-enabled later with Emergency recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+    if (!(await confirmAction(`Restore this snapshot?\n\n${total} change(s) will be applied to this device. Disabled apps can be re-enabled later with Emergency recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
       || previewPath !== path || preview !== plan || applyBusy || snapshotDeletePath) return;
     applyBusy = true;
     applyErr = null;
@@ -2900,8 +2900,8 @@
       {:else}
         {#if channelDisabled}
           <div class="warning">
-            <Icon name="warning" size={16} /> <code>com.android.providers.tv</code> is disabled on this TV. Continue Watching rows
-            (Apple TV, Netflix, Disney+ and others) stay empty until you re-enable it.
+            <Icon name="warning" size={16} /> <code>com.android.providers.tv</code> is disabled on this TV. Watch Next and Continue
+            Watching rows (Apple TV, Netflix, Disney+ and others) stay empty until you re-enable it.
           </div>
         {/if}
         {#if launchers.length === 0 && !launcherLoading}
@@ -3047,7 +3047,7 @@
                   after you switch launchers. Disable stock launcher disables it too.
                 {:else}
                   Google TV's setup helper (Setup Wraith) is on while the stock launcher is
-                  disabled. It may take the Home button.
+                  disabled. It will likely take the Home button.
                 {/if}
               </span>
               <span class="setup-helper-help">

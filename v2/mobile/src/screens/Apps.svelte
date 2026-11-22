@@ -684,7 +684,7 @@
         removedIdentity = null;
         await loadApps(true);
       } else {
-        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Reinstall failed. Try the Play Store.");
+        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Couldn't reinstall. Try the Play Store instead.");
       }
     } catch (e) {
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;

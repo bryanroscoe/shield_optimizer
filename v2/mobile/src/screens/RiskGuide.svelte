@@ -24,7 +24,7 @@
       points: [
         "Stops the app and hides it, but leaves it on disk",
         "Enable normally puts it back without reinstalling it",
-        "Suggested for every reviewed app: Android’s list of user-installed apps doesn’t prove an app came from the Play Store",
+        "Suggested for every app marked Review: Android’s list of user-installed apps doesn’t prove an app came from the Play Store",
       ],
     },
     {

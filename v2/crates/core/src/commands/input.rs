@@ -185,7 +185,7 @@ fn encode_input_text(text: &str) -> Result<String, String> {
     }
     if let Some(bad) = text.chars().find(|c| !c.is_ascii() || c.is_ascii_control()) {
         return Err(format!(
-            "Unsupported character {bad:?} — compatible mode only handles printable ASCII. \
+            "Unsupported character {bad:?} — typing over this connection only handles printable ASCII. \
              Type that part with the on-screen keyboard."
         ));
     }
@@ -891,7 +891,11 @@ mod tests {
 
     #[test]
     fn rejects_unicode_control_and_empty() {
-        assert!(encode_input_text("naïve").is_err());
+        // Also reached as an automatic fallback, so it must not name a mode
+        // the user never turned on.
+        let err = encode_input_text("naïve").unwrap_err();
+        assert!(err.contains("typing over this connection only handles printable ASCII"));
+        assert!(!err.contains("compatible mode"));
         assert!(encode_input_text("line\nbreak").is_err());
         assert!(encode_input_text("").is_err());
         assert!(encode_input_text(&"x".repeat(501)).is_err());

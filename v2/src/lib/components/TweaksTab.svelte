@@ -292,7 +292,7 @@
       if (!enabledResult.ok) {
         tweaksActionMessage =
           `screensaver_enabled → ${enabled || "(default)"} was refused: ` +
-          `${enabledResult.message.trim()}. The screensaver was left unchanged.`;
+          `${enabledResult.message.trim()}. Nothing changed.`;
         return;
       }
       const componentResult = await api.writeSetting(target, "secure", "screensaver_components", component);
@@ -641,7 +641,7 @@
         </div>
         <div class="muted small mono">CUR_MAX_CACHED_PROCESSES = {tweaks.cached_process_limit ?? "(not reported)"}</div>
         {#if tweaks.background_process_limit !== null}
-          <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit} (old setting, ignored on tested TVs)</div>
+          <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit} (old setting, ignored on the tested Shield TV)</div>
         {/if}
       </div>
       {#if tweaks.background_process_limit !== null}

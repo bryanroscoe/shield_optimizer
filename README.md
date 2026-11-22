@@ -1,6 +1,6 @@
 # ATV Optimizer
 
-Debloat and tune your Android TV from a desktop app: disable unused apps, switch launchers,
+Debloat and tune your Android TV from a desktop app: disable bloat, switch launchers,
 sideload APKs, adjust HDMI-CEC and frame-rate matching, and check device health.
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
 Android TV devices.
