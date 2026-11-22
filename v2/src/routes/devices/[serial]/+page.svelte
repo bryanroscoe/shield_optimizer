@@ -3058,7 +3058,7 @@
                 {/if}
               </span>
               <span class="setup-helper-help">
-                <HelpTip label="About Setup Wraith">
+                <HelpTip label="Setup Wraith">
                   <p>
                     Setup Wraith is Google TV's setup wizard, not a launcher. You don't need to
                     disable it: this app already shows your real launcher as current.
