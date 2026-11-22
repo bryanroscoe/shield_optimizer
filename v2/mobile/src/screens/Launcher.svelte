@@ -9,6 +9,7 @@
     isInstalled,
     setupHelperView,
     sourceSiteHost,
+    sourceSites,
     stockDisableGate,
     stockDisableMessage,
     takeoverTurnsOffSetupHelper,
@@ -529,10 +530,9 @@
   /// A launcher's official page, for one the TV's Play Store doesn't carry.
   /// Nothing is downloaded or installed. The link goes to the phone's browser;
   /// if that fails it is copied instead.
-  async function openSourceSite(l: LauncherStatus) {
-    const url = l.entry.source_url;
+  async function openSourceSite(l: LauncherStatus, url: string) {
     const host = sourceSiteHost(url);
-    if (!url || !host) return;
+    if (!host) return;
     linkShown = null;
     try {
       await api.openUrl(url);
@@ -747,7 +747,7 @@
           {#each launchers as l (l.entry.package)}
             {@const isActive = l.entry.package === currentPkg}
             {@const busy = busyPkg === l.entry.package}
-            {@const host = sourceSiteHost(l.entry.source_url)}
+            {@const sites = sourceSites(l.entry)}
             {@const stockBlocked = l.stock && l.enabled && !isActive && stockDisableBlocked}
             <div class="launcher-row" class:active={isActive}>
               <div class="l-icon"><span class="msr">{iconFor(l)}</span></div>
@@ -757,16 +757,16 @@
                 {#if stockBlocked && !busy}
                   <span class="l-reason" id={`stock-blocked-${l.entry.package}`}>{STOCK_DISABLE_BLOCKED}</span>
                 {/if}
-                {#if host}
+                {#each sites as site (site.url)}
                   <button
                     class="src-link"
-                    onclick={() => openSourceSite(l)}
-                    aria-label={`Source site for ${l.entry.name} (${host})`}
+                    onclick={() => openSourceSite(l, site.url)}
+                    aria-label={`Source site for ${l.entry.name} (${site.host})`}
                   >
                     <span class="msr" aria-hidden="true">open_in_new</span>
-                    <span class="src-text">Source site · {host}</span>
+                    <span class="src-text">Source site · {site.host}</span>
                   </button>
-                {/if}
+                {/each}
               </div>
 
               {#if busy}
@@ -1248,6 +1248,9 @@
     align-items: flex-start;
     gap: 5px;
     cursor: pointer;
+  }
+  .src-link + .src-link {
+    margin-top: 0;
   }
   .src-link .msr {
     flex: none;

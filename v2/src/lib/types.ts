@@ -94,6 +94,9 @@ export interface LauncherEntry {
   /// The launcher's official source page, available even when installed.
   /// Null for stock launchers and HOME handlers outside the catalog.
   source_url: string | null;
+  /// Further official pages for the same launcher (Projectivy's GitHub
+  /// releases beside its Play listing). Absent when there are none.
+  other_sources?: string[];
   /// Setup helpers (Setup Wraith) a takeover turns off together with this
   /// stock launcher. Present only on a stock entry that has one.
   disable_with?: string[];

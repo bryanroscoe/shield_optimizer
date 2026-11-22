@@ -522,9 +522,15 @@ mod tests {
             .iter()
             .find(|entry| entry.package == "com.spocky.projengmenu")
             .expect("Projectivy");
+        // Projectivy is on Google Play; its GitHub releases stay as a second
+        // source for people who install that build instead (#161).
         assert_eq!(
             projectivy.source_url.as_deref(),
-            Some("https://github.com/spocky/miproja1/releases")
+            Some("https://play.google.com/store/apps/details?id=com.spocky.projengmenu")
+        );
+        assert_eq!(
+            projectivy.other_sources,
+            vec!["https://github.com/spocky/miproja1/releases".to_string()]
         );
         let mut seen = std::collections::HashSet::new();
         for entry in cat.custom.iter().chain(cat.stock.iter()) {
@@ -547,6 +553,20 @@ mod tests {
             assert!(
                 url.starts_with("https://"),
                 "{} source_url must be https: {url}",
+                entry.package
+            );
+            for other in &entry.other_sources {
+                assert!(
+                    other.starts_with("https://") && other != url,
+                    "{} other_sources must be https and differ from source_url: {other}",
+                    entry.package
+                );
+            }
+        }
+        for entry in &cat.stock {
+            assert!(
+                entry.other_sources.is_empty(),
+                "{} is stock and lists other sources",
                 entry.package
             );
         }

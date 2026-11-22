@@ -61,6 +61,11 @@ async function launcherTab(page) {
     1,
     "the current default keeps its source link without offering to disable it",
   );
+  assert.equal(
+    await currentProjectivy.getByRole("button", { name: "Open Projectivy Launcher's page on github.com in your browser" }).count(),
+    1,
+    "Projectivy's GitHub releases stay beside its Play listing (#161)",
+  );
 
   // The Advanced picker lists every installed app, so the leanback-only app is
   // reachable there — proof the fixture has it and the list above left it out.

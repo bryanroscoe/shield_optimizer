@@ -470,8 +470,9 @@
         <div class="callout accent" role="status">
           <span class="msr">tv_gen</span>
           <span>
-            If the TV shows <span class="soft">"Allow debugging?"</span>, choose
-            <span class="soft">Always allow</span>, select <span class="soft">Allow</span>, and retry.
+            If the TV shows <span class="soft">"Allow debugging?"</span>, tick
+            <span class="soft">Always allow from this computer</span>, select
+            <span class="soft">Allow</span>, and retry.
           </span>
         </div>
       {/if}
@@ -504,8 +505,10 @@
     <p class="eyebrow">Step 1 of 2</p>
     <h1>Find your TV</h1>
     <p class="lede">
-      On the TV, open <span class="soft">Settings › System › Developer options › Wireless
-        debugging</span>.
+      On the TV, turn on <span class="soft">Wireless debugging</span> (Android 11 and later) or
+      <span class="soft">Network debugging</span> (Shield and older TVs). Both are in
+      <span class="soft">Developer options</span>: Settings › System on Google TV, or Settings ›
+      Device Preferences on Shield and older Android TVs.
     </p>
 
     <div class="radar" class:compact={scanned} aria-hidden="true">
@@ -727,7 +730,7 @@
             <span class="msr">tv_gen</span>
             <span>
               Try again, then look at the TV for <span class="soft">"Allow debugging?"</span>.
-              Choose <span class="soft">Always allow</span> when offered and select
+              Tick <span class="soft">Always allow from this computer</span> and select
               <span class="soft">Allow</span> within 30 seconds.
             </span>
           </div>
@@ -737,8 +740,9 @@
         <div class="callout accent">
           <span class="msr">tv_gen</span>
           <span>
-            Look at your TV — if an <span class="soft">"Allow debugging?"</span> prompt appears,
-            select <span class="soft">Allow</span> to finish connecting.
+            Look at your TV. If <span class="soft">"Allow debugging?"</span> appears, tick
+            <span class="soft">Always allow from this computer</span>, then select
+            <span class="soft">Allow</span>, so the TV doesn't ask again next time.
           </span>
         </div>
       {/if}

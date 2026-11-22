@@ -1087,6 +1087,7 @@ mod tests {
                 name: "Stock".into(),
                 package: stock.into(),
                 source_url: None,
+                other_sources: Vec::new(),
                 disable_with: Vec::new(),
             }],
             ..NO_LAUNCHERS.clone()
