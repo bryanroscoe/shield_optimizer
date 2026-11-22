@@ -4667,6 +4667,28 @@
   .launcher-name {
     font-weight: 600;
   }
+  #tabpanel-launcher {
+    container-type: inline-size;
+  }
+  @container (max-width: 44rem) {
+    .launcher-head {
+      display: none;
+    }
+    .launcher-list li {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.5rem 0.75rem;
+    }
+    .launcher-ident {
+      grid-column: 1 / -1;
+    }
+    .launcher-list .tags {
+      justify-content: flex-start;
+    }
+    .launcher-list .row-actions button {
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+  }
   .launcher-callout {
     margin-top: 1rem;
   }
