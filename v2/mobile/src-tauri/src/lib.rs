@@ -9,6 +9,7 @@
 // macro's, not ours, so there is nothing to change at the call sites.
 #![allow(clippy::double_must_use)]
 mod billing_commands;
+mod bug_report_commands;
 mod export_commands;
 mod file_commands;
 mod import_commands;
@@ -339,6 +340,8 @@ pub fn run() {
             license::license_info,
             read_debug_log,
             collect_diagnostics,
+            bug_report_commands::preview_bug_report,
+            bug_report_commands::send_bug_report,
             logcat::read_device_logs,
             devices::list_devices,
             devices::device_profile,

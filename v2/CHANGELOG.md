@@ -22,6 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop and Android: **Report a bug** can send your description straight to the developer. On desktop the header's Report a bug dialog has a description box and **Send to developer**, which sends the description with the same redacted summary and recent log Send logs sends; on Android it is a new row in More › Help with a description box, a preview of exactly what is sent and **Send**. The phone's report carries the app version, the phone's Android version and model, the support ID, whether automatic reports are on, the connected TV's make, model and Android version and recent connection steps: no app list, TV names, addresses or serial numbers, and addresses and serials typed into the description are removed too. The result shows the report number and support ID. GitHub stays as the other way to report, now with the description filled in. A build without a report server offers GitHub only.
 - Android: verify known saved-TV identity before reconnecting, show when PIN pairing succeeds, and offer Privacy and public or private diagnostic reports during setup.
 - Desktop and Android: use the Remote **Tab** button to move focus between fields on the TV.
 

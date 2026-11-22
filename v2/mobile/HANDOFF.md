@@ -130,12 +130,16 @@ Device logs (More › Device logs) reads the same bounded logcat snapshot as des
 through core `commands::logcat::read_device_logs` and the shared `v2/shared/log-poller.ts`; it never
 saves or uploads them. More › Bug report builds desktop's narrow bundle through core
 `commands::diagnostics` (with this app's `debug.log` tail), shows it for review and copies it to the
-clipboard; nothing is sent.
+clipboard; nothing is sent. More › Help › Report a bug (`BugReportSheet.svelte`, 2026-11-22) is the
+one upload the user starts: a description plus a short redacted summary built in Rust
+(`bug_report_commands.rs`, `engine/bug_report.rs`), previewed exactly, posted to `/v1/diagnostics`
+as schema 2 `kind: "bug"`. No log goes with it. Not yet run on a phone.
 
 Not on mobile yet, and why: export of APK bundles and snapshots needs its own format and privacy
 decisions; Install APK can't read an APK's package id or say whether it is already installed (see
 above). Desktop's Send logs upload
-(`upload_diagnostics`) is not offered on the phone (owner decision). A patch-notes viewer is
+(`upload_diagnostics`) is not offered on the phone (owner decision); Report a bug sends a
+description and summary, never a log. A patch-notes viewer is
 deferred.
 
 ## 2. Transport

@@ -374,6 +374,18 @@ pub fn upload_log(log: &str, scrub: &Scrub) -> String {
     redact_text(log, scrub, UPLOAD_LOG_MAX_BYTES)
 }
 
+/// Text the user typed (a bug report's description), scrubbed by the same
+/// rules as a log line. Unlike [`redact_text`] no line is shortened or
+/// dropped: the caller bounds the length.
+pub fn redact_note(text: &str, scrub: &Scrub) -> String {
+    with_found(text, scrub, |scrub| {
+        text.lines()
+            .map(|l| redact_body(&CONTROL.replace_all(l, " "), scrub).trim_end().to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

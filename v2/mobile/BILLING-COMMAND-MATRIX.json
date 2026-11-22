@@ -135,7 +135,26 @@
       "gate": "Free",
       "backend": "src-tauri/src/lib.rs",
       "callers": [
+        "src/components/BugReportSheet.svelte",
         "src/components/SupportReports.svelte"
+      ]
+    },
+    {
+      "command": "preview_bug_report",
+      "api": "previewBugReport",
+      "gate": "Free",
+      "backend": "src-tauri/src/bug_report_commands.rs",
+      "callers": [
+        "src/components/BugReportSheet.svelte"
+      ]
+    },
+    {
+      "command": "send_bug_report",
+      "api": "sendBugReport",
+      "gate": "Free",
+      "backend": "src-tauri/src/bug_report_commands.rs",
+      "callers": [
+        "src/components/BugReportSheet.svelte"
       ]
     },
     {
@@ -848,6 +867,7 @@
       "backend": "src/lib/api.ts (scoped opener plugin)",
       "callers": [
         "src/components/AppReportSheet.svelte",
+        "src/components/BugReportSheet.svelte",
         "src/components/SupportReports.svelte",
         "src/screens/Catalog.svelte",
         "src/screens/Launcher.svelte",
@@ -861,6 +881,7 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/telemetry.rs",
       "callers": [
+        "src/components/BugReportSheet.svelte",
         "src/components/SupportReports.svelte",
         "src/components/TelemetryNotice.svelte"
       ]

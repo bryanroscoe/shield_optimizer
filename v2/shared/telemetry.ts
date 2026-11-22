@@ -73,6 +73,9 @@ const QUIET_COMMANDS = new Set([
   // Send logs fails on its own (offline, the daily limit) and says so; a
   // report about it would only repeat that.
   "upload_diagnostics",
+  // Report a bug › Send to developer, on both apps: the same.
+  "send_bug_report",
+  "preview_bug_report",
   // Mobile Save a copy / Share: failures name the user's files and the folder or app they
   // picked, and are shown on screen; they are not reported.
   "export_file",
@@ -230,10 +233,13 @@ export interface TelemetrySettings {
   test_build?: string | null;
 }
 
-/// What `upload_diagnostics` returns: the user pressed "Send logs".
+/// What `upload_diagnostics` and `send_bug_report` return: the user pressed
+/// "Send logs" or "Send to developer".
 export interface DiagnosticsUploadResult {
   support_id: string;
   bytes: number;
+  /// The report number the server gave; absent from an older server.
+  report_id?: number | null;
 }
 
 /// The short form shown to users: the first eight hex digits, grouped.

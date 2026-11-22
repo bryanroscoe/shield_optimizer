@@ -393,10 +393,10 @@
     e.preventDefault();
   }
 
-  // Report a bug. Everything here is text the user reads before anything
-  // leaves the machine. This dialog has no upload path: the only way out is the
-  // issue URL, which the user opens and GitHub shows as a form they still have
-  // to submit. Send logs (Settings) is the separate, explicit upload.
+  // Report a bug. Two ways out, both chosen by the user: Send to developer
+  // uploads their description with the same redacted summary and log Send
+  // logs builds (`send_bug_report`), and Open GitHub issue opens a form,
+  // prefilled with the diagnostics shown here, that they still have to submit.
 
   const ISSUE_BASE =
     "https://github.com/bryanroscoe/shield_optimizer/issues/new" +
@@ -407,16 +407,21 @@
 
   /// `diagnostics` is the field id in .github/ISSUE_TEMPLATE/bug_report.yml;
   /// issue forms prefill a field from the query parameter of the same id.
-  function issueUrl(bundle: string): { url: string; prefilled: boolean } {
+  /// The description goes in `what-happened` when it fits beside the bundle.
+  function issueUrl(bundle: string, note: string): { url: string; prefilled: boolean } {
+    const what = note.trim() ? `&what-happened=${encodeURIComponent(note.trim())}` : "";
     if (bundle) {
-      const url = `${ISSUE_BASE}&diagnostics=${encodeURIComponent(bundle)}`;
-      if (url.length <= PREFILL_LIMIT) return { url, prefilled: true };
+      const diagnostics = `&diagnostics=${encodeURIComponent(bundle)}`;
+      for (const url of [`${ISSUE_BASE}${what}${diagnostics}`, `${ISSUE_BASE}${diagnostics}`]) {
+        if (url.length <= PREFILL_LIMIT) return { url, prefilled: true };
+      }
     }
-    return { url: ISSUE_BASE, prefilled: false };
+    const url = `${ISSUE_BASE}${what}`;
+    return { url: url.length <= PREFILL_LIMIT ? url : ISSUE_BASE, prefilled: false };
   }
 
   function openIssue() {
-    const { url, prefilled } = issueUrl(bugBusy ? "" : bugBundle);
+    const { url, prefilled } = issueUrl(bugBusy ? "" : bugBundle, bugNote);
     if (!prefilled) {
       bugMessage = bugBundle
         ? "The diagnostics are too long to fill in for you. Click Copy, then paste them into the Diagnostics field on GitHub."
@@ -426,6 +431,40 @@
   }
 
   let bugOpen = $state(false);
+  /// What the user wrote. Kept when the dialog closes, so an accidental
+  /// Escape doesn't lose it; cleared once it has been sent.
+  let bugNote = $state("");
+  const BUG_NOTE_MAX = 4000;
+  let bugSending = $state(false);
+  let bugSent = $state<{ reportId: number | null; shortId: string } | null>(null);
+  let bugSendError = $state("");
+  /// A build without an endpoint can't send; GitHub is the only way out.
+  const canSendBug = $derived(telemetry?.available !== false);
+
+  async function sendBugReport() {
+    if (bugSending || !bugNote.trim() || !canSendBug) return;
+    bugSending = true;
+    bugSendError = "";
+    bugSent = null;
+    try {
+      const result = await api.sendBugReport(bugNote);
+      bugSent = { reportId: result.report_id ?? null, shortId: formatSupportId(result.support_id) };
+      bugNote = "";
+    } catch (e) {
+      bugSendError = String(e);
+    } finally {
+      bugSending = false;
+    }
+  }
+
+  async function copySentId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id);
+      supportCopied = true;
+    } catch (e) {
+      bugMessage = `Couldn't reach the clipboard (${e}). Your support ID is ${id}.`;
+    }
+  }
   let bugBundle = $state("");
   let bugBusy = $state(false);
   let bugMessage = $state("");
@@ -445,6 +484,8 @@
     bugBusy = true;
     bugCopied = false;
     supportCopied = false;
+    bugSent = null;
+    bugSendError = "";
     void loadReports();
     bugMessage = "";
     bugBundle = "";
@@ -740,10 +781,61 @@
     use:dialogFocus={{ onClose: () => (bugOpen = false) }}
   >
     <h2 id="bug-title">Report a bug</h2>
-    <p class="notes-current muted">
-      This report is never sent on its own. Open GitHub issue fills the text below into a new
-      issue, which you review and submit yourself.
-    </p>
+    <label class="bug-note-label" for="bug-note">What went wrong?</label>
+    <textarea
+      id="bug-note"
+      class="bug-note"
+      rows="4"
+      maxlength={BUG_NOTE_MAX}
+      bind:value={bugNote}
+      placeholder="What you did, what you expected, and what happened instead"
+      aria-describedby="bug-send-consent"
+    ></textarea>
+    {#if bugNote.length > BUG_NOTE_MAX - 400}
+      <p class="bug-count muted" aria-live="polite">
+        {bugNote.length.toLocaleString()} / {BUG_NOTE_MAX.toLocaleString()} characters
+      </p>
+    {/if}
+    {#if canSendBug}
+      <p id="bug-send-consent" class="bug-path muted">
+        Send to developer shares your description, a summary of this computer and its TVs, and
+        the app's recent log, all redacted.
+      </p>
+      <div class="bug-reports-help">
+        <HelpDetails label="What's removed before sending">
+          <p>
+            Addresses, serial numbers, TV names, your user name and file paths are removed from
+            everything sent, your description included. The report is labeled with your support
+            ID, kept for 30 days, and goes to the app's developer whether or not anonymous reports
+            are on.
+          </p>
+          <p>Open GitHub issue instead opens a public form you review and submit yourself.</p>
+        </HelpDetails>
+      </div>
+    {:else}
+      <p id="bug-send-consent" class="bug-path muted">
+        Sending to the developer isn't available in this build. Open a GitHub issue instead.
+      </p>
+    {/if}
+    {#if bugSent}
+      <div class="callout callout-ok bug-sent" role="status">
+        <Icon name="check_circle" size={16} />
+        <span>
+          Sent{bugSent.reportId != null ? ` as report #${bugSent.reportId}` : ""}. Thank you.
+          {#if bugSent.shortId}
+            Your support ID is <code class="mono">{bugSent.shortId}</code>.
+          {/if}
+        </span>
+        {#if bugSent.shortId}
+          <button class="callout-link" onclick={() => copySentId(bugSent!.shortId)}>
+            {supportCopied ? "Copied" : "Copy ID"}
+          </button>
+        {/if}
+      </div>
+    {/if}
+    {#if bugSendError}
+      <p class="bug-error" role="alert">{bugSendError}</p>
+    {/if}
     <label class="bug-toggle">
       <input type="checkbox" checked={debugLogging} onchange={toggleDebugLogging} />
       Debug logging
@@ -802,6 +894,10 @@
         Send logs and more in Settings
       </button>
     </div>
+    <p class="bug-path muted">
+      For GitHub: Open GitHub issue fills these diagnostics into a new issue. Nothing is posted
+      until you submit it there.
+    </p>
     <textarea
       class="bug-bundle mono"
       readonly
@@ -820,9 +916,19 @@
       </button>
       <span class="spacer"></span>
       <button onclick={() => (bugOpen = false)}>Close</button>
-      <button class="primary" onclick={openIssue}>
+      <button onclick={openIssue}>
         Open GitHub issue <Icon name="open_in_new" size={14} />
       </button>
+      {#if canSendBug}
+        <button
+          class="primary"
+          onclick={sendBugReport}
+          disabled={bugSending || !bugNote.trim()}
+          title={bugNote.trim() ? undefined : "Describe the problem first"}
+        >
+          <Icon name="upload" size={14} /> {bugSending ? "Sending…" : "Send to developer"}
+        </button>
+      {/if}
     </div>
   </div>
 {/if}
@@ -991,7 +1097,32 @@
      diagnostics box is the part that gives way on a short window, so the
      actions row is never pushed out of the dialog. */
   .bug-dialog {
-    max-height: min(42rem, calc(100vh - 2rem));
+    max-height: min(46rem, calc(100vh - 2rem));
+    overflow-y: auto;
+  }
+  .bug-note-label {
+    font-size: 0.88rem;
+    font-weight: 600;
+  }
+  .bug-note {
+    min-height: 5rem;
+    resize: vertical;
+    font: inherit;
+    font-size: 0.88rem;
+    line-height: 1.45;
+  }
+  .bug-count {
+    margin: 0;
+    font-size: 0.76rem;
+    text-align: right;
+  }
+  .bug-sent {
+    align-items: center;
+  }
+  .bug-error {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--danger-text);
   }
   .bug-bundle {
     flex: 1;

@@ -80,7 +80,8 @@ go-ahead; don't infer permission from a phone being powered on.
    installed (needs the manifest decoder desktop uses, a new Rust dependency here).
 3. ~~The bug-report bundle (`collect_diagnostics`).~~ Done 2026-11-08: More › Bug report, reviewed
    on screen and copied to the clipboard. A share-sheet step for its text can now reuse item 1's
-   bridge (not wired yet); upload stays desktop-only (owner decision).
+   bridge (not wired yet). Log upload stays desktop-only (owner decision); More › Help › Report a bug
+   (2026-11-22) sends a description and a redacted summary, no log.
 4. A patch-notes viewer (deferred).
 5. ~~**Logs tab.**~~ Done 2026-11-08: More › Device logs, through core `read_device_logs`
    (`WirelessAdb::shell_bounded`, same bounds as desktop). Not yet run on a phone.

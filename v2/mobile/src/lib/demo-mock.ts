@@ -234,6 +234,38 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
           "- Support ID: 1234-5678\n- adb path: (not applicable: built-in wireless ADB client, no adb binary)\n- adb version: (unavailable)",
         )
         .replace("INFO atv_optimizer_lib: adb located", "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok");
+    // Report a bug: the summary the phone's Rust builder writes for the demo
+    // SHIELD. Send records the call; nothing leaves the page.
+    case "preview_bug_report": {
+      const note = String(args.note ?? "").trim();
+      const steps = (args.history as { command: string; ok: boolean }[] | undefined) ?? [];
+      const text = [
+        "## ATV Optimizer bug report (Android)",
+        "",
+        "- Support ID: 3333-3333 (`33333333-3333-4333-8333-333333333333`)",
+        "- App version: 0.1.4",
+        "- Phone: android 15, Google Pixel 10 Pro",
+        `- Automatic reports: ${telemetryEnabled ? "on" : "off"}`,
+        "- ADB: built-in wireless client",
+        "",
+        "### TV",
+        "",
+        args.serial
+          ? "- network, device: NVIDIA SHIELD Android TV (mdarcy), Android 11 (SDK 30), profile Shield, tier FullySupported"
+          : "- No TV connected",
+        "",
+        "### Recent connection steps",
+        "",
+        ...(steps.length ? steps.map((s) => `- ${s.command}: ${s.ok ? "ok" : "failed"}`) : ["- None recorded"]),
+        "",
+      ].join("\n");
+      return { note: note || null, text, bytes: text.length + note.length };
+    }
+    case "send_bug_report":
+      (window as unknown as { __BUG_REPORTS__?: unknown[] }).__BUG_REPORTS__ ??= [];
+      (window as unknown as { __BUG_REPORTS__: unknown[] }).__BUG_REPORTS__.push(args);
+      if (!String(args.note ?? "").trim()) throw "Describe the problem before sending the report.";
+      return { support_id: "33333333-3333-4333-8333-333333333333", bytes: 1_204, report_id: 42 };
     case "read_device_logs": {
       const options = args.options as { package?: string | null; tag?: string | null };
       const pid = options.package ? 4321 : 1234;

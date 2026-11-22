@@ -265,7 +265,11 @@ of being labeled "ADB not found".
   pure `engine/telemetry_diag.rs`), desktop-only redacted log excerpts (`engine/log_redact.rs`,
   20 a day), the support ID (`support_id` in `telemetry_settings`, the install id while reports
   are on) and desktop Send logs (`upload_diagnostics` → `POST /v1/diagnostics`, works with reports
-  off). The phone app sends no logs: its Play Data safety form doesn't declare them. Find a user's
+  off). Report a bug › Send to developer (`send_bug_report`, 2026-11-22) posts the same body as
+  schema 2 `kind: "bug"` with the user's description scrubbed by `log_redact::redact_note`; the
+  pure builder is `engine/bug_report.rs`, the post `telemetry::post_upload`. The phone app sends no
+  logs: its Play Data safety form doesn't declare them. Its Report a bug sends a description and a
+  short summary only (`mobile/DATA-INVENTORY.md`). Find a user's
   data with `telemetry-worker/scripts/support-lookup.sh <support-id>`. See
   `v2/README.md` "Telemetry and support tiers". The backend has been live since 2026-11-01
   (`telemetry-worker/README.md` "Production"). `device-support.json` is the only tier list: the
