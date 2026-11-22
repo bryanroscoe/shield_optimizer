@@ -308,6 +308,11 @@ deferred.
   Ko-fi donors. Past Ko-fi supporters get Play promo codes, and the
   new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
   `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
+- EU Geo-blocking Regulation (EU) 2018/302 (Play Console notice, 2026-11-22): the app and Pro stay
+  available in every EU country, and nothing in the app gates features or purchases on country,
+  locale, SIM, network or IP. Checked 2026-11-22: the code has no such check, and the closed track
+  `alpha` lists 177 countries including all 27 EU states. Steps and the API check:
+  `PLAY-CONSOLE-WALKTHROUGH.md` (requirements table, §3.3, §6.2).
 - Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro` or a
   support tier in `SUPPORT_PRODUCT_IDS`) through
   `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
