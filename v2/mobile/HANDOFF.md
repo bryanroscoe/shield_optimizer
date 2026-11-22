@@ -25,6 +25,11 @@ Cross-session agent memory also lives in
 
 ## Status
 
+Saved-TV reconnects verify a known hardware serial on the candidate socket before it becomes active.
+Manual PIN pairing can finish without a connect port and point the user to discovery or manual connection.
+Support and privacy is available during setup. Public reports include app/platform data and recent
+connection outcomes. Full reports and debug logs are for private support.
+
 Discovery shows a current, unambiguous advertised name above a differing saved label, marked
 “Advertised · saved as …”. Saved names/storage and connection identity are unchanged. The extra
 label requires all current adverts to match the saved hardware serial and no conflicting live

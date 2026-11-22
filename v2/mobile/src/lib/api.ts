@@ -96,7 +96,9 @@ async function call<T>(
   const generation = connectionGeneration();
   try {
     const result = await invoke<T>(command, args);
-    logCall(command, summary, true);
+    const ok = typeof result !== "object" || result === null ||
+      (!("ok" in result) || result.ok !== false) && (!("connected" in result) || result.connected !== false);
+    logCall(command, summary, ok);
     observe(command, args, result);
     return result;
   } catch (e) {
@@ -115,8 +117,8 @@ export const api = {
   wirelessDiscover: () => call<DiscoveryResult>("wireless_discover"),
   wirelessPair: (host: string, port: number, code: string) =>
     call<ConnectResult>("wireless_pair", { host, port, code }),
-  wirelessConnect: (host: string, port: number, requestId: number) =>
-    call<ConnectResult>("wireless_connect", { host, port, requestId }),
+  wirelessConnect: (host: string, port: number, requestId: number, expectedHardwareId?: string) =>
+    call<ConnectResult>("wireless_connect", { host, port, requestId, ...(expectedHardwareId ? { expectedHardwareId } : {}) }),
   wirelessDisconnect: (requestId: number) => call<ConnectResult>("wireless_disconnect", { requestId }),
   wirelessCancelConnect: (requestId: number, canceledRequestId: number) =>
     call<void>("wireless_cancel_connect", { requestId, canceledRequestId }),
@@ -332,7 +334,8 @@ export const api = {
 
   // ---- Debug ----
   readDebugLog: () => call<string>("read_debug_log"),
-  collectDiagnostics: (serial: string | null) => call<string>("collect_diagnostics", { serial }),
+  collectDiagnostics: (serial: string | null, publicReport = false) =>
+    call<string>("collect_diagnostics", { serial, ...(publicReport ? { publicReport } : {}) }),
   readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
     call<DeviceLogResult>("read_device_logs", { serial, options }),
 

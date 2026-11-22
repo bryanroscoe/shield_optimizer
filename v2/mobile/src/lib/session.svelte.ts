@@ -17,9 +17,18 @@ import type {
   DiscoveryResult,
   Entitlement,
   HealthReport,
+  SavedDevice,
 } from "./types";
 
 export type Liveness = "idle" | "connecting" | "live" | "reconnecting" | "lost";
+
+function identityFailure(expectedId: string, device: Device): string {
+  const actualId = normalizeHardwareId(device.properties?.serial_number);
+  if (actualId === expectedId) return "";
+  return actualId
+    ? "A different TV answered at this address. Scan for TVs or enter its address to connect as a new TV."
+    : "Couldn't verify the saved TV's identity. Scan for TVs or enter its address to connect as a new TV.";
+}
 
 class Session {
   private connectionGeneration = $state(Date.now() * 1000);
@@ -29,6 +38,7 @@ class Session {
   private bloatConnectionGeneration = 0;
   private recovering: { generation: number; promise: Promise<boolean> } | null = null;
   private recoveryAttempted = false;
+  private reconnectIdentityChanged = false;
 
   get generation(): number {
     return this.connectionGeneration;
@@ -61,6 +71,12 @@ class Session {
   /// read and clear it once to show an honest "different device" note rather
   /// than silently keeping the old TV's name.
   identityNote = $state("");
+  reconnectFailure = $state("");
+
+  private setReconnectFailure(message: string, changed = false): void {
+    this.reconnectFailure = message;
+    this.reconnectIdentityChanged = changed;
+  }
 
   // Shared health cache. `healthLoaded` tracks a load *attempt* (an errored
   // load still counts as loaded so we render the error, not a spinner forever).
@@ -136,6 +152,7 @@ class Session {
     rawHost: string,
     port: number,
     onAttempt?: (generation: number) => void,
+    expectedId?: string,
   ): Promise<ConnectResult> {
     if (this.applyInProgress) return { ok: false, message: "Stop the current operation before switching TVs." };
     // The backend trims too; the stored host has to match the serial it lists.
@@ -146,35 +163,43 @@ class Session {
     onAttempt?.(generation);
     const previousSerial = this.serial;
     const previousId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
-    // Set once the old device object is dropped: from then on the TV is
-    // settled again (or counted as changed) however this attempt ends.
-    let dropped = false;
-    let settled = false;
+    let replaced = false;
     try {
-      const result = await api.wirelessConnect(host, port, generation);
+      const result = await api.wirelessConnect(host, port, generation, expectedId);
       if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
       if (!result.ok) {
         await this.restoreCurrentLiveness(generation);
+        if (generation === this.connectionGeneration && result.identity_mismatch && this.connectedDevice && !this.isConnected &&
+          this.host === host && this.connectPort === port) {
+          this.setReconnectFailure(result.message, result.identity_mismatch === "changed");
+        }
         return result;
+      }
+      replaced = true;
+      const found = await this.deviceAtEndpoint(host, port);
+      if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
+      const refusal = found && expectedId ? identityFailure(expectedId, found) : "";
+      if (refusal) {
+        if (await this.rejectConnection(generation)) {
+          if (this.connectedDevice && this.host === host && this.connectPort === port) {
+            this.setReconnectFailure(refusal, !!normalizeHardwareId(found?.properties?.serial_number));
+          }
+          return { ok: false, message: refusal };
+        }
+        return { ok: false, message: "Connection attempt canceled." };
       }
       // The backend has replaced its connection, so whatever device object we
       // held describes a socket that no longer exists. Drop it before the new
       // host is published so no render can pair the old name with the new IP.
       this.connectedDevice = null;
-      dropped = true;
       this.clearDeviceData();
       this.host = host;
       this.connectPort = port;
-      try {
-        await this.refreshDevices(generation);
-      } catch (error) {
-        if (generation === this.connectionGeneration) this.liveness = "lost";
-        throw error;
-      }
-      if (generation !== this.connectionGeneration) return { ok: false, message: "Connection attempt canceled." };
+      this.connectedDevice = found;
       this.liveness = this.connectedDevice ? "live" : "lost";
       let mismatch = false;
       if (this.connectedDevice) {
+        this.setReconnectFailure("");
         this.recoveryAttempted = false;
         // Remember this TV so the next launch can offer it, and allow a
         // silent redial of it because the user chose it explicitly.
@@ -182,16 +207,47 @@ class Session {
         setAutoConnect(true);
       }
       this.settleDevice(previousSerial, previousId, mismatch);
-      settled = true;
       return this.connectedDevice ? result : { ok: false, message: "The TV disconnected before its profile could be loaded." };
     } catch (error) {
       if (generation === this.connectionGeneration) {
-        await this.restoreCurrentLiveness(generation);
+        if (replaced) {
+          this.connectedDevice = null;
+          this.clearDeviceData();
+          this.host = host;
+          this.connectPort = port;
+          this.liveness = "lost";
+          this.deviceEpoch += 1;
+        } else {
+          await this.restoreCurrentLiveness(generation);
+        }
       }
       throw error;
-    } finally {
-      if (dropped && !settled) this.deviceEpoch += 1;
     }
+  }
+
+  connectSaved(device: SavedDevice, onAttempt?: (generation: number) => void): Promise<ConnectResult> {
+    return this.connect(device.host, device.connectPort, onAttempt, normalizeHardwareId(device.hardwareId));
+  }
+
+  private async deviceAtEndpoint(host: string, port: number): Promise<Device | null> {
+    const list = await api.listDevices();
+    const expected = `${host}:${port}`;
+    return list.find((device) => device.serial === expected && device.status === "device") ?? null;
+  }
+
+  private async rejectConnection(expected: number): Promise<boolean> {
+    if (expected !== this.connectionGeneration) return false;
+    const generation = this.nextGeneration();
+    try {
+      // Retire only the rejected connection. Never tear down a newer choice.
+      await api.wirelessCancelConnect(generation, expected);
+    } catch {
+      // Keep the interface offline even if backend cleanup failed.
+    }
+    if (generation !== this.connectionGeneration) return false;
+    if (this.connectedDevice) this.deviceEpoch += 1;
+    this.liveness = this.connectedDevice ? "lost" : "idle";
+    return true;
   }
 
   /// Re-read the device list. Results are discarded when a newer connection
@@ -200,13 +256,14 @@ class Session {
   /// banner can name the TV, Retry and the network-return redial still have a
   /// target, and a live session turns lost.
   async refreshDevices(generation = this.connectionGeneration): Promise<boolean> {
-    const list = await api.listDevices();
+    const found = await this.deviceAtEndpoint(this.host, this.connectPort);
     if (generation !== this.connectionGeneration) return false;
-    const expected = `${this.host}:${this.connectPort}`;
-    const found = list.find((d) => d.serial === expected && d.status === "device") ?? null;
     if (found) {
-      this.connectedDevice = found;
-      return true;
+      const expectedId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
+      if (!expectedId || !identityFailure(expectedId, found)) {
+        this.connectedDevice = found;
+        return true;
+      }
     }
     if (this.connectedDevice && this.liveness === "live") this.liveness = "lost";
     return false;
@@ -246,7 +303,8 @@ class Session {
   }
 
   async reconnect(): Promise<ConnectResult> {
-    return this.connect(this.host, this.connectPort);
+    const expectedId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
+    return this.connect(this.host, this.connectPort, undefined, expectedId);
   }
 
   /// Returns true when the saved row at this address belongs to a different
@@ -264,6 +322,7 @@ class Session {
     this.host = "";
     this.connectPort = 5555;
     this.liveness = "idle";
+    this.setReconnectFailure("");
     this.clearDeviceData();
   }
 
@@ -336,7 +395,7 @@ class Session {
   async onNetworkChange(reason: unknown): Promise<void> {
     if (!this.connectedDevice) return;
     if (this.liveness !== "lost") return this.checkLiveness();
-    if (reason === "lost") return;
+    if (reason === "lost" || this.reconnectIdentityChanged) return;
     this.recoveryAttempted = false;
     await this.recoverOrMarkLost();
   }
@@ -354,12 +413,24 @@ class Session {
       const lostSerial = this.serial;
       const lostId = normalizeHardwareId(this.connectedDevice?.properties?.serial_number);
       try {
-        const result = await api.wirelessConnect(this.host, this.connectPort, generation);
+        const result = await api.wirelessConnect(this.host, this.connectPort, generation, lostId);
         if (generation !== this.connectionGeneration) return false;
+        if (result.identity_mismatch) {
+          this.setReconnectFailure(result.message, result.identity_mismatch === "changed");
+          this.deviceEpoch += 1;
+        }
         if (result.ok) {
-          const live = await this.refreshDevices(generation);
+          const live = await this.deviceAtEndpoint(this.host, this.connectPort);
           if (generation !== this.connectionGeneration) return false;
           if (live) {
+            const refusal = lostId ? identityFailure(lostId, live) : "";
+            if (refusal) {
+              if (await this.rejectConnection(generation)) {
+                this.setReconnectFailure(refusal, !!normalizeHardwareId(live.properties?.serial_number));
+              }
+              return false;
+            }
+            this.connectedDevice = live;
             // A silent recovery redials the same host:port, exactly like an
             // explicit reconnect -- so it needs the same identity check before
             // being trusted as live. Without it, a different id-less TV that
@@ -372,6 +443,7 @@ class Session {
             if (mismatch || recoveredId !== lostId) this.clearDeviceData();
             this.settleDevice(lostSerial, lostId, mismatch);
             this.liveness = "live";
+            this.setReconnectFailure("");
             this.recoveryAttempted = false;
             return true;
           }

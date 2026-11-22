@@ -24,7 +24,7 @@ Joining the group or the email list is not enrollment. You must opt in using the
 1. Enable Developer options on the TV (typically Settings → About → select the build number repeatedly).
 2. Enable the TV's available Network debugging or Wireless debugging setting. Names and support vary by TV/firmware.
 3. Open ATV Optimizer and select the TV. Check the model before continuing. Approve the debugging authorization prompt **on the TV**.
-4. If Android's code-pairing screen is required, use the pairing code and pairing port currently shown on the TV; the connect port can differ from the pairing port. Do not post these codes in a public issue.
+4. If you need a code, enter the pairing port and code from the TV's pairing dialog. After pairing, scan again or enter the separate connect port on the TV's main Wireless debugging screen. Keep the pairing code private.
 5. If discovery finds nothing, use the app's connection help. Confirm both devices are on the same local network and that guest-network/client isolation is not blocking them. Report failure honestly rather than marking connection as passed.
 
 Wireless debugging grants control of your TV. Enable it only on a trusted network, authorize only devices you recognize, and disable debugging when you no longer need it.
@@ -56,7 +56,7 @@ Email **bryanroscoe+atv@gmail.com** with:
 - App version/build, phone model/Android version, TV model/Android version.
 - What you tried, what you expected, what actually happened, and whether it repeats.
 - The time and time zone of the problem. For connection issues, say discovery, authorization, code pairing or reconnect.
-- Relevant screenshots and a redacted debug log if available. Include the app's Support ID when useful for optional report/deletion support.
+- Relevant screenshots and the public bug report from **Support and privacy** on the connection screen or **More** after connecting. For private email, share the full report or debug log only after reviewing it. Include the app's Support ID when useful for report or deletion support.
 
 Remove private TV names, network addresses, serial numbers, pairing codes, Google-account details and payment/order information from public issues. Send only the minimum needed through the private support channel. Never send passwords or verification codes.
 

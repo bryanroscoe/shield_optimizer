@@ -357,10 +357,11 @@
       </button>
     </div>
 
-    <div class="secondary-controls">
+    <div class="secondary-controls keyboard-controls">
       <button class="control-btn" onclick={openKeyboard} aria-label="Keyboard input">
         <span class="msr">keyboard</span>
       </button>
+      <button class="control-btn" onclick={() => sendKey("tab")} aria-label="Tab key">Tab</button>
       <button class="control-btn" onclick={openSettings} aria-label="Settings">
         <span class="msr">settings</span>
       </button>
@@ -640,6 +641,12 @@
     gap: 10px;
     margin-top: 10px;
     width: 100%;
+  }
+  @media (max-width: 310px) {
+    .keyboard-controls {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
   }
   .modal-error {
     margin: 10px 0 0;

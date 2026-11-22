@@ -103,7 +103,7 @@
     connectingToken = token;
     connectErrorKey = "";
     try {
-      const r = await session.connect(d.host, d.connectPort);
+      const r = await session.connectSaved(d);
       if (r.ok) {
         // The global identity-note toast in App.svelte owns showing a
         // mismatch (it survives this navigate; a toast shown here would not,

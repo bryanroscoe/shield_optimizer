@@ -41,8 +41,12 @@ def select_artifact(run, artifacts, comparison, repository, run_id, source_sha):
     require(str(run['id']) == run_id and run['head_sha'] == source_sha, 'Source run/SHA mismatch')
     require(run['repository']['full_name'] == repository
             and run['head_repository']['full_name'] == repository, 'Source run is not from this repository')
-    require(run['path'] == WORKFLOW and run['event'] == 'workflow_dispatch'
-            and run['head_branch'] == 'main', 'Require a manually dispatched main release build')
+    branch = run['head_branch']
+    manual = run['event'] == 'workflow_dispatch' and branch == 'main'
+    tagged = run['event'] == 'push' and re.fullmatch(
+        r'mobile-v[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9a-zA-Z.-]+)?', branch)
+    require(run['path'] == WORKFLOW and (manual or tagged),
+            'Require a mobile release tag or a manually dispatched main release build')
     require(run['status'] == 'completed' and run['conclusion'] == 'success', 'Source run did not succeed')
     require(comparison['status'] in ('ahead', 'identical')
             and comparison['merge_base_commit']['sha'] == source_sha, 'Source is not an ancestor of main')
@@ -53,7 +57,7 @@ def select_artifact(run, artifacts, comparison, repository, run_id, source_sha):
     require(not artifact['expired'] and artifact['size_in_bytes'] > 0, 'Artifact is expired or empty')
     origin = artifact['workflow_run']
     require(origin['id'] == run['id'] and origin['head_sha'] == source_sha
-            and origin['head_branch'] == 'main'
+            and origin['head_branch'] == branch
             and origin['repository_id'] == origin['head_repository_id'] == run['repository']['id'],
             'Artifact run provenance mismatch')
     require(re.fullmatch(r'sha256:[0-9a-f]{64}', artifact['digest']), 'Artifact digest is missing')

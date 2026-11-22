@@ -34,7 +34,7 @@
 {:else if session.connectedDevice && session.liveness === "lost"}
   <div class="conn-banner lost" role="alert">
     <span class="msr">wifi_off</span>
-    <span class="cb-text">Lost {session.deviceLabel} ({session.host}).</span>
+    <span class="cb-text">{session.reconnectFailure || `Lost ${session.deviceLabel} (${session.host}).`}</span>
     <button class="cb-btn ghost" onclick={onSwitch}>Switch TV</button>
     <button class="cb-btn" disabled={reconnecting} onclick={reconnect}>
       {reconnecting ? "…" : "Retry"}

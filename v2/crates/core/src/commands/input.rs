@@ -338,6 +338,7 @@ fn keycode_for(key: &str) -> Option<u32> {
         // put an awake device back to sleep). Dedicated wake avoids that.
         "wakeup" => 224,
         "delete" => 67,
+        "tab" => 61,
         "enter" => 66,
         _ => return None,
     })
@@ -903,6 +904,7 @@ mod tests {
         assert_eq!(keycode_for("back"), Some(4));
         assert_eq!(keycode_for("recents"), Some(187));
         assert_eq!(keycode_for("delete"), Some(67));
+        assert_eq!(keycode_for("tab"), Some(61));
         assert_eq!(keycode_for("wakeup"), Some(224));
         assert_eq!(keycode_for("power"), Some(26));
         // No arbitrary keycodes from the frontend.

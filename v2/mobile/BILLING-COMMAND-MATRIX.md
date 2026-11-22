@@ -19,11 +19,11 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `billing_refresh` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `billing_purchase` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
-| `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
-| `collect_diagnostics` | Free | `src-tauri/src/lib.rs` | `src/screens/More.svelte` |
+| `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/components/SupportReports.svelte` |
+| `collect_diagnostics` | Free | `src-tauri/src/lib.rs` | `src/components/SupportReports.svelte` |
 | `read_device_logs` | Free | `../crates/core/src/commands/logcat.rs` | `src/screens/Logs.svelte` |
-| `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
-| `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/screens/More.svelte`, `src/components/TelemetryNotice.svelte` |
+| `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/SupportReports.svelte`, `src/components/TelemetryNotice.svelte` |
+| `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/SupportReports.svelte`, `src/components/TelemetryNotice.svelte` |
 | `dismiss_telemetry_notice` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/TelemetryNotice.svelte` |
 | `telemetry_action` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts` |
 | `telemetry_error` | Free | `../crates/core/src/commands/telemetry.rs` | `src/lib/api.ts`, `src/main.ts` |
@@ -102,7 +102,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `upload_imported` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte` |
 | `inspect_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
 | `install_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
-| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte`, `src/screens/Sideload.svelte` |
+| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/components/SupportReports.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte`, `src/screens/Sideload.svelte` |
 
 ## UI and recovery findings
 

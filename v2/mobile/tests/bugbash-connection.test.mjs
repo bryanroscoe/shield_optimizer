@@ -192,9 +192,11 @@ function commands(page, name) {
 
 const settle = (page, ms = 40) => page.evaluate((ms) => new Promise((resolve) => setTimeout(resolve, ms)), ms);
 
-async function enterManualHost(page, host) {
+async function enterManualHost(page, host, connectPort, pairPort) {
   await page.getByRole("button", { name: "Enter IP address manually" }).click();
   await page.getByRole("textbox", { name: "TV IP address" }).fill(host);
+  if (connectPort) await page.getByRole("spinbutton", { name: /Connect port/ }).fill(connectPort);
+  if (pairPort) await page.getByRole("spinbutton", { name: "Pairing port" }).fill(pairPort);
 }
 
 test("Back while Add a TV pairs or connects never drops the TV already connected (#1)", async (t) => {
@@ -210,7 +212,7 @@ test("Back while Add a TV pairs or connects never drops the TV already connected
     window.router.navigate("devices");
     window.router.navigate("addtv");
   });
-  await enterManualHost(page, "B");
+  await enterManualHost(page, "B", "5555", "41099");
   await page.getByRole("button", { name: "Pair with code" }).click();
   await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("123456");
   await page.getByRole("button", { name: "Pair & connect" }).click();
@@ -320,7 +322,7 @@ test("a wrong pairing code returns to code entry with the spent code cleared, an
       message: "The code didn't match. Check the 6 digits on the TV and try again.",
     });
   });
-  await enterManualHost(page, "B");
+  await enterManualHost(page, "B", "5555", "41099");
   await page.getByRole("button", { name: "Pair with code" }).click();
   await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("123456");
   await page.getByRole("button", { name: "Pair & connect" }).click();
@@ -346,10 +348,33 @@ test("a wrong pairing code returns to code entry with the spent code cleared, an
   await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("654321");
   await page.getByRole("button", { name: "Pair & connect" }).click();
   await page.getByRole("heading", { name: "Couldn't connect" }).waitFor();
+  await page.getByText(/Pairing succeeded. Check the connect port/).waitFor();
   await page.getByRole("button", { name: "Try again" }).click();
   await page.getByRole("button", { name: "Open dashboard" }).waitFor();
   assert.equal((await commands(page, "wireless_pair")).length, 2);
   assert.equal((await commands(page, "wireless_connect")).length, 2);
+});
+
+test("manual pairing with only the pairing address never dials port 5555", async (t) => {
+  const page = await createPage(t);
+  await enterManualHost(page, "A", "42000");
+  await page.getByRole("textbox", { name: "TV IP address" }).fill("B");
+  assert.equal(await page.getByRole("spinbutton", { name: /Connect port/ }).inputValue(), "");
+  await page.getByRole("spinbutton", { name: "Pairing port" }).fill("41099");
+  await page.getByRole("button", { name: "Pair with code", exact: true }).click();
+  await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("123456");
+  await page.getByRole("button", { name: "Pair with code", exact: true }).click();
+  await page.getByText(/Pairing succeeded. Scan for the TV/).waitFor();
+  await page.getByRole("button", { name: "Scan network" }).click();
+  await page.getByText("No TVs found", { exact: true }).waitFor();
+  await page.getByText(/Pairing succeeded. Scan for the TV/).waitFor();
+  assert.equal((await commands(page, "wireless_pair"))[0].args.port, 41099);
+  assert.equal((await commands(page, "wireless_connect")).length, 0);
+  await enterManualHost(page, "B", "41100");
+  await page.getByRole("button", { name: "Connect (no code)" }).click();
+  await page.waitForFunction(() => window.calls.some((call) => call.command === "wireless_connect"));
+  assert.equal((await commands(page, "wireless_connect"))[0].args.port, 41100);
+  assert.equal((await commands(page, "wireless_pair")).length, 1);
 });
 
 test("connect stores the trimmed address, so the profile lookup finds the TV (#5)", async (t) => {
@@ -365,7 +390,7 @@ test("connect stores the trimmed address, so the profile lookup finds the TV (#5
   }), { ok: true, host: "A", live: true, sent: "A" });
 });
 
-test("a silent recovery onto a TV with another hardware id drops the lost TV's stats (#6)", async (t) => {
+test("a silent recovery refuses a different TV and preserves the old TV as offline", async (t) => {
   const page = await createPage(t, { ids: { A: "hw-1" } });
   assert.deepEqual(await page.evaluate(async () => {
     window.backend.free.A = 1024;
@@ -383,11 +408,13 @@ test("a silent recovery onto a TV with another hardware id drops the lost TV's s
     return {
       before,
       sameTv,
-      after: window.session.health,
+      after: window.session.health?.ram?.free_mb,
       loaded: window.session.healthLoaded,
       live: window.session.isConnected,
+      hardwareId: window.session.connectedDevice.properties.serial_number,
+      active: window.backend.active,
     };
-  }), { before: 1024, sameTv: 1024, after: null, loaded: false, live: true });
+  }), { before: 1024, sameTv: 1024, after: 1024, loaded: true, live: false, hardwareId: "hw-1", active: null });
 });
 
 test("the approval wait has Cancel, and first-launch Back steps out of it instead of closing the app (#7)", async (t) => {
@@ -584,7 +611,7 @@ test("at 150% text the onboarding radar and the Optimize card stay inside the sc
   assert.ok(widest <= 275, `page scrolls sideways: ${widest}px`);
 
   // All six code boxes fit, none clipped at the edge.
-  await enterManualHost(page, "B");
+  await enterManualHost(page, "B", undefined, "41099");
   await page.getByRole("button", { name: "Pair with code" }).click();
   const lastDigit = await page.locator(".digit").last().evaluate((el) => el.getBoundingClientRect().right);
   assert.ok(lastDigit <= 275 - 16, `last code box ends at ${lastDigit}px`);
@@ -763,7 +790,7 @@ test("native Back at the root removes the listener; a press during the removal o
 
 test("native Back steps out of first-launch pairing, then leaves Back to Android", async (t) => {
   const page = await createPage(t, { nativeBack: true });
-  await enterManualHost(page, "B");
+  await enterManualHost(page, "B", undefined, "41099");
   await settle(page);
   assert.equal(await page.evaluate(() => window.backListeners.size), 0);
   await page.getByRole("button", { name: "Pair with code" }).click();

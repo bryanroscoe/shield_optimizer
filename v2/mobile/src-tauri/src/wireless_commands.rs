@@ -127,6 +127,14 @@ pub async fn wireless_pair(
     }
 }
 
+#[derive(serde::Serialize)]
+pub struct WirelessConnectResult {
+    ok: bool,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    identity_mismatch: Option<&'static str>,
+}
+
 #[tauri::command]
 pub async fn wireless_connect(
     state: State<'_, MobileState>,
@@ -134,13 +142,39 @@ pub async fn wireless_connect(
     host: String,
     port: u16,
     request_id: u64,
-) -> Result<ConnectResult, String> {
+    expected_hardware_id: Option<String>,
+) -> Result<WirelessConnectResult, String> {
     state.wireless.begin_request(request_id)?;
     app_state.drop_all_remote_sessions().await;
-    match state.wireless.connect(host.trim(), port, request_id).await {
-        Ok(message) => Ok(ConnectResult { ok: true, message }),
-        Err(message) => Ok(ConnectResult { ok: false, message }),
-    }
+    let result = state
+        .wireless
+        .connect_saved(
+            host.trim(),
+            port,
+            request_id,
+            expected_hardware_id.as_deref(),
+        )
+        .await;
+    Ok(match result {
+        Ok(message) => WirelessConnectResult {
+            ok: true,
+            message,
+            identity_mismatch: None,
+        },
+        Err(error) => WirelessConnectResult {
+            ok: false,
+            identity_mismatch: match error {
+                atv_direct_adb::ConnectFailure::IdentityMismatch { changed: true } => {
+                    Some("changed")
+                }
+                atv_direct_adb::ConnectFailure::IdentityMismatch { changed: false } => {
+                    Some("unverified")
+                }
+                _ => None,
+            },
+            message: error.into_message(),
+        },
+    })
 }
 
 #[tauri::command]

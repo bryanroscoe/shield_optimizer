@@ -45,7 +45,7 @@ It is ready to share when these four steps pass, in order:
    open the Dashboard and the app list, use the remote, open More > Emergency recovery, then
    force-stop the app, reopen it, pick the TV under "Which TV?" and confirm it connects with no new
    prompt. Any failure is the blocker to fix before anyone else sees the app: send the agent the
-   time it happened and More > Show debug log > Copy.
+   time it happened and a reviewed report from Support and privacy on the connection screen, or from More.
 3. **Run the purchase script as a license tester** (about 30 minutes): RELEASE.md §6, in its order.
    Add your account under Console Settings > License testing first. While you own Pro, turn off one
    unneeded app on a TV and turn it back on (Disable is a Pro action), before the script's refund.
@@ -53,8 +53,8 @@ It is ready to share when these four steps pass, in order:
    is nothing to promote by hand.
 
 The rest of the phone/TV matrix, Fast-remote Phase 4, the app-restart report (#105) and the 16 KB
-emulator check happen during the 14 days. That emulator check currently fails
-before testing: its runner is missing `libpulse.so.0`. Production access needs 12 testers opted in
+emulator check happen during the 14 days. Record a successful runtime receipt for the exact
+signed candidate using RELEASE.md. Production access needs 12 testers opted in
 for 14 days in a row, so the clock starts only once 12 have joined.
 
 ## 2. How people get it: one Google Group, two links

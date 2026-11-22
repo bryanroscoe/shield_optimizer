@@ -90,6 +90,9 @@ pub enum ConnectFailure {
     /// its deadline passed, it was canceled, or the TV closed it. The message
     /// is what [`WirelessAdb::connect`] reports for it.
     NotApproved(String),
+    IdentityMismatch {
+        changed: bool,
+    },
     /// Anything else, as a message for the person.
     Failed(String),
 }
@@ -99,6 +102,11 @@ impl ConnectFailure {
     pub fn into_message(self) -> String {
         match self {
             Self::NotAllowed => "This TV has not allowed this device yet.".into(),
+            Self::IdentityMismatch { changed } => if changed {
+                "A different TV answered at this address. Scan for TVs or enter its address to connect as a new TV."
+            } else {
+                "Couldn't verify the saved TV's identity. Scan for TVs or enter its address to connect as a new TV."
+            }.into(),
             Self::NotApproved(message) | Self::Failed(message) => message,
         }
     }
@@ -661,6 +669,38 @@ impl WirelessAdb {
         auth: ConnectAuth,
         budget: Duration,
     ) -> Result<String, ConnectFailure> {
+        self.connect_checked(host, port, request_id, auth, budget, None)
+            .await
+    }
+
+    pub async fn connect_saved(
+        &self,
+        host: &str,
+        port: u16,
+        request_id: u64,
+        expected_id: Option<&str>,
+    ) -> Result<String, ConnectFailure> {
+        let expected_id = expected_id.map(str::to_owned);
+        self.connect_checked(
+            host,
+            port,
+            request_id,
+            ConnectAuth::OfferPublicKey,
+            AUTHORIZATION_TIMEOUT,
+            expected_id,
+        )
+        .await
+    }
+
+    async fn connect_checked(
+        &self,
+        host: &str,
+        port: u16,
+        request_id: u64,
+        auth: ConnectAuth,
+        budget: Duration,
+        expected_id: Option<String>,
+    ) -> Result<String, ConnectFailure> {
         let _lifecycle = self.lifecycle.lock().await;
         lock_recovering(&self.requests)
             .check(request_id)
@@ -743,6 +783,26 @@ impl WirelessAdb {
                     })
                 }
             })?;
+            if let Some(expected_id) = expected_id {
+                // The old socket remains published until the candidate proves
+                // its identity. A queued command must never reach a replacement TV.
+                let failure = ConnectFailure::IdentityMismatch { changed: false };
+                let mut bytes = Vec::new();
+                let mut output = limited_writer::LimitedWriter::new(&mut bytes, 256);
+                let budget = control.remaining()
+                    .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
+                let status = device.shell_command_with_timeout(
+                    &"getprop ro.serialno", Some(&mut output), None, budget,
+                ).map_err(|error| ConnectFailure::Failed(connect_error_message(&error)))?;
+                let text = limited_writer::bounded_text(&bytes, 256).map_err(|_| failure.clone())?;
+                let actual_id = atv_optimizer_core::commands::devices::verified_hardware_id(&text);
+                if matches!(status, ShellExit::Code(code) if code != 0) || actual_id.is_none() {
+                    return Err(failure);
+                }
+                if actual_id != Some(expected_id.as_str()) {
+                    return Err(ConnectFailure::IdentityMismatch { changed: true });
+                }
+            }
             if !preferred.is_empty() {
                 tracing::debug!(
                     serial = %serial,

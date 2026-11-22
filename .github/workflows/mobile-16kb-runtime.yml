@@ -9,7 +9,7 @@ on:
         type: boolean
         default: false
       source_run_id:
-        description: Successful Mobile Play release build run on main (not a smoke run)
+        description: Successful tagged or manual main Mobile Play release build run
         required: true
         type: string
       source_sha:
@@ -107,6 +107,18 @@ jobs:
       - name: Install official 16 KB image and verification tools
         timeout-minutes: 15
         run: |
+          pulse="$RUNNER_TEMP/emulator-libs"
+          mkdir -p "$pulse/lists/partial"
+          apt_lists="Dir::State::lists=$pulse/lists"
+          apt-get -o "$apt_lists" update
+          (
+            cd "$pulse"
+            apt-get download -o "$apt_lists" libpulse0 libasyncns0 libsndfile1 libx11-xcb1
+            for package in ./*.deb; do dpkg-deb -x "$package" "$pulse"; done
+          )
+          lib="$pulse/usr/lib/x86_64-linux-gnu"
+          export LD_LIBRARY_PATH="$lib:$lib/pulseaudio${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> "$GITHUB_ENV"
           sdk="$ANDROID_HOME/cmdline-tools/latest/bin"
           # Use the runner's existing accepted SDK licenses; never accept new agreements here.
           "$sdk/sdkmanager" --install 'emulator' 'platform-tools' 'build-tools;36.0.0' \

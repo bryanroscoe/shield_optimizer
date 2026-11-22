@@ -126,7 +126,7 @@
       "gate": "Free",
       "backend": "src-tauri/src/lib.rs",
       "callers": [
-        "src/screens/More.svelte"
+        "src/components/SupportReports.svelte"
       ]
     },
     {
@@ -135,7 +135,7 @@
       "gate": "Free",
       "backend": "src-tauri/src/lib.rs",
       "callers": [
-        "src/screens/More.svelte"
+        "src/components/SupportReports.svelte"
       ]
     },
     {
@@ -848,6 +848,7 @@
       "backend": "src/lib/api.ts (scoped opener plugin)",
       "callers": [
         "src/components/AppReportSheet.svelte",
+        "src/components/SupportReports.svelte",
         "src/screens/Catalog.svelte",
         "src/screens/Launcher.svelte",
         "src/screens/More.svelte",
@@ -860,7 +861,7 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/telemetry.rs",
       "callers": [
-        "src/screens/More.svelte",
+        "src/components/SupportReports.svelte",
         "src/components/TelemetryNotice.svelte"
       ]
     },
@@ -870,7 +871,7 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/telemetry.rs",
       "callers": [
-        "src/screens/More.svelte",
+        "src/components/SupportReports.svelte",
         "src/components/TelemetryNotice.svelte"
       ]
     },

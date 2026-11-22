@@ -9,11 +9,6 @@
     | { kind: "code"; text: string }
     | { kind: "table"; head: NoticeInline[][] | null; rows: NoticeInline[][][] };
 
-  // Off applies at once even when saving it fails, but then reports come back
-  // on at the next launch. Say so and offer a retry rather than a plain "Off".
-  // Module state, so the warning survives leaving More and coming back.
-  let telemetryOffUnsaved = $state(false);
-
   const NOTICE_INLINE = /`([^`]+)`|\[([^\]]+)\]\(([^)\s]+)\)|<(https?:\/\/[^>\s]+)>/g;
 
   function noticeInline(text: string): NoticeInline[] {
@@ -141,7 +136,6 @@
   import { session } from "../lib/session.svelte";
   import { router } from "../lib/router.svelte";
   import { currentTarget, sameTv, targetState, type TvTarget } from "../lib/tvTarget";
-  import { frontendLogText } from "../lib/log";
   import {
     clearUnknownDiagnostics,
     exportUnknownDiagnosticsSnapshot,
@@ -152,7 +146,6 @@
   import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
-  import { MOBILE_NOTICE_TEXT, TOGGLE_LABEL, type TelemetrySettings } from "../../../shared/telemetry";
   import type {
     UnknownDiagnosticReason,
     UnknownDiagnosticReport,
@@ -161,6 +154,7 @@
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import SupportReports from "../components/SupportReports.svelte";
   import SupportTiers from "../components/SupportTiers.svelte";
   import Toast from "../components/Toast.svelte";
 
@@ -184,59 +178,7 @@
     toastTimer = setTimeout(() => (toast = ""), 3500);
   }
 
-  // Anonymous reports. null until the backend answers; a failed read leaves
-  // the switch hidden rather than showing a state we don't know.
-  let telemetry = $state<TelemetrySettings | null>(null);
-  let telemetryBusy = $state(false);
-  const PRIVACY_POLICY_URL = "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy";
-
-  async function openPrivacyPolicy() {
-    try {
-      await api.openUrl(PRIVACY_POLICY_URL);
-    } catch {
-      showToast("Couldn't open the privacy policy. Please try again.", "error");
-    }
-  }
-
-  async function copySupportId() {
-    const id = telemetry?.support_id;
-    if (!id) return;
-    try {
-      await navigator.clipboard.writeText(id);
-      showToast("Support ID copied.", "success");
-    } catch {
-      showToast("Couldn't copy. You can select the Support ID below.", "error");
-    }
-  }
-
-  async function loadTelemetry() {
-    try {
-      telemetry = await api.telemetrySettings();
-    } catch {
-      telemetry = null;
-    }
-  }
-
-  async function setTelemetry(enabled: boolean) {
-    telemetryBusy = true;
-    try {
-      telemetry = await api.setTelemetryEnabled(enabled);
-      telemetryOffUnsaved = false;
-    } catch {
-      await loadTelemetry();
-      telemetryOffUnsaved = !enabled && telemetry?.enabled === false;
-      if (!telemetryOffUnsaved) showToast("Couldn't change the report setting.", "error");
-    } finally {
-      telemetryBusy = false;
-    }
-  }
-
-  function toggleTelemetry(event: Event) {
-    void setTelemetry((event.currentTarget as HTMLInputElement).checked);
-  }
-
   onMount(async () => {
-    void loadTelemetry();
     refreshDiagnosticsSummary();
     await session.loadEntitlement();
     await billing.load();
@@ -451,90 +393,6 @@
       await api.openUrl(href);
     } catch {
       showToast("Couldn't open the link. Please try again.", "error");
-    }
-  }
-
-  // Debug log — the native tail plus the frontend call ring buffer, both
-  // copyable for support.
-  let showLog = $state(false);
-  let nativeLog = $state("");
-  // The frontend ring buffer isn't reactive, so it's read on Show, Refresh and
-  // Copy rather than once.
-  let frontendLog = $state("");
-  let logLoading = $state(false);
-  let logError = $state("");
-
-  async function loadLog() {
-    showLog = true;
-    logLoading = true;
-    logError = "";
-    try {
-      nativeLog = await api.readDebugLog();
-    } catch (e) {
-      logError = String(e);
-    } finally {
-      frontendLog = frontendLogText();
-      logLoading = false;
-    }
-  }
-
-  const combinedLog = $derived(
-    `# Frontend calls\n${frontendLog}\n\n# Native log\n${nativeLog}`,
-  );
-
-  async function copyLog() {
-    frontendLog = frontendLogText();
-    try {
-      await navigator.clipboard.writeText(combinedLog);
-      showToast("Debug log copied.", "success");
-    } catch {
-      showToast("Couldn't copy to clipboard.", "error");
-    }
-  }
-
-  // Bug report — the same narrow bundle desktop builds, reviewed on screen
-  // before anything reaches the clipboard. Nothing is sent.
-  let bugReport = $state("");
-  let bugBusy = $state(false);
-  let bugError = $state("");
-  let bugRequest = 0;
-
-  async function prepareBugReport() {
-    if (bugBusy) return;
-    const request = ++bugRequest;
-    bugBusy = true;
-    bugError = "";
-    bugReport = "";
-    try {
-      const text = await api.collectDiagnostics(session.isConnected && session.serial ? session.serial : null);
-      if (request === bugRequest) bugReport = text;
-    } catch (e) {
-      if (request === bugRequest) bugError = String(e);
-    } finally {
-      if (request === bugRequest) bugBusy = false;
-    }
-  }
-
-  // A report describes the TV it was built for; a switch, reconnect or lost
-  // link drops it (and any read still in flight) rather than offering a
-  // stale one for copying.
-  let bugConnection = `${session.serial}:${session.generation}:${session.isConnected}`;
-  $effect(() => {
-    const key = `${session.serial}:${session.generation}:${session.isConnected}`;
-    if (key === bugConnection) return;
-    bugConnection = key;
-    ++bugRequest;
-    bugReport = "";
-    bugError = "";
-    bugBusy = false;
-  });
-
-  async function copyBugReport() {
-    try {
-      await navigator.clipboard.writeText(bugReport);
-      showToast("Bug report copied.", "success");
-    } catch {
-      showToast("Couldn't copy to clipboard. Select the text and copy it instead.", "error");
     }
   }
 
@@ -852,117 +710,7 @@
       {/if}
     </div>
 
-    <!-- Anonymous reports -->
-    <div class="more-card" data-testid="telemetry-card">
-      <span class="card-label">Privacy</span>
-      <button class="ghost-btn" onclick={openPrivacyPolicy}>Privacy policy<span class="msr">open_in_new</span></button>
-      {#if telemetry}
-        <label class="telemetry-toggle">
-          <span class="tt-copy">
-            <span class="tt-title">{TOGGLE_LABEL}</span>
-            <span class="card-desc">
-              {#if !telemetry.available}
-                This build doesn't send reports.
-              {:else if telemetry.enabled}
-                On. Turning it off stops sending immediately and discards anything not yet sent.
-              {:else}
-                Off. Nothing is sent.
-              {/if}
-            </span>
-          </span>
-          <input
-            type="checkbox"
-            role="switch"
-            checked={telemetry.available && telemetry.enabled}
-            disabled={!telemetry.available || telemetryBusy}
-            onchange={toggleTelemetry}
-            aria-label={TOGGLE_LABEL}
-          />
-        </label>
-        {#if telemetryOffUnsaved && telemetry.enabled === false}
-          <div class="telemetry-unsaved" role="alert">
-            <p class="card-desc">
-              Reports are off for now, but this choice couldn't be saved. They may turn back on
-              the next time the app starts.
-            </p>
-            <button class="ghost-btn compact" disabled={telemetryBusy} onclick={() => setTelemetry(false)}>
-              <span class="msr">refresh</span>Try saving again
-            </button>
-          </div>
-        {/if}
-        <HelpSheet title="What's sent">
-          <p class="card-desc">{MOBILE_NOTICE_TEXT}</p>
-          <p class="card-desc">
-            Reports go to a server the app's developer runs; raw reports are kept for 30 days.
-            Turning reports back on starts a new random install ID.
-          </p>
-        </HelpSheet>
-        {#if telemetry.support_id}
-          <p class="card-desc">Support ID: <code class="support-id">{telemetry.support_id}</code></p>
-          <button class="ghost-btn" onclick={copySupportId}>Copy Support ID</button>
-          <p class="card-desc">Include this ID in a privacy or deletion request. Save it before turning reports off; turning them back on creates a new ID.</p>
-        {/if}
-      {/if}
-    </div>
-
-    <!-- Bug report -->
-    <div class="more-card">
-      <span class="card-label">Bug report</span>
-      <p class="card-desc">
-        Includes app and phone versions, the connected TV's address, model, build and serial number, its
-        Home apps, your Support ID, and the last 200 lines of this app's log. Review it before sharing.
-        Copy puts it on your clipboard; nothing is sent.
-      </p>
-      <HelpSheet title="About bug reports">
-        <p class="card-desc">
-          Paste the report into a GitHub issue or an email to the developer. It doesn't include the TV's
-          installed-app list, its device logs or your license key. The app log lines are not redacted:
-          they can name TVs, their addresses and apps you acted on. Without a connected TV the report
-          has no TV section.
-        </p>
-      </HelpSheet>
-      <div class="log-toolbar">
-        <button class="ghost-btn compact" onclick={prepareBugReport} disabled={bugBusy}>
-          <span class="msr" class:blink={bugBusy}>{bugReport ? "refresh" : "bug_report"}</span>{bugReport ? "Refresh report" : "Review bug report"}
-        </button>
-        {#if bugReport}
-          <button class="ghost-btn compact" onclick={copyBugReport}>
-            <span class="msr">content_copy</span>Copy bug report
-          </button>
-        {/if}
-      </div>
-      {#if bugError}
-        <p class="log-error mono" role="alert">{bugError}</p>
-      {/if}
-      {#if bugReport}
-        <pre class="log-view mono" aria-label="Bug report">{bugReport}</pre>
-      {/if}
-    </div>
-
-    <!-- Debug log -->
-    <div class="more-card">
-      <span class="card-label">Debug log</span>
-      <p class="card-desc">Copy puts log text on your clipboard; it does not save a file.</p>
-      <HelpSheet title="About debug logs"><p class="card-desc">Recent app activity and the device transport log — useful for support.</p></HelpSheet>
-      {#if !showLog}
-        <button class="ghost-btn" onclick={loadLog}>
-          <span class="msr">description</span>Show debug log
-        </button>
-      {:else}
-        <div class="log-toolbar">
-          <button class="ghost-btn compact" onclick={loadLog} disabled={logLoading}>
-            <span class="msr" class:blink={logLoading}>refresh</span>Refresh
-          </button>
-          <button class="ghost-btn compact" onclick={copyLog}>
-            <span class="msr">content_copy</span>Copy
-          </button>
-        </div>
-        {#if logError}
-          <p class="log-error mono">{logError}</p>
-        {/if}
-        <pre class="log-view mono">{combinedLog}</pre>
-      {/if}
-    </div>
+    <SupportReports />
 
     <!-- About -->
     <div class="more-card">
@@ -1077,7 +825,6 @@
 </div>
 
 <style>
-  .support-id { overflow-wrap: anywhere; user-select: text; }
   .topline {
     justify-content: flex-start;
   }
@@ -1114,29 +861,6 @@
     letter-spacing: 0.12em;
     color: var(--dim);
     text-transform: uppercase;
-  }
-  .telemetry-toggle {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
-    cursor: pointer;
-  }
-  .tt-copy {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .tt-title {
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
-  .telemetry-toggle input {
-    width: 22px;
-    height: 22px;
-    flex: none;
-    accent-color: var(--accent);
   }
   .card-desc {
     font-size: 12px;
@@ -1215,19 +939,6 @@
   .notice-link {
     color: var(--accent);
     text-decoration: underline;
-  }
-  .telemetry-unsaved {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
-    background: color-mix(in srgb, var(--danger) 8%, transparent);
-  }
-  .telemetry-unsaved .card-desc {
-    color: var(--text-soft);
   }
   .recovery-result {
     display: flex;

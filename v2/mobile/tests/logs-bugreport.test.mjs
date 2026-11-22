@@ -49,6 +49,7 @@ async function open(t, screen) {
             connection: "network", device_type: "shield", properties: null,
           }];
           case "wireless_status": return { connected: true };
+          case "wireless_discover": return { devices: [], message: "" };
           case "wireless_connect": return { ok: true, message: "connected" };
           case "telemetry_settings": return { enabled: false, available: true, notice_seen: true, support_id: null };
           case "read_debug_log": return "";
@@ -56,7 +57,9 @@ async function open(t, screen) {
             package: args.options.package, pid: args.options.package ? 123 : null,
             output: { stdout: "First entry\nSecond <img src=x onerror=alert(1)> entry\n", stderr: "", exit_code: 0, termination: "completed" },
           };
-          case "collect_diagnostics": return "## ATV Optimizer diagnostics\n\n- App version: test\n";
+          case "collect_diagnostics":
+            return "## ATV Optimizer diagnostics\n\n- App version: test\n" +
+              (args.publicReport ? "" : "\n- TV serial: PRIVATE-TV-ID\n");
           case "telemetry_action":
           case "telemetry_error":
             return null;
@@ -66,6 +69,7 @@ async function open(t, screen) {
     };
   });
   await page.goto(origin);
+  if (screen === "onboarding") return page;
   await page.evaluate(async (target) => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");
@@ -207,16 +211,41 @@ test("a bug report is dropped when the TV changes", async (t) => {
   assert.equal(await page.getByRole("button", { name: "Copy bug report" }).count(), 0);
 });
 
-test("the bug report is reviewed, then copied, and names the connected TV", async (t) => {
+test("the private report is reviewed, then copied with TV details", async (t) => {
   const page = await open(t, "more");
   assert.deepEqual(await calls(page, "collect_diagnostics"), [], "opening More never builds a report");
-  await page.getByRole("button", { name: "Review bug report" }).click();
+  await page.getByRole("button", { name: "Review private report" }).click();
   const report = page.getByLabel("Bug report", { exact: true });
   await report.waitFor();
   assert.deepEqual(await calls(page, "collect_diagnostics"), [{ serial: "A:5555" }]);
-  assert.match(await report.innerText(), /ATV Optimizer diagnostics/);
+  assert.match(await report.innerText(), /PRIVATE-TV-ID/);
   assert.equal(await page.evaluate(() => window.clipboardText), null, "review alone copies nothing");
-  await page.getByRole("button", { name: "Copy bug report" }).click();
+  await page.getByRole("button", { name: "Copy private report" }).click();
   await page.waitForFunction(() => window.clipboardText !== null);
   assert.match(await page.evaluate(() => window.clipboardText), /App version: test/);
+});
+
+test("failed onboarding exposes privacy, debug log and a public report without losing the scan", async (t) => {
+  const page = await open(t, "onboarding");
+  await page.getByRole("button", { name: "Scan network" }).click();
+  await page.getByText("No TVs found", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Support and privacy" }).click();
+  const panel = page.getByRole("dialog", { name: "Support and privacy" });
+  await page.setViewportSize({ width: 275, height: 610 });
+  await panel.getByRole("switch", { name: /anonymous/i }).waitFor();
+  await panel.getByRole("button", { name: "Show debug log" }).click();
+  assert.equal((await calls(page, "read_debug_log")).length, 1);
+  await panel.getByRole("button", { name: "Review bug report" }).click();
+  const preview = panel.getByLabel("Bug report", { exact: true });
+  await preview.waitFor();
+  assert.deepEqual(await calls(page, "collect_diagnostics"), [{ serial: null, publicReport: true }]);
+  assert.match(await preview.innerText(), /wireless_discover: ok/);
+  assert.doesNotMatch(await preview.innerText(), /PRIVATE-TV-ID/);
+  assert.equal(await panel.evaluate((sheet) => sheet.scrollWidth <= sheet.clientWidth), true);
+  await panel.getByRole("button", { name: "Copy bug report" }).click();
+  assert.match(await page.evaluate(() => window.clipboardText), /App version: test/);
+  await panel.getByRole("button", { name: "Done", exact: true }).click();
+  await page.getByText("No TVs found", { exact: true }).waitFor();
+  assert.equal((await calls(page, "wireless_discover")).length, 1);
+  assert.equal((await calls(page, "wireless_connect")).length, 0);
 });

@@ -110,7 +110,7 @@
     switchingKey = savedDeviceKey(device);
     switchFailure = null;
     try {
-      const result = await session.connect(device.host, device.connectPort);
+      const result = await session.connectSaved(device);
       if (result.ok) {
         savedTvs = listSavedDevices();
         // The global identity-note toast in App.svelte owns showing a

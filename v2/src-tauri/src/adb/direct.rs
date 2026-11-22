@@ -851,7 +851,8 @@ impl ConnectionPool {
                     self.mark_not_allowed(&serial);
                     Ok(Reached::NotAllowed)
                 }
-                ConnectFailure::Failed(message) => {
+                failure => {
+                    let message = failure.into_message();
                     if auth == ConnectAuth::SignaturesOnly {
                         self.clear_not_allowed(&serial);
                     }
