@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { modal } from "../lib/modal";
   // In-app styled confirm dialog, used instead of native confirm(), which is
   // unreliable/ugly in the Android webview.
@@ -14,6 +15,7 @@
     icon,
     onConfirm,
     onCancel,
+    children,
   }: {
     open: boolean;
     title: string;
@@ -28,10 +30,13 @@
     icon?: string;
     onConfirm: () => void;
     onCancel: () => void;
+    /// Structured detail shown between the warnings and the message.
+    children?: Snippet;
   } = $props();
 
   // The page behind is scroll-locked, so long content scrolls inside the card
   // while the actions stay pinned below it. A divider marks the cut-off.
+  const id = $props.id();
   let body = $state<HTMLElement>();
   let content = $state<HTMLElement>();
   let overflowing = $state(false);
@@ -51,7 +56,7 @@
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div class="dialog-overlay" use:modal={{ onClose: onCancel }} onclick={onCancel}>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-    <div class="dialog-card" role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onclick={(e) => e.stopPropagation()}>
+    <div class="dialog-card" role="dialog" aria-modal="true" aria-label={title} aria-describedby="{id}-detail" tabindex="-1" onclick={(e) => e.stopPropagation()}>
       <div class="dialog-body" bind:this={body}>
         <div class="dialog-content" bind:this={content}>
           {#if icon}
@@ -64,7 +69,10 @@
           {#if supportWarning}
             <p class="dialog-warning" data-testid="support-warning"><span class="msr" aria-hidden="true">warning</span>{supportWarning}</p>
           {/if}
-          <p class="dialog-message">{message}</p>
+          <div class="dialog-detail" id="{id}-detail">
+            {@render children?.()}
+            <p class="dialog-message">{message}</p>
+          </div>
         </div>
       </div>
       <div class="dialog-actions" class:divided={overflowing}>
@@ -132,6 +140,9 @@
     margin: 0;
     font-size: 18px;
     font-weight: 700;
+  }
+  .dialog-detail {
+    display: contents;
   }
   .dialog-message {
     margin: 0;

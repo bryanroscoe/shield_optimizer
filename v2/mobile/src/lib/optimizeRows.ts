@@ -5,7 +5,7 @@
 
 import type { OptimizeMode, OptimizePlanItem, Safety } from "./types";
 import { catalogItem, type AppItem } from "./appsList";
-import { SAFETY_TIERS, isBlocked, type SafetyKind, type SafetyStatus } from "./safety";
+import { SAFETY_TIERS, isBlocked, type SafetyKind, type SafetyStatus, type SafetyTier } from "./safety";
 import {
   isReinstallable,
   recommendation,
@@ -110,21 +110,37 @@ export interface ConfirmItem {
   verdict: Safety | null;
 }
 
-const CONFIRM_TIER_ORDER: SafetyKind[] = ["never_disable", "unknown", "caution", "safe"];
-
 function sentence(text: string): string {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
-/// The Apply confirmation. Every removal keeps its own verb, name and safety
-/// reason (informed consent), stated once: grouped under its tier, most
-/// serious first, with apps that share a reason listed together. What
-/// uninstall means and the animation pass are said once, not per app.
+const CONFIRM_TIER_ORDER: SafetyKind[] = ["never_disable", "unknown", "caution", "safe"];
+
+/// One removal in the Apply confirmation: its verb and name, and the safety
+/// reason it expands to.
+export interface ConfirmChange {
+  label: string;
+  reason: string;
+}
+
+/// One safety tier's removals in the Apply confirmation.
+export interface ConfirmSection {
+  kind: SafetyKind;
+  label: string;
+  cls: SafetyTier["cls"];
+  icon: string;
+  changes: ConfirmChange[];
+}
+
+/// The Apply confirmation as a list: every removal named once with its verb,
+/// under its tier, most serious first, each carrying its own safety reason
+/// for the dialog to fold behind it. The row unfurled that reason when it was
+/// selected. What uninstall means and the animation pass are said once.
 export function applyConfirmation(
   items: ConfirmItem[],
   mode: OptimizeMode,
-): { warning: string; message: string } {
-  const tiers = new Map<SafetyKind, Map<string, string[]>>();
+): { sections: ConfirmSection[]; message: string } {
+  const tiers = new Map<SafetyKind, ConfirmChange[]>();
   const enables: string[] = [];
   // How an uninstalled app comes back depends on the app. When every
   // uninstall shares one case it is said once; otherwise each uninstall
@@ -145,24 +161,20 @@ export function applyConfirmation(
     }
     const kind = verdict?.kind ?? "unknown";
     const reason = verdict?.reason.trim() ?? "";
-    const byReason = tiers.get(kind) ?? new Map<string, string[]>();
-    tiers.set(kind, byReason);
-    const names = byReason.get(reason) ?? [];
-    byReason.set(reason, names);
-    names.push(
-      action === "uninstall"
-        ? `Uninstall ${item.entry.name}${perApp ? ` (${lower(uninstallOutcome(item.entry.package, item.entry).short)})` : ""}`
-        : `Disable ${item.entry.name}`,
-    );
+    const changes = tiers.get(kind) ?? [];
+    tiers.set(kind, changes);
+    changes.push({
+      label:
+        action === "uninstall"
+          ? `Uninstall ${item.entry.name}${perApp ? ` (${lower(uninstallOutcome(item.entry.package, item.entry).short)})` : ""}`
+          : `Disable ${item.entry.name}`,
+      reason: reason ? sentence(reason) : "",
+    });
   }
-  const warning = CONFIRM_TIER_ORDER.filter((kind) => tiers.has(kind))
-    .map((kind) => {
-      const entries = [...tiers.get(kind)!].map(([reason, names]) =>
-        sentence(reason ? `${names.join(", ")} — ${reason}` : names.join(", ")),
-      );
-      return `${SAFETY_TIERS[kind].label}: ${entries.join(" ")}`;
-    })
-    .join(" ");
+  const sections = CONFIRM_TIER_ORDER.filter((kind) => tiers.has(kind)).map((kind) => {
+    const tier = SAFETY_TIERS[kind];
+    return { kind, label: tier.label, cls: tier.cls, icon: tier.icon, changes: tiers.get(kind)! };
+  });
   const message = [
     enables.length > 0 ? `Re-enable ${enables.join(", ")}.` : "",
     outcomes.size > 0
@@ -176,5 +188,5 @@ export function applyConfirmation(
   ]
     .filter(Boolean)
     .join(" ");
-  return { warning, message };
+  return { sections, message };
 }
