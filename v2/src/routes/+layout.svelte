@@ -797,7 +797,7 @@
       </p>
     {/if}
     {#if canSendBug}
-      <p id="bug-send-consent" class="bug-path muted">
+      <p id="bug-send-consent" class="bug-prose muted">
         Send to developer shares your description, a summary of this computer and its TVs, and
         the app's recent log, all redacted.
       </p>
@@ -813,7 +813,7 @@
         </HelpDetails>
       </div>
     {:else}
-      <p id="bug-send-consent" class="bug-path muted">
+      <p id="bug-send-consent" class="bug-prose muted">
         Sending to the developer isn't available in this build. Open a GitHub issue instead.
       </p>
     {/if}
@@ -840,7 +840,7 @@
       <input type="checkbox" checked={debugLogging} onchange={toggleDebugLogging} />
       Debug logging
     </label>
-    <p class="bug-path muted">
+    <p class="bug-prose muted">
       While it's on, this session is also recorded (adb calls and the buttons you press) to
       <span class="mono">logs/sessions</span>. That recording stays on this computer and is never
       part of this report.
@@ -858,9 +858,9 @@
       {TOGGLE_LABEL}
     </label>
     {#if telemetry && !telemetry.available}
-      <p class="bug-path muted" data-bug-reports-note>This build doesn't send reports.</p>
+      <p class="bug-prose muted" data-bug-reports-note>This build doesn't send reports.</p>
     {:else if telemetry?.test_build}
-      <p class="bug-path muted" data-bug-reports-note>
+      <p class="bug-prose muted" data-bug-reports-note>
         Test build {telemetry.test_build}: anonymous usage reports are always off.
       </p>
     {:else}
@@ -894,7 +894,7 @@
         Send logs and more in Settings
       </button>
     </div>
-    <p class="bug-path muted">
+    <p class="bug-prose muted">
       For GitHub: Open GitHub issue fills these diagnostics into a new issue. Nothing is posted
       until you submit it there.
     </p>
@@ -904,18 +904,20 @@
       aria-label="Diagnostics"
       value={bugBusy ? "Collecting…" : bugBundle}
     ></textarea>
-    {#if bugMessage}
-      <p class="bug-message muted">{bugMessage}</p>
-    {/if}
-    <div class="notes-actions">
+    <div class="bug-tools">
       <button onclick={copyBugBundle} disabled={bugBusy || !bugBundle}>
         <Icon name="content_copy" size={14} /> {bugCopied ? "Copied" : "Copy"}
       </button>
       <button onclick={openLogsFolder}>
         <Icon name="folder_open" size={14} /> Open logs folder
       </button>
-      <span class="spacer"></span>
+    </div>
+    {#if bugMessage}
+      <p class="bug-message muted">{bugMessage}</p>
+    {/if}
+    <div class="notes-actions bug-actions">
       <button onclick={() => (bugOpen = false)}>Close</button>
+      <span class="spacer"></span>
       <button onclick={openIssue}>
         Open GitHub issue <Icon name="open_in_new" size={14} />
       </button>
@@ -1099,6 +1101,28 @@
   .bug-dialog {
     max-height: min(46rem, calc(100vh - 2rem));
     overflow-y: auto;
+  }
+  .bug-prose {
+    margin: 0;
+    font-size: 0.76rem;
+    line-height: 1.45;
+  }
+  .bug-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  /* On a short window the dialog scrolls and the actions stay in view. */
+  .bug-actions {
+    flex-wrap: wrap;
+    position: sticky;
+    bottom: -1.25rem;
+    margin-bottom: -1.25rem;
+    padding-bottom: 1.25rem;
+    background: var(--bg-surface);
+  }
+  .bug-actions button {
+    white-space: nowrap;
   }
   .bug-note-label {
     font-size: 0.88rem;

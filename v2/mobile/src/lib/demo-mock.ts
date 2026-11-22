@@ -237,7 +237,8 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     // Report a bug: the summary the phone's Rust builder writes for the demo
     // SHIELD. Send records the call; nothing leaves the page.
     case "preview_bug_report": {
-      const note = String(args.note ?? "").trim();
+      // Addresses go the way Rust's redaction sends them.
+      const note = String(args.note ?? "").trim().replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<ip>");
       const steps = (args.history as { command: string; ok: boolean }[] | undefined) ?? [];
       const text = [
         "## ATV Optimizer bug report (Android)",
