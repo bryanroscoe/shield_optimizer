@@ -187,6 +187,13 @@ export async function scenarioContext({ browser, base, serverUrl, name, colorSch
     answerDialogs(accept) {
       dialogAnswer = accept;
     },
+    /// Confirms the in-app Optimize/Restore run dialog a Run plan click opens.
+    async confirmRun() {
+      const dialog = page.locator("[data-run-plan-dialog]");
+      await dialog.waitFor();
+      await dialog.getByRole("button", { name: /^Run (Optimize|Restore)$/ }).click();
+      await dialog.waitFor({ state: "detached" });
+    },
     /// Answers the in-app "Save snapshot" name dialog a save opens.
     async nameSnapshot(label = "") {
       const dialog = page.getByRole("dialog", { name: "Save snapshot" });

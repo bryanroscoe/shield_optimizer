@@ -230,3 +230,56 @@ test("sideloaded apps survive the unknown-package log's 100-record trim on a TV 
   for (const pkg of sideloaded) assert.ok(tokens.includes(pkg), `${pkg} kept`);
   assert.ok(stored.records.every((r) => !("system" in r)), "the priority hint is never stored");
 });
+
+test("an uninstall confirm shows the tier chip and two consequence bullets, with the how-to behind an expander", async (t) => {
+  // 275 CSS px is how Android WebView lays out a 412dp phone at 150% text.
+  for (const viewport of [{ width: 384, height: 812 }, { width: 275, height: 610 }]) {
+    const page = await openApps(t, { viewport });
+    await page.locator('.app-row[data-package="com.teamsmart.videomanager.tv"]').click();
+    const sheet = page.getByRole("dialog", { name: "App details for SmartTube" });
+    await sheet.getByRole("button", { name: /^Uninstall/ }).click();
+    const dialog = page.getByRole("dialog", { name: "Uninstall SmartTube?" });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByTestId("removal-tier").evaluate((el) => el.lastChild.textContent), "Unknown");
+    assert.match(await dialog.getByTestId("removal-tier").textContent(), /Safety: Unknown$/);
+    const points = dialog.getByRole("list", { name: "What happens" }).getByRole("listitem");
+    assert.equal(await points.count(), 2);
+    assert.equal(await points.nth(0).innerText(), "Removed for this TV's user");
+    assert.match(await points.nth(1).innerText(), /Play Store/);
+    await dialog.getByText("Not in any list.").waitFor();
+    // No sentence-per-verdict paragraph is left in the prompt.
+    assert.equal(await dialog.getByText(/The removal impact is Unknown/).count(), 0);
+
+    const toggle = dialog.getByRole("button", { name: "Getting it back" });
+    const panel = dialog.locator(".unfurl-panel");
+    assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(await panel.isVisible(), false);
+    await toggle.click();
+    assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+    await panel.getByText(/Reinstall in its app sheet can bring it back while its APK is still on the TV/).waitFor();
+    await toggle.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+    await page.keyboard.press("Space");
+    assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+    // The consequences stay on screen whichever way the expander is set.
+    assert.equal(await points.nth(0).isVisible(), true);
+    assert.equal(await points.nth(1).isVisible(), true);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    assert.equal(await dialog.locator(".dialog-body").evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
+
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.equal(await page.evaluate(() => calls.some((c) => c.command === "uninstall_package")), false);
+  }
+});
+
+test("a disable confirm shows the tier chip and says Disable is reversible", async (t) => {
+  const page = await openApps(t);
+  await page.getByRole("button", { name: "More actions for SmartTube", exact: true }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: /Disable/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Disable SmartTube?" });
+  await dialog.getByTestId("removal-tier").waitFor();
+  const points = dialog.getByRole("list", { name: "What happens" }).getByRole("listitem");
+  assert.deepEqual(await points.allInnerTexts(), ["Disable is reversible with Enable"]);
+  assert.equal(await dialog.getByRole("button", { name: "Getting it back" }).count(), 0);
+});

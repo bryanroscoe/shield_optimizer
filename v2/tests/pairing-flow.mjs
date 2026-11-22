@@ -423,8 +423,10 @@ async function exercisePairingFlow({ browser, base }) {
     await openAndPair(page);
     await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
     const note = await page.locator(".pair-note").innerText();
-    assert.match(note, /the app connects automatically/);
-    assert.match(note, /Do not reuse the pairing port\./);
+    assert.match(note, /The app connects automatically/);
+    // The fallback is troubleshooting, so it waits behind the pairing help.
+    const fallback = await page.locator(".pair-form [data-pair-fallback]").textContent();
+    assert.match(fallback, /Do not reuse the pairing port\./);
     assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
     const row = page.locator(`[data-serial="${CONNECT_ADDRESS}"]`);
     await row.waitFor({ timeout: 15000 });

@@ -243,7 +243,9 @@ test("an Optimize row folds its explanation behind a toggle that works by tap an
   assert.equal(await toggle.getAttribute("aria-expanded"), "true");
   assert.equal(await consequence.isVisible(), true);
   await page.getByRole("button", { name: /Apply optimization/ }).click();
-  assert.match(await page.locator(".dialog-card").innerText(), /Disable System Updater — Reviewed and rated high risk.*stops security updates/s);
+  const section = page.getByRole("region", { name: "Caution" });
+  await section.getByRole("button", { name: "Disable System Updater" }).click();
+  assert.match(await section.locator(".change-reason").innerText(), /^Reviewed and rated high risk.*stops security updates/s);
 });
 
 test("a Caution app the plan selects starts unfurled; a Safe one stays folded; a mode switch folds rows", async (t) => {
@@ -266,11 +268,10 @@ test("a Caution app the plan selects starts unfurled; a Safe one stays folded; a
   assert.equal(await cautionToggle.getAttribute("aria-expanded"), "true");
   assert.equal(await page.getByText("Disabling stops crash reports from the TV.").isVisible(), true);
   assert.equal(await safeToggle.getAttribute("aria-expanded"), "false");
-  // Choosing a Safe app again keeps it folded.
+  // Choosing a Safe app yourself unfurls it: the Apply confirmation folds
+  // every reason, so the row is where its cost is seen.
   await page.getByRole("button", { name: "Toggle Selected Safe" }).click();
   await page.getByRole("button", { name: "Toggle Selected Safe" }).click();
-  assert.equal(await safeToggle.getAttribute("aria-expanded"), "false");
-  await safeToggle.click();
   assert.equal(await safeToggle.getAttribute("aria-expanded"), "true");
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await page.getByRole("button", { name: "Optimize", exact: true }).click();

@@ -4,8 +4,8 @@
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { recordUnknownDiagnostics } from "../lib/unknownDiagnostics";
-  import { isBlocked, safetyLabel, tierOf, verdictOf, verdictSummary, type SafetyStatus } from "../lib/safety";
-  import { canOfferUninstall, installSource, recommendation, uninstallNote, type PackageState, type Recommendation } from "../lib/recommendation";
+  import { isBlocked, safetyLabel, tierOf, verdictOf, type SafetyStatus } from "../lib/safety";
+  import { canOfferUninstall, installSource, recommendation, uninstallOutcome, type PackageState, type Recommendation } from "../lib/recommendation";
   import { isReportablePackage, type AppReportState } from "../lib/app-report";
   import {
     idleMeasurements,
@@ -39,6 +39,7 @@
   import AppActionMenu from "../components/AppActionMenu.svelte";
   import AppReportSheet from "../components/AppReportSheet.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
+  import RemovalConfirmDetail from "../components/RemovalConfirmDetail.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
   import Toast from "../components/Toast.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
@@ -879,10 +880,10 @@
     return null;
   }
 
-  const removalNote = $derived.by(() => {
+  const removalOutcome = $derived.by(() => {
     const intent = removalIntent;
-    if (!intent || intent.action !== "uninstall") return "";
-    return uninstallNote(intent.app.package, intent.app.entry);
+    if (!intent || intent.action !== "uninstall") return null;
+    return uninstallOutcome(intent.app.package, intent.app.entry);
   });
 </script>
 
@@ -1143,16 +1144,18 @@
     title={`${removalIntent?.action === "disable" ? "Disable" : "Uninstall"} ${removalIntent ? label(removalIntent.app) : "app"}?`}
     warning={removalIntent?.verdict.reason ?? ""}
     supportWarning={destructiveWarning(session.support)}
-    message={removalIntent?.action === "disable"
-      ? `${verdictSummary(removalIntent.verdict)} Disable is reversible with Enable.`
-      : `${verdictSummary(removalIntent?.verdict)} ${removalNote}`}
+    message=""
     confirmLabel={removalIntent?.action === "disable" ? "Disable" : "Uninstall"}
     onConfirm={confirmRemoval}
     onCancel={() => {
       ++removalRequest;
       removalIntent = null;
     }}
-  />
+  >
+    {#if removalIntent}
+      <RemovalConfirmDetail verdict={removalIntent.verdict} action={removalIntent.action} outcome={removalOutcome} />
+    {/if}
+  </ConfirmDialog>
 
   <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />
   <Toast message={toast} type={toastType} />

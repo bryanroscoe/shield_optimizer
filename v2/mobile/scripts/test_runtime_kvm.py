@@ -191,8 +191,10 @@ class PrimitiveTests(unittest.TestCase):
         self.assertIn('\"$KVM_CLEANUP\" == success', workflow)
         self.assertIn('--allow-acl "$ALLOW_KVM_ACL"', workflow)
         self.assertIn('Restore original KVM ACL if this run changed it\n        id: kvm_cleanup\n        if: always()', workflow)
+        self.assertLess(workflow.index('"$ANDROID_HOME/emulator/emulator" -version'), workflow.index('runtime-kvm.py prepare'))
+        self.assertLess(workflow.index('runtime-kvm.py prepare'), workflow.index('avdmanager create avd'))
         self.assertLess(workflow.index('runtime-kvm.py restore'), workflow.index('Keep bounded runtime evidence'))
-        for value in ('-accel on', '"$ANDROID_HOME/emulator/emulator" -accel-check', 'timeout-minutes: 35',
+        for value in ('-accel on', '\n          "$emulator" -accel-check\n', 'timeout-minutes: 35',
                       'retention-days: 7', 'runtime-16kb.py select', 'runtime-16kb.py candidate', 'runtime-16kb.py runtime'):
             self.assertIn(value, workflow)
         for value in ('sudo ', 'chmod', 'udev', '--licenses', 'secrets.', 'continue-on-error:'):

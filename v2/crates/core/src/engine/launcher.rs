@@ -17,6 +17,11 @@ pub struct LauncherEntry {
     /// HOME handlers discovered on the device rather than read from the file.
     #[serde(default)]
     pub source_url: Option<String>,
+    /// Further official pages for the same launcher, after `source_url` —
+    /// for example Projectivy's GitHub releases beside its Play listing
+    /// (#161). Catalog entries only.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub other_sources: Vec<String>,
     /// Transient HOME holders (see `transient_home_holders`) that a takeover
     /// disables together with this stock launcher, because with stock gone
     /// they take the Home button back (#122). Stock entries only.
@@ -172,6 +177,7 @@ pub fn launcher_rows(
                 name: catalog.home_handler_name(pkg).unwrap_or(pkg).to_string(),
                 package: pkg.clone(),
                 source_url: None,
+                other_sources: Vec::new(),
                 disable_with: Vec::new(),
             },
             installed: true,
@@ -481,6 +487,7 @@ mod tests {
             name: name.to_string(),
             package: package.to_string(),
             source_url: source_url.map(str::to_string),
+            other_sources: Vec::new(),
             disable_with: Vec::new(),
         };
         LauncherCatalog {
@@ -817,6 +824,7 @@ mod tests {
             name: "Google TV Home (Stock)".to_string(),
             package: GTV_HOME.to_string(),
             source_url: None,
+            other_sources: Vec::new(),
             disable_with: vec![WRAITH.to_string()],
         });
         cat

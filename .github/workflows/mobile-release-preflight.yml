@@ -23,7 +23,7 @@ jobs:
        ((github.event.action != 'labeled' && github.event.action != 'unlabeled') ||
         github.event.label.name == 'skip-ci'))
     timeout-minutes: 10
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
@@ -31,3 +31,5 @@ jobs:
           python-version: '3.12'
       - name: Test fail-closed APK validation
         run: python -m unittest discover -s v2/mobile/scripts -p 'test_*.py'
+      - name: Resolve and load the emulator audio libraries without privilege changes
+        run: bash v2/mobile/scripts/stage-emulator-libraries.sh "$RUNNER_TEMP/emulator-libs"

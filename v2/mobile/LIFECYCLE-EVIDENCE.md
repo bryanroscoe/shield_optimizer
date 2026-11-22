@@ -91,8 +91,8 @@ persistence.
 ## Android wiring (read, not executed)
 
 - `src-tauri/gen/android/app/src/main/java/com/atvoptimizer/mobile/MainActivity.kt`: `onCreate`
-  enables edge-to-edge and delegates to `TauriActivity`. There is no app-specific screen or session
-  save/restore.
+  delegates to `TauriActivity` and handles system-bar insets on Android 15 and later. There is no
+  app-specific screen or session save/restore.
 - `src-tauri/gen/android/app/src/main/AndroidManifest.xml`: a `singleTask` activity with explicit
   handled `configChanges`, including orientation and screen size, so rotation cannot be assumed to
   recreate the Activity.

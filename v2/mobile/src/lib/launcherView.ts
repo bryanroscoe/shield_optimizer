@@ -112,6 +112,20 @@ export function sourceSiteHost(url: string | null | undefined): string | null {
   }
 }
 
+/// Every official page the catalog lists for a launcher, main one first, each
+/// with the host to show. Pages that aren't http(s) and repeats are dropped.
+export function sourceSites(entry: {
+  source_url: string | null;
+  other_sources?: string[];
+}): { url: string; host: string }[] {
+  const sites: { url: string; host: string }[] = [];
+  for (const url of [entry.source_url, ...(entry.other_sources ?? [])]) {
+    const host = sourceSiteHost(url);
+    if (url && host && !sites.some((site) => site.url === url)) sites.push({ url, host });
+  }
+  return sites;
+}
+
 /// True once the launcher list reports `pkg` installed.
 export function isInstalled(launchers: LauncherStatus[], pkg: string): boolean {
   return launchers.some((l) => l.entry.package === pkg && l.installed);

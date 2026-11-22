@@ -116,7 +116,8 @@ android {
             }
         }
         getByName("release") {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.findByName("release")
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
@@ -137,11 +138,16 @@ rust {
     rootDirRel = "../../../"
 }
 
+// The UI is a WebView. Tauri's Android libraries pull in Material widgets
+// transitively, including their legacy window and system-bar implementations.
+configurations.configureEach {
+    exclude(group = "com.google.android.material", module = "material")
+}
+
 dependencies {
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-ktx:1.10.1")
-    implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     testImplementation("junit:junit:4.13.2")
     androidTestImplementation("androidx.test.ext:junit:1.1.4")

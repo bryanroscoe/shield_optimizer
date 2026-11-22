@@ -1480,20 +1480,29 @@
 {#if pairOpen}
   <section class="pair-form">
     <h3>Pair a new device</h3>
-    <p class="muted small">
-      On the TV or phone, open Developer options (Settings → System on Google TV and phones;
-      Settings → Device Preferences on older Android TV and Shield), then Wireless debugging → Pair
-      device with pairing code. Enter the IP:port and 6-digit PIN from that dialog.
-    </p>
-    <p class="pair-note small">
+    <ol class="pair-steps small">
+      <li>On the TV or phone, open Developer options → Wireless debugging → <strong>Pair device with pairing code</strong>.</li>
+      <li>Enter the IP:port and 6-digit PIN that dialog shows, then choose <strong>Pair</strong>.</li>
       {#if adbBackend === null}
-        After pairing, enter the connect port from the main Wireless debugging screen, then use <strong>Add by IP</strong>. Do not reuse the pairing port.
+        <li class="pair-note">
+          Enter the IP:port from the main Wireless debugging screen and use <strong>Add by IP</strong>. Do not reuse the pairing port.
+        </li>
       {:else}
-        After it pairs, close the pairing dialog; the app connects automatically. If it doesn't
-        appear, enter the IP:port from the main Wireless debugging screen and click
-        <strong>Add by IP</strong>. Do not reuse the pairing port.
+        <li class="pair-note">Close the pairing dialog. The app connects automatically.</li>
       {/if}
-    </p>
+    </ol>
+    <HelpDetails label="Help with pairing">
+      <p>
+        Developer options is under Settings → System on Google TV and phones, and under
+        Settings → Device Preferences on older Android TV and Shield.
+      </p>
+      {#if adbBackend !== null}
+        <p data-pair-fallback>
+          If the TV doesn't appear, enter the IP:port from the main Wireless debugging screen and
+          use <strong>Add by IP</strong>. Do not reuse the pairing port.
+        </p>
+      {/if}
+    </HelpDetails>
     <div class="pair-row">
       <input
         placeholder="IP:pair_port — e.g. 192.168.42.71:43219"
@@ -1891,44 +1900,49 @@
   >
     <div class="callout devices-note">
       <Icon name="info" size={16} />
-      <span>
+      <div class="devices-note-body">
         <strong>Don't see your device?</strong>
-        {#if adbBackend === "subprocess"}
-        Try
-        <button
-          class="inline-link"
-          aria-label="Restart ADB from connection help"
-          onclick={restartAdb}
-          disabled={restartBusy || connectBusy || adbMissing}
-        >{restartBusy ? "Restarting ADB…" : "Restart ADB"}</button> first.
-        {:else}
-          Check that Network debugging is enabled on the TV.
-        {/if}
-        Wireless debugging may need pairing with
-        <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>; Network debugging uses
-        <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.
-        {#if adbBackend === "direct"}
-          Connected by USB? Built-in ADB works over the network only; choose Google platform-tools in
-          <a class="inline-link" href="/settings#adb">Settings</a>.
-        {/if}
-      </span>
+        <ul class="connection-checklist">
+          {#if adbBackend === "subprocess"}
+            <li>
+              Try
+              <button
+                class="inline-link"
+                aria-label="Restart ADB from connection help"
+                onclick={restartAdb}
+                disabled={restartBusy || connectBusy || adbMissing}
+              >{restartBusy ? "Restarting ADB…" : "Restart ADB"}</button> first.
+            </li>
+          {:else}
+            <li>Check that Network debugging is enabled on the TV.</li>
+          {/if}
+          <li>Wireless debugging may need pairing with <button class="inline-link" onclick={openPairPanel}>Pair PIN</button>.</li>
+          <li>Network debugging uses <button class="inline-link" onclick={focusConnectBox}>Add by IP</button>.</li>
+          {#if adbBackend === "direct"}
+            <li>
+              Connected by USB? Built-in ADB works over the network only; choose Google platform-tools in
+              <a class="inline-link" href="/settings#adb">Settings</a>.
+            </li>
+          {/if}
+          {#if localNetwork.status && localNetwork.status !== "not_applicable"}
+            <li class="local-network-help">
+              {#if adbBackend === "direct"}
+                On a Mac, check that ATV Optimizer is on in
+                <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+                → Local Network. If it already is, turn it off and on again (every entry, if it's listed
+                more than once), then scan again.
+              {:else}
+                On a Mac, after an update, macOS can cut off an ADB server the earlier version left
+                running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
+                in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
+                → Local Network. If it already is, turn it off and on again (every entry, if it's listed
+                more than once), then Restart ADB.
+              {/if}
+            </li>
+          {/if}
+        </ul>
+      </div>
     </div>
-    {#if localNetwork.status && localNetwork.status !== "not_applicable"}
-      <p class="local-network-help">
-        {#if adbBackend === "direct"}
-          On a Mac, check that ATV Optimizer is on in
-          <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
-          → Local Network; if it already is, turn it off and on again (all of them, if it's listed
-          more than once), then scan again.
-        {:else}
-          On a Mac, after an update, macOS can cut off an ADB server the earlier version left
-          running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
-          in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
-          → Local Network; if it already is, turn it off and on again (all of them, if it's listed
-          more than once), then Restart ADB.
-        {/if}
-      </p>
-    {/if}
   </HelpDetails>
 {/if}
 
@@ -2163,6 +2177,16 @@
   .devices-note {
     margin-top: 1rem;
   }
+  .devices-note-body {
+    min-width: 0;
+  }
+  .connection-checklist {
+    margin: 0.35rem 0 0;
+    padding-left: 1.2rem;
+  }
+  .connection-checklist li + li {
+    margin-top: 0.25rem;
+  }
   .local-network-action {
     margin-top: 0.4rem;
   }
@@ -2286,11 +2310,14 @@
     margin: 0 0 0.4rem;
     font-size: 1rem;
   }
-  .pair-note {
-    padding: 0.65rem 0.75rem;
-    border-radius: var(--radius-md);
-    background: var(--bg-inset);
+  .pair-steps {
+    margin: 0;
+    padding-left: 1.3rem;
     color: var(--fg-secondary);
+    line-height: 1.5;
+  }
+  .pair-steps li + li {
+    margin-top: 0.25rem;
   }
   .pair-row {
     display: flex;

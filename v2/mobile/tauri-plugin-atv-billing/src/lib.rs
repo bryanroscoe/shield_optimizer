@@ -15,6 +15,11 @@ use tauri::{
 mod error;
 mod models;
 
+/// Emitted to the frontend when Play reports purchases outside an in-app
+/// flow, such as a promo code redeemed in the Play Store while the app runs.
+/// It carries nothing: the app re-queries owned purchases and verifies them.
+pub const PURCHASES_UPDATED_EVENT: &str = "purchases-updated";
+
 pub use error::{Error, Result};
 pub use models::{
     response_code, BillingResultResponse, ProductInfo, ProductResponse, PurchasesResponse,

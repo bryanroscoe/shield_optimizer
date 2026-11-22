@@ -3,7 +3,7 @@
   import { listen } from "@tauri-apps/api/event";
   import { router, initBackHandler, type Screen } from "./lib/router.svelte";
   import { session } from "./lib/session.svelte";
-  import { billing } from "./lib/billing.svelte";
+  import { billing, PURCHASES_UPDATED_EVENT } from "./lib/billing.svelte";
   import {
     NETWORK_CHANGED_EVENT,
     createNetworkProbe,
@@ -54,9 +54,9 @@
     session.loadEntitlement();
     // Owned-purchase check on launch and every return to the app: restores Pro
     // on a new install and drops it after a refund or revocation.
-    void billing.refresh();
+    void billing.checkOwned();
     const refreshPurchases = () => {
-      if (document.visibilityState === "visible") void billing.refresh();
+      if (document.visibilityState === "visible") void billing.checkOwned();
     };
     document.addEventListener("visibilitychange", refreshPurchases);
     const cleanupBack = initBackHandler();
@@ -72,6 +72,7 @@
     // the badge isn't stale. Absent outside Tauri (tests, the demo).
     let stopTierWatch: (() => void) | null = null;
     let stopNetworkWatch: (() => void) | null = null;
+    let stopPurchaseWatch: (() => void) | null = null;
     let unmounted = false;
     const networkProbe = createNetworkProbe((reason) => {
       if (document.visibilityState === "visible") void session.onNetworkChange(reason);
@@ -89,10 +90,16 @@
     })
       .then((stop) => (unmounted ? stop() : (stopNetworkWatch = stop)))
       .catch(() => {});
+    // Play reported a purchase outside the app, such as a promo code redeemed
+    // in the Play Store while this app is open: ask Play now, not on the next resume.
+    if (hasEvents) listen(PURCHASES_UPDATED_EVENT, () => void billing.checkOwned(true))
+      .then((stop) => (unmounted ? stop() : (stopPurchaseWatch = stop)))
+      .catch(() => {});
     return () => {
       unmounted = true;
       stopTierWatch?.();
       stopNetworkWatch?.();
+      stopPurchaseWatch?.();
       networkProbe.cancel();
       cleanupBack();
       detachWatch();
@@ -115,6 +122,16 @@
     }, 4000);
     return () => clearTimeout(timer);
   });
+
+  // The identity note takes the toast spot first, so the unlock note's clock
+  // only starts once it is actually on screen.
+  $effect(() => {
+    if (!billing.unlockNote || session.identityNote) return;
+    const timer = setTimeout(() => {
+      billing.unlockNote = "";
+    }, 4000);
+    return () => clearTimeout(timer);
+  });
 </script>
 
 <!-- One stack so the report notice and the connection banner never cover
@@ -128,6 +145,8 @@
 {/if}
 {#if session.identityNote}
   <Toast message={session.identityNote} type="info" />
+{:else if billing.unlockNote}
+  <Toast message={billing.unlockNote} type="success" />
 {/if}
 
 {#if router.current === "onboarding"}

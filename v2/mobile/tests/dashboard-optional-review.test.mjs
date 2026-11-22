@@ -295,9 +295,23 @@ test("optional choices survive tabs and confirmation names every actual action",
   await page.getByRole("button", { name: "Apply optimization", exact: false }).click();
   const dialog = page.getByRole("heading", { name: "Apply 3 selected changes?" }).locator("..");
   const text = await dialog.innerText();
-  // Every app is named once with its actual verb; the shared reason and its
-  // tier are stated once for the three of them.
-  assert.match(text, /Caution: Disable Recommended One, Disable Optional Disable, Uninstall Optional Uninstall — Review whether you use this app\./);
+  // Every app is one line with its actual verb; each reason is folded behind
+  // its line until tapped.
+  const section = page.getByRole("region", { name: "Caution" });
+  assert.deepEqual(await section.locator(".change-label").allInnerTexts(), [
+    "Disable Recommended One",
+    "Disable Optional Disable",
+    "Uninstall Optional Uninstall",
+  ]);
+  const reason = section.locator(".change-reason").first();
+  assert.equal(await reason.isVisible(), false);
+  const toggle = section.getByRole("button", { name: "Disable Recommended One" });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  assert.equal(await reason.innerText(), "Review whether you use this app.");
+  await toggle.press("Enter");
+  assert.equal(await reason.isVisible(), false, "the keyboard folds it again");
   for (const name of ["Recommended One", "Optional Disable", "Optional Uninstall"]) {
     assert.equal(text.split(name).length - 1, 1, name);
   }
@@ -437,9 +451,13 @@ test("the confirm summary names the Safe verdict rather than calling it Caution"
   const dialog = page.locator(".dialog-card");
   await dialog.waitFor();
   const text = await dialog.innerText();
-  // Each app sits under its own tier with its verb: "Safe to remove: Disable …".
-  assert.match(text, /Safe to remove: Disable Safe Default — Reviewed for Android TV/);
-  assert.doesNotMatch(text, /Caution/);
+  // Each app sits under its own tier with its verb, its reason folded.
+  const section = page.getByRole("region", { name: "Safe to remove" });
+  assert.equal(await section.locator(".change-label").innerText(), "Disable Safe Default");
+  assert.doesNotMatch(text, /Reviewed for Android TV/);
+  assert.doesNotMatch(text, /Caution/i);
+  await section.getByRole("button", { name: "Disable Safe Default" }).click();
+  assert.match(await section.locator(".change-reason").innerText(), /^Reviewed for Android TV/);
 });
 
 test("Optimize has no Select all; Keep all clears every selection", async (t) => {
@@ -546,4 +564,26 @@ test("Apply and the mode switch wait while a snapshot is saving", async (t) => {
   await page.locator(".snapshot-result").waitFor();
   assert.equal(await page.getByRole("button", { name: /Apply optimization/ }).isDisabled(), false);
   assert.equal(await page.getByRole("button", { name: "Restore", exact: true }).isDisabled(), false);
+});
+
+test("choosing to remove a Safe app unfurls its reason, since the confirmation folds it", async (t) => {
+  const safeOptional = item("Safe Optional");
+  const page = await createPage(t, {
+    plans: { optimize: { mode: "optimize", items: [safeOptional] } },
+    safety: {
+      [safeOptional.entry.package]: {
+        kind: "safe",
+        reason: "Uninstalling can delete local downloads.",
+        source: "reviewed_catalog",
+      },
+    },
+  });
+  await openScreen(page, "optimize");
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click();
+  const toggle = page.getByRole("button", { name: "If you remove it, Safe Optional", exact: true });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  await page.getByRole("group", { name: "Choice for Safe Optional" })
+    .getByRole("button", { name: "Disable", exact: true }).click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  await page.getByText("Uninstalling can delete local downloads.", { exact: true }).first().waitFor();
 });

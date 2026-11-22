@@ -111,6 +111,17 @@ test("source site links are offered only for http(s) URLs", () => {
   assert.equal(view.sourceSiteHost(null), null);
 });
 
+test("a launcher's other official pages follow its main one, without repeats or non-web links", () => {
+  assert.deepEqual(view.sourceSites({
+    source_url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu",
+    other_sources: ["https://github.com/spocky/miproja1/releases", "javascript:alert(1)", "https://play.google.com/store/apps/details?id=com.spocky.projengmenu"],
+  }), [
+    { url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu", host: "play.google.com" },
+    { url: "https://github.com/spocky/miproja1/releases", host: "github.com" },
+  ]);
+  assert.deepEqual(view.sourceSites({ source_url: null }), []);
+});
+
 async function open(t, setup = {}) {
   const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 420 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
@@ -644,6 +655,29 @@ test("every launcher with a source_url offers its source page, left-aligned when
   assert.ok(geometry.textLeft > geometry.iconLeft);
 });
 
+test("Projectivy offers its Play listing first and its GitHub releases second", async (t) => {
+  const page = await open(t, {
+    launchers: [
+      stock(true),
+      row(PROJECTIVY, { entry: {
+        name: "Projectivy Launcher",
+        source_url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu",
+        other_sources: ["https://github.com/spocky/miproja1/releases"],
+      } }),
+    ],
+    current: STOCK,
+  });
+  const links = page.locator(".launcher-row", { hasText: "Projectivy Launcher" }).locator(".src-link");
+  await links.first().waitFor();
+  assert.deepEqual(await links.allTextContents().then((texts) => texts.map((text) => text.replace(/open_in_new/, "").trim())), [
+    "Source site · play.google.com",
+    "Source site · github.com",
+  ]);
+  await page.getByRole("button", { name: "Source site for Projectivy Launcher (github.com)" }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "plugin:opener|open_url"));
+  assert.deepEqual(await page.evaluate(() => window.calls.find((c) => c.command === "plugin:opener|open_url").args), { url: "https://github.com/spocky/miproja1/releases" });
+});
+
 test("the no-Home-screen warning stays visible; routine launcher notes are in help", async (t) => {
   const page = await open(t, { launchers: [stock(true)], current: STOCK });
   const warning = page.getByText(/leaves the TV with no\s+home screen/);
@@ -676,4 +710,17 @@ test("stock takeover dialog keeps its three choices on screen while its text scr
   }
   assert.equal(await dialog.locator(".dialog-body").evaluate((el) => el.scrollHeight > el.clientHeight), true);
   assert.equal(await count(page, "disable_stock_launcher"), 0);
+});
+
+test("the Setup Wraith confirm keeps setup and factory-reset consequences in short sentences", async t => {
+  const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).getByRole('button', { name: 'Disable', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Disable Setup Wraith?', exact: true });
+  assert.equal((await dialog.locator('.dialog-message').innerText()).trim(), 'Only needed if Home keeps landing on a setup screen. Android TV needs it for first-time setup, so re-enable it here before a factory reset.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'About changing launchers' }).click();
+  const help = page.getByRole('dialog', { name: 'About changing launchers' });
+  await help.getByText(/Setup Wraith is Google TV's setup wizard, not a launcher/).waitFor();
+  await help.getByText(/only helps if the\s+Home button keeps landing on a setup screen/).waitFor();
+  assert.equal(await count(page, 'disable_setup_helper'), 0);
 });

@@ -165,7 +165,7 @@ export function uninstallOutcome(pkg: string, entry: AppEntry | null): Uninstall
     };
   }
   return {
-    short: "May not be on the Play Store",
+    short: "May not be on the Play Store: back up its APK first",
     detail: `We can't confirm this is on the Play Store. If it isn't, getting it back needs its APK, so back it up first.${reinstall}`,
   };
 }

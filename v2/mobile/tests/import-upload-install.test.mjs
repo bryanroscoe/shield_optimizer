@@ -346,3 +346,19 @@ if (process.env.IMPORT_EVIDENCE) test("record simulated Upload to TV / Install A
   await page.screenshot({ path: `${dir}/install-apk-installed-simulated.png` }); await pause();
   const video = page.video(); await page.close(); await video.saveAs(`${dir}/import-simulated.webm`);
 });
+
+test("replacing more than three files lists each one instead of a run-on sentence", async t => {
+  const page = await open(t, "files");
+  await page.evaluate(() => {
+    mock.pick = { status: "picked", batch: "import-1", files: ["a.txt", "b.txt", "c.txt", "d.txt"].map(name => ({ name, size_bytes: 1 })) };
+    mock.conflicts = ["a.txt", "b.txt", "c.txt", "d.txt"].map(name => ({ name, remote_path: `/sdcard/${name}`, is_dir: false }));
+  });
+  await uploadButton(page).click();
+  const dialog = page.getByRole("dialog", { name: "Replace files on the TV?" });
+  await dialog.getByText("The TV's copies will be overwritten. This cannot be undone.").waitFor();
+  const list = dialog.getByRole("list", { name: "Files to replace" });
+  assert.deepEqual(await list.getByRole("listitem").allInnerTexts(), ["a.txt", "b.txt", "c.txt", "d.txt"]);
+  assert.match(await dialog.innerText(), /4 files are already in \/sdcard:/);
+  assert.equal(await dialog.getByText(/a\.txt, b\.txt/).count(), 0);
+  await dialog.getByRole("button", { name: "Don't upload" }).click();
+});

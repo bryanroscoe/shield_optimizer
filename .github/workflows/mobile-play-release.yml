@@ -193,6 +193,14 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Keep verified smoke APK for runtime checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: mobile-smoke-apk
+          path: ${{ env.OUTPUTS }}/apk/universal/release/app-universal-release.apk
+          if-no-files-found: error
+          retention-days: 3
+
       - name: Remove throwaway credentials
         if: always()
         run: rm -rf "$RUNNER_TEMP/smoke"

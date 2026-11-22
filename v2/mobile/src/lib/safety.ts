@@ -115,24 +115,6 @@ export function reasonOf(safety: Safety | null | undefined): string {
   return safety?.reason ?? "";
 }
 
-/// One sentence stating what the engine said about a package, for the confirm
-/// dialog the user reads before a removal. Derived from all four kinds rather
-/// than written per call site, so the prompt never claims a verdict the engine
-/// did not give (such as Caution for a package it rated Safe) at the moment of
-/// consent.
-export function verdictSummary(safety: Safety | null | undefined): string {
-  switch (safety?.kind) {
-    case "safe":
-      return `The safety engine rated this ${SAFETY_TIERS.safe.label}.`;
-    case "caution":
-      return "The safety engine marked this Caution.";
-    case "never_disable":
-      return "The safety engine marked this Protected.";
-    default:
-      return "The removal impact is Unknown.";
-  }
-}
-
 /// Host layer refuses these outright — the UI must hard-block, not confirm.
 export function isBlocked(safety: Safety | null | undefined): boolean {
   return safety?.kind === "never_disable";

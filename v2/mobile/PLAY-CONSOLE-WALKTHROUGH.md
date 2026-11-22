@@ -707,8 +707,11 @@ Report failures to the agent with the time and the More > Debug log.
 Help: <https://support.google.com/googleplay/android-developer/answer/6321495>,
 <https://developer.android.com/google/play/billing/promo>
 
-The app re-queries owned purchases at launch and on return to the foreground, so a code redeemed
-in the Play Store unlocks Pro the next time the app opens.
+The app re-queries owned purchases at launch, on return to the foreground, and as soon as Play
+reports a purchase made outside the app while it is open, so a redeemed code unlocks Pro without a
+reinstall. A code redeemed on the Play Store website can take a few minutes to reach the phone's
+Play Store; **Restore purchases** in More (or in the purchase sheet) asks again, and the app says
+so beside that button.
 
 **Done when:** one supporter confirms Pro in the app (More shows "Source: Google Play purchase").
 Don't look for the redemption in **Order management**: promo-code purchases have no order id

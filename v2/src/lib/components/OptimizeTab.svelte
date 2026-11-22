@@ -1,12 +1,13 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
-  import { confirmAction } from "$lib/confirm";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import RemovalHelp from "$lib/components/RemovalHelp.svelte";
   import AppColumnHelp from "$lib/components/AppColumnHelp.svelte";
+  import RunPlanDialog from "$lib/components/RunPlanDialog.svelte";
+  import { runConfirmation, type RunConfirmSection } from "$lib/run-confirmation";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
   import type {
@@ -24,7 +25,6 @@
     CHECKING_LABEL,
     UNAVAILABLE_LABEL,
     isBlocked,
-    verdictLabel,
     type SafetyStatus,
   } from "$lib/safety";
   import {
@@ -33,7 +33,6 @@
     recommendation,
     reviewLabel,
     suggestedMethod,
-    uninstallNote,
     uninstallOutcome,
   } from "$lib/recommendation";
 
@@ -189,6 +188,7 @@
     runRequest++;
     performanceRequest++;
     optimizeAbort = true;
+    answerRun(false);
   });
 
   async function loadOptimizePlan(mode: OptimizeMode) {
@@ -379,7 +379,38 @@
     return safety?.status === "ready" ? safety.verdict : null;
   }
 
-  const CONFIRM_DETAIL_LIMIT = 8;
+  /// The open run confirmation. It resolves once, on Run or Cancel.
+  type RunConfirm = {
+    title: string;
+    confirmLabel: string;
+    sections: RunConfirmSection[];
+    uninstalls: number;
+    restoreMode: boolean;
+    supportWarning: string | null;
+    resolve: (ok: boolean) => void;
+  };
+  let runConfirm = $state<RunConfirm | null>(null);
+
+  /// Ask before a run. A second ask while one is open (a double click)
+  /// resolves false at once, like confirmAction.
+  function askRun(details: Omit<RunConfirm, "resolve">): Promise<boolean> {
+    if (runConfirm) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      runConfirm = { ...details, resolve };
+    });
+  }
+
+  let runButton = $state<HTMLButtonElement | null>(null);
+  let panelEl = $state<HTMLDivElement | null>(null);
+
+  /// The dialog hands focus back itself: to Run plan on Cancel, and to the
+  /// panel on Run, because Run plan is disabled while the run goes.
+  function answerRun(ok: boolean) {
+    const open = runConfirm;
+    runConfirm = null;
+    open?.resolve(ok);
+    if (open && !destroyed) void tick().then(() => (ok || runButton?.disabled ? panelEl : runButton)?.focus());
+  }
 
   async function executeOptimize() {
     // A snapshot being saved records the TV as it is, so nothing changes it
@@ -410,25 +441,24 @@
       return;
     }
     const label = mode === "optimize" ? "Optimize" : "Restore";
-    // The desktop app shows this in a native alert, which grows rather than
-    // scrolls, so a long plan names the first few and points at the rows.
-    const removals = selected.filter((item) => item.verdict);
-    const shown = removals.length > CONFIRM_DETAIL_LIMIT ? removals.slice(0, CONFIRM_DETAIL_LIMIT - 1) : removals;
-    const removalDetails = shown
-      .map((item) => {
-        const entry = plan.items.find((i) => i.entry.package === item.package)?.entry ?? null;
-        const note = item.action === "uninstall" ? uninstallNote(item.package, entry) : null;
-        return `${item.action.toUpperCase()} ${item.name} (${item.package})\nSafety: ${verdictLabel(item.verdict!)}\nReason: ${item.verdict!.reason}${note ? `\n${note}` : ""}`;
-      })
-      .join("\n\n")
-      + (removals.length > shown.length
-        ? `\n\n…and ${removals.length - shown.length} more. Each is listed with its safety and reason in the plan.`
-        : "");
-    const tierWarning = mode === "optimize" ? destructiveWarning(support) : null;
-    const confirmation = (removalDetails
-      ? `Run ${label} on ${selected.length} package(s)?\n\n${removalDetails}`
-      : `Run ${label} on ${selected.length} package(s)?`) + (tierWarning ? `\n\n${tierWarning}` : "");
-    if (!(await confirmAction(confirmation))
+    const { sections, uninstalls } = runConfirmation(
+      selected.map((item) => ({
+        package: item.package,
+        name: item.name,
+        action: item.action as "disable" | "uninstall" | "enable",
+        verdict: item.verdict,
+        entry: plan.items.find((i) => i.entry.package === item.package)?.entry ?? null,
+      })),
+    );
+    const confirmed = await askRun({
+      title: `Run ${label} on ${selected.length} app${selected.length === 1 ? "" : "s"}?`,
+      confirmLabel: `Run ${label}`,
+      sections,
+      uninstalls,
+      restoreMode: mode === "restore",
+      supportWarning: mode === "optimize" ? destructiveWarning(support) : null,
+    });
+    if (!confirmed
       || !contextIsCurrent(context)
       || optimizePlan !== plan
       || optimizeMode !== mode
@@ -648,7 +678,7 @@
   }
 </script>
 
-<div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize">
+<div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize" bind:this={panelEl}>
   <div class="card-header">
     <h2><Icon name="auto_fix_high" size={20} /> Optimize / Restore Wizard</h2>
     <div class="header-actions">
@@ -935,6 +965,7 @@
       >
       <button
         class="primary"
+        bind:this={runButton}
         onclick={executeOptimize}
         disabled={optimizeRunning || actionable === 0 || snapshotSaving}
       >
@@ -984,6 +1015,19 @@
     {/if}
   {/if}
 </div>
+
+{#if runConfirm}
+  <RunPlanDialog
+    title={runConfirm.title}
+    confirmLabel={runConfirm.confirmLabel}
+    sections={runConfirm.sections}
+    uninstalls={runConfirm.uninstalls}
+    restoreMode={runConfirm.restoreMode}
+    supportWarning={runConfirm.supportWarning}
+    onConfirm={() => answerRun(true)}
+    onCancel={() => answerRun(false)}
+  />
+{/if}
 
 <style>
   .card {

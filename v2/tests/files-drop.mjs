@@ -95,8 +95,10 @@ async function main() {
       () => /is a folder/.test(document.querySelector("#tabpanel-files .action-message")?.textContent ?? ""),
     );
     const text = await message.innerText();
-    assert.match(text, /Uploaded notes\.txt to \/sdcard/, text);
-    assert.match(text, /Photos is a folder\. Drop files, not folders\./, text);
+    // A summary line, then only the failures, one per line.
+    assert.match(text, /^1 uploaded to \/sdcard, 1 failed\./, text);
+    const failures = await message.locator(".upload-failures li").allInnerTexts();
+    assert.deepEqual(failures, ["Photos is a folder. Drop files, not folders."], text);
 
     await page.locator("#tab-sideload").click();
     assert.doesNotMatch(

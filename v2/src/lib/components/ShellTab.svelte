@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api } from "$lib/api";
   import Icon from "$lib/components/Icon.svelte";
+  import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { getShellBookmarks, setShellBookmarks, type ShellBookmark } from "$lib/prefs";
   import type { ShellRunResult } from "$lib/types";
   import { onDestroy, tick } from "svelte";
@@ -222,11 +223,8 @@
     <Icon name="warning" size={16} />
     <div>
       <p class="shell-warning-text">
-        Expert mode runs arbitrary commands via <code>adb shell</code> and can erase data
-        or make the device unusable. This is an exception to the app's protected-package
-        safeguards. A basic check catches some obvious dangerous commands, but shell
-        expressions can bypass it. Output is limited to 256 KiB per stream and execution
-        to 30 seconds; stopping local ADB does not guarantee remote work has stopped.
+        Expert mode runs any command via <code>adb shell</code> and can erase data or make the
+        device unusable. It is an exception to the app's protected-package safeguards.
       </p>
       <label class="small shell-ack">
         <input
@@ -238,6 +236,16 @@
         I understand these risks and want to enable expert shell on this TV.
         Remembered for this TV until you untick it.
       </label>
+      <HelpDetails label="Shell limits">
+        <p>
+          A basic check catches some obvious dangerous commands, but shell expressions can bypass
+          it.
+        </p>
+        <p>
+          Output is limited to 256 KiB per stream and each run to 30 seconds. Stopping local ADB
+          does not guarantee work on the TV has stopped.
+        </p>
+      </HelpDetails>
     </div>
   </div>
 
@@ -452,6 +460,9 @@
   .shell-warning {
     align-items: flex-start;
     margin-bottom: 1rem;
+  }
+  .shell-warning :global(.help-details) {
+    margin: 0.5rem 0 0;
   }
   .shell-warning-text {
     margin: 0 0 0.5rem;

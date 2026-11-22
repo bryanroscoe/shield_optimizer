@@ -86,6 +86,7 @@
   let pendingReplace = $state<
     (UploadTarget & { batch: string; dir: string; files: ImportedFile[]; conflicts: UploadConflict[] }) | null
   >(null);
+  const replaceNames = $derived(pendingReplace ? pendingReplace.conflicts.filter((c) => !c.is_dir).map((c) => c.name) : []);
   /// The staged batch this screen still holds, so leaving the screen frees it.
   let heldImport: string | null = null;
 
@@ -717,13 +718,10 @@
   <ConfirmDialog
     open={pendingReplace !== null}
     title="Replace files on the TV?"
-    message={pendingReplace
-      ? (() => {
-          const names = pendingReplace.conflicts.filter((c) => !c.is_dir).map((c) => c.name);
-          return names.length === 1
-            ? `"${names[0]}" is already in ${pendingReplace.dir}.`
-            : `${names.length} files are already in ${pendingReplace.dir}: ${names.join(", ")}.`;
-        })()
+    message={pendingReplace && replaceNames.length <= 3
+      ? replaceNames.length === 1
+        ? `"${replaceNames[0]}" is already in ${pendingReplace.dir}.`
+        : `${replaceNames.length} files are already in ${pendingReplace.dir}: ${replaceNames.join(", ")}.`
       : ""}
     warning="The TV's copies will be overwritten. This cannot be undone."
     confirmLabel="Replace"
@@ -732,12 +730,47 @@
     icon="upload"
     onConfirm={confirmReplace}
     onCancel={cancelReplace}
-  />
+  >
+    {#if pendingReplace && replaceNames.length > 3}
+      <div class="replace-detail">
+        <p class="replace-lede">{replaceNames.length} files are already in <span class="mono">{pendingReplace.dir}</span>:</p>
+        <ul class="replace-list" aria-label="Files to replace">
+          {#each replaceNames as name, i (i)}
+            <li class="mono">{name}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+  </ConfirmDialog>
 
   <Toast message={toast} type={toastType} />
 </div>
 
 <style>
+  .replace-detail {
+    align-self: stretch;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    text-align: left;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+  .replace-lede {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+  .replace-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding-left: 18px;
+    color: var(--text-soft);
+    font-size: 12px;
+    overflow-wrap: anywhere;
+  }
   .header-left {
     display: flex;
     gap: 8px;

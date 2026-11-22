@@ -9,6 +9,7 @@
     isInstalled,
     setupHelperView,
     sourceSiteHost,
+    sourceSites,
     stockDisableGate,
     stockDisableMessage,
     takeoverTurnsOffSetupHelper,
@@ -529,10 +530,9 @@
   /// A launcher's official page, for one the TV's Play Store doesn't carry.
   /// Nothing is downloaded or installed. The link goes to the phone's browser;
   /// if that fails it is copied instead.
-  async function openSourceSite(l: LauncherStatus) {
-    const url = l.entry.source_url;
+  async function openSourceSite(l: LauncherStatus, url: string) {
     const host = sourceSiteHost(url);
-    if (!url || !host) return;
+    if (!host) return;
     linkShown = null;
     try {
       await api.openUrl(url);
@@ -747,7 +747,7 @@
           {#each launchers as l (l.entry.package)}
             {@const isActive = l.entry.package === currentPkg}
             {@const busy = busyPkg === l.entry.package}
-            {@const host = sourceSiteHost(l.entry.source_url)}
+            {@const sites = sourceSites(l.entry)}
             {@const stockBlocked = l.stock && l.enabled && !isActive && stockDisableBlocked}
             <div class="launcher-row" class:active={isActive}>
               <div class="l-icon"><span class="msr">{iconFor(l)}</span></div>
@@ -757,16 +757,16 @@
                 {#if stockBlocked && !busy}
                   <span class="l-reason" id={`stock-blocked-${l.entry.package}`}>{STOCK_DISABLE_BLOCKED}</span>
                 {/if}
-                {#if host}
+                {#each sites as site (site.url)}
                   <button
                     class="src-link"
-                    onclick={() => openSourceSite(l)}
-                    aria-label={`Source site for ${l.entry.name} (${host})`}
+                    onclick={() => openSourceSite(l, site.url)}
+                    aria-label={`Source site for ${l.entry.name} (${site.host})`}
                   >
                     <span class="msr" aria-hidden="true">open_in_new</span>
-                    <span class="src-text">Source site · {host}</span>
+                    <span class="src-text">Source site · {site.host}</span>
                   </button>
-                {/if}
+                {/each}
               </div>
 
               {#if busy}
@@ -872,6 +872,15 @@
           Changing the launcher is reversible: set stock back as default any time. A snapshot
           records which launcher was active; it never re-enables or reinstalls anything on its own.
         </p>
+        <p>
+          Setup Wraith is Google TV's setup wizard, not a launcher. You don't need to disable it:
+          this screen already shows your real launcher as current. Disabling it only helps if the
+          Home button keeps landing on a setup screen, and it stays off until you re-enable it here.
+        </p>
+        <p>
+          Any installed app can be tried as Home under Advanced. Android only accepts an app that
+          declares a Home screen, and this screen says so when it doesn't.
+        </p>
       </HelpSheet>
 
       <button
@@ -886,9 +895,8 @@
       {#if advancedOpen}
         <div class="adv">
           <p class="adv-note">
-            Any installed app can be tried. Android only accepts an app that declares a Home
-            screen, and this says so when it doesn't. Setting an app never disables anything;
-            taking over from the stock launcher is the separate step below.
+            Setting an app never disables anything; taking over from the stock launcher is the
+            separate step below.
           </p>
 
           {#if pickerOpen}
@@ -993,7 +1001,7 @@
       ? "Disable Setup Wraith?"
       : `Disable ${disableConfirm?.entry.name ?? "launcher"}?`}
     message={disableConfirm?.setup_helper
-      ? "This is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen. It stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset."
+      ? "Only needed if Home keeps landing on a setup screen. Android TV needs it for first-time setup, so re-enable it here before a factory reset."
       : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or from the Apps list."}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable"
@@ -1248,6 +1256,9 @@
     align-items: flex-start;
     gap: 5px;
     cursor: pointer;
+  }
+  .src-link + .src-link {
+    margin-top: 0;
   }
   .src-link .msr {
     flex: none;

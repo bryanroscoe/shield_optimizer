@@ -27,8 +27,9 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
    code that is not above it fails here, before anything is built;
 4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
 5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
-   validate`, manifest package and versionCode, then the universal APK bundletool generates and the
-   Gradle universal APK through `verify-release-apk.py` with the same certificate check;
+   validate`, R8 metadata and obfuscation mapping, manifest package and versionCode, then the
+   universal APK bundletool generates and the Gradle universal APK through
+   `verify-release-apk.py` with the same certificate check;
 6. keeps the AAB, APK, build receipt and verification JSON as a 30-day workflow artifact;
 7. uploads the AAB once with `scripts/play-publish.py` and, in the same Play edit, releases it as
    **completed** on the **internal** track and on the **alpha** (Closed testing) track. Internal
@@ -54,8 +55,9 @@ The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or th
 inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
 verification with a throwaway keystore and a random license key, no secrets and no upload.
 Both smoke and real release jobs run the Kotlin discovery/network JVM tests and require
-nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
-Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
+nonempty passing JUnit reports. The reports are retained as workflow artifacts. The smoke
+job retains its verified, test-signed APK for three days as `mobile-smoke-apk`. Use the APK
+SHA-256 in `mobile-smoke-receipts` to identify the exact binary for emulator checks.
 
 Release CI covers the build, signature and static artifact gates and the versionCode check.
 The separate manual [16 KB runtime workflow](#retained-candidate-16-kb-runtime-qa) can record
@@ -132,9 +134,10 @@ on disposal of the GitHub-hosted VM. Processes running as this job's runner user
 KVM kernel interface during the grant; untrusted job code could abuse that access. No permission
 change applies to a local computer or physical device.
 
-The workflow stages Ubuntu's PulseAudio client libraries in the temporary runner directory for the emulator.
-Sufficient disk and already accepted Android SDK licenses remain mandatory. Missing prerequisites
-fail clearly; the job never accepts new agreements or falls back to software emulation.
+The workflow checks the signed artifact and loads the emulator before it requests KVM access. APT
+resolves missing PulseAudio dependencies and downloads them for extraction in the temporary runner
+directory. The job needs sufficient disk and existing Android SDK licenses. It uses hardware
+acceleration for the actual runtime test.
 KVM permission guidance: https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/ .
 The user-only ACL here is narrower than that article's all-user udev example.
 
@@ -509,6 +512,10 @@ No purchase, trial or pricing policy is selected. Release polish takes priority 
       the signing fingerprint is the owner's, or that the versionCode exceeds Play's latest value.
 - [ ] For Play, separately verify the AAB signature, bundletool output and generated APKs, then
       Play's pre-launch report. The APK checker deliberately does not accept AABs.
+- [ ] Check the new bundle's DEX size and optimization in App Bundle Explorer. Launch the
+      optimized app and exercise discovery, native document selection and billing. Check that
+      system bars, cutouts and the keyboard leave controls reachable on Android 14 and earlier
+      and on Android 15 and later.
 - [ ] Run on an Android 16 KB page-size environment; static alignment checks are not runtime tests.
 - [ ] Perform the physical matrix in `PAIRING-PLAN.md` and `LIFECYCLE-EVIDENCE.md`: Shield legacy
       debugging; fresh Google TV code pairing; wrong code; rotated port; replaced endpoint;

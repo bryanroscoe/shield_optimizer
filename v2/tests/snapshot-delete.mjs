@@ -201,8 +201,9 @@ try {
   acceptNextConfirm();
   await restorePage.getByRole("button", { name: "Restore this snapshot", exact: true }).click();
   const deviceResult = restorePage.locator(".apply-result");
-  await deviceResult.getByText("Kept on: com.google.android.tvlauncher (only Home app)", { exact: true }).waitFor();
-  await deviceResult.getByText("failed: com.android.printspooler (exit 1)", { exact: false }).waitFor();
+  await deviceResult.getByRole("listitem").filter({ hasText: /^com\.google\.android\.tvlauncher \(only Home app\)$/ }).waitFor();
+  assert.match(await deviceResult.locator("[data-package-outcome]").first().innerText(), /^Kept on:\s+com\.google\.android\.tvlauncher \(only Home app\)$/);
+  assert.match(await deviceResult.locator("[data-package-outcome].warn-text").innerText(), /^1 failed:\s+com\.android\.printspooler \(exit 1\)$/);
   assert.doesNotMatch(await deviceResult.innerText(), /2 failed:|failed:.*kept: only Home app/, "kept packages are not listed as failures");
   assert.doesNotMatch(await deviceResult.innerText(), /re-enabled/i);
 
@@ -219,8 +220,9 @@ try {
   await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).click();
   const globalResult = restorePage.locator(".apply-result");
   await globalResult.getByText("Home app: com.spocky.projengmenu is disabled; enable it first, then restore", { exact: true }).waitFor();
-  await globalResult.getByText("Kept on: com.google.android.tvlauncher (only Home app)", { exact: true }).waitFor();
-  await globalResult.getByText("1 failed: com.android.printspooler (exit 1)", { exact: true }).waitFor();
+  await globalResult.locator("[data-package-outcome]").first().waitFor();
+  assert.match(await globalResult.locator("[data-package-outcome]").first().innerText(), /^Kept on:\s+com\.google\.android\.tvlauncher \(only Home app\)$/);
+  assert.match(await globalResult.locator("[data-package-outcome].warn-text").innerText(), /^1 failed:\s+com\.android\.printspooler \(exit 1\)$/);
   assert.equal(await restorePage.evaluate(() => window.__RESTORE_TEST__.applies), 2);
   assert.deepEqual(restoreErrors, []);
   await restoreContext.close();

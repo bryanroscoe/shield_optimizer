@@ -5,6 +5,7 @@ import android.util.Log
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Channel
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
@@ -45,6 +46,11 @@ internal class AcknowledgeArgs {
   var purchaseToken: String = ""
 }
 
+@InvokeArg
+internal class WatchPurchasesArgs {
+  lateinit var channel: Channel
+}
+
 /**
  * Thin adapter over the Play Billing Library. It decides nothing: every
  * response carries Play's response code, and purchases go back to Rust as the
@@ -60,6 +66,8 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   private val products = ConcurrentHashMap<String, ProductDetails>()
   private var pendingPurchase: Invoke? = null
   private var connecting: CompletableDeferred<BillingResult>? = null
+  /// Told when Play reports purchases outside an in-app flow. Main thread only.
+  private var purchaseWatch: Channel? = null
 
   private val client: BillingClient by lazy {
     BillingClient.newBuilder(activity.applicationContext)
@@ -68,6 +76,21 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         PendingPurchasesParams.newBuilder().enableOneTimeProducts().build()
       )
       .build()
+  }
+
+  /// Registers the channel `onPurchasesUpdated` pings when Play reports
+  /// purchases outside an in-app flow. The ping carries only the response
+  /// code, never a purchase: Rust re-queries owned purchases and verifies them.
+  @Command
+  fun watchPurchases(invoke: Invoke) {
+    scope.launch {
+      try {
+        purchaseWatch = invoke.parseArgs(WatchPurchasesArgs::class.java).channel
+        invoke.resolve()
+      } catch (error: Throwable) {
+        invoke.reject(error.message ?: error.javaClass.simpleName)
+      }
+    }
   }
 
   @Command
@@ -194,9 +217,10 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
     pendingPurchase = null
     if (waiting == null) {
       // An update outside an in-app flow (a promo code redeemed in the Play
-      // Store, a pending purchase completing). Rust picks it up from the next
-      // owned-purchase query, which runs on launch and on every resume.
+      // Store, a pending purchase completing). The app re-queries owned
+      // purchases when told, as it also does on launch and on every resume.
       Log.i(TAG, "purchase update with no waiting flow (code=${result.responseCode})")
+      purchaseWatch?.send(JSObject().put("code", result.responseCode))
       return
     }
     waiting.resolve(purchasesJson(result, purchases.orEmpty()))

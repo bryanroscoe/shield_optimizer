@@ -143,7 +143,7 @@
     unknownDiagnosticsError,
   } from "../lib/unknownDiagnostics";
   import { api } from "../lib/api";
-  import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
+  import { billing, FREE_RECOVERY_PROMISE, RESTORE_HINT } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
   import type {
@@ -514,6 +514,7 @@
             {billing.restoring ? "Checking…" : "Restore purchases"}
           </button>
         </div>
+        <p class="license-desc restore-hint">{RESTORE_HINT}</p>
         <SupportTiers />
       {:else if !session.isPro && !billing.licenseKeyEntry}
         <p class="license-desc">{billing.unavailableReason}</p>
@@ -677,11 +678,13 @@
       </div>
       {#if diagnosticsPreview}
         <div class="diagnostics-review">
-          <p class="card-desc">
-            Includes app or process identifiers, observation times and version information. Review
-            the contents before sharing. No network addresses, device serials, license keys or full
-            debug logs are included. Copy diagnostic JSON puts text on your clipboard; it does not save a file.
-          </p>
+          <ul class="card-desc review-list" aria-label="What the records contain">
+            <li>Includes app or process identifiers, observation times and version information</li>
+            <li>Excludes network addresses, device serials, license keys and full debug logs</li>
+          </ul>
+          <HelpSheet title="Before you share">
+            <p>Review the contents below before sharing them. Copy diagnostic JSON puts the text on your clipboard; it does not save a file.</p>
+          </HelpSheet>
           <div class="log-toolbar">
             <button class="ghost-btn compact" onclick={takeDiagnosticsSnapshot}>
               <span class="msr">refresh</span>Refresh preview
@@ -885,6 +888,13 @@
     line-height: 1.45;
     margin: 0;
   }
+  .review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 18px;
+    overflow-wrap: anywhere;
+  }
 
   .notices {
     max-height: 50vh;
@@ -1046,6 +1056,9 @@
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 10px;
+  }
+  .restore-hint {
+    margin-top: 8px;
   }
   .license-input-row {
     display: flex;
