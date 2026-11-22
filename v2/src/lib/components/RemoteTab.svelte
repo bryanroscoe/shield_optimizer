@@ -342,6 +342,7 @@
     <div class="remote-typing">
       <div class="typing-header">
         <h3>Live typing</h3>
+        <button class="small-action" onclick={() => sendRemoteKey("tab")} aria-label="Tab key" title="Move focus to the next TV field">Tab</button>
       </div>
       <p class="muted small">Sends typing to the focused TV app.</p>
       <HelpDetails label="Typing help">
@@ -429,7 +430,6 @@
       </div>
       <div class="remote-row">
         <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={16} /> Settings</button>
-        <button onclick={() => sendRemoteKey("tab")} aria-label="Tab key" title="Move focus to the next TV field">Tab</button>
         <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
         <button class="power" onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={16} /> Power</button>
       </div>

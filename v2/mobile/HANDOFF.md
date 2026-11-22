@@ -38,8 +38,8 @@ extra label; it is never identity proof. Fixture upgrade tests cover legacy “A
 and intentional room labels. Physical post-update discovery remains to be checked.
 
 Manual retained-candidate runtime QA is implemented in `.github/workflows/mobile-16kb-runtime.yml`.
-It verifies a successful signed main build's provenance and APK/AAB hashes before testing the
-unchanged APK on an Android 16 x86_64 emulator reporting actual 16384-byte pages. It records native
+It verifies the provenance and APK/AAB hashes of a successful signed main or mobile release build,
+then tests the unchanged APK on an Android 16 x86_64 emulator reporting actual 16384-byte pages. It records native
 loading and rendered onboarding on cold launch/restart, without Play credentials or publication.
 The workflow itself is not a runtime pass; inspect a successful exact-candidate receipt. ARM64,
 Play splits, physical phone/TV and purchase gates remain separate. See `RELEASE.md` for dispatch,
@@ -52,8 +52,10 @@ Play listing's six portrait screenshots, icon and feature graphic in `store-list
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
 
-Current source prepares mobile `0.1.2` / versionCode `1002`; it is not a released or physically
-accepted update. Play `0.1.1` / `1001` (binary source `33a215d`) was installed from Google Play on
+The [`mobile-v0.1.4` run](https://github.com/bryanroscoe/shield_optimizer/actions/runs/44964485346)
+verified and submitted versionCode `1004` from `e94ecc0` to Internal and Closed testing. The fixes
+listed above are later source changes and need their own candidate. Play `0.1.1` / `1001`
+(binary source `33a215d`) was installed from Google Play on
 a Pixel 10 Pro running Android 17 on 2026-11-05. Native startup and discovery of four LAN
 endpoints passed. Phone-to-TV authorization, connected features and Play billing acceptance
 remain incomplete. A physical SHIELD received authorization requests without displaying its
@@ -66,8 +68,8 @@ qualification predates the new privacy UI bundle and is not a signed Play candid
 acceptance. The resolved Android runtime graph and upstream notices are now captured in
 `android-runtime-inventory.json` / `android-runtime-notices.md`; compare the final release.
 
-**The full phone/TV acceptance matrix remains open.** The limited Play 1001 smoke checks above
-do not qualify the new 1002 source or connected behavior. Earlier device
+**The full phone/TV acceptance matrix remains open.** Play 1001 covered startup and discovery.
+The current candidate needs its own connected-behavior evidence. Earlier device
 sessions (a Pixel 10 Pro against two Nvidia Shields) proved the transport, the fast-remote channel
 and legacy network-debugging connect, but they predate most of today's code. Everything else
 described here rests on host evidence: Rust unit tests, and a browser suite that drives the real

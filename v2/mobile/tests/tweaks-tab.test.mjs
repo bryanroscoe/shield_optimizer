@@ -30,6 +30,7 @@ async function open(t, screen, options = {}) {
     window.calls = [];
     window.handlers = {};
     window.activeHost = "A";
+    window.activePort = 5555;
     window.tweaks = {
       hdmi_control_enabled: "1",
       match_content_frame_rate: "1",
@@ -44,9 +45,12 @@ async function open(t, screen, options = {}) {
       if (window.handlers[command]) return window.handlers[command](args);
       switch (command) {
         case "get_entitlement": return options.pro ? "pro" : "free";
-        case "wireless_connect": window.activeHost = args.host; return { ok: true };
+        case "wireless_connect":
+          window.activeHost = args.host;
+          window.activePort = args.port;
+          return { ok: true };
         case "wireless_status": return { connected: true };
-        case "list_devices": return [{ id: 1, serial: `${window.activeHost}:5555`, name: window.activeHost, model: "TV", status: "device", connection: "network", device_type: options.deviceType ?? "shield", properties: null }];
+        case "list_devices": return [{ id: 1, serial: `${window.activeHost}:${window.activePort}`, name: window.activeHost, model: "TV", status: "device", connection: "network", device_type: options.deviceType ?? "shield", properties: null }];
         case "health_report": return { ram: { free_mb: 1024 }, storage: {}, display: {}, top_memory: [] };
         case "app_list_for_device": return options.catalog;
         case "package_states":
@@ -241,13 +245,13 @@ test("verified TV retains originals across a rotated port, replacement hardware 
   const page = await open(t, "tweaks", { pro: true });
   await page.evaluate(async () => {
     window.hardware = "verified-A";
-    window.handlers.list_devices = () => [{ id: 1, serial: `${window.session.host}:${window.session.connectPort}`, status: "device", device_type: "shield", properties: { serial_number: window.hardware } }];
+    window.handlers.list_devices = () => [{ id: 1, serial: `${window.activeHost}:${window.activePort}`, status: "device", device_type: "shield", properties: { serial_number: window.hardware } }];
     await window.session.connect("A", 5555);
   });
   const card = page.locator('[data-tweak="screensaver"]');
   await card.getByRole("button", { name: "Off", exact: true }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_enabled === "0");
-  await page.evaluate(async () => { await window.session.connect("A", 4321); });
+  assert.equal(await page.evaluate(async () => (await window.session.connect("A", 4321)).ok), true);
   await card.getByRole("button", { name: /Restore previous/ }).click();
   await page.waitForFunction(() => window.tweaks.screensaver_components === "com.google.android.backdrop/.Backdrop" && window.tweaks.screensaver_enabled === "1");
   await page.evaluate(async () => { window.hardware = "verified-B"; window.tweaks.screensaver_components = "different/.Dream"; await window.session.connect("A", 4321); });
@@ -336,7 +340,7 @@ test("emergency recovery needs a live link and stays labelled with the TV it ran
 test("emergency recovery confirmed across a reconnect to the same TV asks to confirm again", async (t) => {
   const page = await open(t, "more");
   await page.evaluate(async () => {
-    window.handlers.list_devices = () => [{ id: 1, serial: `${window.session.host}:${window.session.connectPort}`, status: "device", device_type: "shield", properties: { serial_number: "verified-A" } }];
+    window.handlers.list_devices = () => [{ id: 1, serial: `${window.activeHost}:${window.activePort}`, status: "device", device_type: "shield", properties: { serial_number: "verified-A" } }];
     await window.session.connect("A", 5555);
   });
   await page.getByRole("button", { name: /Emergency recovery/ }).click();
