@@ -116,7 +116,7 @@ test("losing Pro mid-run says Pro is required and offers it rather than a plain 
   assert.equal(await page.evaluate(() => calls.filter((c) => c.command === "disable_package").length), 3);
 });
 
-test("the Apply confirmation is sectioned by tier and names each app once", () => {
+test("the Apply confirmation lists each app once under its tier, with its reason", () => {
   const item = (name, method, kind, reason) => ({
     item: { entry: entry(name, method), action: { kind: method }, memory_mb: null },
     verdict: { kind, reason, source: "reviewed_catalog" },
@@ -134,17 +134,18 @@ test("the Apply confirmation is sectioned by tier and names each app once", () =
   // Most serious first, one section per tier.
   assert.deepEqual(sections.map((s) => s.label), ["Unknown", "Caution", "Safe to remove"]);
   const [unknown, caution, safe] = sections;
-  assert.deepEqual(unknown.groups, [{ names: ["Disable Mystery"], reason: "No safety rule matched this package." }]);
-  // A shared consequence is said once for both apps, as a sentence.
-  assert.deepEqual(caution.groups, [
-    { names: ["Disable Nvidia Games", "Disable Nvidia Store"], reason: "Removable, but you may notice it go." },
+  assert.deepEqual(unknown.changes, [{ label: "Disable Mystery", reason: "No safety rule matched this package." }]);
+  // One line per app; each keeps its own reason, as a sentence, to fold.
+  assert.deepEqual(caution.changes, [
+    { label: "Disable Nvidia Games", reason: "Removable, but you may notice it go." },
+    { label: "Disable Nvidia Store", reason: "Removable, but you may notice it go." },
   ]);
-  // Safe rows already showed their description; the confirmation lists names.
-  assert.deepEqual(safe.groups, [
-    { names: ["Disable Google Feedback", "Uninstall Play Movies", "Uninstall Play Music", "Uninstall Stadia"], reason: "" },
+  // Safe keeps its reason too: some carry a real cost.
+  assert.deepEqual(safe.changes.map((c) => c.label), [
+    "Disable Google Feedback", "Uninstall Play Movies", "Uninstall Play Music", "Uninstall Stadia",
   ]);
-  const names = sections.flatMap((s) => s.groups.flatMap((g) => g.names));
-  assert.equal(names.length, items.length);
+  assert.equal(safe.changes[3].reason, "Service shut down January 2023.");
+  assert.equal(sections.flatMap((s) => s.changes).length, items.length);
   assert.equal(message.split("Restore can't bring it back").length - 1, 1);
   // Every uninstall here comes back the same way, so that is said once.
   assert.equal(message.split("Get it back from the Play Store").length - 1, 1);

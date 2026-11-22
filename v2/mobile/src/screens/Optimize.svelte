@@ -431,12 +431,13 @@
     explained = next;
   }
 
-  /// Choosing to remove a Caution or Unknown app unfurls what that costs, at
-  /// the moment of the decision. Safe rows stay folded.
+  /// Choosing to remove an app unfurls what that costs, at the moment of the
+  /// decision. That includes Safe: some Safe reasons carry a real cost (local
+  /// downloads or recordings lost), and the Apply confirmation folds every
+  /// reason, so the row is where it is seen.
   function revealConsequence(it: OptimizePlanItem) {
     if (it.action.kind === "enable") return;
-    const kind = safetyMap[it.entry.package]?.kind;
-    if ((kind === "caution" || kind === "unknown") && !explained.has(it.entry.package)) {
+    if (safetyMap[it.entry.package] && !explained.has(it.entry.package)) {
       explained = new Set(explained).add(it.entry.package);
     }
   }
