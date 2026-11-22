@@ -8,8 +8,10 @@
 //! other.
 //!
 //! The owned-purchase query runs at launch, whenever the WebView becomes
-//! visible again (`billing_refresh` from the frontend) and after every purchase
-//! flow. It is what restores Pro on a new install and what notices refunds and
+//! visible again (`billing_refresh` from the frontend), when Play reports a
+//! purchase made outside the app such as a redeemed promo code (the billing
+//! plugin's `purchases-updated` event, which the frontend answers with a forced
+//! `billing_refresh`) and after every purchase flow. It is what restores Pro on a new install and what notices refunds and
 //! revocations.
 
 use std::path::{Path, PathBuf};
@@ -42,6 +44,11 @@ const PURCHASE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 const NO_KEY_REASON: &str = "Purchases aren't available in this build of the app.";
 const NOT_ANDROID_REASON: &str = "Google Play purchases are only available in the Android app.";
 const UNREACHABLE: &str = "Couldn't reach Google Play. Check your connection and try again.";
+/// Buy found Pro already on the account: it unlocks, and nothing is charged.
+const OWNED_RESTORED: &str = "Pro restored from Google Play. Nothing was charged.";
+/// Play's sheet refused a second copy, but its owned-purchase list on this
+/// phone doesn't have the first yet (a code redeemed on the website, say).
+const OWNED_NOT_SENT: &str = "Google Play has this purchase on your account but hasn't sent it to this phone yet, so nothing was charged. Wait a minute, then tap Restore purchases.";
 
 /// Play's localized offer for one Pro product, for display only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -515,13 +522,15 @@ pub async fn billing_refresh(app: AppHandle, force: Option<bool>) -> Result<Bill
 
 /// Whether a purchase may start, given what Play just said about ownership.
 /// Only a confirmed "not owned" may: anything less certain could charge an
-/// existing Pro owner again for another Pro product.
+/// existing Pro owner again for another Pro product. An owner who taps Buy
+/// (say after redeeming a code elsewhere) is told Pro is restored, never sent
+/// to Play's "you already own this" sheet.
 pub fn purchase_gate(play: &PlayState) -> Option<(PurchaseResult, String)> {
     match play {
         PlayState::NotOwned => None,
         PlayState::Owned { .. } => Some((
             PurchaseResult::AlreadyOwned,
-            "You already own ATV Optimizer Pro.".into(),
+            OWNED_RESTORED.into(),
         )),
         PlayState::Pending => Some((
             PurchaseResult::Pending,
@@ -609,15 +618,11 @@ pub async fn billing_purchase(
         response_code::ITEM_ALREADY_OWNED => {
             refresh_locked(&app, &core).await;
             Ok(if core.play().grants_pro() {
-                reply(
-                    PurchaseResult::Restored,
-                    "You already own Pro. It's restored on this phone.",
-                    &core,
-                )
+                reply(PurchaseResult::Restored, OWNED_RESTORED, &core)
             } else {
                 let message = match core.play() {
                     PlayState::Error { message } => message,
-                    _ => "Google Play says you own Pro but didn't return the purchase. Try Restore purchases.".into(),
+                    _ => OWNED_NOT_SENT.into(),
                 };
                 reply(PurchaseResult::Failed, &message, &core)
             })
@@ -826,10 +831,11 @@ mod tests {
             verified_at_ms: NOW,
             cached: true,
         };
-        assert_eq!(
-            purchase_gate(&owned).unwrap().0,
-            PurchaseResult::AlreadyOwned
-        );
+        let (outcome, message) = purchase_gate(&owned).unwrap();
+        assert_eq!(outcome, PurchaseResult::AlreadyOwned);
+        // An owner who taps Buy hears that Pro is restored, not "you already own".
+        assert_eq!(message, OWNED_RESTORED);
+        assert!(!message.to_lowercase().contains("already own"));
         assert_eq!(
             purchase_gate(&PlayState::Pending).unwrap().0,
             PurchaseResult::Pending

@@ -143,7 +143,7 @@
     unknownDiagnosticsError,
   } from "../lib/unknownDiagnostics";
   import { api } from "../lib/api";
-  import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
+  import { billing, FREE_RECOVERY_PROMISE, RESTORE_HINT } from "../lib/billing.svelte";
   import type { Screen } from "../lib/router.svelte";
   import type { LicenseInfo, RebootMode, RecoveryResult } from "../lib/types";
   import type {
@@ -510,6 +510,7 @@
             {billing.restoring ? "Checking…" : "Restore purchases"}
           </button>
         </div>
+        <p class="license-desc restore-hint">{RESTORE_HINT}</p>
         <SupportTiers />
       {:else if !session.isPro && !billing.licenseKeyEntry}
         <p class="license-desc">{billing.unavailableReason}</p>
@@ -1038,6 +1039,9 @@
     flex-wrap: wrap;
     gap: 8px;
     margin-top: 10px;
+  }
+  .restore-hint {
+    margin-top: 8px;
   }
   .license-input-row {
     display: flex;

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-21",
+  "updated_at": "2026-11-22",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1405,6 +1405,26 @@
       "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-21.md; 23 active/0 commented/1 note profiles. AFMU1:82 one unit only, already firmware-disabled on another; MSSP3 Android9:52 absent on PI.4663 Italy; MOOR2:96 content rows; MOOQ0:103 recommendation channels/Firebase/GMS.",
       "independent_evidence": "https://www.mi.com/global/support/article/KA-124771/",
       "independent_review": "Exactly one inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "com.android.wallpaperbackup": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-22",
+      "reconsider_after": "2026-12-22",
+      "reason": "AOSP wallpaper backup/restore agent; disabling can interrupt wallpaper and metadata backup/restore. TV firmware dependencies and recovery of missed backup/restore state are unverified; common/family scope cannot enforce applicability.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-22.md; https://android.googlesource.com/platform/frameworks/base/+/f8f72c3389edd05347da9bf210fb0c142e1e76ef/packages/WallpaperBackup/src/com/android/wallpaperbackup/WallpaperBackupAgent.java",
+      "independent_evidence": "https://android.googlesource.com/platform/frameworks/base/+/f8f72c3389edd05347da9bf210fb0c142e1e76ef/packages/WallpaperBackup/src/com/android/wallpaperbackup/WallpaperBackupAgent.java",
+      "independent_review": "Exactly one independent inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; hold agreed."
+    },
+    "com.android.dynsystem": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-22",
+      "reconsider_after": "2026-12-22",
+      "reason": "AOSP system-UID Dynamic System Updates verification/installation service with boot-time DSU notification; disabling can break DSU entry points. OEM callers, in-flight image state and TV-specific disable/recovery consequences are unresolved; not a general optional app.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-22.md; https://android.googlesource.com/platform/frameworks/base/+/fed109a5eeab5efafc42800d7a7fae8c5bdab438/packages/DynamicSystemInstallationService/AndroidManifest.xml; https://source.android.com/docs/core/ota/dynamic-system-updates",
+      "independent_evidence": "https://android.googlesource.com/platform/frameworks/base/+/fed109a5eeab5efafc42800d7a7fae8c5bdab438/packages/DynamicSystemInstallationService/AndroidManifest.xml; https://source.android.com/docs/core/ota/dynamic-system-updates",
+      "independent_review": "Exactly one independent inherited-model read-only reviewer independently researched the same identity, purpose, dependencies, consequences, recovery and applicability; hold agreed."
     }
   }
 }
