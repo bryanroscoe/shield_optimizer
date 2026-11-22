@@ -140,7 +140,7 @@ test("a failed section read is an error notice with a title, code and Retry", as
   const page = await openApps(t, { catalogFails: true });
   const notice = page.locator(".section-error .error-notice");
   await notice.waitFor();
-  assert.match(await notice.innerText(), /Couldn't load recognised apps/);
+  assert.match(await notice.innerText(), /Couldn't load catalog apps/);
   assert.ok(await notice.getAttribute("data-code"));
   await notice.getByRole("button", { name: "Copy details" }).waitFor();
   await page.locator(".section-error").getByRole("button", { name: "Retry", exact: true }).click();
@@ -166,8 +166,8 @@ test("the report sheet keeps privacy visible and explains copying on demand", as
   await page.getByRole("menu").getByRole("menuitem", { name: "Report this app" }).click();
   const report = page.getByRole("dialog", { name: "Report this app", exact: true });
   await report.getByText(/Nothing is sent automatically/).waitFor();
-  assert.ok(await report.getByText(/It carries no serial number, no IP address and no other installed packages/).isVisible());
-  const howTo = page.getByRole("dialog", { name: "How reporting works" }).getByText(/Copy puts report text on your clipboard; it does not save a file/);
+  assert.ok(await report.getByText(/It includes no serial number, IP address or other installed apps/).isVisible());
+  const howTo = page.getByRole("dialog", { name: "How reporting works" }).getByText(/Copy puts the report on your clipboard and doesn't save a file/);
   assert.equal(await howTo.count(), 0, "how-to is on demand");
   // The sheet moves focus inside itself on the next frame; wait for that.
   await page.waitForFunction(() => document.querySelector('[aria-labelledby="app-report-title"]').contains(document.activeElement));

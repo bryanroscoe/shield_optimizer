@@ -114,7 +114,7 @@ test("upload refuses an unknown hardware identity before opening the picker", as
     session.connectedDevice.properties.serial_number = " unknown ";
   });
   await uploadButton(page).click();
-  await page.getByText("The upload needs a verified TV hardware identity. Reconnect to the TV and try again.").waitFor();
+  await page.getByText("Can't upload until this TV's hardware ID is verified. Reconnect to the TV and try again.").waitFor();
   assert.equal((await called(page, "import_pick")).length, 0);
   assert.equal((await called(page, "upload_imported")).length, 0);
 });
@@ -134,7 +134,7 @@ test("a dismissed picker uploads nothing", async t => {
   const page = await open(t, "files");
   await page.evaluate(() => { mock.pick = { status: "canceled" }; });
   await uploadButton(page).click();
-  await page.getByText("No files picked. Nothing was uploaded.").waitFor();
+  await page.getByText("No files selected. Nothing was uploaded.").waitFor();
   assert.equal((await called(page, "upload_conflicts")).length, 0);
   assert.equal((await called(page, "upload_imported")).length, 0);
 });
@@ -189,9 +189,9 @@ test("the Files help explains upload limits, replacing and what the app keeps", 
   const page = await open(t, "files");
   await page.getByRole("button", { name: "About file transfers" }).click();
   const help = page.getByRole("dialog", { name: "About file transfers" });
-  await help.getByText(/up to 32 files and 2 GiB at a time/).waitFor();
+  await help.getByText(/up to 32 files \(2 GiB\) at a time/).waitFor();
   await help.getByText(/you're asked before it's replaced; a folder is never replaced/).waitFor();
-  await help.getByText(/doesn't keep access to the picked files/).waitFor();
+  await help.getByText(/doesn't keep access to them/).waitFor();
   assert.equal((await called(page, "import_pick")).length, 0);
 });
 
@@ -208,7 +208,7 @@ test("Install APK shows what was picked and installs only on Install", async t =
   await card.getByText("Ready to install · 2 files").waitFor();
   await card.getByText("split_config.arm64_v8a.apk").waitFor();
   await card.locator("dd").filter({ hasText: "arm64-v8a, armeabi-v7a" }).waitFor();
-  await card.getByText("doesn't know where these files came from or what the app does").waitFor();
+  await card.getByText("can't tell where these files came from or what the app does").waitFor();
   assert.equal(await card.getByRole("alert").count(), 0);
   assert.deepEqual(await called(page, "import_pick"), [{ purpose: "apk" }]);
   assert.deepEqual(await called(page, "inspect_imported_apks"), [{ serial: "MOCK:5555", batch: "import-apk" }]);
@@ -224,7 +224,7 @@ test("a native-code mismatch warns, and an unreadable one claims nothing", async
   const page = await open(t, "sideload");
   await page.evaluate(() => { mock.inspection = { ...mock.inspection, abis: ["x86_64"], abi_compatible: false }; });
   await page.getByRole("button", { name: "Pick APK files" }).click();
-  await page.locator(".staged").getByRole("alert").getByText("ships native code for x86_64, and this TV reports arm64-v8a, armeabi-v7a").waitFor();
+  await page.locator(".staged").getByRole("alert").getByText("is built for x86_64, but this TV reports arm64-v8a, armeabi-v7a").waitFor();
   await page.getByRole("button", { name: "Cancel" }).click();
   await page.getByText(/Canceled. Nothing was installed/).waitFor();
   assert.deepEqual(await called(page, "discard_import"), [{ batch: "import-apk" }]);
@@ -233,7 +233,7 @@ test("a native-code mismatch warns, and an unreadable one claims nothing", async
   await page.getByRole("button", { name: "Pick APK files" }).click();
   const card = page.locator(".staged");
   await card.getByText("couldn't be read").waitFor();
-  await card.getByText("Whether this app's native code matches the TV couldn't be checked.").waitFor();
+  await card.getByText("Couldn't check whether this APK matches the TV's processor.").waitFor();
   assert.equal(await card.getByRole("alert").count(), 0);
 });
 
@@ -256,7 +256,7 @@ test("a refused pick and a dismissed picker install nothing", async t => {
   await page.getByRole("status").getByText(/isn't an .apk file/).waitFor();
   await page.evaluate(() => { mock.apkPick = { status: "canceled" }; });
   await page.getByRole("button", { name: "Pick APK files" }).click();
-  await page.getByText("No files picked. Nothing was installed.").waitFor();
+  await page.getByText("No files selected. Nothing was installed.").waitFor();
   assert.equal((await called(page, "inspect_imported_apks")).length, 0);
   assert.equal((await called(page, "install_imported_apks")).length, 0);
 });
@@ -306,7 +306,7 @@ test("Install APK help explains the flow without claiming the app is safe", asyn
   const help = page.getByRole("dialog", { name: "About installing APKs" });
   await help.getByText(/Nothing installs until you confirm/).waitFor();
   await help.getByText(/every part of a split app/).waitFor();
-  await help.getByText(/doesn't check\s+the signature or what the app does/).waitFor();
+  await help.getByText(/doesn't check the signature\s+or what the app does/).waitFor();
   assert.equal(await page.getByText(/\bsafe\b/i).count(), 0);
 });
 

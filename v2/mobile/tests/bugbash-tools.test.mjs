@@ -135,7 +135,7 @@ test("a disabled target launcher and kept Home apps are named with the plan's re
     launcher_disabled: "com.spocky.projengmenu",
     packages_kept: [{ package: "com.google.android.tvlauncher", reason: "only Home app" }],
   });
-  assert.match(preview.launcherSkipNote(skipped), /^com\.spocky\.projengmenu is disabled on this TV, and a restore never re-enables anything\./);
+  assert.match(preview.launcherSkipNote(skipped), /^com\.spocky\.projengmenu is disabled on this TV, and restoring a snapshot never re-enables anything\./);
   const { unchanged } = preview.previewRows(skipped, SNAP.launcher);
   assert.deepEqual(unchanged.slice(0, 2), [
     { item: "Home app", now: "com.google.android.tvlauncher", result: "com.spocky.projengmenu is disabled; skipped", kind: "launcher" },
@@ -246,7 +246,7 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
   });
   await page.getByRole("button", { name: "Preview restore" }).click();
   const card = page.locator(".plan-card");
-  await card.getByText(/The Home app won't change: com\.spocky\.projengmenu is disabled on this TV, and a restore never re-enables anything/).waitFor();
+  await card.getByText(/The Home app won't change: com\.spocky\.projengmenu is disabled on this TV, and restoring a snapshot never re-enables anything/).waitFor();
   const kept = card.getByTestId("kept-for-home");
   await kept.getByText("Kept on so the TV keeps a Home screen:").waitFor();
   assert.deepEqual(
@@ -377,7 +377,7 @@ test("restore preview names recorded absent apps without acting on them", async 
     window.handlers.preview_apply = () => ({ ...original(), packages_to_disable: [] });
   });
   await page.getByRole("button", { name: "Preview restore" }).click();
-  await card.getByText("No changes will be made. Recorded absent apps are left unchanged.", { exact: true }).waitFor();
+  await card.getByText("Nothing to change. Recorded absent apps are skipped.", { exact: true }).waitFor();
   assert.doesNotMatch(await card.innerText(), /TV already matches/);
   assert.equal(await card.getByRole("button", { name: "Restore", exact: true }).isDisabled(), true);
   if (process.env.REFUSED_SETTINGS_EVIDENCE) {
@@ -414,7 +414,7 @@ test("Send Text is a real dialog: focus moves in, stays in, Escape closes and re
   const opener = page.getByRole("button", { name: "Keyboard input", exact: true });
   await opener.focus();
   await page.keyboard.press("Enter");
-  const dialog = page.getByRole("dialog", { name: "Send Text to TV" });
+  const dialog = page.getByRole("dialog", { name: "Send text to TV" });
   await dialog.waitFor();
   const input = dialog.getByRole("textbox", { name: "Text to send" });
   await page.waitForFunction(() => document.activeElement?.classList.contains("modal-input"));
@@ -432,7 +432,7 @@ test("Send Text is a real dialog: focus moves in, stays in, Escape closes and re
   await dialog.waitFor();
   await page.waitForFunction(() => document.activeElement?.classList.contains("modal-input"));
   await input.fill("hello");
-  await dialog.getByRole("button", { name: "Close Send Text", exact: true }).click();
+  await dialog.getByRole("button", { name: "Close Send text", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   assert.equal(await count(page, "send_text"), 0);
 });
@@ -490,10 +490,10 @@ test("backup intro keeps limits and the restore warning visible, routine steps i
 
 test("Files keeps the private-storage consequence visible and the routine explainer in help", async (t) => {
   const page = await open(t, "files");
-  const visible = page.getByText(/not the phone's public\s+Downloads/);
+  const visible = page.getByText(/private storage on this phone,\s+not to Downloads/);
   await visible.waitFor();
   assert.equal(await visible.evaluate((el) => !!el.closest("details")), false);
-  const routine = page.getByText(/Files transfer over your LAN/);
+  const routine = page.getByText(/Files move over your local network/);
   assert.equal(await routine.isVisible(), false);
   await page.getByRole("button", { name: "About file transfers", exact: true }).click();
   await routine.waitFor();
@@ -515,9 +515,9 @@ test("Send Text keeps Send and Cancel on screen in a short, narrow viewport", as
   const page = await open(t, "remote", { width: 275 });
   await page.setViewportSize({ width: 275, height: 230 });
   await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Send Text to TV" });
+  const dialog = page.getByRole("dialog", { name: "Send text to TV" });
   await dialog.waitFor();
-  assert.equal(await inViewport(dialog.getByRole("button", { name: "Send Text", exact: true })), true);
+  assert.equal(await inViewport(dialog.getByRole("button", { name: "Send text", exact: true })), true);
   assert.equal(await inViewport(dialog.getByRole("button", { name: "Cancel", exact: true })), true);
   assert.equal(await page.locator(".modal-actions.divided").count(), 1, "a divider marks the cut-off content");
 });
@@ -601,11 +601,11 @@ test("the restore preview keeps what it never does visible and the recovery poin
     await page.getByRole("button", { name: "Preview restore" }).click();
     const card = page.locator(".plan-card");
     const note = card.locator(".plan-note");
-    assert.match((await note.innerText()).replace(/\s+/g, " "), /^Restore never re-enables anything or reinstalls apps\. Settings the snapshot recorded as never set are reset\.$/);
+    assert.match((await note.innerText()).replace(/\s+/g, " "), /^Restore never re-enables anything or reinstalls apps\. Settings that were unset when the snapshot was saved are reset to the TV's defaults\.$/);
     assert.equal(await card.getByText(/Emergency recovery/).count(), 0);
-    await card.getByRole("button", { name: "Turning an app back on" }).click();
-    const help = page.getByRole("dialog", { name: "Turning an app back on" });
-    await help.getByText(/Emergency recovery under More/).waitFor();
+    await card.getByRole("button", { name: "Re-enabling an app" }).click();
+    const help = page.getByRole("dialog", { name: "Re-enabling an app" });
+    await help.getByText(/Emergency recovery in More/).waitFor();
     await help.getByRole("button", { name: "Done" }).click();
     await help.waitFor({ state: "detached" });
     await card.waitFor();
@@ -627,11 +627,11 @@ test("the locked Snapshots card is three bullets, with the hardware-identity cav
     const items = list.getByRole("listitem");
     assert.equal(await items.count(), 3);
     assert.match(await items.nth(0).innerText(), /^Records disabled apps/);
-    assert.match(await items.nth(1).innerText(), /^Restoring disables apps it recorded as disabled, if they're on/);
+    assert.match(await items.nth(1).innerText(), /^Restoring disables any recorded apps that are currently enabled/);
     assert.equal(await items.nth(2).innerText(), "It never re-enables anything, and never uninstalls or reinstalls apps");
-    assert.equal(await page.getByText(/hardware identity is unverified/).count(), 0);
+    assert.equal(await page.getByText(/hardware ID isn't verified/).count(), 0);
     await page.getByRole("button", { name: "What snapshots include" }).click();
-    await page.getByRole("dialog", { name: "What snapshots include" }).getByText(/saved-TV hardware identity is unverified/).waitFor();
+    await page.getByRole("dialog", { name: "What snapshots include" }).getByText(/this TV's hardware ID isn't verified against the snapshot/).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   }
 });

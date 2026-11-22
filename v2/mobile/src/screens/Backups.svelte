@@ -207,7 +207,7 @@
       packagesConnectionGeneration !== targetGeneration ||
       !packages.some((row) => row.package === p.package)
     ) {
-      showToast("That app list is stale. Choose the app again for the connected TV.", "error");
+      showToast("That app list is out of date. Choose the app again for the connected TV.", "error");
       return;
     }
     const label = p.name ?? p.package;
@@ -368,7 +368,7 @@
     {#if backupOperation}
       <p class="operation-note" role="status">
         Backing up {backupOperation.label} ({backupOperation.package}) from
-        {backupOperation.serial}. Switching TVs will not retarget this operation.
+        {backupOperation.serial}. It stays on that TV if you switch TVs.
       </p>
     {/if}
     {#if !picking}
@@ -439,8 +439,8 @@
   <span class="section-label">Recent backups</span>
   {#if restoreOperation}
     <p class="operation-note" role="status">
-      Restoring {restoreOperation.package} to {restoreOperation.serial}. Switching TVs will not
-      retarget this operation.
+      Restoring {restoreOperation.package} to {restoreOperation.serial}. It stays on that TV if you
+      switch TVs.
     </p>
   {/if}
   {#if loading}
@@ -466,7 +466,7 @@
               This phone · {fmtDate(b.saved_at)} · {fmtSize(b.size_bytes)} · {b.apk_count} APK{b.apk_count === 1 ? "" : "s"}
             </span>
             {#if b.unreadable}
-              <span class="b-sub">Can't be restored ({b.unreadable}). Delete it to free the space.</span>
+              <span class="b-sub">Can't be restored ({b.unreadable}). Delete it to free up space.</span>
             {/if}
           </div>
           <div class="b-actions">
@@ -523,7 +523,7 @@
 <ConfirmDialog
   open={restoreTarget !== null}
   title={`Restore ${restoreTarget ? backupName(restoreTarget.backup.package) : "app"}?`}
-  message="Installs every APK part in this saved bundle on the connected TV. This does not restore app data, settings, or sign-in details, and it is not full-device recovery."
+  message="Installs every APK part in this saved bundle on the connected TV. App data, settings, and sign-in details aren't restored, and this isn't full-TV recovery."
   warning="Android may reject the restore when its signature or version is incompatible, or when a system app depends on the TV firmware."
   confirmLabel="Restore"
   icon="settings_backup_restore"

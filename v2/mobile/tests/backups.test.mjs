@@ -194,7 +194,7 @@ test("a stale displayed A row cannot start a backup on B", async (t) => {
     window.session.liveness = "live";
     staleButton.click();
   });
-  await page.getByText(/app list is stale/i).waitFor();
+  await page.getByText(/app list is out of date/i).waitFor();
 
   assert.equal(
     await page.evaluate(() => window.calls.filter((call) => call.command === "backup_apk").length),

@@ -272,8 +272,8 @@
       if (res.ok) {
         let text =
           res.strategy === "disable_stock_takeover"
-            ? `${name} is now the default launcher. The stock launcher was disabled to hand it over; re-enable it here any time.`
-            : `${name} is now the default launcher.`;
+            ? `${name} is now your Home app. The stock launcher was disabled to hand Home over; you can re-enable it here anytime.`
+            : `${name} is now your Home app.`;
         // A successful switch only carries `last_error` as a follow-up note.
         if (res.last_error) text += ` ${res.last_error}`;
         showToast(text, res.last_error ? "info" : "success");
@@ -332,7 +332,7 @@
       return;
     }
     busyPkg = l.entry.package;
-    progress = l.setup_helper ? "Turning off Google TV's setup helper" : "Disabling";
+    progress = l.setup_helper ? "Disabling Google TV's setup helper" : "Disabling";
     clearNote();
     let locked = false;
     try {
@@ -369,16 +369,16 @@
     const row = wraith?.row;
     if (!intentValid() || anyBusy || !serial || !row) return;
     busyPkg = row.entry.package;
-    progress = "Turning off Google TV's setup helper";
+    progress = "Disabling Google TV's setup helper";
     clearNote();
     let locked = false;
     try {
       const r = await api.disableSetupHelper(serial, row.entry.package);
       if (!valid(serial, connection)) return;
       if (r.ok) {
-        showToast("Setup Wraith is off. Press Home on the TV to check it lands on your launcher.", "success");
+        showToast("Setup Wraith is disabled. Press Home on the TV to check that your launcher opens.", "success");
       } else {
-        const text = `Couldn't turn off Setup Wraith: ${r.message.trim() || "failed"}`;
+        const text = `Couldn't disable Setup Wraith: ${r.message.trim() || "failed"}`;
         showToast(text, "error");
         noteFailure(text);
       }
@@ -426,7 +426,7 @@
       // Re-enabling is not switching, so put the previous default back.
       if (read && prev && prev !== pkg && currentPkg === pkg) {
         if (!session.isPro) {
-          const text = `Setup Wraith is back on, and Android gave it the Home button. Set ${prevName} as default again to get it back.`;
+          const text = `Setup Wraith is re-enabled, and Android gave it the Home button. Set ${prevName} as default again to switch back.`;
           showToast(text, "info");
           noteFailure(text);
           return;
@@ -438,18 +438,18 @@
         if (!valid(serial, connection)) return;
         if (backRes.ok) {
           showToast(
-            `Setup Wraith is back on. Android gave it the Home button, so ${prevName} was set as default again.`,
+            `Setup Wraith is re-enabled. Android gave it the Home button, so ${prevName} was set as default again.`,
             "success",
           );
         } else {
           const text =
-            `Setup Wraith is back on, and Android gave it the Home button. Setting ${prevName} back failed` +
+            `Setup Wraith is re-enabled, and Android gave it the Home button. Couldn't set ${prevName} back` +
             `${backRes.last_error ? `: ${backRes.last_error}` : "."} Use Set default on your launcher.`;
           showToast(text, "error");
           noteFailure(text, backRes.diagnostics ?? []);
         }
       } else {
-        showToast("Setup Wraith is back on.", "success");
+        showToast("Setup Wraith is re-enabled.", "success");
       }
     } catch (e) {
       if (!valid(serial, connection)) return;
@@ -710,8 +710,8 @@
             <span class="active-name">Couldn't read the current launcher</span>
             <span class="active-hint">
               {currentReadFailed
-                ? "The TV didn't answer the resolver query."
-                : "The TV reported no HOME activity."} Switching still works.
+                ? "The TV didn't respond when asked for its Home app."
+                : "The TV didn't report a Home app."} Switching still works.
             </span>
           {:else}
             <span class="active-name">{activeLabel}</span>
@@ -731,9 +731,9 @@
         <div class="callout amber">
           <span class="msr">warning</span>
           <span class="callout-text">
-            <span class="mono">com.android.providers.tv</span> is disabled on this TV. Watch Next /
-            Continue Watching rows from Netflix, Disney+, Apple TV etc. stay empty until you
-            re-enable it from the Apps list.
+            <span class="mono">com.android.providers.tv</span> is disabled on this TV. Watch Next and
+            Continue Watching rows from Netflix, Disney+, Apple TV and others stay empty until you
+            re-enable it in Apps.
           </span>
         </div>
       {/if}
@@ -863,23 +863,22 @@
       <div class="callout amber launcher-note">
         <span class="msr" aria-hidden="true">warning</span>
         <span class="callout-text">
-          Disabling the current home app without setting a replacement first leaves the TV with no
+          Disabling the current Home app without setting a replacement first leaves the TV with no
           home screen, so save a snapshot before you change this.
         </span>
       </div>
       <HelpSheet title="About changing launchers">
         <p>
-          Changing the launcher is reversible: set stock back as default any time. A snapshot
-          records which launcher was active; it never re-enables or reinstalls anything on its own.
+          Changing the launcher is reversible: set the stock launcher back as default anytime. A
+          snapshot records which Home app was active; it never re-enables or reinstalls anything.
         </p>
         <p>
-          Setup Wraith is Google TV's setup wizard, not a launcher. You don't need to disable it:
-          this screen already shows your real launcher as current. Disabling it only helps if the
-          Home button keeps landing on a setup screen, and it stays off until you re-enable it here.
+          Setup Wraith is Google TV's setup wizard, not a launcher. Disable it only if the Home
+          button keeps opening a setup screen; it stays disabled until you re-enable it here.
         </p>
         <p>
-          Any installed app can be tried as Home under Advanced. Android only accepts an app that
-          declares a Home screen, and this screen says so when it doesn't.
+          Under Advanced, you can try any installed app as Home. Android only accepts apps built to
+          act as a home screen, and this screen tells you when Android refuses one.
         </p>
       </HelpSheet>
 
@@ -895,8 +894,8 @@
       {#if advancedOpen}
         <div class="adv">
           <p class="adv-note">
-            Setting an app never disables anything; taking over from the stock launcher is the
-            separate step below.
+            Setting a Home app never disables anything. Disabling the stock launcher is a separate
+            step below.
           </p>
 
           {#if pickerOpen}
@@ -983,9 +982,9 @@
     open={takeover !== null}
     icon="home"
     title="Disable the stock launcher?"
-    message={`On this TV the only way to hand Home to ${takeover?.name ?? "this launcher"} is to disable the stock launcher. Your other launchers are left alone, and stock can be re-enabled here any time.`}
+    message={`On this TV the only way to hand Home to ${takeover?.name ?? "this launcher"} is to disable the stock launcher. Your other launchers are left alone, and the stock launcher can be re-enabled here anytime.`}
     warning={takeoverTurnsOffWraith
-      ? "Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home button back. You may need to turn it back on briefly to sign in to Google again or pair a remote."
+      ? "Also disables Google TV's setup helper (Setup Wraith) so it can't reclaim the Home button. You may need to re-enable it briefly to sign in to Google again or pair a remote."
       : ""}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable stock & switch"
@@ -1002,7 +1001,7 @@
       : `Disable ${disableConfirm?.entry.name ?? "launcher"}?`}
     message={disableConfirm?.setup_helper
       ? "Only needed if Home keeps landing on a setup screen. Android TV needs it for first-time setup, so re-enable it here before a factory reset."
-      : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or from the Apps list."}
+      : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or in Apps."}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable"
     onConfirm={() => disableConfirm && doDisable(disableConfirm)}

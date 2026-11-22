@@ -263,7 +263,7 @@ test("privacy is reachable without a TV and remains reachable when reporting fai
     window.replies["plugin:opener|open_url"] = () => { throw "browser unavailable"; };
   });
   await privacy.click();
-  await page.getByText("Couldn't open the privacy policy. Please try again.").waitFor();
+  await page.getByText("Couldn't open the privacy policy. Try again.").waitFor();
 });
 
 test("the report ID can be copied for deletion and is removed when reporting stops", async (t) => {

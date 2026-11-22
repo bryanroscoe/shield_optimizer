@@ -227,13 +227,13 @@
     try {
       const ent = await session.activatePro(key);
       if (ent === "pro") {
-        showToast("Pro unlocked — thank you!", "success");
+        showToast("Pro unlocked. Thank you.", "success");
         licenseKey = "";
         // The key is now a Pro source; without a fresh status the source line
         // and license details stay hidden until the next resume.
         await Promise.all([loadLicense(), billing.load()]);
       } else {
-        licenseError = "That key wasn't accepted. Check and try again.";
+        licenseError = "That license key wasn't accepted. Check it and try again.";
         showToast(licenseError, "error");
       }
     } catch (e) {
@@ -264,15 +264,15 @@
       tools: [
         { screen: "devices", icon: "devices_other", title: "Devices", desc: "Switch, rename, or add a TV", pro: false },
         { screen: "files", icon: "sync_alt", title: "Files", desc: "Browse the TV and copy files both ways", pro: false },
-        { screen: "sideload", icon: "android", title: "Install APK", desc: "Install an app file from this phone", pro: false },
+        { screen: "sideload", icon: "android", title: "Install APK", desc: "Install an APK from this phone", pro: false },
         { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up and restore an app's APK", pro: false },
-        { screen: "logs", icon: "receipt_long", title: "Device logs", desc: "Read a recent logcat snapshot", pro: false },
+        { screen: "logs", icon: "receipt_long", title: "Device logs", desc: "Read recent system logs", pro: false },
       ],
     },
     {
       label: "Tuning",
       tools: [
-        { screen: "optimize", icon: "auto_fix_high", title: "Optimize", desc: "Review and turn off apps you don't use", pro: true },
+        { screen: "optimize", icon: "auto_fix_high", title: "Optimize", desc: "Review and disable apps you don't use", pro: true },
         { screen: "launcher", icon: "home", title: "Launcher", desc: "Set a custom home screen", pro: true },
         { screen: "snapshots", icon: "photo_camera_back", title: "Snapshots", desc: "Record a setup and re-apply it later", pro: true },
       ],
@@ -280,7 +280,7 @@
     {
       label: "Help",
       tools: [
-        { screen: "catalog", icon: "search", title: "Device & package catalog", desc: "Browse source profiles and package observations", pro: false },
+        { screen: "catalog", icon: "search", title: "Device & app catalog", desc: "Browse device profiles and app notes", pro: false },
         { screen: "riskguide", icon: "help", title: "Safety tiers & actions", desc: "What each tier and action means", pro: false },
       ],
     },
@@ -319,7 +319,7 @@
         state === "reconnected"
           ? "The TV reconnected, so nothing was re-enabled. Confirm Emergency recovery again."
           : state === "offline"
-            ? "The TV isn't answering. Nothing was re-enabled."
+            ? "The TV isn't responding. Nothing was re-enabled."
             : "The TV connection changed. Nothing was re-enabled.",
         "error",
       );
@@ -396,7 +396,7 @@
     try {
       await api.openUrl(href);
     } catch {
-      showToast("Couldn't open the link. Please try again.", "error");
+      showToast("Couldn't open the link. Try again.", "error");
     }
   }
 
@@ -492,7 +492,7 @@
       {/if}
 
       {#if !session.isPro && billing.available}
-        <p class="license-desc">Pro unlocks the debloat plan, snapshots, custom launchers and tweaks. One-time purchase through Google Play.</p>
+        <p class="license-desc">Pro unlocks Optimize, Snapshots, custom launchers, and Tweaks. One-time purchase through Google Play.</p>
         {#if billing.pending}
           <p class="license-desc" role="status">Purchase pending. Pro unlocks as soon as Google Play confirms the payment.</p>
         {/if}
@@ -562,7 +562,7 @@
           <p class="license-error">{licenseError}</p>
         {/if}
       {:else if session.isPro}
-        <p class="license-desc success-color">Thank you for supporting ATV Optimizer Pro!</p>
+        <p class="license-desc success-color">Thank you for supporting ATV Optimizer.</p>
         {#if license && billing.status?.sources?.includes("license") !== false}
           <dl class="license-details">
             <dt>Licensed to</dt>
@@ -655,7 +655,7 @@
       <HelpSheet title="About these records">
         <p class="card-desc">
           A small local record of apps we haven't reviewed and processes we couldn't match to an
-          app. Repeated refreshes are grouped as observations. Only the most recent records are kept.
+          app. Repeat sightings are grouped together, and only the most recent records are kept.
         </p>
       </HelpSheet>
       {#if diagnosticsCount === 0}
@@ -679,8 +679,8 @@
       {#if diagnosticsPreview}
         <div class="diagnostics-review">
           <ul class="card-desc review-list" aria-label="What the records contain">
-            <li>Includes app or process identifiers, observation times and version information</li>
-            <li>Excludes network addresses, device serials, license keys and full debug logs</li>
+            <li>Includes app or process names, when they were seen, and version details</li>
+            <li>Excludes network addresses, serial numbers, license keys, and full debug logs</li>
           </ul>
           <HelpSheet title="Before you share">
             <p>Review the contents below before sharing them. Copy diagnostic JSON puts the text on your clipboard; it does not save a file.</p>
@@ -789,7 +789,7 @@
     open={recoveryConfirm}
     icon="medical_services"
     title="Re-enable every disabled app?"
-    message="This turns back on all apps currently disabled on {recoveryTarget?.label ?? session.deviceLabel}, including bloat you disabled on purpose. You can run Optimize again afterwards."
+    message="Re-enables every app currently disabled on {recoveryTarget?.label ?? session.deviceLabel}, including bloat you disabled on purpose. You can run Optimize again afterward."
     confirmLabel="Re-enable all"
     onConfirm={runRecovery}
     onCancel={() => {
@@ -807,7 +807,7 @@
       ? "The TV restarts normally. Reconnect once it's back."
       : rebootTarget === "recovery"
         ? "The TV boots into its recovery menu. You'll need the TV remote to leave it."
-        : "The TV boots into the bootloader. Only do this if you know how to get back out."}
+        : "The TV restarts into the bootloader. Only do this if you know how to get back out."}
     confirmLabel="Reboot"
     onConfirm={runReboot}
     onCancel={() => (rebootTarget = null)}

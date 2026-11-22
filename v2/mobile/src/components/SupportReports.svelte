@@ -37,7 +37,7 @@
     try {
       await api.openUrl(PRIVACY_POLICY_URL);
     } catch {
-      showToast("Couldn't open the privacy policy. Please try again.", "error");
+      showToast("Couldn't open the privacy policy. Try again.", "error");
     }
   }
 
@@ -200,7 +200,7 @@
         <div class="telemetry-unsaved" role="alert">
           <p class="card-desc">
             Reports are off for now, but this choice couldn't be saved. They may turn back on
-            the next time the app starts.
+            next time the app starts.
           </p>
           <button class="ghost-btn compact" disabled={telemetryBusy} onclick={() => setTelemetry(false)}>
             <span class="msr">refresh</span>Try saving again
@@ -225,11 +225,12 @@
   <!-- Bug report -->
   <div class="more-card">
     <span class="card-label">Bug report</span>
-    <p class="card-desc">Use the public report for GitHub. Copy puts the preview on your clipboard.</p>
+    <p class="card-desc">Use the public report for GitHub, or the private report for email.</p>
     <HelpSheet title="About bug reports">
       <p class="card-desc">
         The public report includes app and platform details and recent connection outcomes.
         For private support, review the full report before emailing it to the developer.
+        Copy puts the report on your clipboard.
       </p>
     </HelpSheet>
     <div class="log-toolbar">
@@ -247,7 +248,7 @@
       <p class="log-error mono" role="alert">{bugError}</p>
     {/if}
     {#if bugReport}
-      {#if reportIsPrivate}<p class="card-desc">For private email. May include TV names, addresses, serial numbers and app logs.</p>{/if}
+      {#if reportIsPrivate}<p class="card-desc">For private email only. May include TV names, addresses, serial numbers, and app logs.</p>{/if}
       <pre class="log-view mono" aria-label="Bug report">{bugReport}</pre>
     {/if}
   </div>
@@ -255,7 +256,7 @@
   <!-- Debug log -->
   <div class="more-card">
     <span class="card-label">Debug log</span>
-    <p class="card-desc">For private support. The log may contain TV names, addresses and app activity. Copy puts log text on your clipboard; it does not save a file.</p>
+    <p class="card-desc">For private support only. May contain TV names, addresses, and app activity. Copy puts log text on your clipboard; it doesn't save a file.</p>
     <HelpSheet title="About debug logs"><p class="card-desc">Recent app activity and the device transport log — useful for support.</p></HelpSheet>
     {#if !showLog}
       <button class="ghost-btn" onclick={loadLog}>

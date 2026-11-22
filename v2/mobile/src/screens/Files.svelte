@@ -170,7 +170,7 @@
     if (uploading || busyName || deleting || !session.isConnected || !canUploadToTv(dir)) return;
     const expectedHardwareId = normalizeHardwareId(session.connectedDevice?.properties?.serial_number);
     if (!expectedHardwareId) {
-      showToast("The upload needs a verified TV hardware identity. Reconnect to the TV and try again.", "error");
+      showToast("Can't upload until this TV's hardware ID is verified. Reconnect to the TV and try again.", "error");
       return;
     }
     const target = { serial: session.serial, generation: session.generation, expectedHardwareId };
@@ -181,7 +181,7 @@
     try {
       const pick = await api.importPick("upload");
       if (pick.status === "canceled") {
-        if (current(target)) showToast("No files picked. Nothing was uploaded.", "info");
+        if (current(target)) showToast("No files selected. Nothing was uploaded.", "info");
         return;
       }
       batch = pick.batch;
@@ -629,29 +629,27 @@
     <div class="callout accent">
       <span class="msr" aria-hidden="true">info</span>
       <span class="callout-text">
-        Copies from the TV go to ATV Optimizer's private storage on this phone,
-        not the phone's public Downloads.
+        Files copied from the TV go to ATV Optimizer's private storage on this phone,
+        not to Downloads.
       </span>
     </div>
     <HelpSheet title="About file transfers">
       <p>
-        Tap a file to copy it. Files transfer over your LAN, with no cloud round-trip. Copied this
-        session lists the copies made since you opened Files. Items under /sdcard can be deleted
-        from the TV with the bin icon.
+        Tap a file to copy it. Files move over your local network and never go through the cloud.
+        Copied this session lists the copies made since you opened Files. Items under /sdcard can
+        be deleted from the TV with the trash icon.
       </p>
       <p>
-        To get a copy out of the app, use the save or share button on its row in Copied this
-        session. Save a copy opens Android's file picker, and the copy goes only
-        where you choose. Share opens Android's share sheet and lets the app you pick read a copy;
-        Android doesn't tell ATV Optimizer whether that app finished. Nothing leaves the phone
-        unless you choose one of them.
+        To get a copy out of the app, use Save a copy or Share on its row in Copied this session.
+        Save a copy opens Android's file picker, and the copy goes only where you choose. Share
+        lets the app you pick read a copy; Android doesn't tell ATV Optimizer whether that app
+        finished. Nothing leaves the phone unless you choose one of them.
       </p>
       <p>
-        Upload to this folder opens Android's file picker, for up to 32 files and 2 GiB at a time.
-        The files you pick are copied into this app, sent to the TV folder you're in under
-        /sdcard, and the app's copies are deleted afterwards. If a file with the same name is
-        already there, you're asked before it's replaced; a folder is never replaced. ATV
-        Optimizer doesn't keep access to the picked files.
+        Upload to this folder sends up to 32 files (2 GiB) at a time to the /sdcard folder you're
+        in. Picked files are copied into this app, sent to the TV, then deleted from the app, and
+        ATV Optimizer doesn't keep access to them. If a file with the same name is already there,
+        you're asked before it's replaced; a folder is never replaced.
       </p>
     </HelpSheet>
 

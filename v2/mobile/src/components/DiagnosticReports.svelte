@@ -25,8 +25,8 @@
       <h3>Playback report</h3>
       <button class="report-action" disabled={playbackBusy || resourceBusy || !connected} onclick={onReadPlayback}>{playbackBusy ? "Reading…" : "Read playback report"}</button>
     </header>
-    <p class="report-note">Advertised configuration, not a playback test.</p>
-    <HelpSheet title="Playback limits"><p class="report-note">Actual decoding and passthrough depend on the app, content and connected display or receiver.</p></HelpSheet>
+    <p class="report-note">Reported capabilities only, not a playback test.</p>
+    <HelpSheet title="Playback limits"><p class="report-note">Actual decoding and passthrough depend on the app, the video, and the connected display or receiver.</p></HelpSheet>
     {#if playbackError}<p class="error" role="alert">{playbackError}</p>{/if}
     {#if playback}
       <section class="report-group" aria-label="Video decoders">
@@ -40,15 +40,15 @@
       <section class="report-group" aria-label="Display capabilities">
         <h4>Display</h4>
         <dl class="report-facts">
-          <div class="fact"><dt>Advertised HDR</dt><dd>{playback.hdr_types.length ? playback.hdr_types.join(", ") : "Unknown / not reported"}</dd></div>
+          <div class="fact"><dt>Reported HDR</dt><dd>{playback.hdr_types.length ? playback.hdr_types.join(", ") : "Not reported"}</dd></div>
           <div class="fact"><dt>Display modes</dt><dd>
             {#if playback.modes.length}
-              <ul class="mode-list" aria-label="Advertised display modes">
+              <ul class="mode-list" aria-label="Reported display modes">
                 {#each playback.modes as mode}
                   <li><span class="mono">{mode.width}×{mode.height} @ {mode.fps} Hz</span>{#if mode.active}<span class="active-mode">(active)</span>{/if}</li>
                 {/each}
               </ul>
-            {:else}Unknown / not reported{/if}
+            {:else}Not reported{/if}
           </dd></div>
         </dl>
       </section>
@@ -80,7 +80,7 @@
       <h3>CPU &amp; network</h3>
       <button class="report-action" disabled={resourceBusy || playbackBusy || !connected} onclick={onSampleResources}>{resourceBusy ? "Sampling…" : "Sample resources"}</button>
     </header>
-    <HelpSheet title="How samples are measured"><p class="report-note">One device-side sample per tap. Interfaces are shown separately because VPN traffic can also appear on the physical interface.</p></HelpSheet>
+    <HelpSheet title="How samples are measured"><p class="report-note">Takes one sample on the TV per tap. Network interfaces are listed separately because VPN traffic can also show up on the Wi-Fi or Ethernet interface.</p></HelpSheet>
     {#if resourceError}<p class="error" role="alert">{resourceError}</p>{/if}
     {#if resources}
       <dl class="sample-summary">
@@ -102,7 +102,7 @@
             {/each}
           </ul>
         </section>
-      {:else}<p class="report-note">No network counters available.</p>{/if}
+      {:else}<p class="report-note">No network stats available.</p>{/if}
     {/if}
   </section>
 </div>

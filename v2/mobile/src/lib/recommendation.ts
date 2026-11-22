@@ -167,7 +167,7 @@ export function uninstallOutcome(pkg: string, entry: AppEntry | null): Uninstall
       removes,
       recover: `Not on the Play Store: back up its APK first, then reinstall from ${source.name}`,
       help: [
-        `To get it back you would reinstall ${source.name} from ${source.url}. Back up its APK first if you might want this exact version.`,
+        `To get it back, reinstall ${source.name} from ${source.url}. Back up its APK first if you might want this exact version.`,
         reinstall,
       ],
     };
@@ -176,7 +176,7 @@ export function uninstallOutcome(pkg: string, entry: AppEntry | null): Uninstall
     return {
       short: "Discontinued: no way to download it again",
       removes,
-      recover: "Discontinued: once uninstalled, there is nowhere to download it again",
+      recover: "Discontinued: once uninstalled, you can't download it again",
       help: ["This service is discontinued and has no store listing.", reinstall],
     };
   }

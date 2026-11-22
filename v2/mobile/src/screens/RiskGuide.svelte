@@ -24,14 +24,14 @@
       points: [
         "Stops the app and hides it, but leaves it on disk",
         "Enable normally puts it back without reinstalling it",
-        "Suggested for every review app: Android’s third-party app list does not prove Play Store origin",
+        "Suggested for every reviewed app: Android’s list of user-installed apps doesn’t prove an app came from the Play Store",
       ],
     },
     {
       label: "Uninstall",
       icon: "delete",
       points: [
-        "Removes the app for the TV's current user: an explicit choice, and only where offered",
+        "Removes the app for the TV's current user. You have to choose it, and it's only offered for some apps",
         "Getting it back depends on an available APK or store listing",
         "Deleted app data is not restored",
         "A preinstalled system app stays in the read-only system image, so uninstalling it frees little or no storage",
@@ -54,8 +54,8 @@
 
   <div class="guide-content">
     <p class="lede">
-      Every package is checked by the same audited classifier the optimizer uses. Known protection
-      rules are mandatory, but no match does not prove every other package safe.
+      Every app goes through the same safety checks Optimize uses. Protection rules always apply,
+      but an app that matches no rule isn't proven safe.
     </p>
 
     <div class="tiers">
@@ -88,8 +88,8 @@
     <div class="callout">
       <span class="msr">verified_user</span>
       <span class="callout-text">
-        Protected packages cannot be disabled or uninstalled from this app. Caution and Unknown
-        packages require you to review the classifier's reason and confirm the exact action.
+        Protected apps can't be disabled or uninstalled from this app. For Caution and Unknown
+        apps, you review the reason and confirm the exact action.
       </span>
     </div>
 
@@ -101,7 +101,7 @@
           still on the TV; otherwise, look for the app in the Play Store
         </li>
         <li>Snapshots never reinstall apps: they record disabled and absent packages, the launcher and tracked settings</li>
-        <li>Restoring a snapshot leaves recorded absent apps unchanged, because a saved TV's hardware identity is unverified</li>
+        <li>Restoring a snapshot skips recorded absent apps, because this TV's hardware ID isn't verified against the snapshot</li>
       </ul>
     </div>
   </div>

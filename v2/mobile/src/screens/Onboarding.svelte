@@ -141,7 +141,7 @@
   let pairedHost = $state("");
   const pairingSucceeded = $derived(pairedHost !== "" && pairedHost === host.trim());
   const manualPaired = $derived(pairedHost !== "" && pairedHost === manualHost.trim());
-  const pairedDirections = "Pairing succeeded. Scan for the TV or enter the connect port shown on its Wireless debugging page.";
+  const pairedDirections = "Paired. Scan for the TV or enter the connection port shown on its Wireless debugging screen.";
   let expectedId: string | undefined;
   let connectAfterPair = $state<number | null>(null);
   let notice = $state("");
@@ -430,7 +430,7 @@
           <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
         {:else if connectingKey}
           {savedDevices.length === 1
-            ? "Your only saved TV — no code needed. Cancel to pick a different one."
+            ? "Reconnecting to your only saved TV — no code needed. Cancel to choose a different one."
             : "Connecting only to the saved entry you selected."}
         {:else}
           Nothing connects until you choose.
@@ -451,7 +451,7 @@
             <span class="device-name">{d.name}</span>
             <span class="mono device-addr">{d.host}:{d.connectPort} · {deviceTypeLabel(d.deviceType)} · {lastUsedLabel(d.lastUsed)}</span>
             {#if connectingKey === savedDeviceKey(d)}
-              <span class="device-tag">Handshaking…</span>
+              <span class="device-tag">Connecting…</span>
             {:else if reconnectError && reconnectErrorKey === savedDeviceKey(d)}
               <span class="device-tag warn">Couldn't reconnect</span>
             {:else if savedHostHasMultipleIdentities(savedDevices, d.host)}
@@ -470,7 +470,7 @@
         <div class="callout accent" role="status">
           <span class="msr">tv_gen</span>
           <span>
-            If the TV shows <span class="soft">"Allow debugging?"</span>, tick
+            If the TV shows <span class="soft">"Allow debugging?"</span>, check
             <span class="soft">Always allow from this computer</span>, select
             <span class="soft">Allow</span>, and retry.
           </span>
@@ -537,7 +537,7 @@
           {:else if row.status === "saved-other-port"}
             <span class="device-tag">Answered on a different port</span>
           {:else if row.status === "saved-missing"}
-            <span class="device-tag">Didn't answer this scan</span>
+            <span class="device-tag">Didn't respond to this scan</span>
           {/if}
         </span>
       {/snippet}
@@ -595,7 +595,7 @@
       <details class="help-disclosure" open>
         <summary>Connection help</summary>
         <ul class="help-list">
-          <li>Keep the phone and TV on the same Wi-Fi network, and the TV awake.</li>
+          <li>Keep your phone and TV on the same Wi-Fi network, and keep the TV awake.</li>
           <li>
             Shield and older TVs use <span class="soft">Network debugging</span>, which may not show up here.
             Choose <span class="soft">Enter IP address manually</span> and connect on port 5555.
@@ -637,7 +637,7 @@
             <input class="mono" bind:value={manualPairPort} placeholder="Shown on TV" type="number" min="1" max="65535" />
           </label>
           <label>
-            Connect port (optional for pairing)
+            Connection port (optional for pairing)
             <input class="mono" bind:value={manualConnectPort} placeholder={manualPaired ? "Shown on TV" : "5555 for Network debugging"} type="number" min="1" max="65535" />
           </label>
         </div>
@@ -709,7 +709,7 @@
 
       <div class="connect-copy">
         <h1>{error ? "Couldn't connect" : "Connecting…"}</h1>
-        {#if pairingSucceeded && error}<p class="lede">Pairing succeeded. Check the connect port shown on the TV.</p>{/if}
+        {#if pairingSucceeded && error}<p class="lede">Paired. Check the connection port shown on the TV.</p>{/if}
         <p class="lede">
           {#if error}
             The connection to <span class="soft">{connectionTargetLabel}</span> didn't complete.
@@ -719,7 +719,7 @@
         </p>
         {#if !error}
           <span class="handshake">
-            <span class="hdot blink"></span>{needsPairing ? "Pairing…" : "Handshaking…"}
+            <span class="hdot blink"></span>{needsPairing ? "Pairing…" : "Connecting…"}
           </span>
         {/if}
       </div>
@@ -730,7 +730,7 @@
             <span class="msr">tv_gen</span>
             <span>
               Try again, then look at the TV for <span class="soft">"Allow debugging?"</span>.
-              Tick <span class="soft">Always allow from this computer</span> and select
+              Check <span class="soft">Always allow from this computer</span> and select
               <span class="soft">Allow</span> within 30 seconds.
             </span>
           </div>
@@ -740,7 +740,7 @@
         <div class="callout accent">
           <span class="msr">tv_gen</span>
           <span>
-            Look at your TV. If <span class="soft">"Allow debugging?"</span> appears, tick
+            Look at your TV. If <span class="soft">"Allow debugging?"</span> appears, check
             <span class="soft">Always allow from this computer</span>, then select
             <span class="soft">Allow</span>, so the TV doesn't ask again next time.
           </span>

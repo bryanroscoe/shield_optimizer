@@ -56,15 +56,15 @@
           <h3>Disable the stock launcher?</h3>
           <p class="dialog-message">
             Disable the stock launcher and hand Home to <span class="mono">{target}</span>? If Home
-            doesn't land on it, the stock launcher is re-enabled straight away. You can re-enable it
-            from the launcher list at any time.
+            doesn't open it, the stock launcher is re-enabled right away. You can re-enable it from
+            the launcher list anytime.
           </p>
           {#if turnsOffSetupHelper}
             <p class="dialog-warning">
               <span class="msr" aria-hidden="true">warning</span>
               <span>
-                Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home button
-                back. You may need to turn it back on briefly to sign in to Google again or pair a
+                Also disables Google TV's setup helper (Setup Wraith) so it can't reclaim the Home
+                button. You may need to re-enable it briefly to sign in to Google again or pair a
                 remote.
               </span>
             </p>

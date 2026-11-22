@@ -36,14 +36,14 @@
   </div>
   <p class="wraith-text">
     {#if state === "off"}
-      Setup Wraith is off. Turn this back on if Google asks you to sign in again or you need to
-      pair a remote; turn it off again after.
+      Setup Wraith is disabled. Re-enable it briefly if Google asks you to sign in again or you
+      need to pair a remote, then disable it again.
     {:else if state === "on"}
-      Google TV's setup helper (Setup Wraith) is on. It can take the Home button back after you
-      switch launchers. Disable stock launcher turns it off too.
+      Google TV's setup helper (Setup Wraith) is on and can reclaim the Home button after you
+      switch launchers. Disable stock launcher disables it too.
     {:else}
-      Google TV's setup helper (Setup Wraith) is on while the stock launcher is off. It will likely
-      grab the Home button.
+      Google TV's setup helper (Setup Wraith) is on while the stock launcher is disabled. It will
+      likely reclaim the Home button.
     {/if}
   </p>
   <span class="wraith-pkg mono">{pkg}</span>
@@ -55,7 +55,7 @@
     </button>
   {:else if state === "risk"}
     <button class="wraith-btn warn" {disabled} onclick={onTurnOff}>
-      <span class="msr">power_settings_new</span>Turn it off
+      <span class="msr">power_settings_new</span>Disable Setup Wraith
     </button>
   {/if}
 </div>

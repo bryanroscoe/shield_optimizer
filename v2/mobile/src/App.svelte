@@ -179,7 +179,7 @@
   {#await import("./screens/Catalog.svelte") then { default: Catalog }}
     <Catalog {back} initialPackage={router.catalogPackage} />
   {:catch}
-    <p role="alert">The catalog could not be loaded. Go back and try again.</p>
+    <p role="alert">Couldn't load the app catalog. Go back and try again.</p>
     <button onclick={back}>Back</button>
   {/await}
 {:else if router.current === "files"}

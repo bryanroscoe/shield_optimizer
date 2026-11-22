@@ -29,8 +29,8 @@
       <span class="msr">content_copy</span>{copied ? "Copied" : "Copy diagnostic details"}
     </button>
     <p class="diag-note">
-      Every command this attempt ran and what your TV replied. Paste it into a GitHub issue; it is
-      what makes a launcher report fixable.
+      Every command this attempt ran and the TV's response. Paste it into a GitHub issue to help
+      get launcher problems fixed.
     </p>
     {#if shown}
       <pre class="diag-text" aria-label="Diagnostic details">{lines.join("\n")}</pre>

@@ -21,7 +21,7 @@ export function installFailureSummary(raw: string): string {
     if (m[0].includes("UPDATE_INCOMPATIBLE")) return "The installed copy is signed differently.";
     return `Install failed (${m[0]}).`;
   }
-  return "Installation not confirmed. Check the TV's apps before retrying.";
+  return "Couldn't confirm the installation. Check the TV's app list before trying again.";
 }
 
 export type AbiVerdict = "mismatch" | "unknown" | "ok";

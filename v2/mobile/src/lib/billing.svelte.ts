@@ -163,7 +163,7 @@ class BillingStore {
         this.say("Your purchase is still pending. Pro unlocks once Google Play confirms the payment.", "info");
       else if (play.state === "not_owned")
         this.say(
-          "No Pro purchase found for the Google account on this phone. A code redeemed on the Play Store website can take a few minutes to reach the phone: check it was the same Google account, then try again shortly.",
+          "No Pro purchase found for this phone's Google account. A code redeemed on the Play Store website can take a few minutes to reach the phone. Check it was the same Google account, then try again shortly.",
           "info",
         );
       else if (play.state === "error") this.say(play.message, "error");

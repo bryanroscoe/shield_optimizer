@@ -351,8 +351,8 @@ test("Send Text and Settings stay bound to the TV they were opened on", async (t
   await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
   await page.getByRole("textbox", { name: "Text to send" }).fill("secret");
   await page.evaluate(() => window.session.connect("B", 5555));
-  await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
-  await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+  await page.getByRole("dialog", { name: "Send text to TV" }).waitFor({ state: "detached" });
+  await page.getByText("The TV connection changed, so Send text was closed.").waitFor();
   assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
 
   // A Settings press queued behind a slow key on A is dropped after the switch.
@@ -373,14 +373,14 @@ test("Send Text and Settings stay bound to the TV they were opened on", async (t
   await page.evaluate(() => { window.session.liveness = "lost"; });
   await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
   await page.getByRole("button", { name: "Settings", exact: true }).click();
-  assert.equal(await page.getByRole("dialog", { name: "Send Text to TV" }).count(), 0);
+  assert.equal(await page.getByRole("dialog", { name: "Send text to TV" }).count(), 0);
   assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "open_settings")), false);
 });
 
 test("Send Text survives a silent reconnect to the same verified TV, but never sends over a dead link", async (t) => {
   const page = await open(t, "remote", { hardware: true });
   await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Send Text to TV" });
+  const dialog = page.getByRole("dialog", { name: "Send text to TV" });
   const box = page.getByRole("textbox", { name: "Text to send" });
   await box.fill("a long wifi passphrase");
   const before = await page.evaluate(() => ({ generation: window.session.generation, epoch: window.session.deviceEpoch }));
@@ -388,8 +388,8 @@ test("Send Text survives a silent reconnect to the same verified TV, but never s
   // Mid-reconnect: the dialog and the text stay, and Send refuses honestly.
   await startRedial(page);
   assert.equal(await page.evaluate(() => window.session.isConnected), false);
-  await dialog.getByRole("button", { name: "Send Text", exact: true }).click();
-  await page.getByText(/isn't answering right now\. Nothing was sent; your text is kept/).waitFor();
+  await dialog.getByRole("button", { name: "Send text", exact: true }).click();
+  await page.getByText(/isn't responding\. Nothing was sent; your text is kept/).waitFor();
   assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
   assert.equal(await box.inputValue(), "a long wifi passphrase");
 
@@ -400,7 +400,7 @@ test("Send Text survives a silent reconnect to the same verified TV, but never s
   assert.deepEqual({ epoch: after.epoch, live: after.live }, { epoch: before.epoch, live: true }, "but the same TV");
   assert.equal(await dialog.count(), 1);
   assert.equal(await box.inputValue(), "a long wifi passphrase");
-  await dialog.getByRole("button", { name: "Send Text", exact: true }).click();
+  await dialog.getByRole("button", { name: "Send text", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   const sent = await page.evaluate(() => window.calls.filter((c) => c.command === "send_text").map((c) => [c.args.serial, c.args.text]));
   assert.deepEqual(sent, [["A:5555", "a long wifi passphrase"]]);
@@ -413,8 +413,8 @@ test("Send Text closes when a reconnect reaches a different or unverifiable TV",
   await page.getByRole("textbox", { name: "Text to send" }).fill("secret");
   await startRedial(page);
   await page.evaluate(async () => { window.hardware.A = "HW-OTHER"; window.finishRedial(true); await window.redial; });
-  await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
-  await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+  await page.getByRole("dialog", { name: "Send text to TV" }).waitFor({ state: "detached" });
+  await page.getByText("The TV connection changed, so Send text was closed.").waitFor();
   assert.equal(await page.evaluate(() => window.session.isConnected), false);
   assert.match(await page.evaluate(() => window.session.reconnectFailure), /different TV answered/);
   await page.locator(".nav-row").getByRole("button", { name: /home/i }).click();
@@ -426,7 +426,7 @@ test("Send Text closes when a reconnect reaches a different or unverifiable TV",
   await idless.getByRole("textbox", { name: "Text to send" }).fill("secret");
   await startRedial(idless);
   await idless.evaluate(async () => { window.finishRedial(true); await window.redial; });
-  await idless.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
+  await idless.getByRole("dialog", { name: "Send text to TV" }).waitFor({ state: "detached" });
   for (const p of [page, idless]) {
     assert.equal(await p.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
   }

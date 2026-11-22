@@ -152,7 +152,7 @@
       await api.openUrl(bugIssueUrl(note, diagnostics));
       message = "The GitHub form opened. Review it there, then submit it yourself.";
     } catch {
-      error = "Couldn't open the browser. Try again, or visit the project's GitHub issues page.";
+      error = "Couldn't open your browser. Try again, or visit the project's GitHub Issues page.";
     }
   }
 </script>
@@ -192,17 +192,17 @@
     {#if telemetry && !canSend}
       <p class="fine">This build can't send reports to the developer. Report it on GitHub instead.</p>
     {:else}
-      <p class="fine">Send shares your description and a short summary of this app, this phone and the connected TV with the developer.</p>
+      <p class="fine">Send shares your description and a short summary of this app, this phone, and the connected TV with the developer.</p>
       <HelpSheet title="What's sent">
         <p>
-          Your description, the app version, this phone's Android version and model, your Support
-          ID, whether automatic reports are on, and for the connected TV its make, model and Android
-          version and the outcome of recent connection steps.
+          Your description, the app version, this phone's model and Android version, your Support
+          ID, and whether automatic reports are on. For the connected TV: its make, model, Android
+          version, and the outcome of recent connection steps.
         </p>
         <p>
-          No app list, TV names, addresses or serial numbers. Addresses and serial numbers in your
-          description are removed too. Reports are kept for 30 days and sent whether or not automatic
-          reports are on.
+          No app list, TV names, addresses, or serial numbers. Addresses and serial numbers in your
+          description are removed too. Reports are kept for 30 days and sent even if automatic
+          reports are off.
         </p>
       </HelpSheet>
       <button class="preview-toggle" onclick={togglePreview} aria-expanded={previewOpen}>

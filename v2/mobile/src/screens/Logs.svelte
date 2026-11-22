@@ -76,15 +76,15 @@
   </div>
 
   <div class="logs-card">
-    <span class="card-label">Recent logcat snapshot</span>
+    <span class="card-label">Recent system logs</span>
     <p class="card-desc privacy">
       Logs can contain account details, URLs and tokens. Review before sharing.
       This view does not save or upload them.
     </p>
     <HelpSheet title="Capture limits and app scope">
       <p class="card-desc">App filtering covers the currently running main process only; helper processes are excluded.</p>
-      <p class="card-desc">Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream; resolving an app adds a separate bounded read. Stop prevents further refreshes; an in-flight read finishes within its limits. Leaving this screen, switching TVs or putting the app in the background stops refreshes.</p>
-      <p class="card-desc">Android can reuse process IDs, so older entries may belong to a previous process. Filters and logcat options depend on the TV's Android version. Snapshots can overlap or miss high-volume traffic; this is not a lossless recording. Raw logs are not added to the bug report.</p>
+      <p class="card-desc">Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream. Stop ends refreshing after the current read. Leaving this screen, switching TVs, or putting the app in the background also stops it.</p>
+      <p class="card-desc">Android can reuse process IDs, so older lines may belong to a previous process. Filters depend on the TV's Android version. Reads can overlap or miss lines when the log is busy, so this isn't a complete recording. Raw logs are never added to the bug report.</p>
     </HelpSheet>
 
     <fieldset disabled={locked}>

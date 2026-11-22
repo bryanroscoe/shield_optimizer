@@ -115,7 +115,7 @@ test('legacy100C stays unknown; a device-reported critical status is shown even 
   await page.getByText('80 °C', { exact: true }).waitFor();
   await show(page, health({ temperature_c: 80, thermal_status: null, temperature_reading: reading(80, { source: 'thermalservice_cached', sensor_name: 'cpu0', status: 4, throttling_c: null, shutdown_c: null }) }));
   await page.getByText('Cached sensor status: Critical thermal status', { exact: true }).waitFor();
-  await page.getByText('No current sensor reading was supplied; showing a cached value.', { exact: true }).waitFor();
+  await page.getByText('No live sensor reading available; showing a cached value.', { exact: true }).waitFor();
 });
 
 test('routine RAM and thermal notes sit behind help; throttling advice stays on the card', async t => {
@@ -127,9 +127,9 @@ test('routine RAM and thermal notes sit behind help; throttling advice stays on 
   await region.getByRole('button', { name: 'About temperature readings', exact: true }).click();
   await page.getByRole('dialog', { name: 'About temperature readings' }).getByText(/not a temperature safety rating/).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
-  assert.equal(await page.getByText(/High RAM use alone does not establish memory pressure/).count(), 0);
+  assert.equal(await page.getByText(/high RAM use alone doesn't mean the TV is low on memory/).count(), 0);
   await page.getByRole('button', { name: 'About RAM use', exact: true }).click();
-  await page.getByRole('dialog', { name: 'About RAM use' }).getByText(/High RAM use alone does not establish memory pressure/).waitFor();
+  await page.getByRole('dialog', { name: 'About RAM use' }).getByText(/high RAM use alone doesn't mean the TV is low on memory/).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   // A sensor reporting throttling keeps the status sentence beside it, even when the device says none.
   await show(page, health({ thermal_status: 0, temperature_reading: reading(30, { status: 4 }) }));

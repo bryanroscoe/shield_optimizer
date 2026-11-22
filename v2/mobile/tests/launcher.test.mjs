@@ -78,16 +78,16 @@ test("Disable stock launcher stays off until the picked app is Home or stock is 
 
 test("the stock-disable message never claims what wasn't verified or re-read", () => {
   const ok = { ok: true, last_error: null };
-  assert.match(view.stockDisableMessage(ok, PROJECTIVY, true, "off"), /Setup Wraith\) was turned off too/);
+  assert.match(view.stockDisableMessage(ok, PROJECTIVY, true, "off"), /Setup Wraith\) was disabled too/);
   // Predicted off, but the re-read failed: say nothing about it.
   assert.doesNotMatch(view.stockDisableMessage(ok, PROJECTIVY, true, null), /Wraith/);
   // Predicted off, re-read says it is still on.
-  assert.match(view.stockDisableMessage(ok, PROJECTIVY, true, "risk"), /still reads as on/);
+  assert.match(view.stockDisableMessage(ok, PROJECTIVY, true, "risk"), /still reads as enabled/);
   assert.equal(
     view.stockDisableMessage({ ok: false, last_error: "Refusing to disable x." }, PROJECTIVY, true, "off"),
     "Refusing to disable x.",
   );
-  assert.equal(view.stockDisableMessage({ ok: false, last_error: null }, PROJECTIVY, false, null), "The stock launcher was left alone.");
+  assert.equal(view.stockDisableMessage({ ok: false, last_error: null }, PROJECTIVY, false, null), "The stock launcher wasn't changed.");
 });
 
 test("picker rows hide system apps, search name and package, dedupe and sort", () => {
@@ -189,7 +189,7 @@ test("Setup Wraith on with stock off warns and turns it off, then re-reads the T
     current: PROJECTIVY,
   });
   const card = page.locator('[data-setup-helper="risk"]');
-  await card.getByText("on while the stock launcher is off. It will likely grab the Home button").waitFor();
+  await card.getByText("on while the stock launcher is disabled. It will likely reclaim the Home button").waitFor();
   const before = await count(page, "list_launchers");
 
   await page.evaluate((w) => {
@@ -198,7 +198,7 @@ test("Setup Wraith on with stock off warns and turns it off, then re-reads the T
       return { ok: true, message: "Setup Wraith is off." };
     };
   }, WRAITH);
-  await card.getByRole("button", { name: "Turn it off" }).click();
+  await card.getByRole("button", { name: "Disable Setup Wraith" }).click();
   await page.locator('[data-setup-helper="off"]').getByRole("button", { name: "Re-enable Setup Wraith" }).waitFor();
 
   const call = await page.evaluate(() => window.calls.find((c) => c.command === "disable_setup_helper"));
@@ -211,9 +211,9 @@ test("Setup Wraith off offers Re-enable through enable_package", async (t) => {
     launchers: [stock(false), wraith(false), row(PROJECTIVY, { entry: { name: "Projectivy" } })],
     current: PROJECTIVY,
   });
-  await page.getByText(/Setup Wraith is off\. Turn this back on if Google asks you to sign in again/).waitFor();
+  await page.getByText(/Setup Wraith is disabled\. Re-enable it briefly if Google asks you to sign in again/).waitFor();
   await page.getByRole("button", { name: "Re-enable Setup Wraith" }).click();
-  await page.getByText("Setup Wraith is back on.").waitFor();
+  await page.getByText("Setup Wraith is re-enabled.").waitFor();
   const call = await page.evaluate(() => window.calls.find((c) => c.command === "enable_package"));
   assert.deepEqual(call.args, { serial: "A:5555", package: WRAITH });
 });
@@ -295,7 +295,7 @@ test("set any app as Home reports Android's answer, then unlocks the separate st
   const before = await count(page, "list_launchers");
   await disableStock.click();
   const dialog = page.getByRole("alertdialog", { name: "Confirm disabling the stock launcher" });
-  await dialog.getByText(/Also turns off Google TV's setup helper/).waitFor();
+  await dialog.getByText(/Also disables Google TV's setup helper/).waitFor();
   await dialog.getByRole("button", { name: "Disable stock launcher" }).click();
   await result.getByText(/only enabled launcher left/).waitFor();
   const stockCall = await page.evaluate(() => window.calls.find((c) => c.command === "disable_stock_launcher"));
@@ -604,7 +604,7 @@ test("a stock takeover offered by a not-ok switch opens after the re-read, and i
   await page.waitForFunction(() => window.calls.filter((c) => c.command === "set_default_launcher").length === 2);
   const args = await page.evaluate(() => window.calls.filter((c) => c.command === "set_default_launcher").map((c) => c.args.allowStockDisable));
   assert.deepEqual(args, [false, true]);
-  await page.getByText(/Projectivy is now the default launcher/).waitFor();
+  await page.getByText(/Projectivy is now your Home app/).waitFor();
 });
 
 test("stock Disable is off with a reason while the current Home app can't be read", async (t) => {
@@ -721,6 +721,6 @@ test("the Setup Wraith confirm keeps setup and factory-reset consequences in sho
   await page.getByRole('button', { name: 'About changing launchers' }).click();
   const help = page.getByRole('dialog', { name: 'About changing launchers' });
   await help.getByText(/Setup Wraith is Google TV's setup wizard, not a launcher/).waitFor();
-  await help.getByText(/only helps if the\s+Home button keeps landing on a setup screen/).waitFor();
+  await help.getByText(/Disable it only if the Home\s+button keeps opening a setup screen/).waitFor();
   assert.equal(await count(page, 'disable_setup_helper'), 0);
 });

@@ -64,7 +64,7 @@
     if (staged) {
       release(staged.batch);
       staged = null;
-      notice = "The TV changed, so the picked files were dropped. Nothing was installed.";
+      notice = "The TV connection changed, so your selected files were cleared. Nothing was installed.";
       noticeError = true;
     }
   });
@@ -86,7 +86,7 @@
     try {
       const picked = await api.importPick("apk");
       if (picked.status === "canceled") {
-        say("No files picked. Nothing was installed.");
+        say("No files selected. Nothing was installed.");
         return;
       }
       batch = picked.batch;
@@ -175,24 +175,22 @@
     </div>
     <HelpSheet title="About installing APKs">
       <p class="card-desc">
-        Pick APK files opens Android's file picker. Pick one .apk, or every part of a split app
-        (base.apk and its split_config files) together. The files are copied into this app, then
-        removed when the install ends or you cancel. Up to 32 files and 2 GiB at a time.
+        Choose one .apk, or every part of a split app (base.apk and its split_config files)
+        together, up to 32 files and 2 GiB at a time. The files are copied into this app, then
+        removed when the install ends or you cancel.
       </p>
       <p class="card-desc">
-        Nothing installs until you confirm. Install sends the files to the TV's package manager
-        the way desktop's Install APK does (adb install -r, or install-multiple for a split app):
-        an app that is already installed is updated and keeps its data, if the new file is signed
-        by the same developer.
+        Nothing installs until you confirm. If the app is already installed, it's updated and
+        keeps its data, as long as the new file is signed by the same developer.
       </p>
       <p class="card-desc">
         Get opens a popular app's official download page in your browser. Download the APK on this
         phone, then pick it here.
       </p>
       <p class="card-desc">
-        The architecture check reads which CPUs the APK ships native code for and compares them
-        with what the TV reports. It doesn't read the app's name or version, and it doesn't check
-        the signature or what the app does.
+        The compatibility check compares the processor types the APK is built for with what the
+        TV reports. It doesn't read the app's name or version, and it doesn't check the signature
+        or what the app does.
       </p>
     </HelpSheet>
     {#if !session.isConnected}
@@ -228,7 +226,7 @@
         <p class="callout warn" role="alert">
           <span class="msr" aria-hidden="true">warning</span>
           <span>
-            This app ships native code for {inspection.abis.join(", ")}, and this TV reports
+            This APK is built for {inspection.abis.join(", ")}, but this TV reports
             {inspection.device_abis.join(", ")}. It will probably fail to install, or install and
             crash on launch.
           </span>
@@ -236,12 +234,12 @@
       {:else if verdict === "unknown"}
         <p class="callout">
           <span class="msr" aria-hidden="true">info</span>
-          <span>Whether this app's native code matches the TV couldn't be checked.</span>
+          <span>Couldn't check whether this APK matches the TV's processor.</span>
         </p>
       {/if}
       <p class="card-desc safety">
-        Nothing has been installed. ATV Optimizer doesn't know where these files came from or what
-        the app does. Install them only if you trust their source.
+        Nothing is installed yet. ATV Optimizer can't tell where these files came from or what the
+        app does. Install them only if you trust their source.
       </p>
       <div class="actions">
         <button class="primary small" onclick={install} disabled={busy}>

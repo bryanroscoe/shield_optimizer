@@ -24,7 +24,7 @@
 {#if session.connectedDevice && session.liveness === "reconnecting"}
   <div class="conn-banner" role="status">
     <span class="msr pending">wifi_find</span>
-    <span class="cb-text">{session.deviceLabel} stopped answering. Reconnecting…</span>
+    <span class="cb-text">{session.deviceLabel} isn't responding. Reconnecting…</span>
   </div>
 {:else if session.connectedDevice && reconnecting && session.liveness === "connecting"}
   <div class="conn-banner" role="status">
