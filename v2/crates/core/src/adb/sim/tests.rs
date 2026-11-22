@@ -349,6 +349,7 @@ async fn google_tv_takeover_reselects_home_when_the_role_query_is_unsupported() 
             },
             times: None,
             after: 0,
+            fired: 0,
         });
     }
 
