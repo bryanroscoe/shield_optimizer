@@ -38,11 +38,11 @@ export function safetySourceLabel(source: SafetySource): string {
     case "caution_list":
       return "On the caution list";
     case "reviewed_catalog":
-      return "From the reviewed app list";
+      return "In the catalog";
     case "launcher_list":
       return "On the launcher list";
     case "no_record":
-      return "Not in any reviewed list";
+      return "Not in the catalog";
   }
 }
 

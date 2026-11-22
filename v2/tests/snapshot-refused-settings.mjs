@@ -47,7 +47,7 @@ async function main() {
     const line = "2 settings in this file are not ones snapshots restore and will be skipped.";
     async function checkWarning(scope, shot) {
       const absent = scope.locator('[data-plan-item="absent-skipped"]');
-      await absent.getByText("Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.").waitFor();
+      await absent.getByText("Recorded absent apps are left unchanged because this TV's hardware ID isn't verified against the snapshot.").waitFor();
       await absent.locator("summary").click();
       await absent.getByText("tv.twitch.android.app", { exact: true }).waitFor();
       assert.equal(await scope.locator("table").getByText("tv.twitch.android.app", { exact: true }).count(), 0, "recorded absence never appears among actions");

@@ -88,7 +88,7 @@ async function readLogs(page) {
 
 async function openCatalogProfile(page) {
   await page.getByRole("searchbox", { name: "Search device profiles" }).fill("acer-ar3-r3");
-  await page.getByRole("searchbox", { name: "Search package IDs" }).fill("com.realtek.leanbacklauncher.partnercustomizer");
+  await page.getByRole("searchbox", { name: "Search package names" }).fill("com.realtek.leanbacklauncher.partnercustomizer");
   await page.locator('[data-profile="acer-ar3-r3"]').click();
   await page.locator('[data-package-source="com.realtek.leanbacklauncher.partnercustomizer"]').waitFor();
 }

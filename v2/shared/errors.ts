@@ -83,7 +83,7 @@ const PLAIN: Record<ErrorCode, string> = {
   pairing_expired: "The pairing screen on the TV closed or expired. Open it again and use the new code.",
   connection_refused:
     "The TV refused the connection. Check the IP and port, and that debugging is still on.",
-  timeout: "The TV took too long to answer. Check it's awake and on the same network, then retry.",
+  timeout: "The TV took too long to respond. Check it's awake and on the same network, then retry.",
   unreachable: "Couldn't reach the TV. Check its IP address and that both are on the same network.",
   protected_package: "The app refused this to keep the TV usable.",
   permission_denied: "The TV refused this change. Some system apps can't be changed over ADB.",

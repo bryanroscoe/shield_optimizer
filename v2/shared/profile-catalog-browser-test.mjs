@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 
 export async function exerciseProfileCatalog(page, openedSources) {
-  const catalog = page.getByRole("region", { name: "Device and package catalog" });
-  await catalog.getByRole("heading", { name: "Device & package catalog", exact: true }).waitFor();
-  assert.match(await catalog.innerText(), /427 device profiles.*1,971 package IDs/);
+  const catalog = page.getByRole("region", { name: "Device and app catalog" });
+  await catalog.getByRole("heading", { name: "Device & app catalog", exact: true }).waitFor();
+  assert.match(await catalog.innerText(), /427 device profiles.*1,971 package names/);
   assert.equal(await catalog.getByRole("checkbox").count(), 0);
   assert.equal(await catalog.getByRole("button", { name: /^(Disable|Uninstall|Apply|Optimize)$/ }).count(), 0);
   assert.equal(await catalog.getByText("Safe to remove", { exact: true }).count(), 0);
 
   const devices = catalog.getByRole("searchbox", { name: "Search device profiles" });
-  const packages = catalog.getByRole("searchbox", { name: "Search package IDs" });
+  const packages = catalog.getByRole("searchbox", { name: "Search package names" });
   await packages.fill("");
   await devices.fill("Acer");
 

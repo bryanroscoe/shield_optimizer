@@ -228,7 +228,7 @@ try {
     }
     assert.match(NOTICE_TEXT, /No serial numbers, IP addresses, TV names or app lists\./);
     assert.match(NOTICE_TEXT, /excerpt of the app's connection log/);
-    assert.match(NOTICE_TEXT, /support ID/);
+    assert.match(NOTICE_TEXT, /Support ID/);
     // The phone app sends no logs, and its notice says so.
     assert.doesNotMatch(MOBILE_NOTICE_TEXT, /log excerpt|excerpt of/);
     assert.match(MOBILE_NOTICE_TEXT, /No serial numbers, IP addresses, TV names, logs or app lists\./);

@@ -350,7 +350,7 @@ test("restore preview names recorded absent apps without acting on them", async 
   await page.getByRole("button", { name: "Preview restore" }).click();
   const card = page.locator(".plan-card");
   const disclosure = card.locator('[data-plan-item="absent-skipped"]');
-  await disclosure.getByText("Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.").waitFor();
+  await disclosure.getByText("Recorded absent apps are left unchanged because this TV's hardware ID isn't verified against the snapshot.").waitFor();
   await disclosure.locator("summary").click();
   await disclosure.getByText("com.recorded.absent", { exact: true }).waitFor();
   assert.equal(await count(page, "apply_snapshot"), 0);

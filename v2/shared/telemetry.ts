@@ -257,7 +257,7 @@ export const NOTICE_TEXT =
   "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
   "When something fails, or a scan or connection finds nothing, a report also carries connection " +
   "counts and timings and a short excerpt of the app's connection log, redacted the same way. " +
-  "Reports carry a random support ID, not tied to your computer or TV, that you can quote when asking for help. " +
+  "Reports carry a random Support ID, not tied to your computer or TV, that you can quote when asking for help. " +
   "No serial numbers, IP addresses, TV names or app lists. You can turn this off at any time.";
 
 /// The phone app's reports: no log excerpts and no Send logs, as declared
@@ -265,7 +265,7 @@ export const NOTICE_TEXT =
 export const MOBILE_NOTICE_TEXT =
   "ATV Optimizer sends anonymous reports: your TV's make, model and Android version, " +
   "which actions worked or failed, and error messages with addresses, names and file paths removed. " +
-  "When discovery or a TV finds nothing, a report also carries connection counts and timings. " +
+  "When discovery finds nothing, or a TV reports no details, a report also carries connection counts and timings. " +
   "Reports carry a random ID, not tied to your phone or TV. " +
   "No serial numbers, IP addresses, TV names, logs or app lists. You can turn this off at any time.";
 
