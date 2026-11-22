@@ -438,6 +438,8 @@ test("a saved TV is not auto-opened if a different hardware ID answers", async (
     savedDevices: [{ ...savedA, hardwareId: "original" }],
   });
   await page.getByText(/A different TV answered at this address/).waitFor();
+  assert.equal(await page.getByText(/Allow debugging\?/).count(), 0);
+  assert.equal(await page.getByText(/isn't reachable right now/).count(), 0);
   assert.equal(await page.evaluate(() => window.router.current), "onboarding");
   assert.equal(await page.evaluate(() => window.session.isConnected), false);
   const calls = await page.evaluate(() => window.calls);

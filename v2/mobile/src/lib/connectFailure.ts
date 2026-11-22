@@ -8,8 +8,12 @@ import { classifyError, errorText, type ErrorCode } from "../../../shared/errors
 /// to look for one.
 const NEVER_REACHED: ReadonlySet<ErrorCode> = new Set(["connection_refused", "unreachable", "timeout"]);
 
+export function isSavedTvIdentityFailure(error: unknown): boolean {
+  return /^(A different TV answered at this address|Couldn't verify the saved TV's identity)\b/.test(errorText(error).trim());
+}
+
 export function approvalPromptMayExplain(error: unknown): boolean {
-  return !NEVER_REACHED.has(classifyError(error));
+  return !isSavedTvIdentityFailure(error) && !NEVER_REACHED.has(classifyError(error));
 }
 
 export function connectFailureGuidance(error: unknown): string {

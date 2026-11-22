@@ -11,7 +11,7 @@
     savedHostHasMultipleIdentities,
     shouldAutoDialSavedDevices,
   } from "../lib/savedDevices";
-  import { approvalPromptMayExplain, connectFailureGuidance } from "../lib/connectFailure";
+  import { approvalPromptMayExplain, connectFailureGuidance, isSavedTvIdentityFailure } from "../lib/connectFailure";
   import { normalizeHardwareId } from "../lib/identity";
   import { buildDiscoveryRows } from "../lib/discoveryRows";
   import type { DiscoveryRow } from "../lib/discoveryRows";
@@ -424,17 +424,19 @@
         Which TV?
       {/if}
     </h1>
-    <p class="lede">
-      {#if reconnectError}
-        <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
-      {:else if connectingKey}
-        {savedDevices.length === 1
-          ? "Your only saved TV — no code needed. Cancel to pick a different one."
-          : "Connecting only to the saved entry you selected."}
-      {:else}
-        Nothing connects until you choose.
-      {/if}
-    </p>
+    {#if !isSavedTvIdentityFailure(reconnectError)}
+      <p class="lede">
+        {#if reconnectError}
+          <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
+        {:else if connectingKey}
+          {savedDevices.length === 1
+            ? "Your only saved TV — no code needed. Cancel to pick a different one."
+            : "Connecting only to the saved entry you selected."}
+        {:else}
+          Nothing connects until you choose.
+        {/if}
+      </p>
+    {/if}
 
     <div class="devices">
       {#each savedDevices as d, i (savedDeviceKey(d))}
