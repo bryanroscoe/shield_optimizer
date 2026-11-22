@@ -50,10 +50,13 @@ export interface SupportUpload {
   id: number;
   received_at: string;
   client_ts: string;
+  kind: string;
+  app: string;
   app_version: string;
   os: string;
   reports_on: boolean | null;
   bytes: number;
+  note: string | null;
 }
 
 export interface SupportInstall {
@@ -139,7 +142,7 @@ async function installReport(env: Env, id: string, eventLimit: number): Promise<
        FROM events WHERE install_id = ?1 ORDER BY received_at DESC, id DESC LIMIT ?2`,
     ).bind(id, eventLimit),
     env.DB.prepare(
-      `SELECT id, received_at, client_ts, app_version, os, reports_on, bytes FROM diag_uploads
+      `SELECT id, received_at, client_ts, kind, app, app_version, os, reports_on, bytes, note FROM diag_uploads
        WHERE install_id = ?1 ORDER BY received_at DESC, id DESC LIMIT ?2`,
     ).bind(id, UPLOAD_LIMIT),
   ]);
@@ -151,10 +154,13 @@ async function installReport(env: Env, id: string, eventLimit: number): Promise<
       id: Number(r.id),
       received_at: String(r.received_at),
       client_ts: String(r.client_ts),
+      kind: String(r.kind ?? "logs"),
+      app: String(r.app),
       app_version: String(r.app_version),
       os: String(r.os),
       reports_on: r.reports_on === null || r.reports_on === undefined ? null : r.reports_on === 1,
       bytes: Number(r.bytes),
+      note: (r.note as string | null) ?? null,
     }),
   );
   return {
@@ -210,8 +216,80 @@ async function installReport(env: Env, id: string, eventLimit: number): Promise<
   };
 }
 
-export async function uploadText(env: Env, id: number): Promise<{ install_id: string; received_at: string; body: string } | null> {
-  return env.DB.prepare("SELECT install_id, received_at, body FROM diag_uploads WHERE id = ?1")
+export interface UploadText {
+  install_id: string;
+  received_at: string;
+  kind: string;
+  app: string;
+  app_version: string;
+  os: string;
+  // The note first, so a bug report reads from its description down.
+  text: string;
+}
+
+export async function uploadText(env: Env, id: number): Promise<UploadText | null> {
+  const row = await env.DB.prepare(
+    "SELECT install_id, received_at, kind, app, app_version, os, note, body FROM diag_uploads WHERE id = ?1",
+  )
     .bind(id)
-    .first<{ install_id: string; received_at: string; body: string }>();
+    .first<{ install_id: string; received_at: string; kind: string; app: string; app_version: string; os: string; note: string | null; body: string }>();
+  if (!row) return null;
+  const { note, body, ...meta } = row;
+  const text = note ? `## Description (user's own words, redacted)\n\n${note}\n${body ? `\n${body}` : ""}` : body;
+  return { ...meta, text };
+}
+
+export const DEFAULT_UPLOAD_LIST_LIMIT = 50;
+export const MAX_UPLOAD_LIST_LIMIT = 200;
+const NOTE_PREVIEW_CHARS = 200;
+
+export interface UploadListEntry {
+  id: number;
+  received_at: string;
+  client_ts: string;
+  install_id: string;
+  support_id: string;
+  kind: string;
+  app: string;
+  app_version: string;
+  os: string;
+  reports_on: boolean | null;
+  bytes: number;
+  note_chars: number;
+  note_preview: string | null;
+}
+
+// Newest first. Metadata and the start of the note only: the full upload is
+// one GET /v1/admin/uploads/<id> away.
+export async function listUploads(
+  env: Env,
+  opts: { since: string | null; kind: "logs" | "bug" | null; limit: number },
+): Promise<{ uploads: UploadListEntry[]; truncated: boolean }> {
+  const res = await env.DB.prepare(
+    `SELECT id, received_at, client_ts, install_id, kind, app, app_version, os, reports_on, bytes,
+            substr(note, 1, ${NOTE_PREVIEW_CHARS}) AS note_preview, length(note) AS note_chars
+     FROM diag_uploads
+     WHERE (?1 IS NULL OR received_at >= ?1) AND (?2 IS NULL OR kind = ?2)
+     ORDER BY received_at DESC, id DESC LIMIT ?3`,
+  )
+    .bind(opts.since, opts.kind, opts.limit + 1)
+    .all<Row>();
+  const rows = res.results.slice(0, opts.limit).map(
+    (r): UploadListEntry => ({
+      id: Number(r.id),
+      received_at: String(r.received_at),
+      client_ts: String(r.client_ts),
+      install_id: String(r.install_id),
+      support_id: shortId(String(r.install_id)),
+      kind: String(r.kind),
+      app: String(r.app),
+      app_version: String(r.app_version),
+      os: String(r.os),
+      reports_on: r.reports_on === null || r.reports_on === undefined ? null : r.reports_on === 1,
+      bytes: Number(r.bytes),
+      note_chars: Number(r.note_chars ?? 0),
+      note_preview: (r.note_preview as string | null) ?? null,
+    }),
+  );
+  return { uploads: rows, truncated: res.results.length > opts.limit };
 }

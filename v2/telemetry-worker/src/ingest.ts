@@ -74,6 +74,7 @@ export async function consumeQuota(env: Env, events: CleanEvent[], now: Date): P
 // See "Storage budget" in README.md before raising it.
 export const DEFAULT_DAILY_EVENT_BYTES = 10 * 1024 * 1024;
 export const DEFAULT_RAW_RETENTION_DAYS = 30;
+export const DEFAULT_LOG_RETENTION_DAYS = 30;
 
 // Bumps every counter in `rows` by its `n`, or none of them when any would
 // pass its `cap`. One statement; see consumeQuota.
@@ -238,13 +239,14 @@ export interface PurgeResult {
 }
 
 // Raw events go after RAW_RETENTION_DAYS (30). Log text never outlives them:
-// excerpts are cleared from their events, and Send logs uploads deleted,
-// after LOG_RETENTION_DAYS (30). Then the storage budget is enforced with
-// whatever is left of the run's row-write allowance.
+// excerpts are cleared from their events, and uploads (Send logs and bug
+// reports, notes included) deleted, after LOG_RETENTION_DAYS (30). Then the
+// storage budget is enforced with whatever is left of the run's row-write
+// allowance.
 export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
   const days = intVar(env.RAW_RETENTION_DAYS, DEFAULT_RAW_RETENTION_DAYS);
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
-  const logDays = intVar(env.LOG_RETENTION_DAYS, 30);
+  const logDays = intVar(env.LOG_RETENTION_DAYS, DEFAULT_LOG_RETENTION_DAYS);
   const logCutoff = new Date(now.getTime() - logDays * 86_400_000).toISOString();
   const rateCutoff = utcDay(new Date(now.getTime() - 2 * 86_400_000));
   const [ev, rate, excerpts, uploads] = await env.DB.batch([

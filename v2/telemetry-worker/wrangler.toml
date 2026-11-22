@@ -27,6 +27,16 @@ migrations_dir = "migrations"
 [triggers]
 crons = ["17 3 * * *"]
 
+# Email to the owner for every stored upload (bug reports and Send logs),
+# through Cloudflare Email Routing. Off until set up: Email Routing must be
+# enabled on a zone the owner controls and REPORT_MAIL_TO added and verified
+# as a destination address there, or deploy fails (unverified destination)
+# or sends nothing. Then uncomment this block and the REPORT_MAIL_* vars
+# below. README.md "Email notifications" has the steps.
+# [[send_email]]
+# name = "REPORT_MAIL"
+# destination_address = "bryanroscoe+atv@gmail.com"
+
 [vars]
 PRIVACY_CONTACT_EMAIL = "bryanroscoe+atv@gmail.com"
 # Raw event rows older than this are purged by the cron trigger. Only rows of the
@@ -70,7 +80,7 @@ GLOBAL_DAILY_EVENT_BYTES = "10485760"
 # "Send logs" out for everyone that day, so it is kept generous; the storage
 # trim below is the backstop for the space.
 # Each upload costs about six row writes (three quota rows, the row and its two
-# index entries), so 200 a day stays near 1.2k writes.
+# index entries; seven when emailed), so 200 a day stays near 1.4k writes.
 PER_INSTALL_DAILY_UPLOADS = "5"
 GLOBAL_DAILY_UPLOADS = "200"
 GLOBAL_DAILY_UPLOAD_BYTES = "6291456"
@@ -86,3 +96,10 @@ STORAGE_BUDGET_BYTES = "300000000"
 # deletes take ~7k, leaving the trim ~23k: a day's uploads plus ~7.4k raw
 # events, more than a day adds. A bigger overshoot is worked off over days.
 STORAGE_TRIM_MAX_ROW_WRITES = "30000"
+# Upload emails (see [[send_email]] above). REPORT_MAIL_FROM must be an
+# address on the Email Routing zone; REPORT_MAIL_TO the verified destination,
+# the same as destination_address. At most REPORT_MAIL_DAILY emails per UTC
+# day; past it uploads are still stored, just not emailed.
+# REPORT_MAIL_FROM = "reports@<your-email-routing-zone>"
+# REPORT_MAIL_TO = "bryanroscoe+atv@gmail.com"
+# REPORT_MAIL_DAILY = "50"

@@ -12,6 +12,12 @@ export interface Env {
   GLOBAL_DAILY_UPLOADS?: string;
   GLOBAL_DAILY_UPLOAD_BYTES?: string;
   PRIVACY_CONTACT_EMAIL?: string;
+  // Email the owner one message per stored upload. Off unless all three are
+  // set; see "Email notifications" in README.md.
+  REPORT_MAIL?: SendEmail;
+  REPORT_MAIL_FROM?: string;
+  REPORT_MAIL_TO?: string;
+  REPORT_MAIL_DAILY?: string;
 }
 
 export function intVar(v: string | undefined, fallback: number): number {

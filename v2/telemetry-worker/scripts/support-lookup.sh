@@ -7,7 +7,8 @@
 #   scripts/support-lookup.sh 7D0B-0B9E              # readable report
 #   scripts/support-lookup.sh 7D0B-0B9E --limit 200  # more recent events (max 200)
 #   scripts/support-lookup.sh 7D0B-0B9E --json       # the raw JSON
-#   scripts/support-lookup.sh --upload 12            # the text of one Send logs upload
+#   scripts/support-lookup.sh --upload 12            # the text of one upload, note first
+#   scripts/support-lookup.sh --bugs [2026-11-20]    # recent bug reports (JSON), optionally since a date
 #
 # ATV_TELEMETRY_URL overrides the production URL. The token goes to curl as a
 # header on stdin, so it never shows up in a process list, and nothing here
@@ -19,7 +20,7 @@ url="${url%/}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 usage() {
-  sed -n '2,13p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
+  sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2
   exit 2
 }
 
@@ -38,11 +39,14 @@ id=""
 json=0
 limit=50
 upload=""
+bugs=0
+since=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --json) json=1 ;;
     --limit) shift; limit="${1:-}" ;;
     --upload) shift; upload="${1:-}" ;;
+    --bugs) bugs=1; if [[ "${2:-}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]]; then since="$2"; shift; fi ;;
     -h|--help) usage ;;
     -*) usage ;;
     *) id="$1" ;;
@@ -53,6 +57,12 @@ done
 if [ -n "$upload" ]; then
   [[ "$upload" =~ ^[0-9]{1,12}$ ]] || { echo "--upload takes the upload number from the report." >&2; exit 2; }
   get "/v1/admin/uploads/$upload"
+  echo
+  exit 0
+fi
+
+if [ "$bugs" = 1 ]; then
+  get "/v1/admin/uploads?kind=bug&limit=50${since:+&since=$since}"
   echo
   exit 0
 fi

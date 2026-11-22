@@ -295,3 +295,34 @@ export function redactUploadText(input: string): string {
 }
 
 const CONTROL_EXCEPT_NEWLINE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u2028\u2029]/g;
+
+// A bug report's note is what the user typed, at most 4000 characters, so
+// unlike a log it can hold anything: a URL, a path with their user name in
+// it, an IPv6 address, the TV's serial. It gets the upload pass (addresses,
+// MACs, emails, adb and *.local names, numbered hosts, licence keys, TV names
+// after device_name) and then, token by token so it stays linear, whole-token
+// replacement of URLs and paths and the address and serial shapes the upload
+// pass doesn't look for. Prose with one separator ("and/or") survives.
+const NOTE_URL = /[a-z][a-z0-9+.-]{1,20}:\/\//i;
+const NOTE_PATH = /\\|^\W{0,4}~?\/|^\W{0,4}[a-z]:[\\/]|[\\/][^\\/]*[\\/]|[\\/][\w-]+\.[a-z0-9]{1,5}\b/i;
+const NOTE_IPV6 = /(?<![\w:])\[?[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:%\w+)?\]?(?::\d{1,5})?(?![\w:])/gi;
+const NOTE_HOST_PORT = /\b[a-z0-9][\w.-]*:\d{2,5}\b/gi;
+
+function redactNoteToken(token: string): string {
+  if (token.length > LONG_TOKEN) return LONG_TOKEN_REMOVED;
+  if (NOTE_URL.test(token)) return "[url]";
+  if (NOTE_PATH.test(token)) return "[path]";
+  return token
+    .replace(NOTE_IPV6, "[ip]")
+    .replace(NOTE_HOST_PORT, "[host]")
+    .replace(SERIAL, "[serial]")
+    .replace(SERIAL_UPPER, "[serial]");
+}
+
+export function redactNote(input: string): string {
+  return redactUploadText(input)
+    .split(/(\s+)/)
+    .map((part, i) => (i % 2 === 1 ? part : redactNoteToken(part)))
+    .join("")
+    .trim();
+}

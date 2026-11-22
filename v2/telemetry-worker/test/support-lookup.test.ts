@@ -36,7 +36,20 @@ describe("support lookup report", () => {
               log_excerpt: "line one\nline two",
             },
           ],
-          uploads: [{ id: 12, received_at: "2026-11-02T14:05:00.000Z", app_version: "2.4.2", os: "windows", reports_on: false, bytes: 2048 }],
+          uploads: [
+            { id: 12, received_at: "2026-11-02T14:05:00.000Z", app_version: "2.4.2", os: "windows", reports_on: false, bytes: 2048 },
+            {
+              id: 13,
+              received_at: "2026-11-02T14:06:00.000Z",
+              kind: "bug",
+              app: "mobile",
+              app_version: "0.2.0",
+              os: "android 15",
+              reports_on: true,
+              bytes: 30,
+              note: "Scan finds nothing.\nAgain.",
+            },
+          ],
         },
       ],
     };
@@ -46,6 +59,8 @@ describe("support lookup report", () => {
     expect(text).toContain("TV          NVIDIA SHIELD Android TV, Android 11, shield (1 events)");
     expect(text).toContain("Upload #12  2026-11-02 14:05:00Z  2.0 KB  2.4.2 on windows, reports off");
     expect(text).toContain("scripts/support-lookup.sh --upload 12");
+    expect(text).toContain("Bug report #13  2026-11-02 14:06:00Z  30 B  mobile 0.2.0 on android 15, reports on");
+    expect(text).toContain("              > Scan finds nothing.\n              > Again.");
     expect(text).toContain("2026-11-02 14:00:03Z  diagnostic  scan  scan_empty  (desktop 2.4.2, windows)");
     expect(text).toContain('diag: {"sweep":{"probed":254,"open":0}}');
     expect(text).toContain("        | line two");

@@ -1,5 +1,5 @@
 import { intVar, type Env } from "./env";
-import { DEFAULT_RAW_RETENTION_DAYS } from "./ingest";
+import { DEFAULT_LOG_RETENTION_DAYS, DEFAULT_RAW_RETENTION_DAYS } from "./ingest";
 
 export function privacyPolicy(env: Env, head = false): Response {
   const contact = env.PRIVACY_CONTACT_EMAIL?.trim();
@@ -10,6 +10,7 @@ export function privacyPolicy(env: Env, head = false): Response {
     });
   }
   const days = intVar(env.RAW_RETENTION_DAYS, DEFAULT_RAW_RETENTION_DAYS);
+  const logDays = intVar(env.LOG_RETENTION_DAYS, DEFAULT_LOG_RETENTION_DAYS);
   const html = `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ATV Optimizer Privacy Policy</title>
@@ -19,7 +20,7 @@ main{max-width:740px;margin:auto;padding:40px 24px 72px}h1{font-size:2rem;line-h
 h2{font-size:1.25rem;margin-top:2rem}a{overflow-wrap:anywhere}li{margin:.4rem 0}
 </style></head><body><main>
 <h1>ATV Optimizer Privacy Policy</h1>
-<p>Effective November 12, 2026. ATV Optimizer is operated by Bryan Roscoe.
+<p>Effective November 22, 2026. ATV Optimizer is operated by Bryan Roscoe.
 This policy describes the Android phone and tablet app, package <code>com.atvoptimizer.mobile</code>.</p>
 <h2>Your phone and TV</h2>
 <p>The app connects to a TV you authorize over your local network. Saved TVs, their addresses,
@@ -38,11 +39,23 @@ timestamp, TV manufacturer, brand, model, device codename, product and Android v
 status, action category and whether it worked, and short error codes and redacted error text.
 Errors may include crash diagnostics. Reports do not contain TV serial numbers, hardware IDs,
 network addresses, TV names, installed-app lists, file contents or purchase records.
-The Android app does not upload its debug logs.</p>
+Automatic reports never include the app's diagnostics log; only a bug report you send does (below).</p>
 <p>Reports go over HTTPS to the developer's service hosted by Cloudflare. The application backend
 does not store your request IP address or location. Cloudflare necessarily processes network
 information to deliver the service. Device-support updates are downloaded from this service
 while reporting is enabled. We do not sell your data or use it for advertising.</p>
+<h2>Bug reports you send</h2>
+<p>Nothing is sent unless you open <strong>Report a bug</strong> and press <strong>Send</strong>,
+whether or not automatic reports are on. A bug report contains the description you typed and a
+summary: the app version, your phone's Android version and model, the connected TV's public build
+properties (manufacturer, brand, model, device codename and Android version) and the app's recent
+connection diagnostics. The app removes network addresses, hardware and serial identifiers, email
+addresses, host names and license keys before sending, and the developer's service removes them
+again before storing the report. Do not put private information in the description.</p>
+<p>A bug report is sent over HTTPS to the same service as reports, which does not store your request
+IP address or location. It is stored with your installation's Support ID so the developer can match
+it to your request, and the developer receives an email notice with its details and your
+description. Bug reports are deleted after ${logDays} days, or sooner on request (below).</p>
 <h2>Purchases</h2>
 <p>Google Play processes the optional one-time Pro purchase under Google's terms and privacy
 policy. The app does not receive your card or bank details. It verifies and stores the signed
@@ -53,7 +66,7 @@ payment records and purchase history; uninstalling the app does not delete Googl
 <p>Raw reports are retained for ${days} days and removed by a daily cleanup. Aggregated device and
 error statistics are retained longer. Some device statistics retain the random installation ID;
 they are not all automatically anonymized when raw reports expire.</p>
-<p>For a privacy question or to request deletion of reports associated with your installation,
+<p>For a privacy question or to request deletion of reports and bug reports associated with your installation,
 email <a href="mailto:${contact}">${contact}</a>. Include the <strong>Support ID</strong> shown in
 <strong>More → Privacy</strong>. Copy it before turning reports off or clearing app data.
 If you previously reset the ID, include any older IDs you saved. Without an ID we may be unable

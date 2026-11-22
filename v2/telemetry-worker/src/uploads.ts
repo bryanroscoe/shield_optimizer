@@ -1,24 +1,29 @@
-// POST /v1/diagnostics: what a desktop user sent with "Send logs to
-// developer". A redacted summary of their computer and TVs plus up to 256 KiB
-// of the app's own log, keyed by the install id the app shows as its support
-// ID, so a complaint that quotes the ID can be matched to its logs.
+// POST /v1/diagnostics: what a user sent with "Send logs to developer"
+// (desktop) or "Report a bug" (desktop and, from schema 2, the phone app). A
+// redacted summary of their computer or phone and TVs plus the app's own log
+// (up to 256 KiB on desktop, 64 KiB from the phone) and, for a bug report,
+// the description they typed. Keyed by the install id the app shows as its
+// support ID, so a complaint that quotes the ID can be matched to it.
 //
-// The user pressed a button that says it sends their logs, so this is
-// accepted whether or not their automatic reports are on. The client
-// redacts every line (engine/log_redact.rs); redactUploadText is a second,
-// cheaper pass. Kept for LOG_RETENTION_DAYS (30), then deleted by the cron.
+// The user pressed a button that says it sends these, so this is accepted
+// whether or not their automatic reports are on. The client redacts every
+// line (engine/log_redact.rs); redactUploadText is a second, cheaper pass,
+// and the note gets redactNote. Kept for LOG_RETENTION_DAYS (30), then
+// deleted by the cron.
 
 import type { Env } from "./env";
 import { intVar } from "./env";
 import { admit, releaseQuota, utcDay, type QuotaRow } from "./ingest";
-import { clamp, redactShortField, redactUploadText } from "./redact";
+import { clamp, redactNote, redactShortField, redactUploadText } from "./redact";
 
-export const UPLOAD_SCHEMA = 1;
-// The client sends at most 256 KiB of log and a 16 KiB summary. JSON
+// The desktop client sends at most 256 KiB of log and a 16 KiB summary. JSON
 // escaping can double that on the wire (a log of quoted adb argument lists
-// is mostly quotes), so the body limit leaves room for it.
+// is mostly quotes), so the body limit leaves room for it, plus a note whose
+// 4000 characters escape to at most 24 000 bytes.
 export const UPLOAD_MAX_TEXT = 300 * 1024;
-export const UPLOAD_MAX_BODY = UPLOAD_MAX_TEXT * 2 + 16 * 1024;
+export const MOBILE_MAX_TEXT = 64 * 1024;
+export const NOTE_MAX_CHARS = 4000;
+export const UPLOAD_MAX_BODY = UPLOAD_MAX_TEXT * 2 + 16 * 1024 + 24 * 1024;
 export const UPLOAD_GLOBAL_KEY = "upload:*";
 export const UPLOAD_BYTES_KEY = "upload-bytes:*";
 
@@ -26,14 +31,19 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 const APP_VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}(?:-(?:alpha|beta|rc|preview|pre|dev)(?:\.\d{1,3})?)?$/;
 const RFC3339 = /^\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:[Zz]|[+-]\d{2}:\d{2})$/;
 
+export type UploadKind = "logs" | "bug";
+
 export interface CleanUpload {
   install_id: string;
-  app: "desktop";
+  kind: UploadKind;
+  app: "desktop" | "mobile";
   app_version: string;
   os: string;
   client_ts: string;
   reports_on: boolean | null;
+  // Redacted. A bug report may have only a note, and then body is "".
   body: string;
+  note: string | null;
 }
 
 export type UploadResult = { ok: true; value: CleanUpload } | { ok: false; reason: string };
@@ -44,10 +54,16 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 
 export function validateUpload(raw: unknown): UploadResult {
   if (!isRecord(raw)) return { ok: false, reason: "body_not_object" };
-  if (raw.schema !== UPLOAD_SCHEMA) return { ok: false, reason: "unsupported_schema" };
-  // Only the desktop app has Send logs. The phone app's declared data does
-  // not include logs, so an upload claiming to be from it is refused.
-  if (raw.app !== "desktop") return { ok: false, reason: "unsupported_app" };
+  if (raw.schema !== 1 && raw.schema !== 2) return { ok: false, reason: "unsupported_schema" };
+  // Schema 1 is desktop Send logs only: the phone app's declared data did not
+  // include anything it sends before schema 2's Report a bug.
+  const app = raw.app;
+  if (app !== "desktop" && (raw.schema === 1 || app !== "mobile")) return { ok: false, reason: "unsupported_app" };
+  let kind: UploadKind = "logs";
+  if (raw.schema === 2) {
+    if (raw.kind !== "logs" && raw.kind !== "bug") return { ok: false, reason: "bad_kind" };
+    kind = raw.kind;
+  }
   if (typeof raw.install_id !== "string" || !UUID_V4.test(raw.install_id)) {
     return { ok: false, reason: "bad_install_id" };
   }
@@ -59,18 +75,35 @@ export function validateUpload(raw: unknown): UploadResult {
   }
   const os = clamp(redactShortField(clamp(typeof raw.os === "string" ? raw.os : "", 256)), 40).toLowerCase();
   if (!os || os === "[redacted]") return { ok: false, reason: "bad_os" };
-  if (typeof raw.text !== "string" || raw.text.trim() === "") return { ok: false, reason: "bad_text" };
-  if (raw.text.length > UPLOAD_MAX_TEXT) return { ok: false, reason: "text_too_large" };
+
+  let note: string | null = null;
+  if (raw.schema === 2 && raw.note !== undefined && raw.note !== null) {
+    if (typeof raw.note !== "string") return { ok: false, reason: "bad_note" };
+    const trimmed = raw.note.trim();
+    if (Array.from(trimmed).length > NOTE_MAX_CHARS) return { ok: false, reason: "note_too_large" };
+    const redacted = trimmed === "" ? "" : redactNote(trimmed);
+    if (redacted !== "") note = redacted;
+  }
+
+  const textGiven = raw.text !== undefined && raw.text !== null;
+  if (textGiven && typeof raw.text !== "string") return { ok: false, reason: "bad_text" };
+  const text = typeof raw.text === "string" ? raw.text : "";
+  if (text.length > (app === "mobile" ? MOBILE_MAX_TEXT : UPLOAD_MAX_TEXT)) return { ok: false, reason: "text_too_large" };
+  const hasText = text.trim() !== "";
+  if (kind === "logs" && !hasText) return { ok: false, reason: "bad_text" };
+  if (kind === "bug" && !hasText && note === null) return { ok: false, reason: "empty_report" };
   return {
     ok: true,
     value: {
       install_id: raw.install_id.toLowerCase(),
-      app: "desktop",
+      kind,
+      app,
       app_version: raw.app_version,
       os,
       client_ts: new Date(raw.ts).toISOString(),
       reports_on: typeof raw.reports_enabled === "boolean" ? raw.reports_enabled : null,
-      body: redactUploadText(raw.text),
+      body: hasText ? redactUploadText(text) : "",
+      note,
     },
   };
 }
@@ -109,8 +142,11 @@ export async function admitUpload(env: Env, installId: string, bytes: number, no
   return (await installCount(env, day, key)) + 1 > installCap ? "install" : "global";
 }
 
+// The text and the note, as counted against GLOBAL_DAILY_UPLOAD_BYTES and
+// stored in `bytes`, which the storage budget estimates uploads by.
 export function uploadBytes(u: CleanUpload): number {
-  return new TextEncoder().encode(u.body).length;
+  const encoder = new TextEncoder();
+  return encoder.encode(u.body).length + encoder.encode(u.note ?? "").length;
 }
 
 // Gives an admitted upload's per-install count and its bytes back when
@@ -132,8 +168,8 @@ export async function releaseUpload(env: Env, installId: string, bytes: number, 
 export async function storeUpload(env: Env, u: CleanUpload, now: Date): Promise<number> {
   const bytes = uploadBytes(u);
   const row = await env.DB.prepare(
-    `INSERT INTO diag_uploads (received_at, client_ts, install_id, app, app_version, os, reports_on, bytes, body)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9) RETURNING id`,
+    `INSERT INTO diag_uploads (received_at, client_ts, install_id, app, app_version, os, reports_on, bytes, body, kind, note)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11) RETURNING id`,
   )
     .bind(
       now.toISOString(),
@@ -145,6 +181,8 @@ export async function storeUpload(env: Env, u: CleanUpload, now: Date): Promise<
       u.reports_on === null ? null : u.reports_on ? 1 : 0,
       bytes,
       u.body,
+      u.kind,
+      u.note,
     )
     .first<{ id: number }>();
   return row?.id ?? 0;
