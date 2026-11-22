@@ -317,6 +317,7 @@ pub fn run() {
             app.manage(remote_lifecycle::RemoteLifecycle::default());
             app.manage(export_commands::ExportGate::default());
             app.manage(import_commands::ImportStore::default());
+            app.manage(bug_report_commands::PreparedBugReport::default());
             app.manage(billing);
             let handle = app.handle().clone();
             tauri::async_runtime::spawn(async move {
@@ -340,7 +341,8 @@ pub fn run() {
             license::license_info,
             read_debug_log,
             collect_diagnostics,
-            bug_report_commands::preview_bug_report,
+            bug_report_commands::prepare_bug_report,
+            bug_report_commands::redact_bug_note,
             bug_report_commands::send_bug_report,
             logcat::read_device_logs,
             devices::list_devices,

@@ -64,6 +64,8 @@ export function validateUpload(raw: unknown): UploadResult {
     if (raw.kind !== "logs" && raw.kind !== "bug") return { ok: false, reason: "bad_kind" };
     kind = raw.kind;
   }
+  // Log uploads stay desktop-only: the phone app never sends its logs.
+  if (kind === "logs" && app !== "desktop") return { ok: false, reason: "unsupported_app" };
   if (typeof raw.install_id !== "string" || !UUID_V4.test(raw.install_id)) {
     return { ok: false, reason: "bad_install_id" };
   }

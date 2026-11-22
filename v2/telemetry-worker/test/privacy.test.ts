@@ -36,7 +36,13 @@ describe("Android privacy policy", () => {
     expect(text).toContain("the description you typed");
     expect(text).toContain("deleted after 14 days");
     expect(text).toContain("does not store your request\nIP address or location");
-    expect(text).not.toContain("does not upload its debug logs");
+    expect(text).toContain("the app never uploads its logs, bug reports included");
+    expect(text).toContain("which ADB client the app uses");
+    expect(text).toContain("SDK level");
+    expect(text).toContain("support tier");
+    expect(text).toContain("up to eight recent connection steps");
+    // The summary carries no TV brand.
+    expect(text).not.toMatch(/manufacturer, brand, model, device codename and Android version/);
   });
 
   it("refuses markup in the configured contact and handles HEAD without a body", async () => {

@@ -236,9 +236,7 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         .replace("INFO atv_optimizer_lib: adb located", "INFO atv_optimizer: wireless_connect 192.168.1.42:5555 ok");
     // Report a bug: the summary the phone's Rust builder writes for the demo
     // SHIELD. Send records the call; nothing leaves the page.
-    case "preview_bug_report": {
-      // Addresses go the way Rust's redaction sends them.
-      const note = String(args.note ?? "").trim().replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<ip>");
+    case "prepare_bug_report": {
       const steps = (args.history as { command: string; ok: boolean }[] | undefined) ?? [];
       const text = [
         "## ATV Optimizer bug report (Android)",
@@ -260,7 +258,12 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
         ...(steps.length ? steps.map((s) => `- ${s.command}: ${s.ok ? "ok" : "failed"}`) : ["- None recorded"]),
         "",
       ].join("\n");
-      return { note: note || null, text, bytes: text.length + note.length };
+      return { id: 1, text, bytes: text.length };
+    }
+    case "redact_bug_note": {
+      // Addresses go the way Rust's redaction sends them.
+      const note = String(args.note ?? "").trim().replace(/\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b/g, "<ip>");
+      return note || null;
     }
     case "send_bug_report":
       (window as unknown as { __BUG_REPORTS__?: unknown[] }).__BUG_REPORTS__ ??= [];

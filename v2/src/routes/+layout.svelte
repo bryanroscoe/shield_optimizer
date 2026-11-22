@@ -435,6 +435,7 @@
   /// Escape doesn't lose it; cleared once it has been sent.
   let bugNote = $state("");
   const BUG_NOTE_MAX = 4000;
+  const bugNoteNearLimit = $derived(bugNote.length > BUG_NOTE_MAX - 400);
   let bugSending = $state(false);
   let bugSent = $state<{ reportId: number | null; shortId: string } | null>(null);
   let bugSendError = $state("");
@@ -446,6 +447,7 @@
     bugSending = true;
     bugSendError = "";
     bugSent = null;
+    sentIdCopied = false;
     try {
       const result = await api.sendBugReport(bugNote);
       bugSent = { reportId: result.report_id ?? null, shortId: formatSupportId(result.support_id) };
@@ -457,10 +459,11 @@
     }
   }
 
+  let sentIdCopied = $state(false);
   async function copySentId(id: string) {
     try {
       await navigator.clipboard.writeText(id);
-      supportCopied = true;
+      sentIdCopied = true;
     } catch (e) {
       bugMessage = `Couldn't reach the clipboard (${e}). Your support ID is ${id}.`;
     }
@@ -484,6 +487,7 @@
     bugBusy = true;
     bugCopied = false;
     supportCopied = false;
+    sentIdCopied = false;
     bugSent = null;
     bugSendError = "";
     void loadReports();
@@ -791,11 +795,12 @@
       placeholder="What you did, what you expected, and what happened instead"
       aria-describedby="bug-send-consent"
     ></textarea>
-    {#if bugNote.length > BUG_NOTE_MAX - 400}
-      <p class="bug-count muted" aria-live="polite">
+    <!-- Always rendered, so the first count near the limit is announced. -->
+    <p class="bug-count muted" class:idle={!bugNoteNearLimit} aria-live="polite">
+      {#if bugNoteNearLimit}
         {bugNote.length.toLocaleString()} / {BUG_NOTE_MAX.toLocaleString()} characters
-      </p>
-    {/if}
+      {/if}
+    </p>
     {#if canSendBug}
       <p id="bug-send-consent" class="bug-prose muted">
         Send to developer shares your description, a summary of this computer and its TVs, and
@@ -804,8 +809,8 @@
       <div class="bug-reports-help">
         <HelpDetails label="What's removed before sending">
           <p>
-            Addresses, serial numbers, TV names, your user name and file paths are removed from
-            everything sent, your description included. The report is labeled with your support
+            Addresses, serial numbers, the names of your TVs the app knows, your user name and
+            file paths are removed from everything sent, your description included. The report is labeled with your support
             ID, kept for 30 days, and goes to the app's developer whether or not anonymous reports
             are on.
           </p>
@@ -828,7 +833,7 @@
         </span>
         {#if bugSent.shortId}
           <button class="callout-link" onclick={() => copySentId(bugSent!.shortId)}>
-            {supportCopied ? "Copied" : "Copy ID"}
+            {sentIdCopied ? "Copied" : "Copy ID"}
           </button>
         {/if}
       </div>
@@ -1139,6 +1144,10 @@
     margin: 0;
     font-size: 0.76rem;
     text-align: right;
+  }
+  /* Out of the flex flow while empty, so it adds no gap. */
+  .bug-count.idle {
+    position: absolute;
   }
   .bug-sent {
     align-items: center;

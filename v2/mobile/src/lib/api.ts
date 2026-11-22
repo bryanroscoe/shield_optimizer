@@ -13,7 +13,7 @@ import type { MediaCapabilities } from "../../../shared/media";
 import type { DeviceLogOptions, DeviceLogResult } from "../../../shared/device-logs";
 import { observeCall, type Send, type TelemetrySettings } from "../../../shared/telemetry";
 import { logCall, summarizeArgs } from "./log";
-import type { BugReportPreview, BugReportResult, ConnectionStep } from "./bug-report";
+import type { BugReportResult, BugReportSummary, ConnectionStep } from "./bug-report";
 import { connectionGeneration, emitConnectionLost, isConnectionLostError } from "./connectionEvents";
 import type {
   ActionResult,
@@ -337,11 +337,13 @@ export const api = {
   readDebugLog: () => call<string>("read_debug_log"),
   collectDiagnostics: (serial: string | null, publicReport = false) =>
     call<string>("collect_diagnostics", { serial, ...(publicReport ? { publicReport } : {}) }),
-  /// Exactly what Send would upload: the redacted description and summary.
-  previewBugReport: (note: string, serial: string | null, history: ConnectionStep[]) =>
-    call<BugReportPreview>("preview_bug_report", { note, serial, history }),
-  sendBugReport: (note: string, serial: string | null, history: ConnectionStep[]) =>
-    call<BugReportResult>("send_bug_report", { note, serial, history }),
+  /// The redacted summary Send will upload, built once (it reads the TV).
+  prepareBugReport: (serial: string | null, history: ConnectionStep[]) =>
+    call<BugReportSummary>("prepare_bug_report", { serial, history }),
+  /// The description as Send would upload it with summary `id`. Reads no TV.
+  redactBugNote: (id: number, note: string) => call<string | null>("redact_bug_note", { id, note }),
+  /// Uploads summary `id` exactly as prepared, with the description.
+  sendBugReport: (id: number, note: string) => call<BugReportResult>("send_bug_report", { id, note }),
   readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
     call<DeviceLogResult>("read_device_logs", { serial, options }),
 

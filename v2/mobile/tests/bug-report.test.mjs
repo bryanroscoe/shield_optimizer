@@ -4,9 +4,11 @@ import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
 
 // More › Report a bug: the description is required, the preview is the
-// backend's own text, Send passes the connected TV and only the connection
-// steps, the result names the report, a refusal is shown, a build without an
-// endpoint offers GitHub only, and the GitHub fallback opens the bug form.
+// backend's own text, the summary is built once for the connected TV and
+// only the connection steps (typing re-redacts just the description), Send
+// uploads that same summary by id, the result names the report, a refusal is
+// shown, a build without an endpoint offers GitHub only, and the GitHub
+// fallback opens the bug form.
 
 let server;
 let browser;
@@ -51,8 +53,11 @@ async function openMore(t, { telemetry } = {}) {
           case "wireless_status": return { connected: true };
           case "wireless_connect": return { ok: true, message: "connected" };
           case "telemetry_settings": return window.telemetry;
-          case "preview_bug_report":
-            return { note: args.note.trim() ? `[scrubbed] ${args.note.trim()}` : null, text: "## ATV Optimizer bug report (Android)\n\n- App version: 0.1.4\n", bytes: 60 };
+          case "prepare_bug_report":
+            window.prepared = (window.prepared ?? 0) + 1;
+            return { id: 6 + window.prepared, text: "## ATV Optimizer bug report (Android)\n\n- App version: 0.1.4\n", bytes: 40 };
+          case "redact_bug_note":
+            return args.note.trim() ? `[scrubbed] ${args.note.trim()}` : null;
           case "send_bug_report":
             return { support_id: "7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11", bytes: 60, report_id: 42 };
           case "collect_diagnostics": return "## ATV Optimizer diagnostics\n\n- App version: 0.1.4\n";
@@ -101,18 +106,34 @@ test("Send needs a description, previews the backend's text, and names the repor
   assert.match(shown, /### Description\n\n\[scrubbed\] Remote stops after a minute/);
   assert.ok(shown.includes(PREVIEW_TEXT), shown);
 
+  // Typing with the preview open redacts the description again and nothing else.
+  await note.fill("Remote stops after two minutes");
+  await page.waitForFunction(() =>
+    document.querySelector('textarea[aria-label="Report preview"]')?.value.includes("[scrubbed] Remote stops after two minutes"),
+  );
+  await note.fill("Remote stops after three minutes");
+  await page.waitForFunction(() =>
+    document.querySelector('textarea[aria-label="Report preview"]')?.value.includes("[scrubbed] Remote stops after three minutes"),
+  );
+  const redactions = await calls(page, "redact_bug_note");
+  assert.ok(redactions.length >= 3, JSON.stringify(redactions));
+  for (const call of redactions) assert.equal(call.id, 7);
+
   await send.click();
   const status = sheet.getByRole("status").filter({ hasText: "Sent as report #42" });
   await status.waitFor();
   assert.match(await status.innerText(), /Support ID is 7D0B-0B9E/);
-  const [args] = await calls(page, "send_bug_report");
-  assert.equal(args.note, "Remote stops after a minute");
-  assert.equal(args.serial, "A:5555", "the connected TV, so its build is described");
-  assert.ok(Array.isArray(args.history));
-  for (const step of args.history) {
+  const prepares = await calls(page, "prepare_bug_report");
+  assert.equal(prepares.length, 1, "the TV is read once, not on every keystroke or again for Send");
+  const [prepared] = prepares;
+  assert.equal(prepared.serial, "A:5555", "the connected TV, so its build is described");
+  assert.ok(Array.isArray(prepared.history));
+  for (const step of prepared.history) {
     assert.deepEqual(Object.keys(step).sort(), ["command", "ok"], JSON.stringify(step));
     assert.match(step.command, /^wireless_/);
   }
+  const [args] = await calls(page, "send_bug_report");
+  assert.deepEqual(args, { id: 7, note: "Remote stops after three minutes" }, "the previewed summary, by id");
   assert.equal(await note.inputValue(), "", "a sent description is cleared");
 
   // The description never reaches the on-device debug log.
@@ -128,6 +149,10 @@ test("a refusal is shown in the sheet and the counter appears near the limit", a
     };
   });
   const note = sheet.getByLabel("What went wrong?");
+  // The live region is there before the count is, so its first change is announced.
+  const counter = sheet.locator('p[aria-live="polite"]');
+  assert.equal(await counter.count(), 1);
+  assert.equal((await counter.innerText()).trim(), "");
   await note.fill("x".repeat(3601));
   await sheet.getByText("3,601 / 4,000 characters").waitFor();
   await sheet.getByRole("button", { name: "Send", exact: true }).click();
@@ -135,6 +160,9 @@ test("a refusal is shown in the sheet and the counter appears near the limit", a
   await alert.waitFor();
   assert.match(await alert.innerText(), /^Bug report limit reached/);
   assert.equal(await note.inputValue(), "x".repeat(3601), "a refused description is kept");
+  // Without a preview, Send built the summary itself and sent it by id.
+  assert.equal((await calls(page, "prepare_bug_report")).length, 1);
+  assert.equal((await calls(page, "send_bug_report"))[0].id, 7);
 });
 
 test("a build without an endpoint offers GitHub only, and GitHub opens the bug form", async (t) => {

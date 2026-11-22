@@ -21,7 +21,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/components/SupportReports.svelte` |
 | `collect_diagnostics` | Free | `src-tauri/src/lib.rs` | `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte` |
-| `preview_bug_report` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
+| `prepare_bug_report` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
+| `redact_bug_note` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
 | `send_bug_report` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
 | `read_device_logs` | Free | `../crates/core/src/commands/logcat.rs` | `src/screens/Logs.svelte` |
 | `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte`, `src/components/TelemetryNotice.svelte` |

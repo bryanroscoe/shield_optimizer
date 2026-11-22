@@ -2,8 +2,10 @@
   import HelpSheet from "./HelpSheet.svelte";
   import { modal } from "../lib/modal";
   // More › Report a bug. Send uploads the description and a short summary
-  // to the developer; the preview is built by the same Rust code that sends,
-  // so what it shows is what goes. GitHub stays as the public alternative.
+  // to the developer. Rust builds the summary once (it reads the TV) and
+  // keeps it; the preview redacts the description against it as it is typed
+  // and Send uploads that same summary by id, so what it shows is what goes.
+  // GitHub stays as the public alternative.
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { formatSupportId, type TelemetrySettings } from "../../../shared/telemetry";
@@ -13,7 +15,7 @@
     bugIssueUrl,
     connectionSteps,
     previewText,
-    type BugReportPreview,
+    type BugReportSummary,
   } from "../lib/bug-report";
   import { publicConnectionHistory } from "../lib/log";
 
@@ -30,10 +32,18 @@
   let message = $state("");
 
   let previewOpen = $state(false);
-  let preview = $state<BugReportPreview | null>(null);
+  /// Built once per report, when the preview first opens or on Send.
+  let summary = $state<BugReportSummary | null>(null);
+  let summaryLoad: Promise<BugReportSummary> | null = null;
+  /// The description as Send would upload it; undefined until redacted.
+  let previewNote = $state<string | null | undefined>(undefined);
+  const preview = $derived(
+    summary && previewNote !== undefined ? { note: previewNote, text: summary.text } : null,
+  );
   let previewError = $state("");
   let previewRequest = 0;
   let previewTimer: ReturnType<typeof setTimeout> | undefined;
+  const noteNearLimit = $derived(note.length > BUG_NOTE_WARN);
 
   const serial = () => (session.isConnected ? session.serial : null);
 
@@ -45,15 +55,28 @@
     return () => clearTimeout(previewTimer);
   });
 
+  function ensureSummary(): Promise<BugReportSummary> {
+    if (summary) return Promise.resolve(summary);
+    summaryLoad ??= api.prepareBugReport(serial(), connectionSteps()).then(
+      (result) => (summary = result),
+      (e) => {
+        summaryLoad = null;
+        throw e;
+      },
+    );
+    return summaryLoad;
+  }
+
   async function loadPreview() {
     const request = ++previewRequest;
     previewError = "";
     try {
-      const result = await api.previewBugReport(note, serial(), connectionSteps());
-      if (request === previewRequest) preview = result;
+      const prepared = await ensureSummary();
+      const redacted = await api.redactBugNote(prepared.id, note);
+      if (request === previewRequest) previewNote = redacted;
     } catch (e) {
       if (request === previewRequest) {
-        preview = null;
+        previewNote = undefined;
         previewError = String(e);
       }
     }
@@ -64,7 +87,8 @@
     if (previewOpen) void loadPreview();
   }
 
-  // An open preview follows the description as it is typed.
+  // An open preview follows the description as it is typed: only the
+  // description is redacted again, the summary stays as built.
   function onInput() {
     sent = null;
     if (!previewOpen) return;
@@ -79,12 +103,23 @@
     message = "";
     sent = null;
     try {
-      const result = await api.sendBugReport(note, serial(), connectionSteps());
+      const prepared = await ensureSummary();
+      const result = await api.sendBugReport(prepared.id, note);
       sent = { reportId: result.report_id ?? null, shortId: formatSupportId(result.support_id) };
       note = "";
       previewOpen = false;
-      preview = null;
+      previewRequest++;
+      previewNote = undefined;
+      summary = null;
+      summaryLoad = null;
     } catch (e) {
+      // Rust no longer holds that summary: the next Send or preview builds a new one.
+      if (/the report changed/.test(String(e))) {
+        summary = null;
+        summaryLoad = null;
+        previewNote = undefined;
+        if (previewOpen) void loadPreview();
+      }
       error = String(e).replace(/^.*Error:\s*/, "");
     } finally {
       sending = false;
@@ -149,9 +184,10 @@
         autocomplete="off"
       ></textarea>
     </label>
-    {#if note.length > BUG_NOTE_WARN}
-      <p class="count" aria-live="polite">{note.length.toLocaleString()} / {BUG_NOTE_MAX.toLocaleString()} characters</p>
-    {/if}
+    <!-- Always rendered, so the first count near the limit is announced. -->
+    <p class="count" class:idle={!noteNearLimit} aria-live="polite">
+      {#if noteNearLimit}{note.length.toLocaleString()} / {BUG_NOTE_MAX.toLocaleString()} characters{/if}
+    </p>
 
     {#if telemetry && !canSend}
       <p class="fine">This build can't send reports to the developer. Report it on GitHub instead.</p>
@@ -278,6 +314,10 @@
   }
   .count {
     text-align: right;
+  }
+  /* Out of the flex flow while empty, so it adds no gap. */
+  .count.idle {
+    position: absolute;
   }
   .alert {
     color: var(--danger);

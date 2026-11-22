@@ -308,8 +308,19 @@ const NOTE_PATH = /\\|^\W{0,4}~?\/|^\W{0,4}[a-z]:[\\/]|[\\/][^\\/]*[\\/]|[\\/][\
 const NOTE_IPV6 = /(?<![\w:])\[?[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}(?:%\w+)?\]?(?::\d{1,5})?(?![\w:])/gi;
 const NOTE_HOST_PORT = /\b[a-z0-9][\w.-]*:\d{2,5}\b/gi;
 
+// A clock time someone typed ("at 10:30", "10:30:45", "10:30pm", "9:15-9:45"),
+// which the host:port and IPv6 shapes would otherwise take. Hours stop at 23
+// and minutes at 59, so a real port (mybox:5555) never qualifies.
+const CLOCK_TIME = /^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:[ap]\.?m\.?)?$/i;
+
+function isClockTime(token: string): boolean {
+  const core = token.replace(/^[(["']+/, "").replace(/[.,;!?)\]"']+$/, "");
+  return core !== "" && core.split(/[-\u2013]/).every((part) => CLOCK_TIME.test(part));
+}
+
 function redactNoteToken(token: string): string {
   if (token.length > LONG_TOKEN) return LONG_TOKEN_REMOVED;
+  if (isClockTime(token)) return token;
   if (NOTE_URL.test(token)) return "[url]";
   if (NOTE_PATH.test(token)) return "[path]";
   return token

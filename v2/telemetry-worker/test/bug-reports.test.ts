@@ -51,6 +51,15 @@ describe("note redaction", () => {
     expect(out.split("\n")).toHaveLength(5);
   });
 
+  it("keeps clock times and still removes host:port and IPv6", () => {
+    const out = redactNote(
+      "It froze at 10:30, again at 10:30:45 and 10:30pm (and 9:15-9:45). " +
+        "TV 192.168.1.5:5555, shield.local:5555, mybox:5555, [fe80::1]:5555, 2001:db8::8a2e:370:7334 and fe80::1c2b:3d4e:5f60:7a8b.",
+    );
+    for (const kept of ["at 10:30,", "10:30:45", "10:30pm", "(and 9:15-9:45)."]) expect(out, out).toContain(kept);
+    for (const leak of ["192.168", "shield", "mybox", "fe80", "2001", "db8"]) expect(out, out).not.toContain(leak);
+  });
+
   it("stays linear on a hostile 4000-character note", () => {
     for (const text of ["a/".repeat(2000), "1:".repeat(2000), `${"x".repeat(3999)}@`, "a1".repeat(2000)]) {
       const started = Date.now();
@@ -78,7 +87,10 @@ describe("POST /v1/diagnostics schema 2", () => {
     expect(reason(bug({ text: undefined }))).toBeNull();
     expect(reason(bug({ note: undefined }))).toBeNull();
     expect(reason(bug({ text: 7 }))).toBe("bad_text");
-    expect(reason(bug({ kind: "logs", text: "  " }))).toBe("bad_text");
+    expect(reason(bug({ app: "desktop", kind: "logs", text: "  " }))).toBe("bad_text");
+    // Log uploads stay desktop-only, whichever schema they come in.
+    expect(reason(bug({ kind: "logs", text: "log line" }))).toBe("unsupported_app");
+    expect(reason(bug({ app: "desktop", kind: "logs", text: "log line" }))).toBeNull();
     expect(reason(bug({ text: "x".repeat(MOBILE_MAX_TEXT + 1) }))).toBe("text_too_large");
     expect(reason(bug({ app: "desktop", text: "x".repeat(MOBILE_MAX_TEXT + 1) }))).toBeNull();
   });

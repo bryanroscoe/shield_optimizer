@@ -39,19 +39,23 @@ timestamp, TV manufacturer, brand, model, device codename, product and Android v
 status, action category and whether it worked, and short error codes and redacted error text.
 Errors may include crash diagnostics. Reports do not contain TV serial numbers, hardware IDs,
 network addresses, TV names, installed-app lists, file contents or purchase records.
-Automatic reports never include the app's diagnostics log; only a bug report you send does (below).</p>
+Reports never include the app's diagnostics log: the app never uploads its logs, bug reports included.</p>
 <p>Reports go over HTTPS to the developer's service hosted by Cloudflare. The application backend
 does not store your request IP address or location. Cloudflare necessarily processes network
 information to deliver the service. Device-support updates are downloaded from this service
 while reporting is enabled. We do not sell your data or use it for advertising.</p>
 <h2>Bug reports you send</h2>
 <p>Nothing is sent unless you open <strong>Report a bug</strong> and press <strong>Send</strong>,
-whether or not automatic reports are on. A bug report contains the description you typed and a
-summary: the app version, your phone's Android version and model, the connected TV's public build
-properties (manufacturer, brand, model, device codename and Android version) and the app's recent
-connection diagnostics. The app removes network addresses, hardware and serial identifiers, email
-addresses, host names and license keys before sending, and the developer's service removes them
-again before storing the report. Do not put private information in the description.</p>
+whether or not automatic reports are on. A bug report contains the description you typed, the
+time it was sent and a summary: your Support ID, the app version, your phone's Android version and
+model, whether automatic reports are on and which ADB client the app uses. For a connected TV it adds
+the connection type and state, manufacturer, model, device codename, Android version and SDK level,
+the device profile the app detected and its support tier, or only the kind of error when those
+can't be read. It ends with whether each of up to eight recent connection steps (finding, pairing,
+connecting to and checking a TV) worked. The app removes network addresses, hardware and serial
+identifiers, the names of TVs it knows, email addresses, host names and license keys before sending,
+and the developer's service removes addresses, identifiers and keys again before storing the report.
+Do not put private information in the description.</p>
 <p>A bug report is sent over HTTPS to the same service as reports, which does not store your request
 IP address or location. It is stored with your installation's Support ID so the developer can match
 it to your request. Bug reports are deleted after ${logDays} days, or sooner on request (below).</p>

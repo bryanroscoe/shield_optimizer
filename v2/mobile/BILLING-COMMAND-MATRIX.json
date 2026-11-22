@@ -140,8 +140,17 @@
       ]
     },
     {
-      "command": "preview_bug_report",
-      "api": "previewBugReport",
+      "command": "prepare_bug_report",
+      "api": "prepareBugReport",
+      "gate": "Free",
+      "backend": "src-tauri/src/bug_report_commands.rs",
+      "callers": [
+        "src/components/BugReportSheet.svelte"
+      ]
+    },
+    {
+      "command": "redact_bug_note",
+      "api": "redactBugNote",
       "gate": "Free",
       "backend": "src-tauri/src/bug_report_commands.rs",
       "callers": [

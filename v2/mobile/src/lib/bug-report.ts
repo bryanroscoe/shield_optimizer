@@ -1,5 +1,5 @@
 // More › Report a bug. The report itself is built and redacted in Rust
-// (`preview_bug_report` / `send_bug_report`); this only gathers what the
+// (`prepare_bug_report`, `redact_bug_note`, `send_bug_report`); this only gathers what the
 // frontend alone knows, the recent connection steps, and builds the GitHub
 // fallback link.
 
@@ -14,11 +14,18 @@ export interface ConnectionStep {
   ok: boolean;
 }
 
+/// The summary Send uploads, built once by `prepare_bug_report`. Send
+/// names it by `id`; the text itself never goes back to Rust.
+export interface BugReportSummary {
+  id: number;
+  text: string;
+  bytes: number;
+}
+
 export interface BugReportPreview {
   /// The description as it will be sent, after redaction. Null when empty.
   note: string | null;
   text: string;
-  bytes: number;
 }
 
 export interface BugReportResult {

@@ -177,6 +177,10 @@ async function exerciseSend({ browser, base }) {
   await note.fill("   ");
   assert.equal(await send.isDisabled(), true, "whitespace is not a description");
   assert.equal(await dialog.getByText(/characters$/).count(), 0, "no counter far from the limit");
+  // The live region is there before the count is, so its first change is announced.
+  const counter = dialog.locator('p.bug-count[aria-live="polite"]');
+  assert.equal(await counter.count(), 1);
+  assert.equal((await counter.innerText()).trim(), "");
   await note.fill("x".repeat(3700));
   await dialog.getByText("3,700 / 4,000 characters").waitFor();
   assert.equal(await note.getAttribute("maxlength"), "4000");
@@ -190,6 +194,18 @@ async function exerciseSend({ browser, base }) {
   assert.equal(calls.length, 1, JSON.stringify(calls));
   assert.equal(calls[0].args.note, "The Apps tab spins forever on my Chromecast.");
   assert.equal(await note.inputValue(), "", "a sent description is cleared");
+
+  // The sent report's Copy ID has its own state: the other Copy ID is untouched.
+  await page.evaluate(() => {
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: async () => {} }, configurable: true });
+  });
+  const sentCopy = status.getByRole("button", { name: "Copy ID" });
+  await sentCopy.click();
+  await status.getByRole("button", { name: "Copied" }).waitFor();
+  const supportCopy = dialog.locator(".bug-support button.bug-inline").filter({ hasText: /Copy ID|Copied/ });
+  if ((await supportCopy.count()) > 0) {
+    assert.match(await supportCopy.innerText(), /Copy ID/, "the support ID button didn't flip");
+  }
 
   // GitHub is still there, and carries what the user typed into the form.
   await note.fill("Second problem");

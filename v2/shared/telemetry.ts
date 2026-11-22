@@ -75,7 +75,8 @@ const QUIET_COMMANDS = new Set([
   "upload_diagnostics",
   // Report a bug › Send to developer, on both apps: the same.
   "send_bug_report",
-  "preview_bug_report",
+  "prepare_bug_report",
+  "redact_bug_note",
   // Mobile Save a copy / Share: failures name the user's files and the folder or app they
   // picked, and are shown on screen; they are not reported.
   "export_file",

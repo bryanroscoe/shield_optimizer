@@ -439,6 +439,20 @@ mod tests {
     }
 
     #[test]
+    fn the_note_loses_the_tv_name_however_it_is_typed() {
+        let device = shield();
+        let ids = device_identifiers(&device);
+        let known: Vec<&str> = ids.iter().map(String::as_str).collect();
+        let scrub = Scrub {
+            known: &known,
+            words: &[],
+        };
+        let note = clean_note("living room tv drops after a minute", &scrub).unwrap();
+        assert!(!note.to_lowercase().contains("living room"), "{note}");
+        assert!(note.ends_with("tv drops after a minute"), "{note}");
+    }
+
+    #[test]
     fn the_note_is_cut_to_its_limit() {
         let note = clean_note(&"word ".repeat(2000), &Scrub::default()).unwrap();
         assert!(note.chars().count() <= NOTE_MAX_CHARS);
