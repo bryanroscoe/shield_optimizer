@@ -297,7 +297,12 @@ test("optional choices survive tabs and confirmation names every actual action",
   const text = await dialog.innerText();
   // Every app is named once with its actual verb; the shared reason and its
   // tier are stated once for the three of them.
-  assert.match(text, /Caution: Disable Recommended One, Disable Optional Disable, Uninstall Optional Uninstall — Review whether you use this app\./);
+  const section = page.getByRole("region", { name: "Caution" });
+  assert.equal(
+    await section.locator(".change-names").innerText(),
+    "Disable Recommended One, Disable Optional Disable, Uninstall Optional Uninstall",
+  );
+  assert.equal(await section.locator(".change-reason").innerText(), "Review whether you use this app.");
   for (const name of ["Recommended One", "Optional Disable", "Optional Uninstall"]) {
     assert.equal(text.split(name).length - 1, 1, name);
   }
@@ -437,9 +442,12 @@ test("the confirm summary names the Safe verdict rather than calling it Caution"
   const dialog = page.locator(".dialog-card");
   await dialog.waitFor();
   const text = await dialog.innerText();
-  // Each app sits under its own tier with its verb: "Safe to remove: Disable …".
-  assert.match(text, /Safe to remove: Disable Safe Default — Reviewed for Android TV/);
-  assert.doesNotMatch(text, /Caution/);
+  // Each app sits under its own tier with its verb. A Safe row's description
+  // was on the row already, so the confirmation names it without repeating it.
+  const section = page.getByRole("region", { name: "Safe to remove" });
+  assert.equal(await section.locator(".change-names").innerText(), "Disable Safe Default");
+  assert.doesNotMatch(text, /Reviewed for Android TV/);
+  assert.doesNotMatch(text, /Caution/i);
 });
 
 test("Optimize has no Select all; Keep all clears every selection", async (t) => {

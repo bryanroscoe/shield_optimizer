@@ -116,7 +116,7 @@ test("losing Pro mid-run says Pro is required and offers it rather than a plain 
   assert.equal(await page.evaluate(() => calls.filter((c) => c.command === "disable_package").length), 3);
 });
 
-test("the Apply confirmation names each app once and states shared text once", () => {
+test("the Apply confirmation is sectioned by tier and names each app once", () => {
   const item = (name, method, kind, reason) => ({
     item: { entry: entry(name, method), action: { kind: method }, memory_mb: null },
     verdict: { kind, reason, source: "reviewed_catalog" },
@@ -126,32 +126,32 @@ test("the Apply confirmation names each app once and states shared text once", (
     item("Play Movies", "uninstall", "safe", "Defunct service (replaced by YouTube)"),
     item("Play Music", "uninstall", "safe", "Defunct service (replaced by YouTube Music)"),
     item("Stadia", "uninstall", "safe", "Service shut down January 2023"),
-    item("Stadia TV", "uninstall", "safe", "Service shut down January 2023"),
-    item("Nvidia Games", "disable", "caution", "Removable, but you may notice it go."),
+    item("Nvidia Games", "disable", "caution", "Removable, but you may notice it go"),
+    item("Nvidia Store", "disable", "caution", "Removable, but you may notice it go"),
     item("Mystery", "disable", "unknown", "No safety rule matched this package."),
   ];
-  const { warning, message } = rows.applyConfirmation(items, "optimize");
-  const all = `${warning} ${message}`;
-  for (const { item: { entry: e } } of items) {
-    assert.equal(all.split(new RegExp(`\\b${e.name}\\b(?! TV)`)).length - 1, 1, e.name);
-  }
-  for (const label of ["Unknown:", "Caution:", "Safe to remove:"]) assert.equal(all.split(label).length - 1, 1, label);
-  // Most serious first, and a shared reason is said once for both apps.
-  assert.ok(warning.indexOf("Unknown:") < warning.indexOf("Caution:"));
-  assert.ok(warning.indexOf("Caution:") < warning.indexOf("Safe to remove:"));
-  assert.match(warning, /Uninstall Stadia, Uninstall Stadia TV — Service shut down January 2023\./);
-  assert.equal(all.split("Service shut down January 2023").length - 1, 1);
-  assert.match(warning, /Disable Nvidia Games — Removable, but you may notice it go\./);
-  assert.equal(all.split("Restore can't bring it back").length - 1, 1);
+  const { sections, message } = rows.applyConfirmation(items, "optimize");
+  // Most serious first, one section per tier.
+  assert.deepEqual(sections.map((s) => s.label), ["Unknown", "Caution", "Safe to remove"]);
+  const [unknown, caution, safe] = sections;
+  assert.deepEqual(unknown.groups, [{ names: ["Disable Mystery"], reason: "No safety rule matched this package." }]);
+  // A shared consequence is said once for both apps, as a sentence.
+  assert.deepEqual(caution.groups, [
+    { names: ["Disable Nvidia Games", "Disable Nvidia Store"], reason: "Removable, but you may notice it go." },
+  ]);
+  // Safe rows already showed their description; the confirmation lists names.
+  assert.deepEqual(safe.groups, [
+    { names: ["Disable Google Feedback", "Uninstall Play Movies", "Uninstall Play Music", "Uninstall Stadia"], reason: "" },
+  ]);
+  const names = sections.flatMap((s) => s.groups.flatMap((g) => g.names));
+  assert.equal(names.length, items.length);
+  assert.equal(message.split("Restore can't bring it back").length - 1, 1);
   // Every uninstall here comes back the same way, so that is said once.
-  assert.equal(all.split("Get it back from the Play Store").length - 1, 1);
+  assert.equal(message.split("Get it back from the Play Store").length - 1, 1);
   assert.match(message, /animation scales are set to 0\.5×\.$/);
-  // Nothing beyond each app's verb, name and reason plus a fixed preamble.
-  const essential = items.reduce((n, { item: { entry: e }, verdict }) => n + e.name.length + verdict.reason.length + 14, 0);
-  assert.ok(all.length < essential + 260, `${all.length} chars for ${essential} essential`);
 
   const restore = rows.applyConfirmation([{ item: { entry: entry("Netflix"), action: { kind: "enable" }, memory_mb: null }, verdict: null }], "restore");
-  assert.deepEqual(restore, { warning: "", message: "Re-enable Netflix. Afterward, animation scales are reset to 1×." });
+  assert.deepEqual(restore, { sections: [], message: "Re-enable Netflix. Afterward, animation scales are reset to 1×." });
 });
 
 test("Keep all stays on one line at 150% text, and Optimize has no Select all", async (t) => {

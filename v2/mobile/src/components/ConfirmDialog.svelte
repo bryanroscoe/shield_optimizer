@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { modal } from "../lib/modal";
   // In-app styled confirm dialog, used instead of native confirm(), which is
   // unreliable/ugly in the Android webview.
@@ -14,6 +15,7 @@
     icon,
     onConfirm,
     onCancel,
+    children,
   }: {
     open: boolean;
     title: string;
@@ -28,6 +30,8 @@
     icon?: string;
     onConfirm: () => void;
     onCancel: () => void;
+    /// Structured detail shown between the warnings and the message.
+    children?: Snippet;
   } = $props();
 
   // The page behind is scroll-locked, so long content scrolls inside the card
@@ -64,6 +68,7 @@
           {#if supportWarning}
             <p class="dialog-warning" data-testid="support-warning"><span class="msr" aria-hidden="true">warning</span>{supportWarning}</p>
           {/if}
+          {@render children?.()}
           <p class="dialog-message">{message}</p>
         </div>
       </div>
