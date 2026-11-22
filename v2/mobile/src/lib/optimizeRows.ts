@@ -110,20 +110,38 @@ export interface ConfirmItem {
   verdict: Safety | null;
 }
 
-const CONFIRM_TIER_ORDER: SafetyKind[] = ["never_disable", "unknown", "caution", "safe"];
-
 function sentence(text: string): string {
   return /[.!?…]$/.test(text) ? text : `${text}.`;
 }
 
-/// The Apply confirmation. Every removal keeps its own verb, name and safety
-/// reason (informed consent), stated once: grouped under its tier, most
-/// serious first, with apps that share a reason listed together. What
-/// uninstall means and the animation pass are said once, not per app.
+const CONFIRM_TIER_ORDER: SafetyKind[] = ["never_disable", "unknown", "caution", "safe"];
+
+/// Apps that share one safety reason, named with the verb each will get.
+export interface ConfirmGroup {
+  names: string[];
+  /// Empty for Safe: that tier's reason is the routine description already
+  /// shown on each row, so the confirmation lists names only.
+  reason: string;
+}
+
+/// One safety tier's removals in the Apply confirmation.
+export interface ConfirmSection {
+  kind: SafetyKind;
+  label: string;
+  cls: string;
+  icon: string;
+  groups: ConfirmGroup[];
+}
+
+/// The Apply confirmation, in sections. Every removal keeps its own verb and
+/// name, grouped under its tier, most serious first. Caution, Unknown and
+/// Protected keep their reason (the consequence the person consents to);
+/// apps that share one are listed together. What uninstall means and the
+/// animation pass are said once, not per app.
 export function applyConfirmation(
   items: ConfirmItem[],
   mode: OptimizeMode,
-): { warning: string; message: string } {
+): { sections: ConfirmSection[]; message: string } {
   const tiers = new Map<SafetyKind, Map<string, string[]>>();
   const enables: string[] = [];
   // How an uninstalled app comes back depends on the app. When every
@@ -144,7 +162,7 @@ export function applyConfirmation(
       continue;
     }
     const kind = verdict?.kind ?? "unknown";
-    const reason = verdict?.reason.trim() ?? "";
+    const reason = kind === "safe" ? "" : (verdict?.reason.trim() ?? "");
     const byReason = tiers.get(kind) ?? new Map<string, string[]>();
     tiers.set(kind, byReason);
     const names = byReason.get(reason) ?? [];
@@ -155,14 +173,19 @@ export function applyConfirmation(
         : `Disable ${item.entry.name}`,
     );
   }
-  const warning = CONFIRM_TIER_ORDER.filter((kind) => tiers.has(kind))
-    .map((kind) => {
-      const entries = [...tiers.get(kind)!].map(([reason, names]) =>
-        sentence(reason ? `${names.join(", ")} — ${reason}` : names.join(", ")),
-      );
-      return `${SAFETY_TIERS[kind].label}: ${entries.join(" ")}`;
-    })
-    .join(" ");
+  const sections = CONFIRM_TIER_ORDER.filter((kind) => tiers.has(kind)).map((kind) => {
+    const tier = SAFETY_TIERS[kind];
+    return {
+      kind,
+      label: tier.label,
+      cls: tier.cls,
+      icon: tier.icon,
+      groups: [...tiers.get(kind)!].map(([reason, names]) => ({
+        names,
+        reason: reason ? sentence(reason) : "",
+      })),
+    };
+  });
   const message = [
     enables.length > 0 ? `Re-enable ${enables.join(", ")}.` : "",
     outcomes.size > 0
@@ -176,5 +199,5 @@ export function applyConfirmation(
   ]
     .filter(Boolean)
     .join(" ");
-  return { warning, message };
+  return { sections, message };
 }

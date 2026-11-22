@@ -17,6 +17,7 @@
     rowPurpose,
     rowSafety,
     type ConfirmItem,
+    type ConfirmSection,
   } from "../lib/optimizeRows";
   import type {
     ActionResult,
@@ -28,6 +29,7 @@
   } from "../lib/types";
   import type { AppItem } from "../lib/appsList";
   import AppSheetHost from "../components/AppSheetHost.svelte";
+  import ApplyChangeList from "../components/ApplyChangeList.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
@@ -102,7 +104,7 @@
     selectionVersion: number;
     items: FrozenItem[];
     message: string;
-    warning: string;
+    sections: ConfirmSection[];
   };
   let planIdentity = $state<PlanIdentity | null>(null);
   let applyIntent = $state<ApplyIntent | null>(null);
@@ -1118,13 +1120,16 @@
     title={applyIntent?.mode === "optimize"
       ? `Apply ${applyIntent.items.length} selected change${applyIntent.items.length === 1 ? "" : "s"}?`
       : `Re-enable ${applyIntent?.items.length ?? 0} app${applyIntent?.items.length === 1 ? "" : "s"}?`}
-    warning={applyIntent?.warning ?? ""}
     supportWarning={applyIntent?.mode === "optimize" ? destructiveWarning(session.support) : null}
     message={applyIntent?.message ?? ""}
     confirmLabel={applyIntent?.mode === "optimize" ? "Apply" : "Restore"}
     onConfirm={runApply}
     onCancel={() => (applyIntent = null)}
-  />
+  >
+    {#if applyIntent && applyIntent.sections.length > 0}
+      <ApplyChangeList sections={applyIntent.sections} />
+    {/if}
+  </ConfirmDialog>
 
   <Toast message={toast} type={toastType} />
 </div>
