@@ -61,7 +61,7 @@ export const scenarios = [
         transient_home: { holder: "com.google.android.tungsten.setupwraith/.ui.MainActivity", polls: 3 },
       });
       await row.getByRole("button", { name: "Set as default" }).click();
-      await ctx.text("is now your default launcher", { exact: false }).waitFor({ timeout: 40_000 });
+      await ctx.text("is now your Home app", { exact: false }).waitFor({ timeout: 40_000 });
       await ctx.step("switch landed after the transient holder");
       ctx.assert.match((await home(ctx)).resolved, new RegExp(STOCK));
       ctx.assert.ok((await ctx.device(SHIELD.serial)).packages.enabled.includes(PROJECTIVY), "nothing was disabled");
@@ -94,7 +94,7 @@ export const scenarios = [
       await ctx.step("Setup Wraith is labelled a setup helper");
 
       await monet.getByRole("button", { name: "Set as default" }).click();
-      await ctx.text("is now your default launcher", { exact: false }).waitFor({ timeout: 40_000 });
+      await ctx.text("is now your Home app", { exact: false }).waitFor({ timeout: 40_000 });
       const d = await ctx.device(SHIELD.serial);
       ctx.assert.equal(d.home.role_holder, MONET, "Monet holds the HOME role");
       ctx.assert.match(d.home.resolved, new RegExp(WRAITH), "the resolver alone still names Setup Wraith");

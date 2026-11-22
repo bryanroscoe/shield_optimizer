@@ -50,7 +50,7 @@ async function exercise({ browser, base }) {
   assert.equal(await run.isDisabled(), true, "Run starts disabled");
   assert.equal(
     await runWrap.getAttribute("data-tip"),
-    "Tick the acknowledgement above",
+    "Check the acknowledgment box above",
     "the untouched tab names the checkbox, not the empty prompt",
   );
 
@@ -89,7 +89,7 @@ async function exercise({ browser, base }) {
   assert.equal(await run.isDisabled(), true, "unticking disables Run");
   assert.equal(
     await runWrap.getAttribute("data-tip"),
-    "Tick the acknowledgement above",
+    "Check the acknowledgment box above",
     "and the wrapper says which half is missing",
   );
   await page.getByRole("tab", { name: "Health", exact: true }).click();

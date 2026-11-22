@@ -166,13 +166,13 @@ async function exercise({ browser, base }) {
   // bundled adb is not on PATH, and a different one restarts the shared
   // server and drops every device). Wake first; Revoke says what it costs.
   assert.match(netHelp, /Wake the TV\. The prompt can be hidden behind the screensaver\./, netHelp);
-  assert.match(netHelp, /Revoke USB debugging authorizations\. That un-trusts every computer, not just this one\./, netHelp);
+  assert.match(netHelp, /Revoke USB debugging authorizations\. That removes trust for every computer, not just this one\./, netHelp);
   assert.doesNotMatch(netHelp, /terminal|adb disconnect/, "no terminal instructions");
-  assert.doesNotMatch(netHelp, /Paired devices|tap this computer/,
+  assert.doesNotMatch(netHelp, /Paired devices|Wireless debugging → this computer/,
     "a :5555 transport is legacy network debugging and never appears under Wireless debugging");
   const wireless = rowFor(page, "adb-9XK2-abc._adb-tls-connect._tcp");
   const wirelessHelp = await dialogHelp(wireless, "adb-9XK2-abc._adb-tls-connect._tcp");
-  assert.match(wirelessHelp, /or Wireless debugging → tap this computer → Forget/, wirelessHelp);
+  assert.match(wirelessHelp, /or Wireless debugging → this computer → Forget/, wirelessHelp);
 
   // An unauthorized USB device: the USB wording is correct and must survive,
   // and it asks again when replugged, not by redialling.

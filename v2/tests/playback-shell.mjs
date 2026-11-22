@@ -205,7 +205,7 @@ async function exerciseFeatures(browser, base) {
   await page.getByRole("link", { name: "Devices", exact: true }).click();
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
   await page.getByRole("tab", { name: "Shell", exact: true }).click();
-  // The checkbox says "Remembered for this TV until you untick it", and it is
+  // The checkbox says "Remembered for this TV until you uncheck it", and it is
   // keyed on the hardware id, so leaving and re-entering this TV's page brings
   // it back without the App List ever being opened: the page resolves it once
   // per identity. What must never happen is the tick following the *address*

@@ -62,7 +62,7 @@ export const scenarios = [
       const page = ctx.page;
       const row = page.locator(".tweak-row").filter({ hasText: "CUR_MAX_CACHED_PROCESSES" }).first();
       await row.getByText("Up to 32 cached apps").waitFor();
-      await row.getByText("global.background_process_limit = 2 (ignored by Android)").waitFor();
+      await row.getByText("global.background_process_limit = 2 (old setting, ignored on tested TVs)").waitFor();
       ctx.assert.equal(await row.getByRole("button", { name: /≤/ }).count(), 0, "no limit presets are offered");
       await ctx.step("Android's limit and the leftover key");
 

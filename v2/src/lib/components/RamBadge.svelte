@@ -13,7 +13,7 @@
     class="ram-tag"
     class:warn={mb >= 200}
     class:caution={mb >= 100 && mb < 200}
-    use:tip={{ text: "Resident RAM right now — the app is running", row: true }}
+    use:tip={{ text: "RAM in use right now — this app is running", row: true }}
   >
     {#if label}<span class="ram-label">RAM</span>{/if}{mb.toFixed(0)} MB
   </span>

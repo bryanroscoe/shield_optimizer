@@ -54,14 +54,14 @@
   <div class="card-header">
     <div class="header-title">
       <h2><Icon name="play_circle" size={20} /> Playback</h2>
-      <p class="muted small mono header-sub">decoders &amp; formats reported by the device</p>
+      <p class="muted small mono header-sub">decoders and formats reported by the TV</p>
     </div>
     <button onclick={load} disabled={loading}>
       <Icon name="refresh" size={16} /> {loading ? "Reading…" : "Re-probe"}
     </button>
   </div>
   <p class="muted small">
-    Device-reported capabilities, not a playback or hardware-acceleration test.
+    Reported capabilities only, not a playback or hardware-acceleration test.
   </p>
 
   {#if err}
@@ -146,8 +146,8 @@
         {/if}
       </div>
       <p class="muted small rail-note">
-        Reported for the current display chain, not a fixed property of the device.
-        Missing information does not establish SDR-only output.
+        Reported for the current display and HDMI connection, not a fixed property of this
+        device. Missing information doesn't mean output is SDR-only.
       </p>
 
       <p class="rail-label">Audio formats</p>
@@ -171,8 +171,8 @@
         <div class="callout media-note">
           <Icon name="info" size={16} />
           <span>
-            These verdicts describe the decode path only. They are unrelated to the
-            four package safety verdicts used on the App List and Optimize.
+            These verdicts describe video decoding only. They're separate from the four app
+            safety verdicts used on the App List and Optimize.
           </span>
         </div>
       </HelpDetails>

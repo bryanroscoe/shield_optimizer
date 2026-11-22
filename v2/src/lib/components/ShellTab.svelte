@@ -183,19 +183,13 @@
   /// this rides on a wrapper that does.
   const runBlockedReason = $derived(
     !acknowledged
-      ? "Tick the acknowledgement above"
+      ? "Check the acknowledgment box above"
       : !command.trim()
         ? "Type a command first"
         : undefined,
   );
 
-  const runHint = $derived(
-    !acknowledged
-      ? "Run is disabled until you tick the box above."
-      : !command.trim()
-        ? "Run is disabled until you type a command."
-        : null,
-  );
+  const runHint = $derived(!acknowledged ? "Check the box above to enable Run." : null);
 
   // Ctrl/Cmd+Enter runs, so a multi-line command can still be submitted from
   // the keyboard without the Enter key being unusable for newlines.
@@ -234,7 +228,7 @@
           onchange={(e) => onacknowledge?.((e.currentTarget as HTMLInputElement).checked)}
         />
         I understand these risks and want to enable expert shell on this TV.
-        Remembered for this TV until you untick it.
+        Remembered for this TV until you uncheck it.
       </label>
       <HelpDetails label="Shell limits">
         <p>
@@ -242,8 +236,8 @@
           it.
         </p>
         <p>
-          Output is limited to 256 KiB per stream and each run to 30 seconds. Stopping local ADB
-          does not guarantee work on the TV has stopped.
+          Commands time out after 30 seconds, and output is capped at 256 KiB per stream.
+          Stopping a run here doesn't guarantee it stopped on the TV.
         </p>
       </HelpDetails>
     </div>

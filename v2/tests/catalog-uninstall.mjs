@@ -75,7 +75,7 @@ try {
   for (const id of ['defunct', 'defunctsource', 'nostore', 'missing', 'unreadable', 'protected', 'unavailable', 'system', 'shipped', 'advanced']) assert.equal(await uninstall(id).count(), 0, id);
   assert.equal(await row('system').getByRole('button', { name: 'Disable', exact: true }).count(), 1, 'high-risk system app keeps Disable');
   assert.equal(await uninstall('disable').getAttribute('data-tip'), 'Get it back from the Play Store');
-  const region = page.getByRole('region', { name: 'Curated apps', exact: true });
+  const region = page.getByRole('region', { name: 'Catalog apps', exact: true });
   assert.ok(await region.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'hidden tooltips must not widen the table region');
   await row('review').getByRole('button', { name: 'Keep', exact: true }).click();
   assert.equal(await row('review').locator('[data-rec="Kept"]').count(), 1);
@@ -115,7 +115,7 @@ try {
       }
       await page.evaluate(() => document.documentElement.style.fontSize = '200%');
       await row('disable').scrollIntoViewIfNeeded();
-      const tableRegion = page.getByRole('region', { name: 'Curated apps', exact: true });
+      const tableRegion = page.getByRole('region', { name: 'Catalog apps', exact: true });
       assert.ok(await tableRegion.evaluate(el => el.scrollWidth > el.clientWidth), 'large text uses contained horizontal scrolling');
       await tableRegion.focus();
       await page.keyboard.press('ArrowRight');

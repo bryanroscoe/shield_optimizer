@@ -103,7 +103,7 @@ async function main() {
     await page.locator("#tab-sideload").click();
     assert.doesNotMatch(
       await page.locator("#tabpanel-sideload").innerText(),
-      /not an \.apk|Could not read that APK/,
+      /isn't an \.apk|Couldn't read that APK/,
       "a hidden Install APK tab ignored the drop made on Files",
     );
     await page.locator("#tab-files").click();
@@ -127,7 +127,7 @@ async function main() {
         return invoke(cmd, args);
       };
     });
-    await panel.getByLabel("Show system paths (power user)").check();
+    await panel.getByLabel("Show system folders").check();
     await panel.locator(".crumbs button", { hasText: "Up" }).click();
     await panel.locator(".dir-link", { hasText: "data" }).waitFor();
     await panel.locator(".dir-link", { hasText: "data" }).click();

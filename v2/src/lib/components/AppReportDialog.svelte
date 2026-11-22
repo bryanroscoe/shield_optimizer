@@ -114,7 +114,7 @@
     }
     message = prefilled
       ? "The GitHub form opened with this report filled in. Review it there, then submit it yourself."
-      : "This report is too long to fill in for you. Click Copy, then paste it into the Report field on GitHub.";
+      : "This report is too long to prefill. Click Copy, then paste it into the Report field on GitHub.";
   }
 </script>
 
@@ -128,13 +128,13 @@
 >
   <h2 id="app-report-title">Report this app</h2>
   <p class="muted small">
-    Nothing is sent automatically. Below is everything this report contains. Copy it, save it
-    as a file, or open a GitHub issue that you review and submit yourself. A report asks for a
-    review; it never changes how the app rates this package.
+    Nothing is sent automatically, and the preview below is everything this report contains.
+    Copy it, save it as a file, or open a GitHub issue that you review and submit yourself. A
+    report asks for a review; it never changes how ATV Optimizer rates this app.
   </p>
   {#if !report}
     <p class="small" role="alert">
-      <span class="mono">{pkg}</span> is not a package id a report can carry.
+      <span class="mono">{pkg}</span> isn't a package name a report can carry.
     </p>
   {:else}
     <fieldset class="reasons">
@@ -162,8 +162,8 @@
     </label>
     <textarea class="preview mono" readonly aria-label="Report preview" value={text}></textarea>
     <p class="muted small">
-      It carries no serial number, no IP address and no other installed packages. An address,
-      this TV's serial or another app's package id typed or pasted into the note is replaced
+      It includes no serial number, IP address or other installed apps. An address, this TV's
+      serial number or another app's package name typed or pasted into the note is replaced
       with [redacted].
     </p>
   {/if}

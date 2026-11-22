@@ -98,7 +98,7 @@ async function reachAndReports({ browser, base }) {
   const dialog = page.getByRole("dialog");
   const dialogToggle = dialog.getByRole("checkbox", { name: "Share anonymous device and error reports" });
   assert.equal(await dialogToggle.isChecked(), false, "one setting, shown in two places");
-  assert.match(await dialog.innerText(), /No support ID while reports are off\./);
+  assert.match(await dialog.innerText(), /No Support ID while reports are off\./);
   await dialogToggle.check();
   await dialog.getByText("7F3A-9C21").waitFor();
   assert.match(await dialog.innerText(), /Quote it in the issue so the developer can find your reports\./);
@@ -130,7 +130,7 @@ async function sendLogs({ browser, base }) {
   const said = await confirm.innerText();
   assert.match(said, /diagnostics bundle and this app's recent logs/);
   assert.match(said, /addresses, serial numbers, names and file paths removed/);
-  assert.match(said, /labeled with your support ID/);
+  assert.match(said, /labeled with your Support ID/);
   assert.equal(await uploads(page), 0, "nothing is uploaded before the person confirms");
   await confirm.getByRole("button", { name: "Cancel" }).click();
   await confirm.waitFor({ state: "detached" });
@@ -140,7 +140,7 @@ async function sendLogs({ browser, base }) {
   await confirm.getByRole("button", { name: "Send logs", exact: true }).click();
   const sent = privacy.locator(".sent");
   await sent.waitFor();
-  assert.match(await sent.innerText(), /Sent 47\.1 KB\. Quote support ID 7F3A-9C21 when you report the problem\./);
+  assert.match(await sent.innerText(), /Sent 47\.1 KB\. Quote Support ID 7F3A-9C21 when you report the problem\./);
   assert.equal(await uploads(page), 1, "one confirmation, one upload");
   await sent.getByRole("button", { name: "Copy ID" }).click();
   assert.deepEqual(await page.evaluate(() => window.__COPIED__), ["7F3A-9C21"]);
@@ -219,7 +219,7 @@ async function sharedPreferences({ browser, base }) {
 
   // A manual check reports what it found and installs nothing.
   await page.getByRole("button", { name: "Check for updates" }).click();
-  await page.locator("#updates").getByText(/No update found\./).waitFor();
+  await page.locator("#updates").getByText(/You're (up to date|on the latest version the updater offers)\./).waitFor();
 
   // Stop ADB when quitting: the same setting as on Devices.
   const stop = page.locator("#adb").getByRole("checkbox", { name: /Stop ADB when quitting/ });
@@ -273,17 +273,17 @@ async function nativeSettings({ browser, base }) {
     }, available);
     await page.goto(`${base}/settings`, { waitUntil: 'networkidle' });
     const section = page.locator('#adb');
-    await section.getByText(/Native Rust ADB · direct connection/).waitFor();
+    await section.getByText(/Built-in · direct connection/).waitFor();
     assert.equal(await section.getByRole('button', { name: 'Download platform-tools' }).count(), 0);
     assert.equal(await section.getByRole('button', { name: 'Restart ADB', exact: true }).isDisabled(), true);
     assert.equal(await section.getByRole('checkbox', { name: 'Stop ADB when quitting' }).isDisabled(), true);
     assert.doesNotMatch(await section.innerText(), /adb from PATH|ATV_OPTIMIZER_ADB/);
     await section.getByRole('button', { name: 'About ADB', exact: true }).click();
-    await section.getByText('Native Rust ADB is built into this app. Connection recovery is on Devices.').waitFor();
+    await section.getByText('Built-in ADB is included with this app. Manage connections on Devices.').waitFor();
     assert.doesNotMatch(await section.innerText(), /ATV_OPTIMIZER_ADB/);
     await section.getByRole('button', { name: 'About ADB', exact: true }).press('Escape');
     await section.getByRole('button', { name: 'About Restart ADB', exact: true }).click();
-    await section.getByText('Native ADB has no shared server.', { exact: false }).waitFor();
+    await section.getByText('Built-in has no shared server.', { exact: false }).waitFor();
     await section.getByRole('button', { name: 'About Restart ADB', exact: true }).press('Escape');
     if (!available) await section.getByText('Fixture identity unavailable').waitFor();
     assert.equal(await uploads(page), 0, 'visiting native settings never uploads logs');
@@ -313,7 +313,7 @@ async function failedSubprocessSettings({ browser, base }) {
     await section.getByRole('button', { name: 'Restart ADB', exact: true }).waitFor();
     assert.equal(await section.getByRole('button', { name: 'Restart ADB', exact: true }).isDisabled(), failure === 'missing_binary');
     assert.equal(await section.getByRole('button', { name: 'Download platform-tools' }).count(), failure === 'missing_binary' ? 1 : 0);
-    if (failure === 'probe_failed') await section.getByText('ADB could not respond: fixture server timeout').waitFor();
+    if (failure === 'probe_failed') await section.getByText('ADB couldn\'t respond: fixture server timeout').waitFor();
     await page.close();
   }
 }
@@ -374,31 +374,31 @@ async function adbEngineSwitching({ browser, base }) {
   assert.equal(await builtin.isChecked(), false);
   assert.equal(await builtin.isDisabled(), false);
   await section.getByText("/opt/homebrew/bin/adb").waitFor();
-  assert.doesNotMatch(await section.innerText(), /USB devices need platform-tools/, "the explanation waits behind help");
+  assert.doesNotMatch(await section.innerText(), /USB devices need Google platform-tools/, "the explanation waits behind help");
 
   const help = section.getByRole("button", { name: "About ADB engine", exact: true });
   await help.click();
   const said = await section.innerText();
-  assert.match(said, /no adb server or download/);
-  assert.match(said, /network only, so USB devices need platform-tools/);
+  assert.match(said, /no ADB server or download/);
+  assert.match(said, /network only, so USB devices need Google platform-tools/);
   assert.match(said, /uses this computer's platform-tools key when there is one/);
   assert.match(said, /already allow platform-tools connect without a new prompt/);
   assert.match(said, /Otherwise each TV asks once to allow debugging/);
-  assert.match(said, /adb server shared with other tools/);
+  assert.match(said, /ADB server shared with other tools/);
   await help.press("Escape");
   assert.equal(await help.getAttribute("aria-expanded"), "false");
 
   // Built-in with the mouse: the status below and Devices follow it.
   await builtin.click();
   await engineSettled(page, controls, "builtin");
-  await section.getByText(/Native Rust ADB · direct connection/).waitFor();
+  await section.getByText(/Built-in · direct connection/).waitFor();
   await section.getByText("Now using Built-in.", { exact: false }).waitFor();
   assert.equal(await section.getByRole("button", { name: "Restart ADB", exact: true }).isDisabled(), true);
   assert.equal(await section.getByRole("checkbox", { name: "Stop ADB when quitting" }).isDisabled(), true);
   assert.deepEqual(await engineCalls(page), ["builtin"]);
   assert.equal((await demoEngine(page)).active, "builtin");
   await page.getByRole("link", { name: "Devices" }).click();
-  await page.getByTestId("adb-backend").filter({ hasText: "Native Rust ADB · direct connection" }).waitFor();
+  await page.getByTestId("adb-backend").filter({ hasText: "Built-in · direct connection" }).waitFor();
   await page.getByRole("link", { name: "Settings" }).click();
   await engineSettled(page, controls, "builtin");
 
@@ -410,7 +410,7 @@ async function adbEngineSwitching({ browser, base }) {
   await page.waitForFunction(() => document.activeElement?.getAttribute("value") === "platform_tools");
   assert.deepEqual(await engineCalls(page), ["builtin", "platform_tools"]);
   await page.getByRole("link", { name: "Devices" }).click();
-  await page.getByTestId("adb-backend").filter({ hasText: "Platform-tools ADB · host server" }).waitFor();
+  await page.getByTestId("adb-backend").filter({ hasText: "Google platform-tools · shared server" }).waitFor();
   await page.close();
 }
 

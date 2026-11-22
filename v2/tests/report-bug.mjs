@@ -189,7 +189,7 @@ async function exerciseSend({ browser, base }) {
   await send.click();
   const status = dialog.getByRole("status").filter({ hasText: "Sent as report #42" });
   await status.waitFor();
-  assert.match(await status.innerText(), /support ID is 7F3A-9C21/);
+  assert.match(await status.innerText(), /Support ID is 7F3A-9C21/);
   const calls = await sentReports(page);
   assert.equal(calls.length, 1, JSON.stringify(calls));
   assert.equal(calls[0].args.note, "The Apps tab spins forever on my Chromecast.");

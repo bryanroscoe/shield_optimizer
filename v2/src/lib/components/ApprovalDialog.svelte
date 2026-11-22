@@ -119,12 +119,12 @@
     {:else if phase === "waiting"}
       {#if usb}
         <p class="instruction">
-          Unplug the USB cable from {name} and plug it back in. Then tick
+          Unplug the USB cable from {name} and plug it back in. Then check
           <strong>Always allow from this computer</strong> and choose <strong>Allow</strong>.
         </p>
       {:else}
         <p class="instruction">
-          On {name}, tick <strong>Always allow from this computer</strong>, then choose
+          On {name}, check <strong>Always allow from this computer</strong>, then choose
           <strong>Allow</strong>.
         </p>
       {/if}
@@ -148,15 +148,15 @@
       <summary>Not seeing the prompt?</summary>
       <ul>
         <li>Wake the TV. The prompt can be hidden behind the screensaver.</li>
-        <li>It is called {promptName}{#if !usb} (some TVs still say “USB” even over the network){/if}.</li>
+        <li>Look for {promptName}{#if !usb} (some TVs still say “USB” even over the network){/if}.</li>
         <li>
-          Chose Cancel on the TV? The TV doesn't tell this computer, so press Cancel request here,
-          then ask again.
+          Pressed Cancel on the TV? The TV doesn't tell this computer, so click Cancel request
+          here, then try again.
         </li>
         <li>
           Still nothing? On the TV, open Developer options and choose Revoke USB debugging
-          authorizations{#if wirelessDebugging} (or Wireless debugging → tap this computer → Forget){/if}.
-          That un-trusts every computer, not just this one. Then ask again.
+          authorizations{#if wirelessDebugging} (or Wireless debugging → this computer → Forget){/if}.
+          That removes trust for every computer, not just this one. Then try again.
         </li>
       </ul>
     </details>

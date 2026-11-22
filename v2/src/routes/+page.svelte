@@ -204,7 +204,7 @@
         devices = [];
         scanMessage = "";
         scanDetails = [];
-        if (!adbMissing) error = status.last_probe ?? "The selected ADB backend is unavailable.";
+        if (!adbMissing) error = status.last_probe ?? "The selected ADB engine isn't available.";
         return;
       }
       adbMissing = false;
@@ -697,7 +697,7 @@
       if (token !== pairWaitToken) return;
       if (probe.state === "unidentified") {
         fallBackToManual(
-          "Paired. Close the pairing dialog on your phone/TV. The app couldn't tell which advertised device this is, so it won't connect by itself.",
+          "Paired. Close the pairing dialog on your phone/TV. The app couldn't tell which device on the network this is, so it won't connect by itself.",
         );
         return;
       }
@@ -737,7 +737,7 @@
       }
       if (probe.state === "ambiguous") {
         fallBackToManual(
-          `It advertises more than one connect port (${probe.addresses.join(", ")}). Use the one on its main Wireless debugging screen.`,
+          `It announced more than one connection port (${probe.addresses.join(", ")}). Use the one on its main Wireless debugging screen.`,
         );
         return;
       }
@@ -749,11 +749,11 @@
           const explained = explainAdbFailure("connect", lastFailure.address, lastFailure.message, status, adbBackend !== "direct");
           pairLocalNetwork = explained.localNetwork;
           fallBackToManual(
-            `It advertised ${lastFailure.address}, but connecting kept failing. ${explained.summary ?? ""}`.trim(),
+            `It announced ${lastFailure.address}, but connecting kept failing. ${explained.summary ?? ""}`.trim(),
             explained.raw,
           );
         } else {
-          fallBackToManual(`No connect port appeared within ${PAIR_CONNECT_WAIT_S} seconds.`);
+          fallBackToManual(`No connection port appeared within ${PAIR_CONNECT_WAIT_S} seconds.`);
         }
         return;
       }
@@ -827,7 +827,7 @@
       ? failedConnectAddress : "";
     const retryPrompt = retryAddress ? ` Then retry Add by IP for ${retryAddress} once.` : "";
     if (restartBusy) return;
-    if (!(await confirmAction(`Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.${retryPrompt}`)) || restartBusy) return;
+    if (!(await confirmAction(`Restart the shared ADB server? This disconnects other tools using ADB on this computer. Current network connections will be retried.${retryPrompt}`)) || restartBusy) return;
     restartBusy = true;
     restartMessage = "";
     try {
@@ -1205,7 +1205,7 @@
       connectMessage = r.message;
       await refresh();
     } catch (e) {
-      connectMessage = `Could not reconnect to ${d.name}: ${e}`;
+      connectMessage = `Couldn't reconnect to ${d.name}: ${e}`;
     } finally {
       repromptBusy = null;
     }
@@ -1236,7 +1236,7 @@
       if (!r.ok || r.still_advertised) connectMessage = r.message;
       if (r.ok && r.still_advertised) void watchReattach(d);
     } catch (e) {
-      connectMessage = `Could not disconnect ${d.serial}: ${e}`;
+      connectMessage = `Couldn't disconnect ${d.serial}: ${e}`;
     } finally {
       forgetBusy = null;
     }
@@ -1319,7 +1319,7 @@
         {sortedDevices.length} connected · {devices.filter((d) => d.status === "device").length} ready
       {/if}
     </p>
-    <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Native Rust ADB · direct connection" : adbBackend === "subprocess" ? "Platform-tools ADB · host server" : "Checking ADB driver…"}</p>
+    <p class="muted small" data-testid="adb-backend">{adbBackend === "direct" ? "Built-in · direct connection" : adbBackend === "subprocess" ? "Google platform-tools · shared server" : "Checking ADB engine…"}</p>
   </div>
   <div class="header-actions">
     <button onclick={scan} disabled={scanBusy || adbMissing || directUnavailable || (adbBackend !== "subprocess" && (connectBusy || pairBusy))} title="Scan the local network for ADB-listening devices">
@@ -1370,7 +1370,7 @@
     {pairOpen ? "Cancel Pair" : "Pair PIN"}
   </button>
   {#if adbBackend === "subprocess"}
-  <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="adb kill-server then start-server">
+  <button onclick={restartAdb} disabled={restartBusy || connectBusy || adbMissing} title="Restart the shared ADB server">
     {restartBusy ? "Restarting…" : "Restart ADB"}
   </button>
   <label class="quit-toggle" data-tip={QUIT_ADB_TIP} data-tip-wrap>
@@ -1531,7 +1531,7 @@
         <div class="pair-progress-row">
           <span class="spinner" aria-hidden="true"></span>
           <span class="muted small">
-            Waiting for the device to advertise its connect port… {pairElapsed}s of {PAIR_CONNECT_WAIT_S}s
+            Waiting for the device's connection port… {pairElapsed}s of {PAIR_CONNECT_WAIT_S}s
           </span>
           <button class="row-action" onclick={() => cancelPairWait(true)}>Cancel</button>
         </div>
@@ -1593,9 +1593,8 @@
   <div class="install-pane">
     <h2>ADB not found on this system</h2>
     <p>
-      ATV Optimizer needs Android's <code>adb</code> binary to talk to your TV.
-      We can download Google's official platform-tools and install them locally —
-      no system-wide changes, just a self-contained copy under your app-data folder.
+      ATV Optimizer needs Android's <code>adb</code> tool to talk to your TV. It can
+      download Google platform-tools into its own data folder, with no system-wide changes.
     </p>
     <p class="muted small">
       Already have <code>adb</code> installed? Set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.
@@ -1608,7 +1607,7 @@
     {/if}
   </div>
 {:else if error}
-  <div class="error" role="alert">{directUnavailable ? "Rust ADB unavailable" : "Failed to list devices"}: {error}</div>
+  <div class="error" role="alert">{directUnavailable ? "Built-in ADB unavailable" : "Failed to list devices"}: {error}</div>
 {:else if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && visibleDevices.length === 0}
   <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
 {:else if visibleDevices.length === 0}
@@ -1686,7 +1685,7 @@
                   class="row-action"
                   onclick={(e) => rowAction(e, () => copyDiagnostics(d))}
                   disabled={diagnosticsBusy === d.serial}
-                  data-tip="Copies what this device reported — paste it into a bug report"
+                  data-tip="Copy what this device reported, for a bug report"
                 >
                   {diagnosticsBusy === d.serial
                     ? "Copying…"
@@ -1779,8 +1778,8 @@
               {/if}
               {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
                 <p class="small just-connected-note">
-                  Connected. It reported it isn't an Android TV, so it doesn't open by default; use
-                  Open anyway to try the tools.
+                  Connected, but this device reported it isn't an Android TV, so it doesn't open
+                  by default. Use Open anyway if you still want to try the tools.
                 </p>
               {/if}
               {#if confirmOpenSerial === d.serial}
@@ -1847,7 +1846,7 @@
                 class="row-action"
                 onclick={() => copyDiagnostics(d)}
                 disabled={diagnosticsBusy === d.serial}
-                data-tip="Copies what this device reported — paste it into a bug report"
+                data-tip="Copy what this device reported, for a bug report"
               >
                 {diagnosticsBusy === d.serial
                   ? "Copying…"
@@ -1932,8 +1931,8 @@
                 → Local Network. If it already is, turn it off and on again (every entry, if it's listed
                 more than once), then scan again.
               {:else}
-                On a Mac, after an update, macOS can cut off an ADB server the earlier version left
-                running, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
+                On a Mac, after an update, macOS can block the ADB server left over from the previous
+                version, and Restart ADB replaces it. If that doesn't help, check that ATV Optimizer is on
                 in <button class="inline-link" onclick={openLocalNetworkSettings}>Privacy &amp; Security</button>
                 → Local Network. If it already is, turn it off and on again (every entry, if it's listed
                 more than once), then Restart ADB.

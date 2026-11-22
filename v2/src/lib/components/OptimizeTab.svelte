@@ -572,13 +572,13 @@
       if (!contextIsCurrent(context) || request !== performanceRequest || optimizePlan !== plan || optimizeMode !== mode) return;
       optimizePerfApplied = r.ok;
       optimizeSummary = optimizeSummary
-        ? `${optimizeSummary} Performance: ${r.message.trim()}.`
-        : `Performance: ${r.message.trim()}.`;
+        ? `${optimizeSummary} Animation speed: ${r.message.trim()}.`
+        : `Animation speed: ${r.message.trim()}.`;
     } catch (e) {
       if (!contextIsCurrent(context) || request !== performanceRequest || optimizePlan !== plan || optimizeMode !== mode) return;
       optimizeSummary = optimizeSummary
-        ? `${optimizeSummary} Performance failed: ${e}.`
-        : `Performance failed: ${e}.`;
+        ? `${optimizeSummary} Couldn't apply animation speed: ${e}.`
+        : `Couldn't apply animation speed: ${e}.`;
     } finally {
       if (request === performanceRequest) performanceBusy = false;
     }
@@ -680,7 +680,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize" bind:this={panelEl}>
   <div class="card-header">
-    <h2><Icon name="auto_fix_high" size={20} /> Optimize / Restore Wizard</h2>
+    <h2><Icon name="auto_fix_high" size={20} /> Optimize</h2>
     <div class="header-actions">
       <!-- A mode switch, not an action pair. Lime means "press this", so it
            never marks the current mode. A segmented control shows which mode
@@ -717,13 +717,13 @@
   {/if}
   <p class="muted small">
     {optimizeMode === "optimize"
-      ? "Check each app's safety before choosing Disable or Uninstall. Anything we can't vouch for is set to Keep until you say otherwise."
-      : "Re-enable catalog apps that are disabled on this TV. Only the ones we recommend bringing back start armed; Re-enable all disabled arms the rest."}
+      ? "Review each app's safety before choosing Disable or Uninstall. Anything we don't recommend removing starts at Keep."
+      : "Re-enable disabled catalog apps. The ones we recommend bringing back start selected; Re-enable all disabled selects the rest."}
   </p>
   {#if optimizeMode === "restore"}
     <HelpDetails label="What Restore covers">
       <p>Restore lists the apps in our catalog that are disabled on this TV. It never reinstalls an app that was uninstalled.</p>
-      <p>To turn on a disabled app that isn't in the catalog, use Enable on its row under Everything else in the App List. Emergency Recovery on the Overview tab re-enables every disabled package on the TV at once.</p>
+      <p>To re-enable a disabled app that isn't in the catalog, use Enable on its row under Everything else in the App List. Emergency recovery on the Overview tab re-enables every disabled app on the TV at once.</p>
     </HelpDetails>
   {/if}
 
@@ -732,7 +732,7 @@
   {/if}
 
   {#if optimizePlanLoading || (!optimizePlan && !optimizePlanErr)}
-    <p class="muted">Querying device…</p>
+    <p class="muted">Checking apps…</p>
   {:else if !optimizePlan}
     <p class="muted">Pick Optimize or Restore to try again.</p>
   {:else}
@@ -755,7 +755,7 @@
               {@const disabledRows = optimizePlan.items.filter((i) => naturalAction(i) === "enable").length}
               <button
                 class="small-action subtle"
-                data-tip="Arm Enable on every disabled app in this list"
+                data-tip="Select Enable for every disabled app in this list"
                 onclick={reenableAll}
                 disabled={optimizeRunning || disabledRows === 0}
               >Re-enable all disabled</button>
@@ -773,7 +773,7 @@
         <span class="step-num mono" aria-hidden="true">2</span>
         <div class="step-body">
           <p class="step-text">
-            Run — the button is under the table. {actionable} of {optimizePlan.items.length} rows are armed.
+            {actionable} of {optimizePlan.items.length} apps selected. Run plan is below the table.
           </p>
         </div>
       </li>
@@ -812,7 +812,7 @@
         <tr>
           <th><span class="sr-only">Details</span></th>
           <th><AppColumnHelp column="app" /></th>
-          <th>Verdict &amp; source</th>
+          <th>Safety</th>
           <th class="right"><AppColumnHelp column="ram" /></th>
           <th class="right"><AppColumnHelp column="usage" /></th>
           <th>Action</th>
@@ -919,7 +919,7 @@
                 {#if isReviewRow(item)}
                   <span
                     class="review-pill mono"
-                    data-tip="Check the last-used column — act only if nobody here uses it"
+                    data-tip="Check Last used — remove only if nobody here uses it"
                   >{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
                 {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
                   <div class="muted small review-hint">Reload the plan to retry safety.</div>
@@ -945,10 +945,10 @@
       <!-- What can be taken back, said once, where the run starts. -->
       <p class="undo-line small">
         <Icon name="restore" size={15} />
-        <span>Undo a Disable with Restore mode. Uninstall can't always be undone, so check the row's note before you run.</span>
+        <span>Undo Disable with Restore mode. Uninstall can't always be undone, so check each app's note before you run.</span>
       </p>
       <HelpDetails label="Undoing a run">
-        <p><strong>Disable:</strong> switch Mode to Restore, choose Re-enable all disabled or Enable on the rows you want, then Run plan. Restore covers catalog apps only; Emergency Recovery on the Overview tab re-enables every disabled package on the TV.</p>
+        <p><strong>Disable:</strong> switch Mode to Restore, choose Re-enable all disabled or Enable on the apps you want, then click Run plan. Restore covers catalog apps only; Emergency recovery on the Overview tab re-enables every disabled app on the TV.</p>
         <p><strong>Uninstall:</strong> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, from the site a sideloaded app came from, or not at all for a discontinued service.</p>
       </HelpDetails>
     {/if}
@@ -958,7 +958,7 @@
       <span
         class="tip-wrap"
         data-tip={actionable === 0
-          ? "Nothing is armed — choose an action on a row"
+          ? "Nothing is selected — choose an action on a row"
           : snapshotSaving
             ? "Waiting for the snapshot to finish saving"
             : `Apply ${actionable} change${actionable === 1 ? "" : "s"} to this TV`}
@@ -981,7 +981,7 @@
           data-tip={optimizeMode === "optimize" ? "Set animation scales to 0.5×" : "Reset animation scales to 1×"}
         >
           {optimizePerfApplied
-            ? "Performance applied"
+            ? "Animation speed updated"
             : performanceBusy
               ? "Applying…"
               : (optimizeMode === "optimize" ? "Apply 0.5× animations" : "Reset animations to 1×")}
@@ -1004,9 +1004,9 @@
           <p class="small snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
         {/if}
         <HelpDetails label="What a snapshot is for">
-          <p>Use it to set this TV up the same way again, for example after a factory reset: Restore this snapshot on the Snapshot tab disables the apps it recorded and puts back its Home app and settings.</p>
-          <p>It disables every app it recorded, with no per-app choice, on whichever TV you apply it to. Don't apply it to another TV unless nobody there uses those apps.</p>
-          <p>It can't undo this run. It never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To turn apps back on, use Restore mode here.</p>
+          <p>Use a snapshot to set this TV up the same way again, for example after a factory reset. Restoring it from the Snapshot tab disables the apps it recorded and puts back its Home app and settings.</p>
+          <p>Restoring disables every app it recorded, with no per-app choice, on whichever TV you apply it to. Only apply it to another TV if nobody there uses those apps.</p>
+          <p>A snapshot can't undo this run. It never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To re-enable apps, use Restore mode here.</p>
         </HelpDetails>
       </div>
     {/if}

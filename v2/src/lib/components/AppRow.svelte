@@ -124,7 +124,7 @@
       // Not an upgrade of the verdict — the kind stays Unknown. This only
       // says which kind of unknown it is, which is the part that decides
       // whether you can reason about it at all.
-      return "Not in any reviewed list · you installed this, not the system";
+      return "Not in the catalog · installed by you, not the system";
     }
     return safetySourceLabel(safety.source);
   }
@@ -187,7 +187,7 @@
         <span class="state-unavailable">STATE UNAVAILABLE</span>
       {/if}
       {#if review}
-        <span class="tag review" use:tip={{ text: "Check whether you actually use this app", row: true }}>REVIEW</span>
+        <span class="tag review" use:tip={{ text: "Check if you use this app", row: true }}>REVIEW</span>
       {/if}
       {#if extraTag}
         <span class={`tag tag-${extraTagKind}`}>{extraTag}</span>
@@ -202,8 +202,8 @@
       <span class="mono pkg-id">{pkg}</span>
       <button
         class="pkg-copy"
-        data-tip={pkgCopied ? "Copied" : "Copy the package id"}
-        aria-label={`Copy package id ${pkg}`}
+        data-tip={pkgCopied ? "Copied" : "Copy package name"}
+        aria-label={`Copy package name ${pkg}`}
         onclick={copyPkg}
       >
         <Icon name={pkgCopied ? "check" : "content_copy"} size={14} />

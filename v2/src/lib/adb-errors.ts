@@ -57,14 +57,14 @@ export function localNetworkHint(
 }
 
 const STALE_SERVER =
-  "Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running.";
+  "Try Restart ADB first. After an update, macOS can block the ADB server left over from the previous version.";
 
 /// macOS may be blocking local network access, or something else is.
 export const LOCAL_NETWORK_POSSIBLE =
   "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.";
 
 const LOCAL_NETWORK_SETTINGS =
-  "Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is)";
+  "Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (if it's already on, turn it off and back on)";
 
 const LOCAL_NETWORK_SENTENCE: Record<Exclude<LocalNetworkHint, null>, string> = {
   blocked: `${LOCAL_NETWORK_BLOCKED} ${LOCAL_NETWORK_SETTINGS}, then Restart ADB.`,
@@ -155,5 +155,5 @@ export function subnetWarning(host: string, localAddress: string | null): string
   if (!target || !local) return null;
   if (target[0] === local[0] && target[1] === local[1] && target[2] === local[2]) return null;
   const net = `${local[0]}.${local[1]}.${local[2]}.x`;
-  return `This computer is on ${net}, and ${host.trim()} isn't on it. Typo?`;
+  return `This computer is on ${net}, so ${host.trim()} looks like a different network. Check for a typo.`;
 }

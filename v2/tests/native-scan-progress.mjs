@@ -124,7 +124,7 @@ try {
   await request.focus();
   await page.keyboard.press('Enter');
   const dialog = page.getByRole('dialog');
-  await dialog.getByText('tick Always allow from this computer', { exact: false }).waitFor();
+  await dialog.getByText('check Always allow from this computer', { exact: false }).waitFor();
   assert.deepEqual(await page.evaluate(() => window.requested), ['[fd00:1234:5678:9012:abcd:ef01:2345:6789%14]:5555']);
   await dialog.locator('summary', { hasText: 'Not seeing the prompt?' }).click();
   assert.match(await dialog.innerText(), /Allow debugging\?/);

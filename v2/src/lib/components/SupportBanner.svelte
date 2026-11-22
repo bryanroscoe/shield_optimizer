@@ -14,7 +14,7 @@
     <span>
       <strong>This TV isn't supported:</strong>
       {info.note ?? "the app can't make its changes on it."}
-      You can still look around and run Recovery, but changes may fail on this TV.
+      You can still look around and run Emergency recovery, but changes may fail on this TV.
     </span>
   </div>
 {/if}

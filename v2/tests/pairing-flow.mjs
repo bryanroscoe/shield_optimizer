@@ -156,7 +156,7 @@ async function freshPage(browser, base, { clock = false, builtin = false } = {})
   if (builtin) await page.addInitScript(() => localStorage.setItem("shieldopt.demo.adbEngineBuiltin", "1"));
   await page.goto(base, { waitUntil: "networkidle" });
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
-  if (builtin) await page.getByTestId("adb-backend").filter({ hasText: "Native Rust ADB" }).waitFor();
+  if (builtin) await page.getByTestId("adb-backend").filter({ hasText: "Built-in · direct connection" }).waitFor();
   return page;
 }
 
@@ -178,7 +178,7 @@ async function exercisePairingFlow({ browser, base }) {
     });
     await openAndPair(page);
     await page.getByText("Close the pairing dialog on your phone/TV.", { exact: false }).waitFor();
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     assert.equal(await page.getByText("connecting is a separate step", { exact: false }).count(), 0,
       "the old 'more work to do' success line is gone");
     // The manual fallback is pre-filled from the start, with the host only.
@@ -248,11 +248,11 @@ async function exercisePairingFlow({ browser, base }) {
     const page = await freshPage(browser, base, { clock: true });
     await installBridge(page, { probeReplies: [{ state: "waiting" }] });
     await openAndPair(page);
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     for (let i = 0; i < 40 && (await page.locator(".pair-waiting").count()) > 0; i++) {
       await page.clock.runFor(1500);
     }
-    await page.getByText("No connect port appeared within 45 seconds.", { exact: true }).waitFor();
+    await page.getByText("No connection port appeared within 45 seconds.", { exact: true }).waitFor();
     await page.getByText(
       "Enter the port shown on the TV or phone's main Wireless debugging screen, then Add by IP.",
       { exact: true },
@@ -289,7 +289,7 @@ async function exercisePairingFlow({ browser, base }) {
     const page = await freshPage(browser, base);
     await installBridge(page, { probeReplies: [{ state: "unidentified" }] });
     await openAndPair(page);
-    await page.getByText("couldn't tell which advertised device this is", { exact: false }).waitFor();
+    await page.getByText("couldn't tell which device on the network this is", { exact: false }).waitFor();
     assert.equal(await page.locator(".pair-waiting").count(), 0);
     assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
     assert.equal((await calls(page, "connect_device")).length, 0);
@@ -322,12 +322,12 @@ async function exercisePairingFlow({ browser, base }) {
       connectOk: false,
     });
     await openAndPair(page);
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     for (let i = 0; i < 40 && (await page.locator(".pair-waiting").count()) > 0; i++) {
       await page.clock.runFor(1500);
     }
-    await page.getByText(`It advertised ${CONNECT_ADDRESS}, but connecting kept failing.`, { exact: false }).waitFor();
-    assert.equal(await page.getByText("No connect port appeared", { exact: false }).count(), 0);
+    await page.getByText(`It announced ${CONNECT_ADDRESS}, but connecting kept failing.`, { exact: false }).waitFor();
+    assert.equal(await page.getByText("No connection port appeared", { exact: false }).count(), 0);
     await page.locator(".pair-form .adb-details summary").click();
     await page.locator(".pair-form .adb-details").getByText("failed to connect to explicit endpoint", { exact: true }).waitFor();
     assert.equal(await connectBox(page).inputValue(), `${pairedHost}:`);
@@ -378,7 +378,7 @@ async function exercisePairingFlow({ browser, base }) {
     });
     await page.locator(".connect-form").getByRole("button", { name: "Pair PIN" }).click();
     await page.getByPlaceholder("IP:pair_port — e.g. 192.168.42.71:43219").fill("182.168.42.211:45439");
-    await page.getByText("This computer is on 192.168.1.x, and 182.168.42.211 isn't on it. Typo?", { exact: true }).waitFor();
+    await page.getByText("This computer is on 192.168.1.x, so 182.168.42.211 looks like a different network. Check for a typo.", { exact: true }).waitFor();
     await page.getByPlaceholder("6-digit PIN").fill(PIN);
     await page.getByRole("button", { name: "Pair", exact: true }).click();
     await page.getByText(
@@ -421,7 +421,7 @@ async function exercisePairingFlow({ browser, base }) {
       probeReplies: [{ state: "waiting" }, { state: "endpoint", address: CONNECT_ADDRESS }],
     });
     await openAndPair(page);
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     const note = await page.locator(".pair-note").innerText();
     assert.match(note, /The app connects automatically/);
     // The fallback is troubleshooting, so it waits behind the pairing help.
@@ -448,7 +448,7 @@ async function exercisePairingFlow({ browser, base }) {
     const page = await freshPage(browser, base, { clock: true, builtin: true });
     await installBridge(page, { probeReplies: [{ state: "waiting" }], holdFirstProbe: true });
     await openAndPair(page);
-    await page.getByText("Waiting for the device to advertise its connect port…", { exact: false }).waitFor();
+    await page.getByText("Waiting for the device's connection port…", { exact: false }).waitFor();
     await page.waitForFunction(() => typeof window.__RELEASE_PROBE__ === "function");
     await page.clock.runFor(3000);
     const counted = Number(/(\d+)s of 45s/.exec(await page.locator(".pair-waiting").innerText())?.[1]);
@@ -457,7 +457,7 @@ async function exercisePairingFlow({ browser, base }) {
     for (let i = 0; i < 40 && (await page.locator(".pair-waiting").count()) > 0; i++) {
       await page.clock.runFor(1500);
     }
-    await page.getByText("No connect port appeared within 45 seconds.", { exact: true }).waitFor();
+    await page.getByText("No connection port appeared within 45 seconds.", { exact: true }).waitFor();
     await page.getByText(
       "Enter the port shown on the TV or phone's main Wireless debugging screen, then Add by IP.",
       { exact: true },

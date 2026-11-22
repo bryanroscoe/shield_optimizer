@@ -93,7 +93,7 @@
       (plan.launcher_to_set ? 1 : 0);
     const tierWarning = destructiveWarning(devices.find((d) => d.serial === serial)?.support);
     const current = previewState;
-    if (!(await confirmAction(`Restore ${snap.filename} to ${current.deviceName}?\n\n${total} change(s). Disabled packages can be re-enabled via Emergency Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+    if (!(await confirmAction(`Restore ${snap.filename} to ${current.deviceName}?\n\n${total} change(s). Disabled apps can be re-enabled with Emergency recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
       || previewState !== current || actionBusy || applyBusy || deletingPath) return;
     applyBusy = true;
     applyErr = null;
@@ -179,12 +179,11 @@
 
 <HelpDetails label="Snapshot help">
   <p class="muted">
-    A snapshot records which apps are disabled, which known apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds turned on; it never uninstalls.
-    Restore to the same device, or to another
-    one to copy its setup. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
+    A snapshot records which apps are disabled, which catalog apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds enabled and restores settings. It never uninstalls, re-enables or reinstalls apps.
+    Restore to the same device, or to another one to copy its setup. Delete removes only the
+    saved file from this computer. Files live at <code>{snapshotDir || "(unknown)"}</code> — copy them anywhere to share.
   </p>
 </HelpDetails>
-<p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
 
 {#if actionMsg}
   <pre class="action-msg">{actionMsg}</pre>
@@ -214,9 +213,9 @@
     <div class="plan-summary">
       <strong>{plan.packages_to_disable.length}</strong> to disable ·
       {plan.packages_already_disabled.length} already disabled ·
-      {plan.packages_not_installed.length} not on device ·
+      {plan.packages_not_installed.length} not installed ·
       <strong>{settingKeys.length}</strong> setting{settingKeys.length === 1 ? "" : "s"}
-      to write · <strong>{plan.settings_to_delete.length}</strong> to reset
+      to change · <strong>{plan.settings_to_delete.length}</strong> to reset
       {#if plan.packages_kept.length > 0}· {plan.packages_kept.length} kept on for Home{/if}
       {#if plan.launcher_to_set}· Home app{/if}
     </div>
@@ -234,7 +233,7 @@
           <tr class="acting"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "unset"}</td><td><span class="plan-act setting">Set → {plan.settings_to_write[k]}</span></td></tr>
         {/each}
         {#each plan.settings_to_delete as k (k)}
-          <tr class="acting"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "—"}</td><td><span class="plan-act setting">Reset → device default (delete override)</span></td></tr>
+          <tr class="acting"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "—"}</td><td><span class="plan-act setting">Reset → device default</span></td></tr>
         {/each}
         {#if launcherUnchanged}
           <tr class="dim"><td class="mono small">Home app</td><td class="mono small">{plan.current_launcher ?? "—"}</td><td><span class="terminal-reason">Already Home</span></td></tr>
@@ -251,7 +250,7 @@
           <tr class="dim"><td class="mono small">{pkg}</td><td class="mono small">disabled</td><td><span class="terminal-reason">Already disabled</span></td></tr>
         {/each}
         {#each plan.packages_not_installed as pkg (pkg)}
-          <tr class="dim"><td class="mono small">{pkg}</td><td class="mono small">not installed</td><td><span class="terminal-reason">Not on device</span></td></tr>
+          <tr class="dim"><td class="mono small">{pkg}</td><td class="mono small">not installed</td><td><span class="terminal-reason">Not installed</span></td></tr>
         {/each}
       </tbody>
     </table>
@@ -260,7 +259,7 @@
       <button class="primary" onclick={confirmApply} disabled={applyBusy || !!actionBusy || !!deletingPath || applyResult !== null}>
         {applyBusy ? "Restoring…" : applyResult ? "Restored" : "Restore snapshot"}
       </button>
-      <span class="muted small">Disable is reversible via Emergency Recovery on the device.</span>
+      <span class="muted small">You can re-enable disabled apps with Emergency recovery on the device's Overview tab.</span>
     </div>
     {#if applyErr}<div class="error">{applyErr}</div>{/if}
     {#if applyResult}
@@ -364,8 +363,8 @@
     <div class="callout snapshots-note">
       <Icon name="content_copy" size={16} />
       <span>
-        Restoring a snapshot to a different device is a clone — the restore plan names
-        every package the target is missing before anything runs.
+        Restoring a snapshot to a different device copies its setup. The preview lists every
+        app the target is missing before anything runs.
       </span>
     </div>
   </HelpDetails>

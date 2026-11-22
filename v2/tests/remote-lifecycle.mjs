@@ -77,7 +77,7 @@ try {
   await clear();const up=page.getByRole('button',{name:'D-pad up',exact:true});await up.dispatchEvent('pointerdown');await page.waitForTimeout(720);await page.evaluate(()=>window.dispatchEvent(new Event('blur')));
   const count=(await inputs()).length;await page.waitForTimeout(300);assert.equal((await inputs()).length,count);
   await up.dispatchEvent('pointerdown');await hide();const hiddenCount=(await inputs()).length;await page.waitForTimeout(700);assert.equal((await inputs()).length,hiddenCount);
-  await remote();await clear();await hold('send_key');await key('Home');await held();await key('Back');await page.getByRole('checkbox',{name:'Force compatible mode'}).check();await release();await page.waitForTimeout(150);
+  await remote();await clear();await hold('send_key');await key('Home');await held();await key('Back');await page.getByRole('checkbox',{name:'Compatibility mode'}).check();await release();await page.waitForTimeout(150);
   assert.equal((await inputs()).length,1);await key('Back');await page.waitForFunction(()=>window.calls.filter(c=>c.command==='send_key').length===2);assert.equal((await inputs())[1].forceShell,true);
   await clear();await hold('send_key');await key('Home');await held();await key('Back');
   await page.evaluate(()=>{const a=document.createElement('a');a.href='/devices/192.0.2.99%3A5555';a.id='change-target';a.textContent='SIMULATED target change';document.body.append(a);});
@@ -87,14 +87,14 @@ try {
   assert.equal((await inputs())[1].serial,'192.0.2.99:5555','new gesture uses selected target only');
   await clear();
   await capture.evaluate(el => { const data=new DataTransfer();data.setData('text/plain','x\n'.repeat(1000));el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true})); });
-  await page.getByText(/Paste exceeds Remote limits/).waitFor();
+  await page.getByText(/That paste is too long for Remote/).waitFor();
   assert.equal((await inputs()).length,0,'oversized action-count paste is rejected before any input');
   await capture.evaluate(el => { const data=new DataTransfer();data.setData('text/plain','x'.repeat(70000));el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true})); });
   assert.equal((await inputs()).length,0,'oversized byte paste is rejected without a prefix');
   await key('Back');await page.waitForFunction(()=>window.calls.filter(c=>c.command==='send_key').length===1);
   await clear();await hold('send_key');await key('Home');await held();
   await page.getByRole('button',{name:'Back',exact:true}).evaluate(button=>{for(let i=0;i<140;i++)button.click();});
-  await page.getByText(/Remote queue is full/).waitFor();
+  await page.getByText(/Too many presses queued/).waitFor();
   assert.equal((await inputs()).length,1,'bounded pending queue does not dispatch while first input is held');
   if(evidence)await page.screenshot({path:`${evidence}/remote-queue-limit-simulated.png`});await pause(1500);
   await release();await page.waitForTimeout(150);assert.equal((await inputs()).length,1,'overflow discards every unsent queued gesture');

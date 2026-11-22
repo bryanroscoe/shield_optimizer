@@ -820,7 +820,7 @@
       keptPackages = getKeptPackages(hardwareId);
       catalogInventoryVersion++;
       const unavailableCount = packages.length - Object.keys(appStates).length;
-      if (unavailableCount > 0) appsErr = `State unavailable for ${unavailableCount} package(s). Refresh before taking action.`;
+      if (unavailableCount > 0) appsErr = `Couldn't read status for ${unavailableCount} app(s). Refresh before making changes.`;
       packageSafety = {
         ...packageSafety,
         ...Object.fromEntries(packages.map((pkg, index) => {
@@ -833,7 +833,7 @@
       appsLoaded = true;
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
-      appsErr = `Inventory unavailable: ${e}. Refresh to retry.`;
+      appsErr = `Couldn't load the app list: ${e}. Refresh to try again.`;
       appsLoaded = true;
     } finally {
       if (pageContextIsCurrent(context) && request === appsRequest) appsLoading = false;
@@ -909,7 +909,7 @@
       packageSafety = resolved;
     } catch (e) {
       if (!pageContextIsCurrent(context) || request !== otherRequest) return;
-      othersErr = `Other-package inventory unavailable: ${e}. Refresh to retry.`;
+      othersErr = `Couldn't load other installed apps: ${e}. Refresh to try again.`;
     } finally {
       if (pageContextIsCurrent(context) && request === otherRequest) othersLoading = false;
     }
@@ -1028,11 +1028,11 @@
         catalogInventoryVersion++;
         appsErr = Object.keys(next).length === packages.length
           ? null
-          : "Some package states are unavailable. Refresh before taking action.";
+          : "Couldn't read status for some apps. Refresh before making changes.";
       } catch (e) {
         if (!pageContextIsCurrent(context) || request !== appsRequest) return;
         appStates = {};
-        appsErr = `Inventory unavailable: ${e}. Refresh to retry.`;
+        appsErr = `Couldn't load the app list: ${e}. Refresh to try again.`;
       } finally {
         endStatesResync(resync);
       }
@@ -1069,7 +1069,7 @@
     ]);
     const state = validatedPackageStates([pkg], rawStates)[pkg];
     if (state !== "enabled" && state !== "disabled") {
-      throw new Error("Current installed-state evidence is unavailable");
+      throw new Error("Couldn't verify whether this app is installed");
     }
     return { state, safety };
   }
@@ -1252,7 +1252,7 @@
     const request = ++mutationRequest;
     const inventoryVersion = catalogInventoryVersion;
     if (!catalogStateIsCurrent(pkg, "missing", inventoryVersion)) {
-      appActionMessage = `${pkg}: current missing-state evidence is unavailable. Refresh to retry.`;
+      appActionMessage = `${pkg}: couldn't verify whether this app is missing. Refresh to try again.`;
       return;
     }
     appMutationInFlight = true;
@@ -1425,7 +1425,7 @@
     try {
       await openUrl(url);
     } catch (e) {
-      launcherActionMessage = `Could not open ${url}: ${e}`;
+      launcherActionMessage = `Couldn't open ${url}: ${e}`;
     }
   }
 
@@ -1550,7 +1550,7 @@
       if (saved.kind !== "saved") {
         homePickerBusy = null;
         homePickerOk = false;
-        homePickerMessage = "The snapshot wasn't saved, so the stock launcher was left alone.";
+        homePickerMessage = "The snapshot wasn't saved, so the stock launcher wasn't changed.";
         return;
       }
     }
@@ -1558,14 +1558,14 @@
     homePickerMessage = "";
     try {
       const wraithNote = takeoverTurnsOffSetupHelper
-        ? " Google TV's setup helper (Setup Wraith) was turned off too."
+        ? " Google TV's setup helper (Setup Wraith) was disabled too."
         : "";
       const r = await api.disableStockLauncher(context.serial, pkg);
       if (!pageContextIsCurrent(context)) return;
       homePickerOk = r.ok;
       homePickerMessage = r.ok
-        ? `The stock launcher is disabled and ${pkg} is Home.${wraithNote} Re-enable stock from the list above any time.`
-        : (r.last_error ?? "The stock launcher was left alone.");
+        ? `The stock launcher is disabled and ${pkg} is now Home.${wraithNote} You can re-enable the stock launcher from the list above at any time.`
+        : (r.last_error ?? "The stock launcher wasn't changed.");
       launcherDiagnostics = r.ok ? [] : (r.diagnostics ?? []);
       stockHoldsHomeFor = null;
       await loadLauncher();
@@ -1677,12 +1677,12 @@
     const pkg = row.entry.package;
     launcherActionBusy = pkg;
     launcherActionMessage = "";
-    launcherProgress = "Turning off Google TV's setup helper";
+    launcherProgress = "Disabling Google TV's setup helper";
     try {
       const r = await api.disableSetupHelper(serial, pkg);
       launcherActionMessage = r.ok
-        ? "Setup Wraith is off. Press Home on the TV to check it lands on your launcher."
-        : `Couldn't turn off Setup Wraith: ${r.message.trim() || "failed"}`;
+        ? "Setup Wraith is disabled. Press Home on the TV to confirm your launcher opens."
+        : `Couldn't disable Setup Wraith: ${r.message.trim() || "failed"}`;
       await loadLauncher();
       invalidateDeviceCaches();
     } catch (e) {
@@ -1760,7 +1760,7 @@
     launcherSetResult = null;
     launcherDiagnostics = [];
     launcherDiagnosticsCopied = false;
-    launcherProgress = "Setting default launcher";
+    launcherProgress = "Setting the Home app";
     // The backend works through several strategies (enable → role → set-home-
     // activity → verify) that can take a few seconds; narrate each step so the
     // user knows it's working rather than hung.
@@ -1790,8 +1790,8 @@
       if (r.ok) {
         message =
           r.strategy === "disable_stock_takeover"
-            ? `${name} is now your default launcher.\nThe stock launcher was disabled to hand it over. Re-enable it from this list any time.`
-            : `${name} is now your default launcher.`;
+            ? `${name} is now your Home app.\nThe stock launcher was disabled to hand over Home. You can re-enable it from this list at any time.`
+            : `${name} is now your Home app.`;
         // A successful switch only carries `last_error` as a follow-up note
         // (e.g. the setup helper couldn't be re-enabled).
         if (r.last_error) message += `\n${r.last_error}`;
@@ -1800,7 +1800,7 @@
         // the change — press Home" case) — render them verbatim rather than
         // prefixing "Failed:".
         message =
-          r.last_error ?? `Android did not verify ${name} as default. No success was confirmed.`;
+          r.last_error ?? `Android didn't confirm ${name} as the Home app, so it may not have changed.`;
         // Only on failure: this is the record a reporter can paste back, and
         // it is the only thing that distinguishes "the device refused the
         // command" from "the device accepted it and ignored it".
@@ -1823,7 +1823,7 @@
       invalidateDeviceCaches();
     } catch (e) {
       if (pageContextIsCurrent(context)) {
-        launcherSetResult = { package: pkg, message: `Could not confirm whether ${name} became default: ${e}. Refresh the launcher list to check its current state.` };
+        launcherSetResult = { package: pkg, message: `Couldn't confirm whether ${name} is now the Home app: ${e}. Refresh the launcher list to check.` };
       }
     } finally {
       if (pageContextIsCurrent(context)) {
@@ -1865,7 +1865,7 @@
     saveResult = "";
     try {
       const result = await api.saveSnapshot(context.serial, device.name, label || null);
-      saveResult = `Saved ${result.label ?? result.filename} — ${result.disabled_count} disabled packages captured.`;
+      saveResult = `Saved ${result.label ?? result.filename} (${result.disabled_count} disabled apps).`;
       await loadSnapshots();
       return { kind: "saved", message: saveResult };
     } catch (e) {
@@ -1986,7 +1986,7 @@
     const tierWarning = destructiveWarning(device?.support);
     const path = previewPath;
     const plan = preview;
-    if (!(await confirmAction(`Restore this snapshot?\n\n${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+    if (!(await confirmAction(`Restore this snapshot?\n\n${total} change(s) will be applied to this TV. Disabled apps can be re-enabled later with Emergency recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
       || previewPath !== path || preview !== plan || applyBusy || snapshotDeletePath) return;
     applyBusy = true;
     applyErr = null;
@@ -2004,7 +2004,7 @@
   async function runRecovery() {
     if (recoveryBusy) return;
     const context = capturePageContext();
-    if (!(await confirmAction("Re-enable every disabled package on this device? This is the panic button — use it if something went wrong."))
+    if (!(await confirmAction("Re-enable every disabled app on this TV? This includes apps disabled on purpose or outside ATV Optimizer. You can run Optimize again afterward."))
       || recoveryBusy
       || !pageContextIsCurrent(context)) return;
     recoveryBusy = true;
@@ -2024,7 +2024,7 @@
     const label = mode === "normal" ? "" : ` into ${mode}`;
     if (rebootBusy) return;
     const context = capturePageContext();
-    if (!(await confirmAction(`Reboot the device${label}? You will lose ADB connection briefly.`))
+    if (!(await confirmAction(`Reboot this TV${label}? The connection drops until it restarts.`))
       || rebootBusy
       || !pageContextIsCurrent(context)) return;
     rebootMenuOpen = false;
@@ -2289,7 +2289,7 @@
             <button
               class="small-action subtle rename-button"
               onclick={startRename}
-              title="Rename this device (settings put global device_name — what Cast / Google Home display)"
+              title="Rename this TV (the name Cast and Google Home show)"
             >
               Rename
             </button>
@@ -2318,7 +2318,7 @@
         <button
           onclick={takeScreenshot}
           disabled={screenshotBusy}
-          title="Capture the TV screen (screencap) and save it as a PNG on this computer"
+          title="Take a screenshot of the TV and save it as a PNG on this computer"
         >
           {screenshotBusy ? "Capturing…" : "Screenshot"}
         </button>
@@ -2466,8 +2466,8 @@
           </div>
           <HelpDetails label="Device details help">
             <p class="muted small prop-note">
-              Read-only — sourced from <code>getprop</code>. The friendly name is the
-              only field this app can change, with Rename above.
+              Read-only details reported by the device. The friendly name is the only
+              one this app can change, with Rename above.
             </p>
           </HelpDetails>
         {:else}
@@ -2489,17 +2489,17 @@
                is no per-app change log, so a package you disabled by hand
                elsewhere is re-enabled too. -->
           <p class="muted small">
-            Re-enables every package that is currently disabled on this TV — not
-            only the ones changed here. Use it when the TV boots to a black
-            screen, the launcher is gone, or an app you need has vanished.
+            Re-enables every disabled app on this TV, including ones disabled
+            outside ATV Optimizer. Use it if the TV boots to a black screen, the
+            launcher is gone, or an app you need has vanished.
           </p>
           <button
             class="danger-button recovery-run"
             onclick={runRecovery}
             disabled={recoveryBusy}
-            title="pm enable every package currently in `pm list packages -d`"
+            title="Re-enable every disabled app on this TV"
           >
-            {recoveryBusy ? "Restoring…" : "Run Emergency Recovery"}
+            {recoveryBusy ? "Restoring…" : "Run Emergency recovery"}
           </button>
           <p class="muted recovery-caption">Asks for confirmation · cannot be undone from here</p>
           {#if recoveryErr}
@@ -2510,7 +2510,7 @@
               <p><strong>{recoveryResult.message}</strong></p>
               {#if recoveryResult.failed.length > 0}
                 <details>
-                  <summary>{recoveryResult.failed.length} package(s) failed</summary>
+                  <summary>{recoveryResult.failed.length} app(s) failed</summary>
                   <ul class="mono small">
                     {#each recoveryResult.failed as f}
                       <li>{f.package}: {f.error}</li>
@@ -2521,13 +2521,6 @@
             </div>
           {/if}
         </div>
-        <div class="callout">
-          <Icon name="info" size={16} />
-          <span>
-            Recovery cannot tell which app disabled a package. Anything disabled
-            outside this app is re-enabled as well.
-          </span>
-        </div>
       </aside>
     </div>
   {:else if activeTab === "health"}
@@ -2536,7 +2529,7 @@
         <div class="header-title">
           <h2><Icon name="monitor_heart" size={20} /> Health</h2>
           <p class="muted small mono header-sub" data-tip={reportLastRefreshed?.toISOString() ?? undefined}>
-            {refreshLabel} · dumpsys meminfo, df, top
+            {refreshLabel}
           </p>
         </div>
         <div class="header-actions">
@@ -2676,7 +2669,7 @@
                   {#if thermal.value != null}
                     <p>Highest reported temperature: <strong>{metricNumber(thermal.value)} °C</strong></p>
                     <p>{thermal.sensor}{thermal.source ? ` · ${thermal.source}` : ""}</p>
-                    {#if thermal.cached}<p>No current sensor reading was supplied; showing a cached value.</p>{/if}
+                    {#if thermal.cached}<p>No live sensor reading available; showing the last cached value.</p>{/if}
                   {:else}
                     <p>Temperature unavailable.</p>
                   {/if}
@@ -2694,7 +2687,7 @@
                     {/if}
                     {#if thermal.shutdown != null}<p>Reported shutdown point: {metricNumber(thermal.shutdown)} °C</p>{/if}
                   {:else}
-                    <p>Sensor and thermal-status data were not supplied.</p>
+                    <p>This TV didn't report temperature or thermal status.</p>
                   {/if}
                 </HelpTip>
               </span>
@@ -2778,9 +2771,9 @@
           <h2><Icon name="memory" size={20} /> Top memory users</h2>
         <HelpDetails label="Memory report help">
           <p class="muted small consumers-note">
-            The suggestion for an app is the same one the App List gives it —
-            click a row to open it there. Names we cannot tie to an installed
-            package are processes, not apps, and there is nothing to remove.
+            Each app's suggestion matches the App List — click a row to open it
+            there. Names we can't tie to an installed app are processes, not
+            apps, so there's nothing to remove.
           </p>
         </HelpDetails>
         {#if report.top_memory.length === 0}
@@ -2824,7 +2817,7 @@
                       <span class="mem-process"><BreakableId text={m.process} /></span>
                       <span
                         class="unconfirmed"
-                        use:tip={"No installed package has this name, so this is a process we cannot tie to an app. The reviewed app list is not applied to unverified names."}
+                        use:tip={"No installed app has this name, so this is a process we can't tie to an app. The catalog isn't applied to unverified names."}
                       >not a package</span>
                     {/if}
                     {#if m.pid !== null}
@@ -2878,7 +2871,7 @@
         <div class="header-title">
           <h2><Icon name="home" size={20} /> Launcher</h2>
           <p class="muted small header-sub launcher-sub">
-            <span class="mono">home app resolution · {launchers.length} known launcher{launchers.length === 1 ? "" : "s"}</span>
+            <span class="mono">{launchers.length} known launcher{launchers.length === 1 ? "" : "s"}</span>
             <button class="link-button" onclick={() => openInBrowser(launcherRequestUrl())}>
               Want another launcher listed? Open an issue
             </button>
@@ -2907,8 +2900,8 @@
       {:else}
         {#if channelDisabled}
           <div class="warning">
-            <Icon name="warning" size={16} /> <code>com.android.providers.tv</code> is disabled on this device. Watch Next / Continue
-            Watching rows from Apple TV, Netflix, Disney+ etc. will be empty until you re-enable it.
+            <Icon name="warning" size={16} /> <code>com.android.providers.tv</code> is disabled on this TV. Continue Watching rows
+            (Apple TV, Netflix, Disney+ and others) stay empty until you re-enable it.
           </div>
         {/if}
         {#if launchers.length === 0 && !launcherLoading}
@@ -2986,8 +2979,8 @@
                         onclick={() => setDefaultLauncher(l.entry.package)}
                         disabled={launcherActionBusy !== null}
                         title={l.enabled
-                          ? "Make this the default launcher (role API / set-home-activity)"
-                          : "Enable this launcher, then make it the default"}
+                          ? "Set this as the Home app"
+                          : "Enable this launcher, then set it as the Home app"}
                       >
                         {busy ? "Setting…" : l.enabled ? "Set as default" : "Enable & set default"}
                       </button>
@@ -3047,14 +3040,14 @@
               <Icon name={setupHelperState === "risk" ? "warning" : "info"} size={16} />
               <span role="status">
                 {#if setupHelperState === "off"}
-                  Setup Wraith is off. Turn this back on if Google asks you to sign in again or you
-                  need to pair a remote; turn it off again after.
+                  Setup Wraith is disabled. Re-enable it briefly if Google asks you to sign in again
+                  or you need to pair a remote, then disable it again.
                 {:else if setupHelperState === "on"}
-                  Google TV's setup helper (Setup Wraith) is on. It can take the Home button back
-                  after you switch launchers. Disable stock launcher turns it off too.
+                  Google TV's setup helper (Setup Wraith) is on and can take the Home button back
+                  after you switch launchers. Disable stock launcher disables it too.
                 {:else}
-                  Google TV's setup helper (Setup Wraith) is on while the stock launcher is off. It
-                  will likely grab the Home button.
+                  Google TV's setup helper (Setup Wraith) is on while the stock launcher is
+                  disabled. It may take the Home button.
                 {/if}
               </span>
               <span class="setup-helper-help">
@@ -3082,8 +3075,8 @@
                   class="small-action"
                   onclick={turnOffSetupHelper}
                   disabled={launcherActionBusy !== null}
-                  title="Turns it off only if a real launcher is still enabled, then checks Home still lands there"
-                >Turn it off</button>
+                  title="Disables it only if a real launcher is still enabled, then checks Home still lands there"
+                >Disable Setup Wraith</button>
               {/if}
             </div>
           {/if}
@@ -3149,9 +3142,9 @@
             <summary>Advanced: set another app as Home…</summary>
             <div class="home-picker-body">
               <p class="muted small">
-                Any installed app can be tried. Android only accepts an app that declares a
-                Home screen, and this says so when it doesn't. Setting an app never disables
-                anything; taking over from the stock launcher is the separate step below.
+                Try any installed app as Home. Android only accepts apps built to act as a
+                home screen, and you'll see a message if it refuses. Setting a Home app never
+                disables anything; disabling the stock launcher is a separate step below.
               </p>
               {#if homePickerErr}
                 <div class="error">{homePickerErr}</div>
@@ -3207,12 +3200,12 @@
                       Disable the stock launcher and hand Home to <span class="mono">{homePickerChoice}</span>?
                     </p>
                     <ul>
-                      <li>If Home doesn't land on it, the stock launcher is re-enabled straight away.</li>
+                      <li>If Home doesn't open it, the stock launcher is re-enabled right away.</li>
                       <li>You can re-enable it from the list above at any time.</li>
                       {#if takeoverTurnsOffSetupHelper}
                         <li>
-                          Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home
-                          button back. You may need to turn it back on briefly to sign in to Google again
+                          Also disables Google TV's setup helper (Setup Wraith), or it takes the Home
+                          button back. You may need to re-enable it briefly to sign in to Google again
                           or pair a remote.
                         </li>
                       {/if}
@@ -3243,7 +3236,7 @@
       <div class="card-header">
         <h2><Icon name="apps" size={20} /> App List for {deviceTypeLabel(device.device_type)}</h2>
         <div class="header-actions">
-          <span class="muted">{visibleApps.length} of {apps.length} curated · {visibleOthers.length} of {otherPackages.length} other</span>
+          <span class="muted">{visibleApps.length} of {apps.length} catalog · {visibleOthers.length} of {otherPackages.length} other</span>
           <button onclick={loadApps} disabled={appsLoading}>
             {appsLoading ? "Loading…" : "Refresh"}
           </button>
@@ -3256,7 +3249,7 @@
           bind:value={appSearch}
         />
         <label class="app-state-filter">
-          Package state
+          Status
           <select bind:value={packageStateFilter}>
             <option value="all">All states</option>
             <option value="enabled">Enabled only</option>
@@ -3273,7 +3266,7 @@
         </label>
         <label class="inline-check">
           <input type="checkbox" bind:checked={showSystemOthers} />
-          Show system packages
+          Show system apps
         </label>
         <RemovalHelp />
       </div>
@@ -3306,7 +3299,7 @@
           </div>
         {/if}
         <!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users need to scroll this table.) -->
-        <div class="app-table-scroll" role="region" aria-label="Curated apps" tabindex="0">
+        <div class="app-table-scroll" role="region" aria-label="Catalog apps" tabindex="0">
         <table class="app-table">
           <thead>
             <tr>
@@ -3316,9 +3309,9 @@
                    one nowrap line and a paragraph in one line is a page-wide
                    strip. The short version rides alongside it. -->
               <th
-                title="Our verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs an explicit tick before it can be removed."
+                title="Our safety verdict on removing it, and which list it came from — click a row's verdict for the full reason. Anything we can't vouch for needs your explicit confirmation before it can be removed."
                 data-tip="Click a row to read the full reason"
-              >Verdict &amp; source</th>
+              >Safety</th>
               <th class="right"><AppColumnHelp column="ram" /></th>
               <th class="right"><AppColumnHelp column="usage" /></th>
               <th class="controls-start">Actions</th>
@@ -3498,7 +3491,7 @@
               </AppRow>
             {/each}
             {#if visibleApps.length === 0}
-              <tr><td colspan="6" class="muted">No curated apps match your filters.</td></tr>
+              <tr><td colspan="6" class="muted">No catalog apps match your filters.</td></tr>
             {/if}
           </tbody>
         </table>
@@ -3517,23 +3510,23 @@
           <h3>Everything else {othersLoaded ? `(${visibleOthers.length})` : ""}</h3>
           <HelpDetails label="Other apps help">
             <p class="muted small">
-              Installed apps that aren't in the curated list — sideloaded apps (SmartTube etc.)
+              Installed apps that aren't in the catalog — sideloaded apps (SmartTube etc.)
               get the same <strong>Backup</strong> and <strong>Copy to…</strong> tools.
-              Removals here still go through the same safety checks as the curated list.
-              {showSystemOthers ? "Showing system packages too." : "System packages are hidden; tick \"Show system packages\" to include them."}
+              Removals here still go through the same safety checks as catalog apps.
+              {showSystemOthers ? "Showing system apps too." : "System apps are hidden; check \"Show system apps\" to include them."}
             </p>
           </HelpDetails>
           {#if othersErr}
             <div class="error">
               {othersErr}
-              <button class="small-action" onclick={loadOtherPackages} disabled={othersLoading}>Retry other packages</button>
+              <button class="small-action" onclick={loadOtherPackages} disabled={othersLoading}>Retry other apps</button>
             </div>
           {:else if othersLoading}
-            <div class="muted">Loading installed packages…</div>
+            <div class="muted">Loading installed apps…</div>
           {:else if !othersLoaded}
-            <p class="muted">Other-package inventory is unavailable. Retry to load it.</p>
+            <p class="muted">Couldn't load other installed apps. Retry to load them.</p>
           {:else if visibleOthers.length === 0}
-            <p class="muted">{otherPackages.length === 0 ? "No non-catalog packages found." : "Nothing matches your filters."}</p>
+            <p class="muted">{otherPackages.length === 0 ? "No other apps found." : "Nothing matches your filters."}</p>
           {:else}
             <!-- Same shape as the curated table above it. These are the same
                  kind of row about the same kind of thing, so a reader should
@@ -3546,7 +3539,7 @@
                 <tr>
                   <th><span class="sr-only">Details</span></th>
                   <th>App</th>
-                  <th>Verdict &amp; source</th>
+                  <th>Safety</th>
                   <th class="right"><AppColumnHelp column="ram" /></th>
                   <th class="right"><AppColumnHelp column="usage" /></th>
                   <th class="controls-start">Actions</th>
@@ -3641,10 +3634,9 @@
       </div>
       <HelpDetails label="Snapshot contents">
         <p class="muted small snap-explainer">
-          A snapshot records which apps are disabled, which known apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds turned on; it never uninstalls.
+          A snapshot records which apps are disabled, which catalog apps weren't installed, your Home app and a set of display, audio, HDMI-CEC and screensaver settings. Restore disables any of those apps it finds enabled and restores settings. It never uninstalls, re-enables or reinstalls apps. Delete removes only the saved file from this computer.
         </p>
       </HelpDetails>
-      <p class="muted small">Restore disables recorded apps and restores settings. It never re-enables or reinstalls apps. Delete removes only the saved file from this computer.</p>
       {#if saveResult}<p class="muted small">{saveResult}</p>{/if}
       {#if snapshotDeleteMsg}<p class="muted small" role="status">{snapshotDeleteMsg}</p>{/if}
       {#if snapshotDeleteErr}<div class="error" role="alert">{snapshotDeleteErr}</div>{/if}
@@ -3709,7 +3701,7 @@
 
         <div class="snap-col">
       {#if previewBusy}
-        <p class="muted">Computing plan…</p>
+        <p class="muted">Building preview…</p>
       {:else if previewErr}
         <div class="error">{previewErr}</div>
       {:else if preview && previewPath}
@@ -3824,7 +3816,7 @@
             {applyBusy ? "Restoring…" : applyResult ? "Restored" : "Restore this snapshot"}
           </button>
           <span class="muted small">
-            Disable is reversible via Emergency Recovery on the Overview tab.
+            You can re-enable disabled apps with Emergency recovery on the Overview tab.
           </span>
         </div>
         {#if applyErr || applyResult}
@@ -3842,7 +3834,7 @@
             <div class="apply-result">
               <p><strong>{applyResult.summary}</strong></p>
               <ul>
-                <li><strong>{applyResult.packages_disabled.length}</strong> packages disabled</li>
+                <li><strong>{applyResult.packages_disabled.length}</strong> apps disabled</li>
                 {#if outcome.kept.length > 0}
                   <li><PackageOutcomeList label="Kept on:" items={outcome.kept} reasonsLabel="Why they were kept on" /></li>
                 {/if}
@@ -3852,7 +3844,7 @@
                 {#if applyResult.launcher_message}
                   <li>Launcher: {applyResult.launcher_message}</li>
                 {/if}
-                <li><strong>{applyResult.settings_written.length}</strong> settings written</li>
+                <li><strong>{applyResult.settings_written.length}</strong> settings updated</li>
                 {#if applyResult.settings_failed.length > 0}
                   <li><PackageOutcomeList label="Settings failed:" items={applyResult.settings_failed.map((entry) => ({ package: entry }))} warn /></li>
                 {/if}
@@ -3867,8 +3859,8 @@
           <Icon name="history" size={28} />
           <strong>No snapshot selected</strong>
           <span class="small">
-            Pick one on the left and this shows every package and setting it would
-            change, and every one it would leave alone, before anything runs.
+            Select one on the left to preview every app and setting it would change,
+            and every one it would leave alone, before anything runs.
           </span>
         </div>
       {/if}

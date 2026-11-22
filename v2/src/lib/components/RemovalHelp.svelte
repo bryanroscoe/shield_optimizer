@@ -8,18 +8,18 @@
 <div class="removal-help">
   <HelpTip label="Disable or uninstall">
     <p>
-      <strong>Disable</strong> is suggested for every review app. It stops the app while keeping
-      its installed copy. Android's third-party app list does not prove Play Store origin.
+      <strong>Disable</strong> is suggested for every REVIEW app. It stops the app while keeping it
+      installed. Android's list of user-installed apps doesn't prove an app came from the Play Store.
     </p>
     <p>
-      <strong>Uninstall</strong> remains an explicit choice where offered. It removes the app for
-      this TV's user. Getting it back depends on an available APK or store listing; deleted app data
-      is not restored. Built-in apps remain in system storage either way.
+      <strong>Uninstall</strong> stays your explicit choice where it's offered. It removes the app
+      for this TV's user. Getting it back needs an available APK or store listing, and deleted app
+      data isn't restored. Preinstalled apps remain in system storage either way.
     </p>
     <p>
       Snapshots record disabled and absent apps. Recorded absent apps are left unchanged because
-      saved-TV hardware identity is unverified. Restore can disable recorded disabled apps and
-      restore supported settings; it never uninstalls.
+      the TV's hardware ID isn't verified against the snapshot. Restore can disable the recorded
+      disabled apps and restore supported settings; it never uninstalls.
     </p>
   </HelpTip>
 </div>
