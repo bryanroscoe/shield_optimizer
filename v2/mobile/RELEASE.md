@@ -55,8 +55,9 @@ The `smoke` job runs on PRs and pushes to `main` that touch mobile sources or th
 inputs, as well as the workflow and toolchain action. It performs the same four-ABI build and
 verification with a throwaway keystore and a random license key, no secrets and no upload.
 Both smoke and real release jobs run the Kotlin discovery/network JVM tests and require
-nonempty passing JUnit reports. The reports are retained as workflow artifacts. This covers
-Android compilation and JVM behavior before a real tag depends on them; it is not device QA.
+nonempty passing JUnit reports. The reports are retained as workflow artifacts. The smoke
+job retains its verified, test-signed APK for three days as `mobile-smoke-apk`. Use the APK
+SHA-256 in `mobile-smoke-receipts` to identify the exact binary for emulator checks.
 
 Release CI covers the build, signature and static artifact gates and the versionCode check.
 The separate manual [16 KB runtime workflow](#retained-candidate-16-kb-runtime-qa) can record
