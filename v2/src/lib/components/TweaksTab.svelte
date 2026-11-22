@@ -326,7 +326,7 @@
       tweaksActionMessage =
         failed.length === 0
           ? `Animations → ${scale || "default"}`
-          : `Animations partially failed (${failed.length}/3): ${failed.map((r) => r.message).join("; ")}`;
+          : `Animations partially failed (${failed.length}/3):\n${failed.map((r) => `• ${r.message}`).join("\n")}`;
       await loadTweaks();
     } catch (e) {
       tweaksActionMessage = `Animations: ${e}`;
@@ -376,7 +376,7 @@
     <div class="muted">{tweaksLoading ? "Querying…" : "—"}</div>
   {:else}
     {#if tweaksActionMessage}
-      <p class="muted small mono action-message">{tweaksActionMessage}</p>
+      <p class="muted small mono action-message lines">{tweaksActionMessage}</p>
     {/if}
 
     {#if netflixHooksState && netflixHooksState !== "missing"}
@@ -904,6 +904,9 @@
   }
   .current strong {
     color: var(--fg-primary);
+  }
+  .action-message.lines {
+    white-space: pre-line;
   }
   .action-message {
     white-space: pre-line;

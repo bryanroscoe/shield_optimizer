@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import Icon from "$lib/components/Icon.svelte";
   import { api, send } from "$lib/api";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
@@ -400,10 +400,16 @@
     });
   }
 
+  let runButton = $state<HTMLButtonElement | null>(null);
+  let panelEl = $state<HTMLDivElement | null>(null);
+
+  /// The dialog hands focus back itself: to Run plan on Cancel, and to the
+  /// panel on Run, because Run plan is disabled while the run goes.
   function answerRun(ok: boolean) {
     const open = runConfirm;
     runConfirm = null;
     open?.resolve(ok);
+    if (open && !destroyed) void tick().then(() => (ok || runButton?.disabled ? panelEl : runButton)?.focus());
   }
 
   async function executeOptimize() {
@@ -672,7 +678,7 @@
   }
 </script>
 
-<div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize">
+<div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize" bind:this={panelEl}>
   <div class="card-header">
     <h2><Icon name="auto_fix_high" size={20} /> Optimize / Restore Wizard</h2>
     <div class="header-actions">
@@ -959,6 +965,7 @@
       >
       <button
         class="primary"
+        bind:this={runButton}
         onclick={executeOptimize}
         disabled={optimizeRunning || actionable === 0 || snapshotSaving}
       >

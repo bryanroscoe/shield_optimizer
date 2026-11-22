@@ -99,8 +99,10 @@ try {
       if (mode === 'normal') {
         assert.equal(calls.filter(c => c.command === 'package_states').length, 2);
         assert.equal(calls.filter(c => c.command === 'safety_info').length, 2);
-        assert.match(dialogs[0], /UNINSTALL Fixture disable/);
-        assert.match(dialogs[0], /Safety:/);
+        assert.match(dialogs[0], /^Uninstall Fixture disable \(.+\)\?/);
+        assert.match(dialogs[0], /Safe to remove\./);
+        assert.match(dialogs[0], /• Removed for this TV's user\./);
+        assert.doesNotMatch(dialogs[0], /Reason:|Proceed\?/);
       }
     }
     for (const theme of ['light', 'dark']) {

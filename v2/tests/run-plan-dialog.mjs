@@ -67,9 +67,9 @@ async function builderChecks(server) {
   assert.deepEqual(restore.sections.map((s) => s.kind), ["enable"]);
 
   const single = removalConfirmation("uninstall", "c.gone", "Gone Service", items[2].verdict, items[2].entry, null);
-  assert.equal(single, "Uninstall Gone Service?\n\nSafe to remove.\n\n• Removed for this TV's user.\n• Discontinued: no way to download it again.");
+  assert.equal(single, "Uninstall Gone Service (c.gone)?\n\nSafe to remove.\n\n• Removed for this TV's user.\n• Discontinued: no way to download it again.");
   const caution = removalConfirmation("disable", "d.caution", "Careful App", items[3].verdict, null, "This TV isn't supported.");
-  assert.match(caution, /^Disable Careful App\?\n\nCaution: Voice search stops working\.\n\n• /);
+  assert.match(caution, /^Disable Careful App \(d\.caution\)\?\n\nCaution: Voice search stops working\.\n\n• /);
   assert.match(caution, /This TV isn't supported\.$/);
   assert.doesNotMatch(caution, /Package:|Reason:|Proceed\?/);
   console.log("Run confirmation builder passed: tiers ordered, each app once, consequences kept.");
@@ -180,6 +180,7 @@ async function exercise({ browser, base }) {
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   assert.deepEqual(await mutations(page), [], "Cancel changed nothing");
+  await page.waitForFunction(() => document.activeElement?.textContent?.trim().startsWith("Run plan"));
   assert.equal(await panel.locator(".action-message").count(), 0, "no run summary after Cancel");
   assert.deepEqual(await armedPackages(panel), armed, "the selection is untouched");
 
@@ -214,6 +215,7 @@ async function exercise({ browser, base }) {
   await dialog.getByRole("button", { name: "Run Optimize", exact: true }).click();
   await dialog.waitFor({ state: "detached" });
   await page.getByText(/Optimize complete:/).waitFor({ timeout: 20000 });
+  assert.notEqual(await page.evaluate(() => document.activeElement?.tagName), "BODY", "focus stays in the panel after Run");
   assert.equal((await mutations(page)).length, armed.length, "Run applies each armed row");
   if (evidence) await page.screenshot({ path: join(evidence, "after-run-complete.png") });
 

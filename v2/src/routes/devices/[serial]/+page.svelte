@@ -3042,11 +3042,10 @@
             <div
               class="callout setup-helper-callout"
               class:callout-warn={setupHelperState === "risk"}
-              role="status"
               data-setup-helper={setupHelperState}
             >
               <Icon name={setupHelperState === "risk" ? "warning" : "info"} size={16} />
-              <span>
+              <span role="status">
                 {#if setupHelperState === "off"}
                   Setup Wraith is off. Turn this back on if Google asks you to sign in again or you
                   need to pair a remote; turn it off again after.
@@ -3134,9 +3133,11 @@
           {@const stockBlocks = homePickerChoice !== "" && stockHoldsHomeFor === homePickerChoice}
           {@const canDisableStock =
             homePickerChoice !== "" && !pickedStock && enabledStock && (pickedIsHome || stockBlocks)}
-          {@const stockOffReason = canDisableStock || homePickerChoice === ""
+          {@const stockOffReason = canDisableStock
             ? null
-            : !enabledStock
+            : homePickerChoice === ""
+              ? "Disable stock launcher: pick an app to set as Home first."
+              : !enabledStock
               ? "Disable stock launcher: no enabled stock launcher on this TV."
               : pickedStock
                 ? "Disable stock launcher: pick the app that should take over, not the stock launcher."

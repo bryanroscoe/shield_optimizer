@@ -105,10 +105,16 @@ export function removalConfirmation(
   const verdict = safety.kind === "safe" || !reason ? tier : `${tier}: ${reason}`;
   const consequences =
     action === "uninstall"
-      ? ["Removed for this TV's user.", sentence(uninstallOutcome(pkg, entry).short)]
+      ? [
+          "Removed for this TV's user.",
+          sentence(uninstallOutcome(pkg, entry).short),
+          ...(entry?.default_restore ? ["Reinstall in the App List can bring it back while its APK is still on the TV."] : []),
+        ]
       : ["Stopped for this TV's user. It stays installed.", "Enable in the App List turns it back on."];
+  // The package id tells apart two apps that share a display name.
+  const subject = name === pkg ? name : `${name} (${pkg})`;
   return [
-    `${action === "uninstall" ? "Uninstall" : "Disable"} ${name}?`,
+    `${action === "uninstall" ? "Uninstall" : "Disable"} ${subject}?`,
     sentence(verdict),
     consequences.map((line) => `• ${line}`).join("\n"),
     supportWarning ?? "",

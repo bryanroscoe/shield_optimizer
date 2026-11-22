@@ -38,7 +38,7 @@
   aria-modal="true"
   aria-labelledby={titleId}
   tabindex="-1"
-  use:dialogFocus={{ onClose: onCancel, initial: () => cancelButton }}
+  use:dialogFocus={{ onClose: onCancel, initial: () => cancelButton, restoreFocus: false }}
   data-run-plan-dialog
 >
   <h2 id={titleId}>{title}</h2>
