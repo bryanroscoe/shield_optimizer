@@ -656,7 +656,7 @@ pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<Forget
 }
 
 pub const READVERTISE_MESSAGE: &str = "Disconnected, but the device is still advertising \
-    Wireless debugging, so adb will reconnect it by itself within a few seconds. To keep it off \
+    Wireless debugging, so ADB will reconnect it by itself within a few seconds. To keep it off \
     this list, turn off Wireless debugging on the device, or remove this computer under Wireless \
     debugging \u{2192} Paired devices there.";
 
@@ -763,7 +763,7 @@ pub async fn reprompt_device_impl(
         return Ok(RepromptResult {
             ok: true,
             status: "none".into(),
-            message: "Reconnecting. adb re-attaches it within a few seconds and the TV asks \
+            message: "Reconnecting. ADB reconnects it within a few seconds and the device asks \
                       again then."
                 .into(),
         });
@@ -1562,7 +1562,7 @@ fn quote_device_name(name: &str) -> Result<String, String> {
     }
     if name.len() > MAX_DEVICE_NAME_LEN {
         return Err(format!(
-            "Device name too long ({} > {MAX_DEVICE_NAME_LEN} chars).",
+            "Device name is too long ({} characters; maximum is {MAX_DEVICE_NAME_LEN}).",
             name.len()
         ));
     }

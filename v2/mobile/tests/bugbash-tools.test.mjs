@@ -107,15 +107,15 @@ const count = (page, command) =>
 test("restore outcome lists every skipped or failed item with the backend's reason", () => {
   const res = {
     packages_disabled: [], launcher_set: false, settings_written: [], settings_deleted: [],
-    packages_failed: ["com.stock (turned back on: no other launcher took Home)", "com.plain"],
+    packages_failed: ["com.stock (re-enabled: no other launcher took Home)", "com.plain"],
     settings_failed: ["global.x: SecurityException"],
-    launcher_message: "com.spocky.projengmenu is disabled; enable it first, then restore again.",
+    launcher_message: "com.spocky.projengmenu is disabled; re-enable it first, then restore again.",
     summary: "",
   };
   assert.deepEqual(preview.restoreOutcome(res, plan({ launcher_to_set: null })), [
-    { item: "com.stock", reason: "turned back on: no other launcher took Home" },
+    { item: "com.stock", reason: "re-enabled: no other launcher took Home" },
     { item: "com.plain", reason: "Couldn't disable it." },
-    { item: "Home app", reason: "com.spocky.projengmenu is disabled; enable it first, then restore again." },
+    { item: "Home app", reason: "com.spocky.projengmenu is disabled; re-enable it first, then restore again." },
     { item: "global.x", reason: "SecurityException" },
   ]);
   // A planned switch that didn't land, with no message, is still reported.
@@ -238,9 +238,9 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
       });
       window.handlers.apply_snapshot = () => ({
         packages_disabled: ["com.bloat"], packages_failed: ["com.google.android.tvlauncher (kept: only Home app)"],
-        launcher_set: false, launcher_message: "com.spocky.projengmenu is disabled; enable it first, then restore",
+        launcher_set: false, launcher_message: "com.spocky.projengmenu is disabled; re-enable it first, then restore",
         settings_written: [], settings_deleted: [], settings_failed: [],
-        summary: "Disabled 1 packages (0 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
+        summary: "Disabled 1 apps (0 failed). Launcher: skipped (com.spocky.projengmenu is disabled; re-enable it first, then restore). 0 settings updated, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
       });
     },
   });
@@ -260,7 +260,7 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
   await list.waitFor();
   const text = (await list.innerText()).replace(/\s+/g, " ");
   assert.match(text, /com\.google\.android\.tvlauncher kept: only Home app/);
-  assert.match(text, /Home app com\.spocky\.projengmenu is disabled; enable it first, then restore/);
+  assert.match(text, /Home app com\.spocky\.projengmenu is disabled; re-enable it first, then restore/);
   await page.getByText("2 items didn't restore", { exact: true }).waitFor();
   assert.equal(await count(page, "enable_package"), 0);
 });

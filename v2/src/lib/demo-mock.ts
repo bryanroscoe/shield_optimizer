@@ -530,7 +530,7 @@ const media: MediaCapabilities = {
       level: "info",
       title: "24p mode reported (23.976 Hz)",
       detail:
-        "A matching display mode is available. Actual switching depends on the player, device, and display; this setting alone does not guarantee film-rate output.",
+        "A matching display mode is available. Actual switching depends on the player, device and display; this setting alone does not guarantee film-rate output.",
     },
     {
       level: "info",
@@ -542,7 +542,7 @@ const media: MediaCapabilities = {
       level: "info",
       title: "Configuration, not a playback test",
       detail:
-        "Codec entries describe available configuration. They do not verify runtime registration, acceleration, profiles, DRM, or playback performance.",
+        "Codec entries describe available configuration. They do not verify runtime registration, acceleration, profiles, DRM or playback performance.",
     },
   ],
 };
@@ -888,7 +888,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       // "Send logs to developer". Nothing leaves the page: the call is
       // recorded for tests, and `uploadFails` stands in for a failed upload.
       recordTelemetry(cmd, args);
-      if (demoFlag("uploadFails")) throw "Log upload failed: the server answered 503 Service Unavailable.";
+      if (demoFlag("uploadFails")) throw "Log upload failed: the server responded with 503 Service Unavailable.";
       return { support_id: DEMO_SUPPORT_ID, bytes: 48_213, report_id: 41 };
     case "send_bug_report":
       // Report a bug › Send to developer. Nothing leaves the page either;
@@ -1042,13 +1042,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.android.systemui":
           "System UI — the launcher's host process. Disabling makes the device unusable.",
         "com.google.android.gms":
-          "Google Play Services. Disabling breaks every Google app + most third-party apps.",
+          "Google Play Services. Disabling breaks every Google app and most third-party apps.",
       };
       const cautionList: Record<string, string> = {
         "com.android.providers.tv":
-          "Live Channels provider — disabling breaks Watch Next / Continue Watching rows for Netflix, Apple TV, Disney+, etc. and the Live Channels app.",
+          "Live Channels provider — disabling breaks Watch Next / Continue Watching rows (Netflix, Apple TV, Disney+ and others) and the Live Channels app.",
         "com.android.vending":
-          "Google Play Store. Disabling removes your install path for everything not yet on disk.",
+          "Google Play Store. Disabling removes your way to install apps that aren't already on the device.",
       };
       if (protectedList[pkg]) {
         return { kind: "never_disable", reason: protectedList[pkg], source: "protected_list" };
@@ -1079,14 +1079,14 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         return {
           kind: "caution",
           reason:
-            "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.",
+            "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. ATV Optimizer refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in Launcher first.",
           source: "launcher_list",
         };
       }
       return {
         kind: "unknown",
         reason:
-          "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.",
+          "This app isn't in the catalog, so what it does and what removing it would break are both unknown. Check it yourself before removing it.",
         source: "no_record",
       };
     }
@@ -1258,7 +1258,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
           };
     }
     case "disable_setup_helper":
-      return { ok: true, message: "Setup Wraith is off." };
+      return { ok: true, message: "Setup Wraith is disabled." };
     case "disable_stock_launcher":
       return {
         ok: true,
@@ -1278,7 +1278,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         settings_written: ["global.hdmi_control_enabled", "secure.match_content_frame_rate"],
         settings_deleted: ["global.encoded_surround_output"],
         settings_failed: [],
-        summary: "Applied snapshot: 2 disabled, launcher set, 2 settings written, 1 reset. Left 1 recorded absent app unchanged.",
+        summary: "Applied snapshot: 2 disabled, launcher set, 2 settings updated, 1 reset. Left 1 recorded absent app unchanged.",
       } satisfies ApplyResult;
     case "prepare_optimize":
       return optimizePlan((args.mode as "optimize" | "restore") ?? "optimize");
@@ -1311,7 +1311,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         approvalDemo.requests += 1;
         if (demoFlag("approvalUnreachable")) {
           return demoDelay(1200, () => {
-            throw `The TV at ${APPROVAL_TV} didn't answer within 20 seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.`;
+            throw `The TV at ${APPROVAL_TV} didn't respond within 20 seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.`;
           });
         }
         if (demoFlag("approvalFirstRequestFails") && approvalDemo.requests === 1) {

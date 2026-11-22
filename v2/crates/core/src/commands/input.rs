@@ -179,13 +179,13 @@ fn encode_input_text(text: &str) -> Result<String, String> {
     }
     if text.len() > MAX_TEXT_LEN {
         return Err(format!(
-            "Text too long ({} > {MAX_TEXT_LEN} chars).",
+            "Text is too long ({} characters; maximum is {MAX_TEXT_LEN}).",
             text.len()
         ));
     }
     if let Some(bad) = text.chars().find(|c| !c.is_ascii() || c.is_ascii_control()) {
         return Err(format!(
-            "Unsupported character {bad:?} — `input text` only handles printable ASCII. \
+            "Unsupported character {bad:?} — compatible mode only handles printable ASCII. \
              Type that part with the on-screen keyboard."
         ));
     }

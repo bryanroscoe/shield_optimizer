@@ -251,7 +251,7 @@ impl HomeKeepReason {
         match self {
             Self::OnlyHomeApp => "only Home app",
             Self::HomeAppsUnreadable => "Home apps unreadable",
-            Self::PairedStockKept => "its stock launcher stays on",
+            Self::PairedStockKept => "its stock launcher stays enabled",
         }
     }
 }

@@ -60,7 +60,7 @@ pub fn decode_install_error(text: &str) -> Option<String> {
         ),
         (
             "INSTALL_FAILED_ALREADY_EXISTS",
-            "Same version already installed. Pass `reinstall=true` to force.",
+            "That version is already installed.",
         ),
         (
             "INSTALL_FAILED_OLDER_SDK",

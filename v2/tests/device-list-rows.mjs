@@ -250,7 +250,7 @@ async function exercise({ browser, base }) {
           ok: true,
           disconnected: [args.serial, "adb-58040DLCH005YV-jBeCEe._adb-tls-connect._tcp"],
           still_advertised: true,
-          message: "Disconnected, but the device is still advertising Wireless debugging, so adb will reconnect it by itself within a few seconds.",
+          message: "Disconnected, but the device is still advertising Wireless debugging, so ADB will reconnect it by itself within a few seconds.",
         };
       }
       if (command === "list_devices" && forgotten) {
@@ -261,7 +261,7 @@ async function exercise({ browser, base }) {
     };
   }, ROWS);
   await phone.getByRole("button", { name: "Forget" }).click();
-  await page.getByText("still advertising Wireless debugging, so adb will reconnect it", { exact: false }).waitFor();
+  await page.getByText("still advertising Wireless debugging, so ADB will reconnect it", { exact: false }).waitFor();
   await page.getByText("Bryan Pixel 10 Pro reconnected by itself", { exact: false }).waitFor({ timeout: 10000 });
   assert.match(
     await page.locator(".connect-message").first().innerText(),

@@ -312,8 +312,8 @@ async fn restore_helper_if_stock_enabled(
         Some(true) => reenable_paired_helpers(&*adb, serial, stock, diagnostics).await,
         Some(false) => None,
         None => Some(
-            "Couldn't confirm the stock launcher is back on, so Google TV's setup helper \
-             was left off. Use Re-enable Setup Wraith once it is."
+            "Couldn't confirm the stock launcher is re-enabled, so Google TV's setup helper \
+             was left disabled. Use Re-enable Setup Wraith once it is."
                 .to_string(),
         ),
     }
@@ -746,8 +746,8 @@ pub async fn disable_stock_launcher_impl(
                         "The stock launcher was re-enabled.".to_string()
                     } else {
                         format!(
-                            "Re-enabling the stock launcher failed ({}); it may still be off. \
-                             Use Emergency Recovery or re-enable it from the launcher list.",
+                            "Re-enabling the stock launcher failed ({}); it may still be disabled. \
+                             Use Emergency recovery or re-enable it from the launcher list.",
                             unrestored.join(", ")
                         )
                     }
@@ -994,7 +994,7 @@ pub(crate) async fn set_default_launcher_core(
             ok: false,
             strategy: None,
             current_launcher: None,
-            last_error: Some(format!("Target enable failed for {package}: {failure}")),
+            last_error: Some(format!("Couldn't enable {package}: {failure}")),
             stock_takeover_available: false,
             diagnostics,
         });
@@ -1203,8 +1203,8 @@ pub(crate) async fn set_default_launcher_core(
             ""
         };
         last_error = Some(format!(
-            "The device accepted the launcher change but still reports {} as the active HOME app.{settling_note} \
-             Press Home on the TV, then hit Refresh — some devices only switch on the next Home press.",
+            "The device accepted the launcher change but still reports {} as the active Home app.{settling_note} \
+             Press Home on the TV, then Refresh — some devices only switch on the next Home press.",
             holder.unwrap_or("the previous launcher")
         ));
     }
@@ -1295,7 +1295,7 @@ async fn disable_paired_holders(
             diagnostics.push(format!("{holder} skipped: it would leave no Home app"));
             continue;
         }
-        progress.step("Turning off Google TV's setup helper");
+        progress.step("Disabling Google TV's setup helper");
         let result = adb
             .shell(serial, &format!("pm disable-user --user 0 {holder}"))
             .await;
@@ -1314,9 +1314,7 @@ async fn disable_paired_holders(
     }
     if let Some(helper) = blocking_helper {
         if !disabled.iter().any(|holder| holder == helper) && failure.is_none() {
-            failure = Some(format!(
-                "Couldn't turn off the setup helper {helper} safely"
-            ));
+            failure = Some(format!("Couldn't disable the setup helper {helper} safely"));
         }
     } else if disabled.is_empty() {
         return Ok(());
@@ -1360,7 +1358,7 @@ async fn disable_paired_holders(
     let mut reason = failure.unwrap_or_default();
     if !unrestored.is_empty() {
         reason.push_str(&format!(
-            ". Setup Wraith may still be off ({}). Use Re-enable Setup Wraith or Emergency Recovery",
+            ". Setup Wraith may still be disabled ({}). Use Re-enable Setup Wraith or Emergency recovery",
             unrestored.join(", ")
         ));
     }
@@ -1424,9 +1422,9 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
         Err(reason) => {
             let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
             let reason = match command_failure(&restore) {
-                None => format!("{reason}. The stock launcher was turned back on"),
+                None => format!("{reason}. The stock launcher was re-enabled"),
                 Some(f) => format!(
-                    "{reason}. Turning the stock launcher back on also failed ({f}); use Emergency Recovery"
+                    "{reason}. Re-enabling the stock launcher also failed ({f}); use Emergency recovery"
                 ),
             };
             PairedHelperOutcome::RolledBack { reason }
@@ -1473,7 +1471,7 @@ pub(crate) async fn reenable_paired_helpers(
     }
     (!failures.is_empty()).then(|| {
         format!(
-            "Couldn't confirm Google TV's setup helper is back on ({}). Use Re-enable Setup Wraith.",
+            "Couldn't confirm Google TV's setup helper is re-enabled ({}). Use Re-enable Setup Wraith.",
             failures.join("; ")
         )
     })
@@ -1523,7 +1521,7 @@ pub async fn disable_setup_helper_impl(
         }
         _ => {
             return refuse(
-                "Couldn't read this TV's Home apps, so turning the setup helper off can't be \
+                "Couldn't read this TV's Home apps, so disabling the setup helper can't be \
                  proven safe. Nothing was changed."
                     .to_string(),
             )
@@ -1554,14 +1552,14 @@ pub async fn disable_setup_helper_impl(
     if home_ok {
         return Ok(crate::commands::apps::ActionResult {
             ok: true,
-            message: "Setup Wraith is off.".to_string(),
+            message: "Setup Wraith is disabled.".to_string(),
         });
     }
     let restore = adb.shell(serial, &format!("pm enable {package}")).await;
     if let Some(f) = command_failure(&restore) {
         return refuse(format!(
-            "Couldn't confirm {package} is back on ({f}). Setup Wraith may still be off. Use \
-             Re-enable Setup Wraith or Emergency Recovery."
+            "Couldn't confirm {package} is re-enabled ({f}). Setup Wraith may still be disabled. Use \
+             Re-enable Setup Wraith or Emergency recovery."
         ));
     }
     refuse(match failed {
@@ -1606,8 +1604,8 @@ async fn stock_takeover(
             current_launcher: Some(active.to_string()),
             last_error: Some(format!(
                 "Switching to {package} means disabling the stock launcher ({active}) — on this \
-                 device that's the only thing that hands HOME over. Your other launchers are left \
-                 alone, and stock can be re-enabled from this list at any time."
+                 device that's the only way to hand Home over. Your other launchers aren't changed, \
+                 and the stock launcher can be re-enabled from this list at any time."
             )),
             stock_takeover_available: true,
             diagnostics: std::mem::take(diagnostics),
@@ -1701,9 +1699,9 @@ async fn stock_takeover(
                 strategy: None,
                 current_launcher: verification.last_active.clone(),
                 last_error: Some(format!(
-                    "{active} was disabled but Android hasn't confirmed {package} as the Home \
-                     app yet{holder_note}. Stock was left disabled rather than restored, since it \
-                     no longer holds Home. Press Home on the TV, then hit Refresh."
+                    "{active} was disabled, but Android hasn't confirmed {package} as the Home \
+                     app yet{holder_note}. The stock launcher was left disabled rather than \
+                     re-enabled, since it no longer holds Home. Press Home on the TV, then Refresh."
                 )),
                 stock_takeover_available: false,
                 diagnostics: std::mem::take(diagnostics),
@@ -1717,7 +1715,7 @@ async fn stock_takeover(
 
     // A transport or shell error cannot prove that the disable had no effect.
     // Once issued, every non-verified takeover attempts to restore this same stock package.
-    progress.step("Restoring the stock launcher");
+    progress.step("Re-enabling the stock launcher");
     let restore_result = adb.shell(serial, &format!("pm enable {active}")).await;
     diagnostics.push(match command_failure(&restore_result) {
         Some(ref failure) => format!("pm enable {active} (restore) -> {failure}"),
@@ -2321,7 +2319,7 @@ mod tests {
             assert_eq!(result.current_launcher, None, "{name}");
             assert!(!result.stock_takeover_available, "{name}");
             let error = result.last_error.expect("stage-specific error");
-            assert!(error.contains("Target enable failed"), "{name}: {error}");
+            assert!(error.contains("Couldn't enable"), "{name}: {error}");
             assert!(error.contains(expected_error), "{name}: {error}");
             assert_eq!(&*log.lock().unwrap(), &[command.to_string()], "{name}");
         }
@@ -3486,7 +3484,7 @@ mod tests {
                 "helper disabled with no launcher to take Home: {calls:?}"
             );
             assert!(
-                !res.ok && res.message.contains("still on"),
+                !res.ok && res.message.contains("still enabled"),
                 "{}",
                 res.message
             );
@@ -3819,7 +3817,7 @@ mod tests {
 
             let error = res.last_error.unwrap_or_default();
             assert!(!res.ok);
-            assert!(error.contains("may still be off"), "{error}");
+            assert!(error.contains("may still be disabled"), "{error}");
             assert!(!error.contains("was re-enabled"), "{error}");
         }
 
@@ -3872,7 +3870,11 @@ mod tests {
                 .unwrap();
 
             assert!(!res.ok);
-            assert!(res.message.contains("may still be off"), "{}", res.message);
+            assert!(
+                res.message.contains("may still be disabled"),
+                "{}",
+                res.message
+            );
             assert!(!res.message.contains("was re-enabled"), "{}", res.message);
         }
 

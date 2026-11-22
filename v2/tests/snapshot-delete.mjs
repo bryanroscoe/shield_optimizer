@@ -171,11 +171,11 @@ try {
           packages_disabled: ["com.google.android.feedback"],
           packages_failed: ["com.google.android.tvlauncher (kept: only Home app)", "com.android.printspooler (exit 1)"],
           launcher_set: false,
-          launcher_message: "com.spocky.projengmenu is disabled; enable it first, then restore",
+          launcher_message: "com.spocky.projengmenu is disabled; re-enable it first, then restore",
           settings_written: [],
           settings_deleted: [],
           settings_failed: [],
-          summary: "Disabled 1 packages (1 failed). Launcher: skipped (com.spocky.projengmenu is disabled; enable it first, then restore). 0 settings written, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
+          summary: "Disabled 1 apps (1 failed). Launcher: skipped (com.spocky.projengmenu is disabled; re-enable it first, then restore). 0 settings updated, 0 reset (0 failed). Kept on so the TV keeps a Home screen: com.google.android.tvlauncher.",
         };
       }
       return original(command, args);
@@ -189,7 +189,7 @@ try {
   await restorePage.getByRole("button", { name: "Restore this snapshot", exact: true }).waitFor();
   const deviceLauncherRow = restorePage.locator('.plan-table [data-plan-item="launcher"]');
   assert.equal(await deviceLauncherRow.count(), 1);
-  assert.match(await deviceLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; enable it first, then restore/);
+  assert.match(await deviceLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; re-enable it first, then restore/);
   assert.doesNotMatch(await deviceLauncherRow.innerText(), /no change/, "a skipped launcher is never shown as unchanged Home");
   const deviceKeptRow = restorePage.locator('.plan-table [data-plan-item="kept"]');
   assert.equal(await deviceKeptRow.count(), 1);
@@ -212,14 +212,14 @@ try {
   await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).waitFor();
   const globalLauncherRow = restorePage.locator('.plan-table [data-plan-item="launcher"]');
   assert.equal(await globalLauncherRow.count(), 1);
-  assert.match(await globalLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; enable it first, then restore/);
+  assert.match(await globalLauncherRow.innerText(), /com\.spocky\.projengmenu is disabled; re-enable it first, then restore/);
   assert.equal(await restorePage.locator(".plan-table").getByText("Already Home", { exact: true }).count(), 0);
   assert.match(await restorePage.locator('.plan-table [data-plan-item="kept"]').innerText(), /com\.google\.android\.tvlauncher\s+enabled\s+Kept on: only Home app/);
   assert.match(await restorePage.locator(".plan-summary").innerText(), /1 kept on for Home/);
   acceptNextConfirm();
   await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).click();
   const globalResult = restorePage.locator(".apply-result");
-  await globalResult.getByText("Home app: com.spocky.projengmenu is disabled; enable it first, then restore", { exact: true }).waitFor();
+  await globalResult.getByText("Home app: com.spocky.projengmenu is disabled; re-enable it first, then restore", { exact: true }).waitFor();
   await globalResult.locator("[data-package-outcome]").first().waitFor();
   assert.match(await globalResult.locator("[data-package-outcome]").first().innerText(), /^Kept on:\s+com\.google\.android\.tvlauncher \(only Home app\)$/);
   assert.match(await globalResult.locator("[data-package-outcome].warn-text").innerText(), /^1 failed:\s+com\.android\.printspooler \(exit 1\)$/);

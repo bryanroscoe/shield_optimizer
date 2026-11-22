@@ -237,7 +237,7 @@ pub fn build_capabilities(
     let mut verdicts = vec![Verdict {
         level: VerdictLevel::Info,
         title: "Configuration, not a playback test".into(),
-        detail: "Codec entries describe available configuration. They do not verify runtime registration, acceleration, profiles, DRM, or playback performance.".into(),
+        detail: "Codec entries describe available configuration. They do not verify runtime registration, acceleration, profiles, DRM or playback performance.".into(),
     }];
     if decoders.is_empty() {
         verdicts.push(Verdict {
@@ -250,7 +250,7 @@ pub fn build_capabilities(
         verdicts.push(Verdict {
             level: VerdictLevel::Info,
             title: format!("24p mode reported ({:.3} Hz)", mode.fps),
-            detail: "A matching display mode is available. Actual switching depends on the player, device, and display; this setting alone does not guarantee film-rate output.".into(),
+            detail: "A matching display mode is available. Actual switching depends on the player, device and display; this setting alone does not guarantee film-rate output.".into(),
         });
     }
     if audio.mode == SurroundMode::Never {

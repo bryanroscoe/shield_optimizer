@@ -195,7 +195,7 @@ test("Setup Wraith on with stock off warns and turns it off, then re-reads the T
   await page.evaluate((w) => {
     window.handlers.disable_setup_helper = () => {
       window.launchers = window.launchers.map((l) => (l.entry.package === w ? { ...l, enabled: false } : l));
-      return { ok: true, message: "Setup Wraith is off." };
+      return { ok: true, message: "Setup Wraith is disabled." };
     };
   }, WRAITH);
   await card.getByRole("button", { name: "Disable Setup Wraith" }).click();
@@ -521,7 +521,7 @@ test('Setup Wraith row uses the guarded helper command and refreshes confirmed s
   const before = await count(page, 'list_launchers');
   await page.evaluate(pkg => { handlers.disable_setup_helper = () => {
     launchers = launchers.map(row => row.entry.package === pkg ? { ...row, enabled: false } : row);
-    return { ok: true, message: 'Setup Wraith is off.' };
+    return { ok: true, message: 'Setup Wraith is disabled.' };
   }; }, WRAITH);
   await confirmHelperRow(page);
   await page.waitForFunction(() => calls.some(call => ['disable_setup_helper', 'disable_launcher'].includes(call.command)));
@@ -535,7 +535,7 @@ test('Setup Wraith row uses the guarded helper command and refreshes confirmed s
 
 for (const [message, enabled] of [
   ["Home didn't stay on a launcher after the helper was disabled, so it was re-enabled.", true],
-  ["Couldn't confirm the helper is back on. Setup Wraith may still be off. Use Re-enable Setup Wraith or Emergency Recovery.", false],
+  ["Couldn't confirm the helper is re-enabled. Setup Wraith may still be disabled. Use Re-enable Setup Wraith or Emergency recovery.", false],
 ]) test(`helper row preserves guarded failure: ${enabled ? 'rolled back' : 'rollback unconfirmed'}`, async t => {
   const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
   const before = await count(page, 'list_launchers');

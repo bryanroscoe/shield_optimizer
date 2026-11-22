@@ -44,7 +44,7 @@ pub async fn reboot_device(
     match adb.raw(&args).await {
         Ok(_) => Ok(RebootResult {
             ok: true,
-            message: format!("Reboot command sent ({:?}).", mode_label(mode)),
+            message: format!("Reboot command sent ({}).", mode_label(mode)),
         }),
         Err(e) => Ok(RebootResult {
             ok: false,

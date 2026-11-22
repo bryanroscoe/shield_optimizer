@@ -485,7 +485,7 @@ struct ForwardedControlStream {
 fn control_cancelled() -> std::io::Error {
     std::io::Error::new(
         std::io::ErrorKind::ConnectionAborted,
-        "Remote control cancelled",
+        "Remote control canceled",
     )
 }
 
@@ -584,7 +584,7 @@ impl RemoteInputSession {
     ) -> Result<Self, String> {
         if !adb.uses_host_server() {
             return Err(
-                "The forwarded Remote channel needs the platform-tools adb server; the built-in engine opens its own."
+                "The forwarded Remote channel needs the Google platform-tools ADB server; the built-in engine opens its own."
                     .into(),
             );
         }
@@ -877,7 +877,7 @@ mod tests {
             RemoteInputSession::start(Arc::new(Direct), Path::new("not-opened"), "192.0.2.1:5555")
                 .await;
         assert!(
-            matches!(result, Err(message) if message.contains("needs the platform-tools adb server"))
+            matches!(result, Err(message) if message.contains("needs the Google platform-tools ADB server"))
         );
     }
 

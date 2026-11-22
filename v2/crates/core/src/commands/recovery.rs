@@ -53,7 +53,7 @@ pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<Recov
         return Ok(RecoveryResult {
             restored: vec![],
             failed: vec![],
-            message: "No disabled packages — nothing to restore.".to_string(),
+            message: "No disabled apps — nothing to re-enable.".to_string(),
         });
     }
 
@@ -93,7 +93,7 @@ pub async fn panic_recovery_impl(state: &AppState, serial: &str) -> Result<Recov
     }
 
     let message = format!(
-        "Restored {}/{} packages.{}",
+        "Re-enabled {}/{} apps.{}",
         restored.len(),
         disabled.len(),
         if !failed.is_empty() {

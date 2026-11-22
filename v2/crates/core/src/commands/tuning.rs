@@ -605,7 +605,7 @@ async fn set_private_dns_impl(
                         format!("Private DNS was not changed: {e}")
                     } else {
                         format!(
-                            "Setting Private DNS failed ({e}), and putting back {} could not be \
+                            "Setting Private DNS failed ({e}), and setting Private DNS back to {} could not be \
                              confirmed. Check Private DNS on the TV.",
                             private_dns_label(&previous)
                         )

@@ -9,7 +9,7 @@ import type { ApplyResult, KeptPackage, SnapshotApplyPlan } from "$lib/types";
 export function launcherSkipReason(plan: SnapshotApplyPlan): string | null {
   if (plan.launcher_to_set) return null;
   if (plan.launcher_not_installed) return `${plan.launcher_not_installed} isn't installed; skipped`;
-  if (plan.launcher_disabled) return `${plan.launcher_disabled} is disabled; enable it first, then restore`;
+  if (plan.launcher_disabled) return `${plan.launcher_disabled} is disabled; re-enable it first, then restore`;
   return null;
 }
 

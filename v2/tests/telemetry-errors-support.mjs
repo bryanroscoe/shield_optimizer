@@ -88,7 +88,7 @@ try {
     assert.equal(presentError(typo).message, typo);
     assert.equal(presentError("").message, "Something went wrong.");
 
-    const serverFailure = presentError("Log upload failed: the server answered 404 Not Found.", fire);
+    const serverFailure = presentError("Log upload failed: the server responded with 404 Not Found.", fire);
     assert.equal(serverFailure.code, "upload_failed");
     assert.equal(serverFailure.tierHint, null);
     assert.doesNotMatch(serverFailure.message, /internet connection/i);
@@ -211,7 +211,7 @@ try {
       ["Log upload limit reached for today. Try again tomorrow, or attach the bug report instead.", "upload_limited"],
       ["Log upload failed: the request timed out.", "upload_failed"],
       ["Log upload failed: couldn't reach the server. Check your internet connection.", "upload_failed"],
-      ["Log upload failed: the server answered 503 Service Unavailable.", "upload_failed"],
+      ["Log upload failed: the server responded with 503 Service Unavailable.", "upload_failed"],
     ]) {
       assert.equal(classifyError(raw), code, raw);
       const p = presentError(raw, { tier: "not_supported", note: "Fire OS blocks the changes this app makes." });
