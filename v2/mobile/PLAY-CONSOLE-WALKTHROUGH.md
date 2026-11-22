@@ -77,6 +77,7 @@ consecutive days**. Both run on Google's clock, so start them first.
 | Play billing only | In-app digital features must use Google Play billing, and the app "may not lead users to a payment method other than Google Play's billing system". The page's only carve-out is tax-exempt donations, which must *not* use Play billing. It says nothing that would allow a tip link, so Ko-fi links stay out of the Play build. | <https://support.google.com/googleplay/android-developer/answer/9858738> |
 | Play App Signing | New apps are enrolled automatically in "quantum-ready, hybrid signing with Google-generated keys" (RSA 4096 + ML-DSA-65). The upload key must be RSA 2048 or larger. The signing key can only be changed before the first open-testing or production release. | <https://support.google.com/googleplay/android-developer/answer/9842756> |
 | Privacy policy | Required for **every** app, both in the Console field and **inside the app**. It must be a public, non-geofenced, non-PDF web page. It must name the app or the listed entity, a contact, the data handled, security practices, and retention and deletion. | <https://support.google.com/googleplay/android-developer/answer/10144311>, <https://support.google.com/googleplay/android-developer/answer/9859455> |
+| EU geo-blocking (checked 2026-11-22) | Apps distributed in the EU must not "use unjustified geo-blocking to discriminate against users based on their nationality, place of residence, or establishment" ([Regulation (EU) 2018/302](https://eur-lex.europa.eu/legal-content/EN/ALL/?uri=CELEX%3A32018R0302)); an app "should be accessible EU-wide". For us: every track with a country list and every Pro product stays available in all 27 EU states, and the app never gates features or purchases on country, locale, SIM, network or IP. On 2026-11-22 the code had no such check, `alpha` listed 177 countries including all of the EU, and `atvopt_pro` was available in every EU state at Play's derived local prices. Play Console showed this as a "Geo-blocking regulation" notice on Publishing overview. Enforced: `play-publish.py upload` refuses a track missing an EU state, and the weekly **Play EU geo-blocking check** workflow (`play-publish.py geo-check`, read-only) fails on any track or active product that leaves one out, including production once it has a release. Prices may differ between EU states: Article 4(2) allows net prices that differ by Member State when offered on a non-discriminatory basis, and Play's derived VAT-inclusive prices (EUR 5.49, EUR 4.99 in lower-VAT LU and MT) are that. The Regulation itself doesn't oblige selling in every state (recital 18); keeping all 27 is Google's ask. Payments are Play's, and `geo-check` flags any EU `restrictedPaymentCountries` (Article 5). | <https://support.google.com/googleplay/android-developer/answer/6223646> |
 | Data safety | Every app completes the form. "Collect" means sending data off the device. Transfers to a service provider (for example Cloudflare hosting) are not "sharing". "Optional" covers opt-out and must apply to all users. Location inferred from an IP address counts as approximate location; the telemetry Worker has stored none since 2026-11-01. | <https://support.google.com/googleplay/android-developer/answer/10787469> |
 | Content rating | Complete the IARC questionnaire for every app. Unrated apps are removed. | <https://support.google.com/googleplay/android-developer/answer/9898843>, <https://support.google.com/googleplay/android-developer/answer/9859655> |
 | Target audience | Choose age groups. Targeting under-13s brings in the Families policy. | <https://support.google.com/googleplay/android-developer/answer/9867159> |
@@ -599,7 +600,7 @@ Unlocked only after 3.2 (<https://developer.android.com/google/play/billing/gett
    multi-quantity).
 5. **Set prices**: United States **USD 4.99**. Let Play fill the other regions (bulk edit if
    prompted: **Set prices > Bulk edit pricing**, all regions, **Apply**). Leave every region
-   available.
+   available; removing an EU country breaks the EU geo-blocking rule (requirements table).
 6. **Activate** both the purchase option and the product. Only Active options reach the app and
    can carry promo codes.
 
@@ -645,7 +646,7 @@ Help: <https://support.google.com/googleplay/android-developer/answer/6062777>,
    instead, so testers join it themselves and you never collect addresses. Setup and the invite
    text: [`SHARING.md`](SHARING.md) §2.
 3. **Feedback URL or email address:** `<<OWNER: support email>>`. It shows on the opt-in page.
-4. **Countries/regions** (if asked): all. Country choices apply to every track.
+4. **Countries/regions** (if asked): all. Production keeps its own list (§6.2).
 5. **Releases** tab: **Create new release** > **Add from library** > the same AAB as internal >
    release notes > **Next** > **Save** > send for review from **Publishing overview**.
 6. Wait for review. The opt-in link only appears once the track is **Published**.
@@ -743,7 +744,11 @@ closed track running.
 2. **Test and release > Production > Create new release** > add the AAB > notes > **Next** >
    **Save** > send for review. Choose a staged rollout percentage if offered. For a first
    production release the button reads **Start rollout to production**.
-3. Watch the pre-launch report and **Order management** for the first real orders.
+3. **Production > Countries / regions**: add all countries, at minimum all 27 EU states (EU
+   geo-blocking, requirements table). Production keeps its own list: on 2026-11-22 the API showed
+   `alpha` with 177 countries and `production` with none, because nothing had been released there.
+   After the rollout starts, run **Actions > Play EU geo-blocking check** and confirm it passes.
+4. Watch the pre-launch report and **Order management** for the first real orders.
 
 **Done when:** the listing is live and a non-tester account can buy Pro.
 
