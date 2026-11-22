@@ -232,7 +232,8 @@ and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.c
 - **The first 12 testers get Pro free.** After you join and install, email
   bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
   code. Redeem it, then open the app within three days, and Pro stays on that account for good,
-  including after the public release. Ko-fi supporters don't use up one of the 12.
+  including after the public release. If Pro doesn't show up right away, tap **Restore purchases**
+  in More. Ko-fi supporters don't use up one of the 12.
 
 <img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
 

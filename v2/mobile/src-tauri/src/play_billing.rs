@@ -447,7 +447,9 @@ pub fn response_message(code: i32, debug_message: &str) -> String {
         response_code::FEATURE_NOT_SUPPORTED => {
             "This version of Google Play doesn't support purchases."
         }
-        response_code::ITEM_ALREADY_OWNED => "You already own ATV Optimizer Pro.",
+        response_code::ITEM_ALREADY_OWNED => {
+            "Google Play has this purchase on your account. Tap Restore purchases."
+        }
         response_code::ITEM_NOT_OWNED => "Google Play says this account doesn't own Pro.",
         _ => "Google Play reported an error. Try again.",
     };

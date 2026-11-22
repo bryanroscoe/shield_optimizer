@@ -1,6 +1,6 @@
 <script lang="ts">
   import { modal } from "../lib/modal";
-  import { billing, FREE_RECOVERY_PROMISE } from "../lib/billing.svelte";
+  import { billing, FREE_RECOVERY_PROMISE, RESTORE_HINT } from "../lib/billing.svelte";
   import { session } from "../lib/session.svelte";
   import ErrorNotice from "./ErrorNotice.svelte";
   import SupportTiers from "./SupportTiers.svelte";
@@ -128,6 +128,9 @@
           {/if}
           {#if billing.licenseKeyEntry && billing.available && !session.isPro}
             <p class="paywall-hint">Have a license key? Enter it in More.</p>
+          {/if}
+          {#if billing.available && !session.isPro}
+            <p class="paywall-restore-hint">{RESTORE_HINT}</p>
           {/if}
         </div>
       </div>
@@ -321,6 +324,12 @@
     font-size: 12px;
     color: var(--muted);
     line-height: 1.4;
+  }
+  .paywall-restore-hint {
+    margin: 12px 0 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--muted);
   }
   .paywall-later,
   .paywall-restore {

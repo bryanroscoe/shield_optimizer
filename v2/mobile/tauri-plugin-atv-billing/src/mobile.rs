@@ -1,20 +1,39 @@
 use tauri::{
+    ipc::Channel,
     plugin::{PluginApi, PluginHandle},
-    AppHandle, Runtime,
+    AppHandle, Emitter, Runtime,
 };
 
 use crate::error::Result;
 use crate::models::*;
+use crate::PURCHASES_UPDATED_EVENT;
 
 /// Must match the Kotlin plugin's package (the Android library namespace).
 const PLUGIN_IDENTIFIER: &str = "app.tauri.atvbilling";
 
 pub fn init<R: Runtime, C: serde::de::DeserializeOwned>(
-    _app: &AppHandle<R>,
+    app: &AppHandle<R>,
     api: PluginApi<R, C>,
 ) -> Result<Billing<R>> {
     let handle = api.register_android_plugin(PLUGIN_IDENTIFIER, "BillingPlugin")?;
+    // Without the watch a purchase made outside the app still arrives on the
+    // next launch or resume; this only makes it arrive while the app is open.
+    if let Err(error) = watch_purchases(app, &handle) {
+        eprintln!("atv-billing: purchase watch unavailable: {error}");
+    }
     Ok(Billing(handle))
+}
+
+/// Starts the Kotlin purchase watch and re-emits each ping to the frontend as
+/// [`PURCHASES_UPDATED_EVENT`]. The ping's payload is ignored on purpose.
+fn watch_purchases<R: Runtime>(app: &AppHandle<R>, handle: &PluginHandle<R>) -> Result<()> {
+    let app = app.clone();
+    let channel: Channel = Channel::new(move |_| {
+        let _ = app.emit(PURCHASES_UPDATED_EVENT, ());
+        Ok(())
+    });
+    handle.run_mobile_plugin::<()>("watchPurchases", WatchPurchasesPayload { channel })?;
+    Ok(())
 }
 
 /// Rust-side handle to the Kotlin `BillingPlugin`. Every call blocks on the
