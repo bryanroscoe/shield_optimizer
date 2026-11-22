@@ -287,7 +287,11 @@ pub fn mobile_summary(s: &MobileSummary, scrub: &Scrub) -> String {
             if *ok { "ok" } else { "failed" }
         ));
     }
-    text.push_str(&log_redact::redact_text(&rest, scrub, MOBILE_TEXT_MAX_BYTES));
+    text.push_str(&log_redact::redact_text(
+        &rest,
+        scrub,
+        MOBILE_TEXT_MAX_BYTES,
+    ));
     text.push('\n');
     cap_text(&text, MOBILE_TEXT_MAX_BYTES)
 }
@@ -467,10 +471,19 @@ mod tests {
                 words: &[],
             },
         );
-        assert!(text.contains("- Support ID: 7D0B-0B9E (`7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11`)"), "{text}");
-        assert!(text.contains("- Phone: android 15, Google Pixel 10 Pro"), "{text}");
+        assert!(
+            text.contains("- Support ID: 7D0B-0B9E (`7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11`)"),
+            "{text}"
+        );
+        assert!(
+            text.contains("- Phone: android 15, Google Pixel 10 Pro"),
+            "{text}"
+        );
         assert!(text.contains("- Automatic reports: on"), "{text}");
-        assert!(text.contains("NVIDIA SHIELD Android TV (mdarcy), Android 11 (SDK 30)"), "{text}");
+        assert!(
+            text.contains("NVIDIA SHIELD Android TV (mdarcy), Android 11 (SDK 30)"),
+            "{text}"
+        );
         assert!(text.contains("- wireless_connect: failed"), "{text}");
         assert!(!text.contains("list_packages"), "{text}");
         for secret in ["192.168", "Living Room", "1324619053514"] {
@@ -504,7 +517,10 @@ mod tests {
         let unreadable = summary(MobileTv::Unreadable(
             "error: device '192.168.1.20:5555' not found",
         ));
-        assert!(unreadable.contains("- Connected, details unreadable ("), "{unreadable}");
+        assert!(
+            unreadable.contains("- Connected, details unreadable ("),
+            "{unreadable}"
+        );
         assert!(!unreadable.contains("192.168"), "{unreadable}");
     }
 
@@ -544,9 +560,15 @@ mod tests {
         assert_eq!(receipt_id("not json"), None);
 
         let daily = refusal_message(UploadKind::Bug, 429, r#"{"error":"upload_daily_cap"}"#);
-        assert!(daily.contains("this app has sent today's maximum"), "{daily}");
+        assert!(
+            daily.contains("this app has sent today's maximum"),
+            "{daily}"
+        );
         let global = refusal_message(UploadKind::Bug, 429, r#"{"error":"upload_global_cap"}"#);
-        assert!(global.contains("all the reports it can for today"), "{global}");
+        assert!(
+            global.contains("all the reports it can for today"),
+            "{global}"
+        );
         assert_eq!(
             refusal_message(UploadKind::Bug, 400, r#"{"error":"bad_note"}"#),
             "Bug report failed: the server refused it (bad_note)."
@@ -556,8 +578,7 @@ mod tests {
             refusal_message(UploadKind::Bug, 400, r#"{"error":"<b>x</b>"}"#),
             "Bug report failed: the server answered 400."
         );
-        assert!(refusal_message(UploadKind::Logs, 429, "")
-            .starts_with("Log upload limit reached"));
+        assert!(refusal_message(UploadKind::Logs, 429, "").starts_with("Log upload limit reached"));
         assert_eq!(
             refusal_message(UploadKind::Logs, 503, ""),
             "Log upload failed: the server answered 503."

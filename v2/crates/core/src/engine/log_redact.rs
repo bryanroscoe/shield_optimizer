@@ -380,7 +380,11 @@ pub fn upload_log(log: &str, scrub: &Scrub) -> String {
 pub fn redact_note(text: &str, scrub: &Scrub) -> String {
     with_found(text, scrub, |scrub| {
         text.lines()
-            .map(|l| redact_body(&CONTROL.replace_all(l, " "), scrub).trim_end().to_string())
+            .map(|l| {
+                redact_body(&CONTROL.replace_all(l, " "), scrub)
+                    .trim_end()
+                    .to_string()
+            })
             .collect::<Vec<_>>()
             .join("\n")
     })

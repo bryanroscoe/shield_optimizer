@@ -721,7 +721,9 @@ pub async fn send_bug_report(
         return Err("Describe the problem before sending the report.".to_string());
     }
     let prepared = prepare_upload(state.inner(), logs.inner(), UploadKind::Bug).await?;
-    let note = scrub_with(&prepared.session, |scrub| bug_report::clean_note(&note, scrub));
+    let note = scrub_with(&prepared.session, |scrub| {
+        bug_report::clean_note(&note, scrub)
+    });
     send_prepared(prepared, UploadKind::Bug, note.as_deref()).await
 }
 
