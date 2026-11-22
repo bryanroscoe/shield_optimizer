@@ -1431,6 +1431,17 @@
     }
   }
 
+  /// The host a launcher's extra source page is labelled with, or null when
+  /// the catalog value isn't an https page (no button is offered for it).
+  function sourcePageHost(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      return parsed.protocol === "https:" ? parsed.host.replace(/^www\./, "") || null : null;
+    } catch {
+      return null;
+    }
+  }
+
   async function installLauncherFromStore(pkg: string) {
     launcherSetResult = null;
     launcherActionBusy = pkg;
@@ -3008,6 +3019,18 @@
                       aria-label="Open the developer's page for {l.entry.name} in your browser"
                     ><Icon name="open_in_new" size={14} /> <span>Source site</span></button>
                   {/if}
+                  {#each l.entry.other_sources ?? [] as url (url)}
+                    {@const host = sourcePageHost(url)}
+                    {#if host}
+                      <button
+                        class="small-action subtle launcher-get"
+                        onclick={() => openInBrowser(url)}
+                        data-tip="Another official page for {l.entry.name}. Opens in your browser; nothing is downloaded, uninstalled, or changed on the TV."
+                        data-tip-align="end"
+                        aria-label="Open {l.entry.name}'s page on {host} in your browser"
+                      ><Icon name="open_in_new" size={14} /> <span>{host}</span></button>
+                    {/if}
+                  {/each}
                 </div>
               </li>
             {/each}

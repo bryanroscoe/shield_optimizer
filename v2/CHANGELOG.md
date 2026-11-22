@@ -22,6 +22,8 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Android: setup now says to turn on **Wireless debugging** (Android 11 and later) or **Network debugging** (Shield and older TVs) and where Developer options is, and every "Allow debugging?" hint says to tick **Always allow from this computer** so the TV stops asking on each connect.
+- Desktop and Android: Projectivy's **Source site** opens its Google Play listing again, with its GitHub releases as a second link beside it for people who install that build (#161).
 - Android: verify known saved-TV identity before reconnecting, show when PIN pairing succeeds, and offer Privacy and public or private diagnostic reports during setup.
 - Desktop and Android: use the Remote **Tab** button to move focus between fields on the TV.
 

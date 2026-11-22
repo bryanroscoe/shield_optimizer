@@ -487,8 +487,8 @@
           </dl>
         {:else}
           <p class="lede empty">
-            The TV hasn't reported its details. Reconnect, and approve the
-            "Allow debugging?" prompt on the TV if it appears.
+            The TV hasn't reported its details. Reconnect, and if the TV shows
+            "Allow debugging?", tick Always allow from this computer and select Allow.
           </p>
         {/if}
       </div>

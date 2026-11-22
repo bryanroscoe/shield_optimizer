@@ -111,6 +111,17 @@ test("source site links are offered only for http(s) URLs", () => {
   assert.equal(view.sourceSiteHost(null), null);
 });
 
+test("a launcher's other official pages follow its main one, without repeats or non-web links", () => {
+  assert.deepEqual(view.sourceSites({
+    source_url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu",
+    other_sources: ["https://github.com/spocky/miproja1/releases", "javascript:alert(1)", "https://play.google.com/store/apps/details?id=com.spocky.projengmenu"],
+  }), [
+    { url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu", host: "play.google.com" },
+    { url: "https://github.com/spocky/miproja1/releases", host: "github.com" },
+  ]);
+  assert.deepEqual(view.sourceSites({ source_url: null }), []);
+});
+
 async function open(t, setup = {}) {
   const page = await browser.newPage({ viewport: { width: 384, height: 812 }, ...(setup.modalEvidence ? { recordVideo: { dir: "evidence/modal-handoffs-2026-10-17/raw", size: { width: 384, height: 420 } } } : process.env.RECONNECT_VIDEO_DIR ? { recordVideo: { dir: `${process.env.RECONNECT_VIDEO_DIR}/${t.name.replace(/[^a-z0-9]+/gi, "-")}`, size: { width: 384, height: 812 } } } : {}) });
   t.after(() => page.close());
@@ -642,6 +653,29 @@ test("every launcher with a source_url offers its source page, left-aligned when
   assert.ok(Math.abs(geometry.iconLeft - geometry.bodyLeft) < 1, "icon starts at the row's text edge");
   assert.ok(Math.abs(geometry.iconTop - geometry.textTop) < 4, "icon sits on the first line");
   assert.ok(geometry.textLeft > geometry.iconLeft);
+});
+
+test("Projectivy offers its Play listing first and its GitHub releases second", async (t) => {
+  const page = await open(t, {
+    launchers: [
+      stock(true),
+      row(PROJECTIVY, { entry: {
+        name: "Projectivy Launcher",
+        source_url: "https://play.google.com/store/apps/details?id=com.spocky.projengmenu",
+        other_sources: ["https://github.com/spocky/miproja1/releases"],
+      } }),
+    ],
+    current: STOCK,
+  });
+  const links = page.locator(".launcher-row", { hasText: "Projectivy Launcher" }).locator(".src-link");
+  await links.first().waitFor();
+  assert.deepEqual(await links.allTextContents().then((texts) => texts.map((text) => text.replace(/open_in_new/, "").trim())), [
+    "Source site · play.google.com",
+    "Source site · github.com",
+  ]);
+  await page.getByRole("button", { name: "Source site for Projectivy Launcher (github.com)" }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "plugin:opener|open_url"));
+  assert.deepEqual(await page.evaluate(() => window.calls.find((c) => c.command === "plugin:opener|open_url").args), { url: "https://github.com/spocky/miproja1/releases" });
 });
 
 test("the no-Home-screen warning stays visible; routine launcher notes are in help", async (t) => {
