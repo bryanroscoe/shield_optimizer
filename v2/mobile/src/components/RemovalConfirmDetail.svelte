@@ -25,7 +25,7 @@
 <div class="removal-detail">
   {#if tier}
     <span class="tier-chip {tier.cls}" data-testid="removal-tier">
-      <span class="msr" aria-hidden="true">{tier.icon}</span>{tier.label}
+      <span class="msr" aria-hidden="true">{tier.icon}</span><span class="tier-prefix">{"Safety: "}</span>{tier.label}
     </span>
   {/if}
   <ul class="removal-points" aria-label="What happens">
@@ -67,6 +67,14 @@
     overflow-wrap: anywhere;
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 6%, transparent);
+  }
+  .tier-prefix {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .tier-chip .msr {
     flex: none;

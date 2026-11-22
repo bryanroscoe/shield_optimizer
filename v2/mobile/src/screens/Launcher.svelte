@@ -1001,7 +1001,7 @@
       ? "Disable Setup Wraith?"
       : `Disable ${disableConfirm?.entry.name ?? "launcher"}?`}
     message={disableConfirm?.setup_helper
-      ? "Android TV needs it for first-time setup. Re-enable it here before a factory reset."
+      ? "Only needed if Home keeps landing on a setup screen. Android TV needs it for first-time setup, so re-enable it here before a factory reset."
       : "The TV will fall back to another enabled launcher for its home screen. You can re-enable this one here or from the Apps list."}
     supportWarning={destructiveWarning(session.support)}
     confirmLabel="Disable"

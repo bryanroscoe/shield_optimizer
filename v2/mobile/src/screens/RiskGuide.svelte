@@ -31,7 +31,7 @@
       label: "Uninstall",
       icon: "delete",
       points: [
-        "Removes the app for the TV's current user, only as an explicit choice",
+        "Removes the app for the TV's current user: an explicit choice, and only where offered",
         "Getting it back depends on an available APK or store listing",
         "Deleted app data is not restored",
         "A preinstalled system app stays in the read-only system image, so uninstalling it frees little or no storage",
@@ -188,7 +188,7 @@
 
   .action-cards {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
     gap: 10px;
   }
   .action-card {
@@ -217,6 +217,7 @@
     font-size: 12px;
     color: var(--muted);
     line-height: 1.45;
+    overflow-wrap: anywhere;
   }
 
   .callout-text {

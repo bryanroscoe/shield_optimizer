@@ -150,6 +150,7 @@
       }
       pending = { snap, plan, serial, generation };
       unchangedOpen = previewRows(plan, snap.launcher).unchanged.length <= 6;
+      keptOpen = false;
     } catch (e) {
       if (isLocked(e)) showPaywall = true;
       else showToast(String(e), "error");
@@ -309,7 +310,7 @@
       <h2>Snapshots are a Pro feature</h2>
       <ul class="locked-list" aria-label="What a snapshot does">
         <li>Records disabled apps, known apps that aren't installed, your Home app and display, audio, HDMI-CEC and screensaver settings</li>
-        <li>Restoring disables recorded apps that are on and puts the settings back</li>
+        <li>Restoring disables apps it recorded as disabled, if they're on, and puts the settings back</li>
         <li>It never re-enables anything, and never uninstalls or reinstalls apps</li>
       </ul>
       {@render snapshotHelp()}
@@ -509,7 +510,7 @@
               never set are reset.
             </p>
             <HelpSheet title="Turning an app back on">
-              <p>A restore only disables apps. To turn one back on afterwards, use Emergency recovery under More, or Enable in the app's sheet.</p>
+              <p>A restore never turns apps back on. To turn one back on afterwards, use Emergency recovery under More, or Enable in the app's sheet.</p>
             </HelpSheet>
           </div>
         </div>

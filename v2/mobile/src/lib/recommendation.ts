@@ -1,6 +1,7 @@
 // What we suggest doing with one catalog app, in one place. Ported from
 // desktop's v2/src/lib/recommendation.ts; keep the two in step so the same app
-// reads the same suggestion on phone and desktop.
+// reads the same suggestion on phone and desktop. `UninstallOutcome` differs on
+// purpose: the phone's confirm shows bullets and folds the how-to away.
 //
 // Pure: catalog entry, on-device state and safety verdict in, suggestion out.
 // Uninstall is only ever recommended when the store can give the app back
@@ -161,11 +162,10 @@ export function uninstallOutcome(pkg: string, entry: AppEntry | null): Uninstall
   }
   const source = sideloadSource(pkg);
   if (source) {
-    const short = `Not on the Play Store: reinstall from ${source.name}`;
     return {
-      short,
+      short: `Not on the Play Store: reinstall from ${source.name}`,
       removes,
-      recover: short,
+      recover: `Not on the Play Store: back up its APK first, then reinstall from ${source.name}`,
       help: [
         `To get it back you would reinstall ${source.name} from ${source.url}. Back up its APK first if you might want this exact version.`,
         reinstall,

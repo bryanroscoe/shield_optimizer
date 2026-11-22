@@ -627,11 +627,26 @@ test("the locked Snapshots card is three bullets, with the hardware-identity cav
     const items = list.getByRole("listitem");
     assert.equal(await items.count(), 3);
     assert.match(await items.nth(0).innerText(), /^Records disabled apps/);
-    assert.match(await items.nth(1).innerText(), /^Restoring disables recorded apps that are on/);
+    assert.match(await items.nth(1).innerText(), /^Restoring disables apps it recorded as disabled, if they're on/);
     assert.equal(await items.nth(2).innerText(), "It never re-enables anything, and never uninstalls or reinstalls apps");
     assert.equal(await page.getByText(/hardware identity is unverified/).count(), 0);
     await page.getByRole("button", { name: "What snapshots include" }).click();
     await page.getByRole("dialog", { name: "What snapshots include" }).getByText(/saved-TV hardware identity is unverified/).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+});
+
+test("the Risk guide's action cards are bullet lists that fit at 150% text", async (t) => {
+  for (const width of [384, 275]) {
+    const page = await open(t, "riskguide", { width });
+    const cards = page.locator(".action-card");
+    await cards.first().waitFor();
+    assert.equal(await cards.nth(1).getByRole("listitem").count(), 4);
+    await cards.nth(1).getByText("Deleted app data is not restored").waitFor();
+    await page.getByRole("list", { name: "Getting apps back" }).getByText(/Snapshots never reinstall apps/).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    for (const card of await cards.all()) {
+      assert.equal(await card.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
+    }
   }
 });

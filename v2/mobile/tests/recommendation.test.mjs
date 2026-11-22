@@ -125,7 +125,8 @@ test("uninstallOutcome names how each kind of app comes back", () => {
 
   const sideload = rec.uninstallOutcome("org.smarttube.stable", entry({ package: "org.smarttube.stable" }));
   assert.equal(sideload.short, "Not on the Play Store: reinstall from SmartTube");
-  assert.equal(sideload.recover, sideload.short);
+  // The backup step comes before Uninstall, so it stays in the visible bullet.
+  assert.equal(sideload.recover, "Not on the Play Store: back up its APK first, then reinstall from SmartTube");
   assert.match(sideload.help.join(" "), /https:\/\/github\.com\/yuliskov\/SmartTube/);
   assert.match(sideload.help.join(" "), /Back up its APK first/);
 

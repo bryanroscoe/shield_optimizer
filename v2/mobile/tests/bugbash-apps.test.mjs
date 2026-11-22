@@ -240,7 +240,8 @@ test("an uninstall confirm shows the tier chip and two consequence bullets, with
     await sheet.getByRole("button", { name: /^Uninstall/ }).click();
     const dialog = page.getByRole("dialog", { name: "Uninstall SmartTube?" });
     await dialog.waitFor();
-    assert.equal((await dialog.getByTestId("removal-tier").innerText()).trim().replace(/^help\s*/, ""), "Unknown");
+    assert.equal(await dialog.getByTestId("removal-tier").evaluate((el) => el.lastChild.textContent), "Unknown");
+    assert.match(await dialog.getByTestId("removal-tier").textContent(), /Safety: Unknown$/);
     const points = dialog.getByRole("list", { name: "What happens" }).getByRole("listitem");
     assert.equal(await points.count(), 2);
     assert.equal(await points.nth(0).innerText(), "Removed for this TV's user");
@@ -265,7 +266,7 @@ test("an uninstall confirm shows the tier chip and two consequence bullets, with
     assert.equal(await points.nth(0).isVisible(), true);
     assert.equal(await points.nth(1).isVisible(), true);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-    assert.equal(await dialog.locator(".dialog-card, .dialog-body").first().evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
+    assert.equal(await dialog.locator(".dialog-body").evaluate((el) => el.scrollWidth <= el.clientWidth + 1), true);
 
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     assert.equal(await page.evaluate(() => calls.some((c) => c.command === "uninstall_package")), false);
