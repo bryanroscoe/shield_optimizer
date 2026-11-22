@@ -507,8 +507,8 @@
     <p class="lede">
       On the TV, turn on <span class="soft">Wireless debugging</span> (Android 11 and later) or
       <span class="soft">Network debugging</span> (Shield and older TVs). Both are in
-      <span class="soft">Developer options</span>, under Settings › System, or Settings › Device
-      Preferences on Shield.
+      <span class="soft">Developer options</span>: Settings › System on Google TV, or Settings ›
+      Device Preferences on Shield and older Android TVs.
     </p>
 
     <div class="radar" class:compact={scanned} aria-hidden="true">
@@ -740,9 +740,9 @@
         <div class="callout accent">
           <span class="msr">tv_gen</span>
           <span>
-            Look at your TV. When <span class="soft">"Allow debugging?"</span> appears, tick
+            Look at your TV. If <span class="soft">"Allow debugging?"</span> appears, tick
             <span class="soft">Always allow from this computer</span>, then select
-            <span class="soft">Allow</span>. Without it the TV asks again every time you connect.
+            <span class="soft">Allow</span>, so the TV doesn't ask again next time.
           </span>
         </div>
       {/if}
