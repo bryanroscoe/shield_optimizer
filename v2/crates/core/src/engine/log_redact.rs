@@ -374,6 +374,119 @@ pub fn upload_log(log: &str, scrub: &Scrub) -> String {
     redact_text(log, scrub, UPLOAD_LOG_MAX_BYTES)
 }
 
+/// The known identifiers in any case. A log line repeats what the app
+/// read, so [`replace_known`] matches exactly; a person typing a TV's name
+/// writes "living room" as easily as "Living Room".
+fn replace_known_ignoring_case(s: &str, scrub: &Scrub) -> String {
+    let mut known: Vec<&str> = scrub
+        .known
+        .iter()
+        .map(|k| k.trim())
+        .filter(|k| k.chars().count() >= MIN_KNOWN_CHARS)
+        .collect();
+    if known.is_empty() {
+        return s.to_string();
+    }
+    known.sort_by_key(|k| std::cmp::Reverse(k.len()));
+    let alternation = known
+        .iter()
+        .map(|k| regex::escape(k))
+        .collect::<Vec<_>>()
+        .join("|");
+    match Regex::new(&format!("(?i){alternation}")) {
+        Ok(pattern) => pattern.replace_all(s, "<id>").into_owned(),
+        Err(_) => s.to_string(),
+    }
+}
+
+/// A clock time someone typed ("at 10:30", "10:30:45", "10:30pm",
+/// "9:15-9:45"), which the host:port and IPv6 rules would otherwise take.
+/// Hours stop at 23 and minutes at 59, so a real port (`mybox:5555`) never
+/// qualifies. The Worker's `redactNote` keeps the same shapes.
+static CLOCK_TIME: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?(?:[ap]\.?m\.?)?$"));
+static NOTE_TOKEN: LazyLock<Regex> = LazyLock::new(|| re(r"\S+"));
+/// Private-use characters stand in for a time while the rules run; none of
+/// them matches a letter, digit or separator.
+const MARK_OPEN: char = '\u{E000}';
+const MARK_CLOSE: char = '\u{E001}';
+const MARK_DIGIT: u32 = 0xE010;
+static MARK: LazyLock<Regex> = LazyLock::new(|| re("\u{E000}([\u{E010}-\u{E019}]+)\u{E001}"));
+
+fn clock_time_core(token: &str) -> &str {
+    token
+        .trim_start_matches(['(', '[', '"', '\''])
+        .trim_end_matches(['.', ',', ';', '!', '?', ')', ']', '"', '\''])
+}
+
+fn is_clock_time(core: &str) -> bool {
+    !core.is_empty()
+        && core
+            .split(['-', '\u{2013}'])
+            .all(|p| CLOCK_TIME.is_match(p))
+}
+
+/// `line` with each clock time swapped for a marker, and the times.
+fn set_times_aside(line: &str, times: &mut Vec<String>) -> String {
+    NOTE_TOKEN
+        .replace_all(line, |caps: &regex::Captures| {
+            let token = &caps[0];
+            let core = clock_time_core(token);
+            if !is_clock_time(core) {
+                return token.to_string();
+            }
+            let index: String = times
+                .len()
+                .to_string()
+                .chars()
+                .filter_map(|d| d.to_digit(10))
+                .filter_map(|d| char::from_u32(MARK_DIGIT + d))
+                .collect();
+            times.push(core.to_string());
+            token.replacen(core, &format!("{MARK_OPEN}{index}{MARK_CLOSE}"), 1)
+        })
+        .into_owned()
+}
+
+fn put_times_back(line: &str, times: &[String]) -> String {
+    MARK.replace_all(line, |caps: &regex::Captures| {
+        let index: String = caps[1]
+            .chars()
+            .filter_map(|c| char::from_digit(u32::from(c) - MARK_DIGIT, 10))
+            .collect();
+        index
+            .parse::<usize>()
+            .ok()
+            .and_then(|i| times.get(i))
+            .cloned()
+            .unwrap_or_default()
+    })
+    .into_owned()
+}
+
+/// Text the user typed (a bug report's description), scrubbed by the same
+/// rules as a log line, with the known identifiers matched in any case and
+/// clock times kept. Unlike [`redact_text`] no line is shortened or
+/// dropped: the caller bounds the length.
+pub fn redact_note(text: &str, scrub: &Scrub) -> String {
+    // Nobody types these; dropping them means a marker can only be ours.
+    let text: String = text
+        .chars()
+        .filter(|c| !('\u{E000}'..='\u{E01F}').contains(c))
+        .collect();
+    with_found(&text, scrub, |scrub| {
+        text.lines()
+            .map(|l| {
+                let l = CONTROL.replace_all(l, " ");
+                let mut times = Vec::new();
+                let l = set_times_aside(&replace_known_ignoring_case(&l, scrub), &mut times);
+                put_times_back(redact_body(&l, scrub).trim_end(), &times)
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,6 +751,34 @@ while talking to 1a2b3c.dns.nextdns.io
             assert!(text.contains("stdout=<omitted>"), "{text}");
             assert!(text.contains("private_dns_mode hostname"), "{text}");
         }
+    }
+
+    #[test]
+    fn a_note_loses_known_names_in_any_case() {
+        let s = Scrub {
+            known: &["Living Room", "Den"],
+            words: &[],
+        };
+        let note = redact_note("living room tv drops, LIVING ROOM too; the den is fine", &s);
+        assert_eq!(note, "<id> tv drops, <id> too; the den is fine");
+        // Log lines still match exactly.
+        assert_eq!(redact_log_line("living room tv", &s, 200), "living room tv");
+    }
+
+    #[test]
+    fn a_note_keeps_clock_times_and_loses_addresses() {
+        let note = redact_note(
+            "It froze at 10:30, again at 10:30:45 and 10:30pm (and 9:15-9:45). \
+             TV 192.168.1.5:5555, shield.local:5555, mybox:5555, [fe80::1]:5555 and 2001:db8::8a2e:370:7334.",
+            &Scrub::default(),
+        );
+        for kept in ["at 10:30,", "10:30:45", "10:30pm", "(and 9:15-9:45)."] {
+            assert!(note.contains(kept), "{kept} lost: {note}");
+        }
+        for leak in ["192.168", "shield", "mybox", "fe80", "2001", "db8"] {
+            assert!(!note.contains(leak), "{leak} leaked: {note}");
+        }
+        assert!(!note.contains(MARK_OPEN), "{note}");
     }
 
     #[test]

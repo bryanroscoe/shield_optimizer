@@ -889,7 +889,16 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       // recorded for tests, and `uploadFails` stands in for a failed upload.
       recordTelemetry(cmd, args);
       if (demoFlag("uploadFails")) throw "Log upload failed: the server answered 503 Service Unavailable.";
-      return { support_id: DEMO_SUPPORT_ID, bytes: 48_213 };
+      return { support_id: DEMO_SUPPORT_ID, bytes: 48_213, report_id: 41 };
+    case "send_bug_report":
+      // Report a bug › Send to developer. Nothing leaves the page either;
+      // `bugReportLimited` stands in for the server's daily cap.
+      recordTelemetry(cmd, args);
+      if (!String(args.note ?? "").trim()) throw "Describe the problem before sending the report.";
+      if (demoFlag("bugReportLimited")) {
+        throw "Bug report limit reached: this app has sent today's maximum. Try again tomorrow, or report it on GitHub instead.";
+      }
+      return { support_id: DEMO_SUPPORT_ID, bytes: 48_490, report_id: 42 };
     case "plugin:updater|check":
       // The updater manifest has nothing newer. Without this the catch-all
       // answer below reads as an update and puts "Update now" in the header.

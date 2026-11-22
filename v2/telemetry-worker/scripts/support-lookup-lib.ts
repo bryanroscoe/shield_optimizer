@@ -27,10 +27,14 @@ interface Event {
 interface Upload {
   id: number;
   received_at: string;
+  // Absent from a Worker older than migration 0004.
+  kind?: string;
+  app?: string;
   app_version: string;
   os: string;
   reports_on: boolean | null;
   bytes: number;
+  note?: string | null;
 }
 
 interface Install {
@@ -93,7 +97,10 @@ export function formatSupportReport(r: Report): string {
     if (i.error_codes.length) out.push(`  Codes       ${i.error_codes.map((c) => `${c.code} x${c.count}`).join(", ")}`);
     for (const u of i.uploads) {
       const reports = u.reports_on === null ? "" : u.reports_on ? ", reports on" : ", reports off";
-      out.push(`  Upload #${u.id}  ${when(u.received_at)}  ${kb(u.bytes)}  ${u.app_version} on ${u.os}${reports}`);
+      const what = u.kind === "bug" ? "Bug report" : "Upload";
+      const app = u.app ? `${u.app} ` : "";
+      out.push(`  ${what} #${u.id}  ${when(u.received_at)}  ${kb(u.bytes)}  ${app}${u.app_version} on ${u.os}${reports}`);
+      if (u.note) for (const line of u.note.split("\n")) out.push(`              > ${line}`);
       out.push(`              read it: scripts/support-lookup.sh --upload ${u.id}`);
     }
     if (i.recent.length) out.push("", "  Recent events, newest first:");

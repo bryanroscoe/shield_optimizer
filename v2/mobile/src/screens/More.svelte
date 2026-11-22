@@ -151,6 +151,7 @@
     UnknownDiagnosticReport,
   } from "../lib/unknownDiagnostics";
   import BottomTabs from "../components/BottomTabs.svelte";
+  import BugReportSheet from "../components/BugReportSheet.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
@@ -284,6 +285,9 @@
       ],
     },
   ];
+
+  // Report a bug opens a sheet over More rather than a screen of its own.
+  let bugReportOpen = $state(false);
 
   // Emergency recovery: `pm enable` every disabled package. This is the undo
   // for a debloat that went too far; it never uninstalls or installs anything.
@@ -586,6 +590,15 @@
             {/if}
           </button>
         {/each}
+        {#if group.label === "Help"}
+          <button class="setting-row" onclick={() => (bugReportOpen = true)} aria-haspopup="dialog">
+            <span class="msr tool-icon">bug_report</span>
+            <div class="setting-info">
+              <span class="setting-title">Report a bug</span>
+            </div>
+            <span class="msr chevron">chevron_right</span>
+          </button>
+        {/if}
       </div>
     {/each}
 
@@ -820,6 +833,10 @@
     onConfirm={() => { disconnectConfirm = false; onDisconnect(); }}
     onCancel={() => (disconnectConfirm = false)}
   />
+
+  {#if bugReportOpen}
+    <BugReportSheet onClose={() => (bugReportOpen = false)} />
+  {/if}
 
   <Toast message={toast} type={toastType} />
 

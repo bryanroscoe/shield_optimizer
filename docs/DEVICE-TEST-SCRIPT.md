@@ -57,7 +57,7 @@ stop, and record the step.
 | A7 | Wireless debugging → Pair device with pairing code; in the app use Pair PIN | On success, Connect IP is pre-filled with the paired host plus a trailing colon and takes focus, with a one-line prompt for the separate port from the Wireless debugging screen; entering that port connects |
 | A8 | Tweaks → Screensaver | Reads the device's current `secure.screensaver_components`; offers AOSP Basic Daydream; Restore puts back whatever was configured when the tab loaded, without needing to know a vendor screensaver's component name |
 | A9 | Snapshots: take a snapshot without changing the launcher, then open Preview restore | Preview proposes no launcher change (the Now column reads the TV's actual current Home); restoring does not touch the launcher |
-| A10 | Header → Report a bug | Opens the GitHub bug-report issue form; the diagnostics field is pre-filled when the bundle fits in the link, otherwise the dialog says to paste it; nothing is sent automatically |
+| A10 | Header → Report a bug | Open GitHub issue opens the GitHub bug-report issue form; the diagnostics field is pre-filled when the bundle fits in the link, otherwise the dialog says to paste it; nothing is sent automatically. Send to developer stays disabled until a description is typed, then reports "Sent as report #N" with the support ID (`v2/telemetry-worker/scripts/support-lookup.sh --bugs` lists it, or the admin `GET /v1/admin/uploads?kind=bug`; its note has no TV name, address or serial typed into it) |
 
 ## Upgrades across the 2.5.0 rename (R1–R9)
 
@@ -185,6 +185,7 @@ debugging; the devtest APKs or any small APK you are willing to install and remo
 | M6 | Choose Disable on one optional app, switch tabs, Apply | The summary shows 1 optional; the confirmation names the app and the 0.5× animation post-pass; Cancel leaves the TV untouched; Apply disables only that app |
 | M7 | Apps → system filter; Backups | System apps hidden by default and toggle on; Backups lists every installed app, not only the catalog |
 | M8 | Diagnostics → unknown-app log | Entries exist for the Unknown apps seen in M5 |
+| M8b | More → Help → Report a bug, connected to the TV | Send is disabled until a description is typed; Show exactly what's sent lists the phone's model and Android version and the TV's make, model and Android version, with no TV name, address or serial; Send reports "Sent as report #N" with the Support ID; Report on GitHub instead opens the bug form with the description filled in |
 
 The mobile app's own open physical gates (saved-TV reconnect #93, the restart report #105, code
 pairing, fast-remote Phase 4) are listed in [`v2/mobile/BACKLOG.md`](../v2/mobile/BACKLOG.md).

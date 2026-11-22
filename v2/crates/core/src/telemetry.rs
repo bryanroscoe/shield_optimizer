@@ -1120,6 +1120,105 @@ pub fn install_panic_hook(telemetry: Arc<Telemetry>) {
     }));
 }
 
+/// How long a user-initiated upload may take: a slow uplink sends 300 KiB.
+pub const UPLOAD_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// What the server answered to an upload the user asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UploadReceipt {
+    /// The report number, when the server gave one.
+    pub id: Option<u64>,
+}
+
+/// Post a Send logs or bug report body to `url`. The error is the message
+/// the user sees: why it failed, never the URL.
+pub async fn post_upload(
+    client: &reqwest::Client,
+    url: &str,
+    kind: crate::engine::bug_report::UploadKind,
+    body: String,
+) -> Result<UploadReceipt, String> {
+    use crate::engine::bug_report::{receipt_id, refusal_message};
+    let noun = kind.noun();
+    let response = client
+        .post(url)
+        .timeout(UPLOAD_TIMEOUT)
+        .header("content-type", "application/json")
+        .body(body)
+        .send()
+        .await
+        .map_err(|e| format!("{noun} failed: {}", without_url(e)))?;
+    let status = response.status();
+    // The answer is a few bytes of JSON; an unreadable one costs only the
+    // report number.
+    let text = response.text().await.unwrap_or_default();
+    if status.is_success() {
+        Ok(UploadReceipt {
+            id: receipt_id(&text),
+        })
+    } else {
+        Err(refusal_message(kind, status.as_u16(), &text))
+    }
+}
+
+/// reqwest errors name the URL; the user needs the reason.
+fn without_url(e: reqwest::Error) -> String {
+    if e.is_timeout() {
+        "the request timed out.".to_string()
+    } else if e.is_connect() {
+        "couldn't reach the server. Check your internet connection.".to_string()
+    } else {
+        e.without_url().to_string()
+    }
+}
+
+/// The phone's maker and model (`Google Pixel 10 Pro`), for the phone app's
+/// bug report. `None` anywhere else, and whenever Android doesn't say.
+pub fn host_device_model() -> Option<String> {
+    #[cfg(target_os = "android")]
+    {
+        let prop = |name: &str| {
+            std::process::Command::new("getprop")
+                .arg(name)
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+        };
+        device_model_from(
+            prop("ro.product.manufacturer").as_deref(),
+            prop("ro.product.model").as_deref(),
+        )
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        None
+    }
+}
+
+/// A model name the phone reported, kept only when it reads as one: short,
+/// printable, with the maker in front unless the model already starts with it.
+#[cfg_attr(not(any(target_os = "android", test)), allow(dead_code))]
+fn device_model_from(manufacturer: Option<&str>, model: Option<&str>) -> Option<String> {
+    let clean = |s: Option<&str>| {
+        s.map(str::trim)
+            .filter(|s| {
+                !s.is_empty()
+                    && s.len() <= 40
+                    && s.chars()
+                        .all(|c| c.is_ascii_alphanumeric() || " -_.+()".contains(c))
+            })
+            .map(str::to_string)
+    };
+    let model = clean(model)?;
+    match clean(manufacturer) {
+        Some(maker) if !model.to_lowercase().starts_with(&maker.to_lowercase()) => {
+            Some(format!("{maker} {model}"))
+        }
+        _ => Some(model),
+    }
+}
+
 /// `android 15`, `macos 15.1`, `windows`, `linux`. Version detail only where
 /// the OS publishes it without spawning a console or reading anything
 /// personal.
@@ -1581,6 +1680,18 @@ mod tests {
     /// One HTTP request, read off a real socket, so the uploader is proven
     /// end to end: batching, the path, the body and the opt-out gate.
     async fn capture_one_post(listener: tokio::net::TcpListener) -> (String, String) {
+        answer_one_post(
+            listener,
+            "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n".to_string(),
+        )
+        .await
+    }
+
+    /// [`capture_one_post`], answering with `response`.
+    async fn answer_one_post(
+        listener: tokio::net::TcpListener,
+        response: String,
+    ) -> (String, String) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (mut sock, _) = listener.accept().await.unwrap();
         let mut buf = Vec::new();
@@ -1597,9 +1708,7 @@ mod tests {
                     .map(|v| v.trim().parse().unwrap())
                     .unwrap_or(0);
                 if buf.len() >= split + 4 + len {
-                    sock.write_all(b"HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n")
-                        .await
-                        .unwrap();
+                    sock.write_all(response.as_bytes()).await.unwrap();
                     let request_line = text.lines().next().unwrap().to_string();
                     return (request_line, text[split + 4..].to_string());
                 }
@@ -1608,6 +1717,68 @@ mod tests {
                 panic!("connection closed early");
             }
         }
+    }
+
+    fn json_response(status: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    #[tokio::test]
+    async fn a_bug_report_upload_returns_its_number_or_the_refusal() {
+        use crate::engine::bug_report::UploadKind;
+        let client = reqwest::Client::new();
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/diagnostics", listener.local_addr().unwrap());
+        let server = tokio::spawn(answer_one_post(
+            listener,
+            json_response("201 Created", r#"{"ok":true,"id":17,"bytes":5}"#),
+        ));
+        let receipt = post_upload(&client, &url, UploadKind::Bug, r#"{"schema":2}"#.into())
+            .await
+            .unwrap();
+        assert_eq!(receipt.id, Some(17));
+        let (request_line, body) = server.await.unwrap();
+        assert_eq!(request_line, "POST /v1/diagnostics HTTP/1.1");
+        assert_eq!(body, r#"{"schema":2}"#);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/diagnostics", listener.local_addr().unwrap());
+        let server = tokio::spawn(answer_one_post(
+            listener,
+            json_response("429 Too Many Requests", r#"{"error":"upload_daily_cap"}"#),
+        ));
+        let err = post_upload(&client, &url, UploadKind::Bug, "{}".into())
+            .await
+            .unwrap_err();
+        server.await.unwrap();
+        assert!(err.starts_with("Bug report limit reached"), "{err}");
+        assert!(!err.contains("127.0.0.1"), "{err}");
+    }
+
+    #[test]
+    fn a_phone_model_is_kept_only_when_it_reads_as_one() {
+        assert_eq!(
+            device_model_from(Some("Google"), Some("Pixel 10 Pro")).as_deref(),
+            Some("Google Pixel 10 Pro")
+        );
+        assert_eq!(
+            device_model_from(Some("samsung"), Some("SM-S918B")).as_deref(),
+            Some("samsung SM-S918B")
+        );
+        assert_eq!(
+            device_model_from(Some("OnePlus"), Some("OnePlus 12")).as_deref(),
+            Some("OnePlus 12")
+        );
+        assert_eq!(device_model_from(Some("Google"), Some("")), None);
+        assert_eq!(device_model_from(None, Some("Bryan's phone\n")), None);
+        assert_eq!(
+            device_model_from(Some("x\u{1b}[31m"), Some("Pixel 9")).as_deref(),
+            Some("Pixel 9")
+        );
     }
 
     #[tokio::test]

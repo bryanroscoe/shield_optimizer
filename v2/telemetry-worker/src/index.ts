@@ -2,7 +2,16 @@ import { checkAdmin, deviceReport, parseGroup } from "./admin";
 import type { Env } from "./env";
 import { error, json, readBodyLimited } from "./http";
 import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
-import { DEFAULT_EVENT_LIMIT, MAX_EVENT_LIMIT, parseSupportQuery, supportLookup, uploadText } from "./support";
+import {
+  DEFAULT_EVENT_LIMIT,
+  DEFAULT_UPLOAD_LIST_LIMIT,
+  listUploads,
+  MAX_EVENT_LIMIT,
+  MAX_UPLOAD_LIST_LIMIT,
+  parseSupportQuery,
+  supportLookup,
+  uploadText,
+} from "./support";
 import { readTiers, replaceTiers, validateTierRules } from "./tiers";
 import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, uploadBytes, validateUpload } from "./uploads";
 import { MAX_BODY_BYTES, validateBatch } from "./validate";
@@ -139,18 +148,38 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
     return json(await supportLookup(env, q, limit), 200, { "cache-control": "no-store" });
   }
 
+  if (path === "/v1/admin/uploads") {
+    if (request.method !== "GET") return error(405, "method_not_allowed", {}, { allow: "GET" });
+    const url = new URL(request.url);
+    const sinceParam = url.searchParams.get("since");
+    let since: string | null = null;
+    if (sinceParam !== null) {
+      const t = Date.parse(sinceParam);
+      if (!/^\d{4}-\d{2}-\d{2}/.test(sinceParam) || Number.isNaN(t)) return error(400, "bad_since");
+      since = new Date(t).toISOString();
+    }
+    const kindParam = url.searchParams.get("kind");
+    if (kindParam !== null && kindParam !== "logs" && kindParam !== "bug") return error(400, "bad_kind");
+    const limit = Number(url.searchParams.get("limit") ?? String(DEFAULT_UPLOAD_LIST_LIMIT));
+    if (!Number.isInteger(limit) || limit < 1 || limit > MAX_UPLOAD_LIST_LIMIT) return error(400, "bad_limit");
+    const list = await listUploads(env, { since, kind: kindParam, limit });
+    return json({ since, kind: kindParam, limit, ...list }, 200, { "cache-control": "no-store" });
+  }
+
   const upload = /^\/v1\/admin\/uploads\/(\d{1,12})$/.exec(path);
   if (upload) {
     if (request.method !== "GET") return error(405, "method_not_allowed", {}, { allow: "GET" });
     const row = await uploadText(env, Number(upload[1]));
     if (!row) return error(404, "not_found");
-    return new Response(row.body, {
+    return new Response(row.text, {
       status: 200,
       headers: {
         "content-type": "text/plain; charset=utf-8",
         "cache-control": "no-store",
         "x-install-id": row.install_id,
         "x-received-at": row.received_at,
+        "x-upload-kind": row.kind,
+        "x-app": `${row.app} ${row.app_version}`,
       },
     });
   }

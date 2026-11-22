@@ -23,6 +23,28 @@ describe("Android privacy policy", () => {
     expect(text).toContain("not all automatically anonymized");
   });
 
+  it("describes what a bug report sends and how long it is kept", async () => {
+    const res = await worker.fetch(new Request("https://telemetry.test/privacy"), {
+      ...env,
+      PRIVACY_CONTACT_EMAIL: "privacy@example.com",
+      RAW_RETENTION_DAYS: "45",
+      LOG_RETENTION_DAYS: "14",
+    });
+    const text = await res.text();
+    expect(text).toContain("<h2>Bug reports you send</h2>");
+    expect(text).toContain("<strong>Report a bug</strong> and press <strong>Send</strong>");
+    expect(text).toContain("the description you typed");
+    expect(text).toContain("deleted after 14 days");
+    expect(text).toContain("does not store your request\nIP address or location");
+    expect(text).toContain("the app never uploads its logs, bug reports included");
+    expect(text).toContain("which ADB client the app uses");
+    expect(text).toContain("SDK level");
+    expect(text).toContain("support tier");
+    expect(text).toContain("up to eight recent connection steps");
+    // The summary carries no TV brand.
+    expect(text).not.toMatch(/manufacturer, brand, model, device codename and Android version/);
+  });
+
   it("refuses markup in the configured contact and handles HEAD without a body", async () => {
     const bad = await worker.fetch(new Request("https://telemetry.test/privacy"), { ...env, PRIVACY_CONTACT_EMAIL: '<script>@example.com' });
     expect(bad.status).toBe(503);

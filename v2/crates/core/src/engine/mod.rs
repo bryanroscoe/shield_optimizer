@@ -7,6 +7,7 @@
 
 pub mod apk_abis;
 pub mod app_lists;
+pub mod bug_report;
 pub mod cast_name;
 pub mod detection;
 pub mod diagnostics;

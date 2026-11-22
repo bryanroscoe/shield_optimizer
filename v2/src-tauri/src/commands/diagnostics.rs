@@ -25,12 +25,13 @@ use tracing_subscriber::{fmt, reload, EnvFilter, Layer};
 use atv_optimizer_core::adb::AdbDriver;
 use atv_optimizer_core::commands::diagnostics as core_diagnostics;
 use atv_optimizer_core::commands::{devices, AppState};
+use atv_optimizer_core::engine::bug_report::{self, UploadKind, UploadMeta};
 use atv_optimizer_core::engine::log_redact::{self, Scrub};
-use atv_optimizer_core::engine::telemetry::{format_support_id, telemetry_device};
+use atv_optimizer_core::engine::telemetry::format_support_id;
 use atv_optimizer_core::engine::telemetry_diag::{
     adb_diag, mdns_diag, net_diag, transport_counts, AdbSource, Diag, Gateway, NetInterface,
 };
-use atv_optimizer_core::telemetry::ExcerptSource;
+use atv_optimizer_core::telemetry::{post_upload, ExcerptSource};
 
 /// Subdirectory of the app data dir that holds the rolling log files.
 pub(crate) const LOG_DIR_NAME: &str = "logs";
@@ -519,22 +520,10 @@ pub fn excerpt_source(dir: PathBuf) -> ExcerptSource {
 pub struct DiagnosticsUploadResult {
     pub support_id: String,
     pub bytes: usize,
+    /// The report number the server gave, when it gave one.
+    pub report_id: Option<u64>,
 }
 
-#[derive(Serialize)]
-struct UploadBody<'a> {
-    schema: u32,
-    install_id: &'a str,
-    app: atv_optimizer_core::engine::telemetry::AppKind,
-    app_version: &'a str,
-    os: &'a str,
-    ts: String,
-    reports_enabled: bool,
-    text: &'a str,
-}
-
-const UPLOAD_SCHEMA: u32 = 1;
-const UPLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
 const UPLOAD_HEADER_MAX_BYTES: usize = 16 * 1024;
 
 /// The serial column of `adb devices [-l]` output, whatever each row's state.
@@ -548,50 +537,21 @@ fn transport_serials(devices_output: &str) -> Vec<String> {
         .collect()
 }
 
-/// One line per adb transport: state, transport and the TV's public build
-/// properties. No serial or name.
-fn device_lines(list: &[atv_optimizer_core::engine::types::Device]) -> Vec<String> {
-    list.iter()
-        .map(|d| {
-            let status = serde_json::to_value(d.status)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default();
-            let connection = serde_json::to_value(d.connection)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default();
-            match d.properties.as_ref() {
-                Some(props) => {
-                    let t = telemetry_device(props, d.device_type, d.tv_evidence, &d.support);
-                    format!(
-                        "- {connection}, {status}: {} {} ({}), Android {} (SDK {}), profile {:?}, tier {:?}",
-                        t.manufacturer,
-                        t.model,
-                        t.device,
-                        t.android_release,
-                        t.sdk.map_or("?".to_string(), |n| n.to_string()),
-                        t.profile,
-                        t.support_tier,
-                    )
-                }
-                None => format!("- {connection}, {status}: no details"),
-            }
-        })
-        .collect()
-}
-
 /// The upload's own lines, written before redaction so the id survives it.
 /// A test build's upload starts with `Test build <commit>`.
 fn upload_preamble(
     target: &atv_optimizer_core::telemetry::UploadTarget,
     reports_enabled: bool,
+    kind: UploadKind,
 ) -> String {
     let mut text = String::new();
     if let Some(commit) = &target.test_build {
         text.push_str(&format!("Test build {commit}\n\n"));
     }
-    text.push_str("## ATV Optimizer logs (Send logs)\n\n");
+    text.push_str(match kind {
+        UploadKind::Logs => "## ATV Optimizer logs (Send logs)\n\n",
+        UploadKind::Bug => "## ATV Optimizer bug report\n\n",
+    });
     text.push_str(&format!(
         "- Support ID: {} (`{}`)\n",
         format_support_id(&target.install_id),
@@ -610,21 +570,27 @@ fn upload_preamble(
     text
 }
 
-/// `upload_diagnostics` — Send logs to developer.
-///
-/// The user pressed a button that says it sends their logs, so this runs
-/// whether or not automatic reports are on, under the current install id
-/// (never a new one) so the id it returns finds the upload. Everything sent
-/// is redacted by `engine::log_redact`: a summary of this computer and its
-/// TVs, the connection diagnostics, and the last 256 KiB of the app log.
-#[tauri::command]
-pub async fn upload_diagnostics(
-    state: State<'_, AppState>,
-    logs: State<'_, LogControl>,
-) -> Result<DiagnosticsUploadResult, String> {
+/// A Send logs or bug report upload, built and redacted, ready to post.
+struct PreparedUpload {
+    target: atv_optimizer_core::telemetry::UploadTarget,
+    client: reqwest::Client,
+    reports_enabled: bool,
+    text: String,
+    /// Every identifier the text was scrubbed of, for the note too.
+    session: Vec<String>,
+}
+
+/// The text both uploads carry: a summary of this computer and its TVs, the
+/// connection diagnostics, and the last 256 KiB of the app log, every line
+/// redacted by `engine::log_redact`. `Err` for a build without an endpoint.
+async fn prepare_upload(
+    state: &AppState,
+    logs: &LogControl,
+    kind: UploadKind,
+) -> Result<PreparedUpload, String> {
     let telemetry = state.telemetry.clone();
     let (Some(target), Some(client)) = (telemetry.upload_target(), telemetry.http_client()) else {
-        return Err("Log upload isn't available in this build.".to_string());
+        return Err(format!("{} isn't available in this build.", kind.noun()));
     };
     let reports_enabled = telemetry.settings().enabled;
 
@@ -650,13 +616,13 @@ pub async fn upload_diagnostics(
         .await
         .map(|o| o.stdout)
         .unwrap_or_else(|e| format!("(adb devices failed: {e})"));
-    let devices = devices::list_devices_impl(state.inner())
+    let devices = devices::list_devices_impl(state)
         .await
-        .map(|list| device_lines(&list))
+        .map(|list| list.iter().map(bug_report::device_summary_line).collect())
         .unwrap_or_else(|e| vec![format!("- (could not list devices: {e})")]);
 
     // Our own values, written before redaction so the id survives it.
-    let mut text = upload_preamble(&target, reports_enabled);
+    let mut text = upload_preamble(&target, reports_enabled, kind);
 
     let mut header = String::new();
     header.push_str("\n### Devices\n\n");
@@ -685,51 +651,80 @@ pub async fn upload_diagnostics(
         text.push_str(&log_redact::upload_log(&raw_log, scrub));
         text.push_str("\n```\n");
     });
+    Ok(PreparedUpload {
+        target,
+        client,
+        reports_enabled,
+        text: bug_report::cap_text(&text, bug_report::DESKTOP_TEXT_MAX_BYTES),
+        session,
+    })
+}
 
-    let body = UploadBody {
-        schema: UPLOAD_SCHEMA,
+/// Post `prepared` with an optional note, as `kind`.
+async fn send_prepared(
+    prepared: PreparedUpload,
+    kind: UploadKind,
+    note: Option<&str>,
+) -> Result<DiagnosticsUploadResult, String> {
+    let ts = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    let target = &prepared.target;
+    let meta = UploadMeta {
         install_id: &target.install_id,
         app: target.app,
         app_version: &target.app_version,
         os: &target.os,
-        ts: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-        reports_enabled,
-        text: &text,
+        ts: &ts,
+        reports_enabled: prepared.reports_enabled,
     };
-    let body = serde_json::to_string(&body).map_err(|e| format!("Log upload failed: {e}"))?;
-    let response = client
-        .post(&target.url)
-        .timeout(UPLOAD_TIMEOUT)
-        .header("content-type", "application/json")
-        .body(body)
-        .send()
-        .await
-        .map_err(|e| format!("Log upload failed: {}", without_url(e)))?;
-    match response.status() {
-        s if s.is_success() => {
-            tracing::info!(bytes = text.len(), "logs sent to the developer");
-            Ok(DiagnosticsUploadResult {
-                support_id: target.install_id,
-                bytes: text.len(),
-            })
-        }
-        reqwest::StatusCode::TOO_MANY_REQUESTS => Err(
-            "Log upload limit reached for today. Try again tomorrow, or attach the bug report instead."
-                .to_string(),
-        ),
-        s => Err(format!("Log upload failed: the server answered {s}.")),
-    }
+    let body = match kind {
+        UploadKind::Logs => bug_report::logs_body(&meta, &prepared.text),
+        UploadKind::Bug => bug_report::bug_body(&meta, note, &prepared.text)?,
+    };
+    let body = serde_json::to_string(&body).map_err(|e| format!("{} failed: {e}", kind.noun()))?;
+    let receipt = post_upload(&prepared.client, &target.url, kind, body).await?;
+    let bytes = prepared.text.len() + note.map_or(0, str::len);
+    tracing::info!(bytes, ?kind, "sent to the developer");
+    Ok(DiagnosticsUploadResult {
+        support_id: prepared.target.install_id,
+        bytes,
+        report_id: receipt.id,
+    })
 }
 
-/// reqwest errors name the URL; the user needs the reason.
-fn without_url(e: reqwest::Error) -> String {
-    if e.is_timeout() {
-        "the request timed out.".to_string()
-    } else if e.is_connect() {
-        "couldn't reach the server. Check your internet connection.".to_string()
-    } else {
-        e.without_url().to_string()
+/// `upload_diagnostics` — Send logs to developer.
+///
+/// The user pressed a button that says it sends their logs, so this runs
+/// whether or not automatic reports are on, under the current install id
+/// (never a new one) so the id it returns finds the upload. Everything sent
+/// is redacted by `engine::log_redact`: a summary of this computer and its
+/// TVs, the connection diagnostics, and the last 256 KiB of the app log.
+#[tauri::command]
+pub async fn upload_diagnostics(
+    state: State<'_, AppState>,
+    logs: State<'_, LogControl>,
+) -> Result<DiagnosticsUploadResult, String> {
+    let prepared = prepare_upload(state.inner(), logs.inner(), UploadKind::Logs).await?;
+    send_prepared(prepared, UploadKind::Logs, None).await
+}
+
+/// `send_bug_report` — Report a bug › Send to developer.
+///
+/// What Send logs sends, plus the user's description, scrubbed of the same
+/// identifiers and addresses. A description is required.
+#[tauri::command]
+pub async fn send_bug_report(
+    state: State<'_, AppState>,
+    logs: State<'_, LogControl>,
+    note: String,
+) -> Result<DiagnosticsUploadResult, String> {
+    if note.trim().is_empty() {
+        return Err("Describe the problem before sending the report.".to_string());
     }
+    let prepared = prepare_upload(state.inner(), logs.inner(), UploadKind::Bug).await?;
+    let note = scrub_with(&prepared.session, |scrub| {
+        bug_report::clean_note(&note, scrub)
+    });
+    send_prepared(prepared, UploadKind::Bug, note.as_deref()).await
 }
 
 #[cfg(test)]
@@ -791,15 +786,34 @@ mod tests {
             os: "macos 26.6".into(),
             test_build: test_build.map(str::to_string),
         };
-        let test = upload_preamble(&target(Some("4f156e4")), false);
+        let test = upload_preamble(&target(Some("4f156e4")), false, UploadKind::Logs);
         assert!(test.starts_with("Test build 4f156e4\n"), "{test}");
         assert!(test.contains("- App version: 2.5.0-dev"));
-        let release = upload_preamble(&target(None), true);
+        let release = upload_preamble(&target(None), true, UploadKind::Logs);
         assert!(
             release.starts_with("## ATV Optimizer logs (Send logs)"),
             "{release}"
         );
         assert!(!release.contains("Test build"));
+        let bug = upload_preamble(&target(None), true, UploadKind::Bug);
+        assert!(bug.starts_with("## ATV Optimizer bug report\n"), "{bug}");
+        assert!(bug.contains("- Support ID: 7D0B-0B9E"), "{bug}");
+    }
+
+    #[test]
+    fn a_bug_note_loses_the_identifiers_the_upload_was_scrubbed_of() {
+        let session = vec!["QWERTYUIOPAS".to_string(), "Kids Room TV".to_string()];
+        let note = scrub_with(&session, |scrub| {
+            bug_report::clean_note(
+                "Kids Room TV (QWERTYUIOPAS) at 10.0.0.7 drops off every night",
+                scrub,
+            )
+        })
+        .unwrap();
+        for secret in ["Kids Room TV", "QWERTYUIOPAS", "10.0.0.7"] {
+            assert!(!note.contains(secret), "{secret} leaked: {note}");
+        }
+        assert!(note.contains("drops off every night"), "{note}");
     }
 
     #[test]
@@ -899,57 +913,6 @@ mod tests {
         // A partial first line is dropped rather than sent half-cut.
         let tail = recent_log_text(dir.path(), 9);
         assert_eq!(tail.trim(), "new 2");
-    }
-
-    #[test]
-    fn device_summaries_carry_no_serial_or_name() {
-        use atv_optimizer_core::engine::types::{
-            ConnectionType, Device, DeviceProperties, DeviceStatus,
-        };
-        use atv_optimizer_core::engine::{DeviceType, SupportInfo, TvEvidence};
-        let list = vec![
-            Device {
-                id: 1,
-                serial: "192.168.1.20:5555".into(),
-                name: "Living Room".into(),
-                model: "Shield".into(),
-                device_type: DeviceType::Shield,
-                tv_evidence: TvEvidence::Tv,
-                status: DeviceStatus::Device,
-                connection: ConnectionType::Network,
-                properties: Some(DeviceProperties {
-                    friendly_name: Some("Living Room".into()),
-                    manufacturer: "NVIDIA".into(),
-                    model: "SHIELD Android TV".into(),
-                    serial_number: "1324619053514".into(),
-                    android_release: "11".into(),
-                    sdk_level: "30".into(),
-                    ..Default::default()
-                }),
-                support: SupportInfo::default(),
-            },
-            Device {
-                id: 2,
-                serial: "QWERTYUIOPAS".into(),
-                name: "QWERTYUIOPAS".into(),
-                model: String::new(),
-                device_type: DeviceType::Unknown,
-                tv_evidence: TvEvidence::Unknown,
-                status: DeviceStatus::Unauthorized,
-                connection: ConnectionType::Usb,
-                properties: None,
-                support: SupportInfo::default(),
-            },
-        ];
-        let lines = device_lines(&list).join("\n");
-        assert!(
-            lines.contains("network, device: NVIDIA SHIELD Android TV"),
-            "{lines}"
-        );
-        assert!(lines.contains("usb, unauthorized: no details"), "{lines}");
-        for secret in ["192.168", "Living Room", "1324619053514", "QWERTYUIOPAS"] {
-            assert!(!lines.contains(secret), "{secret} leaked: {lines}");
-        }
     }
 
     #[test]

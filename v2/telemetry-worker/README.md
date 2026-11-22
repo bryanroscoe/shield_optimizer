@@ -7,9 +7,9 @@ A Cloudflare Worker with one D1 database. It does two jobs:
    gets built.
 2. Serves the support-tier list (`GET /v1/support-tiers`), so a TV can move from beta to supported
    without an app release.
-3. Takes the logs a desktop user chooses to send (`POST /v1/diagnostics`), and lets the owner find
-   everything stored for one install by the support ID the user quotes
-   (`scripts/support-lookup.sh`).
+3. Takes the logs a desktop user chooses to send and the bug reports desktop and phone users send
+   (`POST /v1/diagnostics`), and lets the owner list new bug reports and find everything stored for
+   one install by the support ID the user quotes (`scripts/support-lookup.sh`).
 
 Telemetry is on by default in the apps with an opt-out. The app side lives in the desktop and mobile
 code; this directory is only the backend. It runs on the Cloudflare free plan.
@@ -21,7 +21,8 @@ The Android privacy policy is served at `GET /privacy` (also `HEAD`). Set the pu
 publication. The endpoint returns 503 with no caching until a valid email is configured; it
 never publishes a placeholder or reads request location. The mobile app links this page in
 More → Privacy and exposes the current full installation Support ID for deletion requests.
-The policy describes Android only: desktop's opt-in Send logs upload is a separate data flow.
+The policy describes Android only, including the phone's **Report a bug**; desktop's opt-in
+Send logs and Report a bug uploads are a separate data flow.
 
 Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diagnostic`, with:
 
@@ -40,7 +41,7 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 `discover_empty` or `device_details_empty`. Schema 1 events are still accepted unchanged; a schema
 1 event cannot be a `diagnostic` and any `diag` or `log_excerpt` on it is ignored.
 
-### Send logs uploads
+### Send logs uploads and bug reports
 
 A test build (a native test package marked with `ATVOPT_TEST_BUILD`) can send logs too. Its upload
 carries `app_version` as `<version>-dev`, which the version check here already accepts, and its text
@@ -48,7 +49,8 @@ starts with `Test build <commit>`: the commit that was built (a PR's merge commi
 `(merge commit; PR head <head>)` when the PR head differs. Test builds never send automatic reports, so they add nothing to
 `events` or the device-support aggregates.
 
-`diag_uploads` holds what a desktop user sent with **Send logs to developer**: a summary (support
+`diag_uploads` holds what a user sent with **Send logs to developer** (`kind` `logs`, desktop) or
+**Report a bug** (`kind` `bug`, desktop and phone, upload schema 2). A desktop upload is a summary (support
 ID, app and OS, TVs by state and public build properties, `adb devices -l` and a `diag` object)
 and up to 256 KiB of the app's own log, redacted line by line on the client
 (`engine/log_redact.rs`), with a second pass here that drops command output (`stdout=`/`stderr=`
@@ -59,6 +61,14 @@ patterns, skips tokens that can't match and drops any token over 512 characters 
 256 KiB upload costs a few milliseconds of CPU whatever it contains (tested against pathological
 input). It is keyed by the install id, sent only when the user presses
 the button (even with automatic reports off), and deleted after 30 days.
+
+A bug report adds `note`, the description the user typed (at most 4,000 characters), and its text
+may be empty. The phone's text is at most 64 KiB: the app version, the phone's Android version and
+model, the connected TV's public build properties and the app's recent connection diagnostics.
+The note gets the same upload pass and then, token by token, has URLs and paths replaced whole and
+IPv6 addresses, `host:port` and serial-shaped tokens removed (`redactNote` in `src/redact.ts`); a
+human's "and/or" survives. Notes are stored, purged, trimmed and deleted with their row, and the
+upload's `bytes` (what the byte cap and storage budget count) includes them.
 
 ## What is never collected or stored
 
@@ -72,8 +82,10 @@ the button (even with automatic reports off), and deleted after 30 days.
   `0002_drop_country.sql` deleted those values and dropped the column (owner decision, so the
   apps' Play Data safety form has no location to declare).
 - TV names or labels, the user's package list, file paths, emails, licence or licensee data.
-- Logs from the phone app. Its Play Data safety form doesn't declare them, so `log_excerpt` from
-  `app: "mobile"` is dropped and a mobile `POST /v1/diagnostics` is refused.
+- Logs from the phone app, except in a bug report its user sends. `log_excerpt` from
+  `app: "mobile"` is dropped, and a mobile `POST /v1/diagnostics` is refused unless it is upload
+  schema 2 (Report a bug), whose text is capped at 64 KiB. The Android privacy policy
+  (`GET /privacy`) describes what a bug report contains.
 
 How that is enforced server-side, so a client bug cannot break it:
 
@@ -130,11 +142,12 @@ How that is enforced server-side, so a client bug cannot break it:
   (`agg_device_installs`, used to count distinct installs). These hold no free text.
 - Rate-limit counters are deleted after two days.
 - If stored data ever nears the database's size limit, the same cron frees space early, oldest
-  first: Send logs uploads, then log excerpts, then raw events, and only then the oldest aggregate
+  first: uploads (Send logs and bug reports), then log excerpts, then raw events, and only then the oldest aggregate
   days. See [Storage budget](#storage-budget).
 - To honour a deletion request, the user can read their support ID from the app (look it up with
   `scripts/support-lookup.sh` to get the full id); delete it with
-  `DELETE FROM events WHERE install_id = ?` and the same on `diag_uploads`,
+  `DELETE FROM events WHERE install_id = ?` and the same on `diag_uploads` (bug reports and their
+  notes included),
   `agg_device_installs` and `rate_daily` (`key = <install id>` and `key = 'upload:' || <install id>`).
   The per-day counts cannot be attributed to an install.
 
@@ -159,14 +172,22 @@ slow the app.
 
 ### `POST /v1/diagnostics`
 
-Desktop Send logs. Body `{ "schema": 1, "install_id", "app": "desktop", "app_version", "os", "ts",
-"reports_enabled", "text" }`, `Content-Type: application/json`, `text` at most 300 KiB (body
-616 KiB, room for JSON escaping). `install_id`, `app_version`, `os` and `ts` follow the event rules.
+Send logs and Report a bug. Body `{ "schema", "install_id", "app", "app_version", "os", "ts",
+"reports_enabled", "text" }` plus, on schema 2, `kind` and `note`; `Content-Type: application/json`,
+body at most 640 KiB (room for JSON escaping). `install_id`, `app_version`, `os` and `ts` follow
+the event rules.
+
+- **Schema 1** is desktop Send logs as first shipped: `app` must be `desktop`, `text` non-empty and
+  at most 300 KiB. Stored as `kind` `logs`; any `kind` or `note` is ignored.
+- **Schema 2** needs `kind`: `logs` (non-empty `text`, as schema 1) or `bug` (a non-empty `note` or
+  non-empty `text`; either may be absent). `app` is `desktop` (text at most 300 KiB) or `mobile`
+  (at most 64 KiB). `note` is optional, the user's own description, at most 4,000 characters
+  after trimming, redacted before it is stored.
 
 | Status | Meaning |
 | --- | --- |
-| `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }`. |
-| `400` | Bad JSON or shape, `unsupported_app` (anything but `desktop`), `bad_text`, `text_too_large`. |
+| `201` | Stored: `{ "ok": true, "id": 12, "bytes": 123456 }` (`bytes`: the stored text's length). |
+| `400` | Bad JSON or shape: `unsupported_schema`, `unsupported_app` (not `desktop`, or `mobile` on schema 1), `bad_kind`, `bad_note`, `note_too_large`, `bad_text`, `text_too_large`, `empty_report` (a bug report with neither note nor text). |
 | `413` / `415` | Body too large / not `application/json`. |
 | `429` | `upload_daily_cap`: `PER_INSTALL_DAILY_UPLOADS` (5) for this install, checked first so a capped install never spends the shared budget. `upload_global_cap`: `GLOBAL_DAILY_UPLOADS` (200) or `GLOBAL_DAILY_UPLOAD_BYTES` (6 MiB) across everyone. Per UTC day; `Retry-After` as for events. |
 | `503` | D1 unavailable. |
@@ -223,7 +244,14 @@ characters) the admin routes answer `503`.
   `matches` and `truncated` say how many there were). Each install has first/last seen, event
   counts by kind, apps, versions and OSes, its TVs, its top error codes, the `limit` most recent
   events (default 50, max 200) with `diag` parsed and `log_excerpt`, and its uploads.
-- `GET /v1/admin/uploads/<id>`: one Send logs upload as `text/plain`, with `x-install-id`.
+  Each upload carries its `kind`, `app` and `note`.
+- `GET /v1/admin/uploads[?since=<ISO date or time>][&kind=bug|logs][&limit=N]`: the newest
+  uploads first (`limit` default 50, max 200; `truncated` says there were more), each with its id,
+  times, install and support ID, kind, app, version, OS, size, `note_chars` and the first 200
+  characters of the note as `note_preview`. Never the text: fetch that by id.
+- `GET /v1/admin/uploads/<id>`: one upload as `text/plain`, its note first under
+  `## Description (user's own words, redacted)`, with `x-install-id`, `x-received-at`,
+  `x-upload-kind` and `x-app`.
 
 From a terminal, `scripts/support-lookup.sh` does both and prints a readable report:
 
@@ -231,6 +259,7 @@ From a terminal, `scripts/support-lookup.sh` does both and prints a readable rep
 export ATVOPT_ADMIN_TOKEN="$(op read 'op://Bryan Code/ATV Optimizer telemetry ADMIN_TOKEN/credential' --account my.1password.com)"
 scripts/support-lookup.sh 7D0B-0B9E           # or the full UUID; --json for the raw response
 scripts/support-lookup.sh --upload 12         # the text of upload #12 from that report
+scripts/support-lookup.sh --bugs 2026-11-20   # bug reports since a date (JSON), newest first
 ```
 
 The token reaches `curl` as a header on stdin, so it is not in the process list, and the script
@@ -366,6 +395,9 @@ access or a real app's release configuration, so check those separately, and nev
 fabricated production telemetry just to test a deploy. Admin access is proven by a green
 **Support tiers sync** run.
 
+Migration `0004_bug_reports.sql` (bug reports) must be applied before deploying the Worker that
+writes `kind` and `note`; it is additive, so the Worker already live keeps working against it.
+
 ### Rotating ADMIN_TOKEN
 
 An owner-authorized operation, separate from deploys. Three copies must change together, or the
@@ -452,7 +484,7 @@ Cloudflare's free plan (check the current numbers on the
   writes go through `json_each` over one JSON parameter). Row writes per accepted event are lowest
   in big batches (aggregates are merged per batch) and highest for a one-event error batch: about
   nine (three quota rows, the raw row and its two index entries, three aggregate rows). A Send
-  logs upload is about six (three quota rows, the row and its two index entries). A support
+  logs upload or bug report is about six (three quota rows, the row and its two index entries). A support
   lookup reads through the `events_install` index and runs at most 1 + 7 × 5 queries. Over the
   daily limits, D1 refuses queries until the daily reset; the apps just lose that day's telemetry.
   Over the size limit, every write fails until space is freed, which is what the storage budget
@@ -502,7 +534,7 @@ its stored string bytes plus 256 for the row and its index entries (`eventBytes`
 | Data | Worst case |
 | --- | --- |
 | Raw events: 10 MiB/day × 30 days (`RAW_RETENTION_DAYS`) | 10,485,760 × 30 ≈ 315 MB |
-| Uploads: 6 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 6,291,456 × 30 ≈ 189 MB |
+| Uploads (text and notes): 6 MiB/day × 30 days (`LOG_RETENTION_DAYS`) | 6,291,456 × 30 ≈ 189 MB |
 | Upload rows: 200/day × 30 days × ~400 bytes | ≈ 2.4 MB |
 | `rate_daily`: 3 days × ~7,000 keys × ~100 bytes | ≈ 2.1 MB |
 | **Total data** | **≈ 508 MB** |
@@ -522,7 +554,7 @@ The aggregate tables are kept forever and are not capped by bytes. Normal use up
 device rows, but a flood of made-up device names adds up to about three rows per event, so they
 are the one thing that can grow without limit. The cron therefore also enforces
 `STORAGE_BUDGET_BYTES` (300 MB of estimated data): when the estimate passes it, it frees space
-oldest first, towards 80% of the budget, in this order: Send logs uploads, log excerpts, raw
+oldest first, towards 80% of the budget, in this order: uploads (bug reports included), log excerpts, raw
 events, then the oldest days of `agg_error_daily`, `agg_device_daily` and `agg_device_installs`.
 The support-tier list is never touched.
 

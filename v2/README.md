@@ -205,6 +205,16 @@ desktop build; leave it unset to ship a build that never reports.
   `upload_limited` (5 a day per install, or the day's shared budget) and `upload_failed` in `shared/errors.ts`. The Worker
   keeps uploads and excerpts 30 days. Look one up with
   `telemetry-worker/scripts/support-lookup.sh <support-id>`.
+- **Report a bug › Send to developer** (`send_bug_report` on both apps): only when the user
+  writes a description and presses Send, even with reports off. Desktop posts Send logs' summary
+  and log as schema 2 `kind: "bug"` with the description in `note`, scrubbed by
+  `log_redact::redact_note` (≤4000 characters). The phone posts the description and a ≤64 KiB
+  summary (app, phone model and Android version, support ID, the connected TV's public build
+  properties, recent connection steps; no log). `prepare_bug_report` builds that summary once and
+  keeps it in Rust, `redact_bug_note` previews the description against it as it is typed, and
+  Send uploads the prepared summary by id, so the preview is exactly what goes. Body,
+  summary and refusal messages are the pure `engine/bug_report.rs`; the post is
+  `telemetry::post_upload`, which returns the server's report number.
 - The first-launch notice (`NOTICE_TEXT` on desktop, `MOBILE_NOTICE_TEXT` on the phone) shows
   again once whenever `NOTICE_VERSION` in `crates/core/src/telemetry.rs` is bumped; it was bumped
   to 2 for the diagnostics, excerpts and support ID. Someone who opted out isn't asked again.

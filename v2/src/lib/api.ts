@@ -99,6 +99,7 @@ export const api = {
     invoke<TelemetrySettings>("set_telemetry_enabled", { enabled }),
   dismissTelemetryNotice: () => invoke<TelemetrySettings>("dismiss_telemetry_notice"),
   uploadDiagnostics: () => invoke<DiagnosticsUploadResult>("upload_diagnostics"),
+  sendBugReport: (note: string) => invoke<DiagnosticsUploadResult>("send_bug_report", { note }),
   telemetryAction: (
     action: TelemetryAction,
     serial: string | null,

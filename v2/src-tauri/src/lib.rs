@@ -347,6 +347,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         app_report::save_app_report,
         diagnostics::collect_diagnostics,
         diagnostics::upload_diagnostics,
+        diagnostics::send_bug_report,
         diagnostics::set_debug_logging,
         diagnostics::get_debug_logging,
         diagnostics::log_dir_path,
