@@ -31,6 +31,7 @@ export function summarizeArgs(args: Record<string, unknown> | undefined): string
         "password",
         "secret",
         "license",
+        "hardwareid",
       ].some(
         (name) =>
           normalizedKey === name ||
@@ -50,6 +51,12 @@ export function summarizeArgs(args: Record<string, unknown> | undefined): string
   } catch {
     return "";
   }
+}
+
+export function publicConnectionHistory(): string {
+  const commands = new Set(["wireless_discover", "wireless_pair", "wireless_connect", "wireless_status"]);
+  return buffer.filter((entry) => commands.has(entry.command)).slice(-8)
+    .map((entry) => `- ${entry.command}: ${entry.ok ? "ok" : "failed"}`).join("\n");
 }
 
 export function logCall(

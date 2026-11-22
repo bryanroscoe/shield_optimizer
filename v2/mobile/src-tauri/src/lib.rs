@@ -164,7 +164,19 @@ async fn read_debug_log(state: State<'_, AppState>) -> Result<String, String> {
 async fn collect_diagnostics(
     state: State<'_, AppState>,
     serial: Option<String>,
+    public_report: Option<bool>,
 ) -> Result<String, String> {
+    if public_report == Some(true) {
+        // Build public reports from an allowlist. A raw log could hold a
+        // previous TV's name or an identifier the active profile cannot scrub.
+        return Ok(format!(
+            "## ATV Optimizer diagnostics\n\n- App version: {}\n- OS: {} ({})\n- TV connection: {}\n",
+            env!("CARGO_PKG_VERSION"),
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            if serial.is_some() { "connected" } else { "disconnected" },
+        ));
+    }
     // An unreadable log costs the tail, never the report.
     let tail = debug_log_tail(&state.data_dir, diagnostics::LOG_TAIL_LINES)
         .unwrap_or_else(|e| vec![format!("({e})")]);

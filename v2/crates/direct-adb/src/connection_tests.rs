@@ -147,6 +147,88 @@ fn assert_closed(socket: &mut TcpStream) {
 }
 
 #[tokio::test]
+async fn a_saved_tv_identity_is_checked_before_replacing_the_published_socket() {
+    let old = connected_driver(|mut original, listener| {
+        for reported in [b"replacement\n".as_slice(), b"unknown\n"] {
+            let mut candidate = accept(&listener);
+            assert_eq!(receive(&mut candidate).0, b"CNXN");
+            send(
+                &mut candidate,
+                b"CNXN",
+                0x01000000,
+                1048576,
+                SHELL_V2_DEVICE,
+            );
+            serve_shell(
+                &mut candidate,
+                "getprop ro.serialno",
+                &[(1, reported), (3, &[0])],
+            );
+            assert_closed(&mut candidate);
+            serve_shell(
+                &mut original,
+                "echo original",
+                &[(1, b"original\n"), (3, &[0])],
+            );
+        }
+        let mut candidate = accept(&listener);
+        assert_eq!(receive(&mut candidate).0, b"CNXN");
+        send(
+            &mut candidate,
+            b"CNXN",
+            0x01000000,
+            1048576,
+            SHELL_V2_DEVICE,
+        );
+        serve_shell(
+            &mut candidate,
+            "getprop ro.serialno",
+            &[(1, b"expected\n"), (3, &[0])],
+        );
+        serve_shell(
+            &mut candidate,
+            "echo accepted",
+            &[(1, b"accepted\n"), (3, &[0])],
+        );
+    })
+    .await;
+    let port = old.serial.rsplit_once(':').unwrap().1.parse().unwrap();
+    for (request_id, changed) in [(2, true), (3, false)] {
+        old.driver.begin_request(request_id).unwrap();
+        assert_eq!(
+            old.driver
+                .connect_saved("127.0.0.1", port, request_id, Some("expected"))
+                .await,
+            Err(ConnectFailure::IdentityMismatch { changed })
+        );
+        assert_eq!(
+            old.driver
+                .shell(&old.serial, "echo original")
+                .await
+                .unwrap()
+                .stdout
+                .trim(),
+            "original"
+        );
+    }
+    old.driver.begin_request(4).unwrap();
+    old.driver
+        .connect_saved("127.0.0.1", port, 4, Some("expected"))
+        .await
+        .unwrap();
+    assert_eq!(
+        old.driver
+            .shell(&old.serial, "echo accepted")
+            .await
+            .unwrap()
+            .stdout
+            .trim(),
+        "accepted"
+    );
+    old.peer.join().unwrap();
+}
+
+#[tokio::test]
 async fn canceling_handshake_closes_socket_before_auth_timeout_and_releases_lease() {
     for stage in [0, 1, 2] {
         let key = fixture_key();

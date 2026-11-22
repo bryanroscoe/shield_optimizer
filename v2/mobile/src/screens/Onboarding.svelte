@@ -11,13 +11,16 @@
     savedHostHasMultipleIdentities,
     shouldAutoDialSavedDevices,
   } from "../lib/savedDevices";
-  import { approvalPromptMayExplain, connectFailureGuidance } from "../lib/connectFailure";
+  import { approvalPromptMayExplain, connectFailureGuidance, isSavedTvIdentityFailure } from "../lib/connectFailure";
+  import { normalizeHardwareId } from "../lib/identity";
   import { buildDiscoveryRows } from "../lib/discoveryRows";
   import type { DiscoveryRow } from "../lib/discoveryRows";
   import { deviceTypeLabel } from "../lib/types";
   import type { Discovery, SavedDevice } from "../lib/types";
   import BrandMark from "../components/BrandMark.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
+  import HelpSheet from "../components/HelpSheet.svelte";
+  import SupportReports from "../components/SupportReports.svelte";
   import SupportStatus from "../components/SupportStatus.svelte";
   import TelemetryNotice from "../components/TelemetryNotice.svelte";
 
@@ -68,7 +71,7 @@
     connectingKey = savedDeviceKey(d);
     connectingName = d.name;
     try {
-      const r = await session.connect(d.host, d.connectPort, (generation) => (pendingConnectGeneration = generation));
+      const r = await session.connectSaved(d, (generation) => (pendingConnectGeneration = generation));
       // Cancelled attempts resolve later; ignore them.
       if (attempt !== connectionAttempt) return;
       if (r.ok) {
@@ -122,8 +125,11 @@
 
   // Connection target + inputs
   let host = $state("");
-  let pairPort = $state(37099);
+  let pairPort = $state(0);
   let connectPort = $state(5555);
+  let manualHost = $state("");
+  let manualPairPort = $state<number | undefined>();
+  let manualConnectPort = $state<number | undefined>();
   let code = $state("");
 
   let busy = $state(false);
@@ -132,11 +138,18 @@
   let scanned = $state(false);
   let manual = $state(false);
   let needsPairing = $state(false);
+  let pairedHost = $state("");
+  const pairingSucceeded = $derived(pairedHost !== "" && pairedHost === host.trim());
+  const manualPaired = $derived(pairedHost !== "" && pairedHost === manualHost.trim());
+  const pairedDirections = "Pairing succeeded. Scan for the TV or enter the connect port shown on its Wireless debugging page.";
+  let expectedId: string | undefined;
   let connectAfterPair = $state<number | null>(null);
   let notice = $state("");
   let scanGeneration = 0;
 
   const codeReady = $derived(code.length === 6);
+  const validPort = (port: number | undefined) => port !== undefined && Number.isInteger(port) && port > 0 && port <= 65535;
+  const manualPortValid = $derived(manualConnectPort === undefined || validPort(manualConnectPort));
 
   const found = $derived(buildDiscoveryRows(discoveries, savedDevices, {
     connected: session.isConnected,
@@ -166,7 +179,7 @@
   async function scan() {
     const generation = ++scanGeneration;
     error = "";
-    notice = "";
+    notice = pairingSucceeded ? pairedDirections : "";
     busy = true;
     try {
       const result = await api.wirelessDiscover();
@@ -199,6 +212,7 @@
     connectPort = advertisedPort;
     connectAfterPair = null;
     needsPairing = false;
+    expectedId = normalizeHardwareId(row.savedTarget?.hardwareId);
     startConnect();
   }
 
@@ -213,6 +227,8 @@
     if (connectAfterPair !== null) connectPort = connectAfterPair;
     code = "";
     needsPairing = true;
+    pairedHost = "";
+    expectedId = normalizeHardwareId(row.savedTarget?.hardwareId);
     step = "pair";
   }
 
@@ -239,26 +255,41 @@
     return [row.host, ...endpoints].join(" · ");
   }
 
+  function setManualHost(next: string) {
+    if (manualHost.trim() !== next.trim()) {
+      manualPairPort = undefined;
+      manualConnectPort = undefined;
+    }
+    manualHost = next;
+  }
+
   function manualPair() {
-    if (!host.trim()) return;
+    if (!manualHost.trim() || !validPort(manualPairPort) || !manualPortValid) return;
     leaveScan();
     error = "";
     notice = "";
     connectingName = "";
     code = "";
-    connectAfterPair = Number(connectPort);
+    host = manualHost;
+    pairPort = Number(manualPairPort);
+    connectAfterPair = manualConnectPort ?? null;
     needsPairing = true;
+    pairedHost = "";
+    expectedId = undefined;
     step = "pair";
   }
 
   function manualConnect() {
-    if (!host.trim()) return;
+    if (!manualHost.trim() || !manualPortValid || (manualPaired && manualConnectPort === undefined)) return;
     leaveScan();
     error = "";
     notice = "";
     connectingName = "";
     connectAfterPair = null;
     needsPairing = false;
+    host = manualHost;
+    connectPort = manualConnectPort ?? 5555;
+    expectedId = undefined;
     startConnect();
   }
 
@@ -286,15 +317,20 @@
           return;
         }
         needsPairing = false;
+        pairedHost = host.trim();
+        setManualHost(pairedHost);
         pairing = false;
         if (connectAfterPair === null) {
-          notice = "Pairing succeeded. Scan again to choose an advertised connect service.";
+          notice = pairedDirections;
+          discoveries = [];
+          scanned = false;
+          manual = false;
           step = "scan";
           return;
         }
         connectPort = connectAfterPair;
       }
-      const result = await session.connect(host, Number(connectPort), (generation) => (pendingConnectGeneration = generation));
+      const result = await session.connect(host, Number(connectPort), (generation) => (pendingConnectGeneration = generation), expectedId);
       if (attempt !== connectionAttempt) return;
       if (!result.ok) {
         error = result.message;
@@ -351,7 +387,7 @@
     cancelPendingConnect();
     busy = false;
     error = "";
-    notice = "";
+    notice = pairingSucceeded ? pairedDirections : "";
     code = "";
     connectAfterPair = null;
     needsPairing = false;
@@ -388,17 +424,19 @@
         Which TV?
       {/if}
     </h1>
-    <p class="lede">
-      {#if reconnectError}
-        <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
-      {:else if connectingKey}
-        {savedDevices.length === 1
-          ? "Your only saved TV — no code needed. Cancel to pick a different one."
-          : "Connecting only to the saved entry you selected."}
-      {:else}
-        Nothing connects until you choose.
-      {/if}
-    </p>
+    {#if !isSavedTvIdentityFailure(reconnectError)}
+      <p class="lede">
+        {#if reconnectError}
+          <span class="soft">{connectingName || "That TV"}</span> isn't reachable right now.
+        {:else if connectingKey}
+          {savedDevices.length === 1
+            ? "Your only saved TV — no code needed. Cancel to pick a different one."
+            : "Connecting only to the saved entry you selected."}
+        {:else}
+          Nothing connects until you choose.
+        {/if}
+      </p>
+    {/if}
 
     <div class="devices">
       {#each savedDevices as d, i (savedDeviceKey(d))}
@@ -588,21 +626,21 @@
       <div class="manual">
         <label>
           TV IP address
-          <input class="mono" bind:value={host} placeholder="192.168.1.42" inputmode="decimal" />
+          <input class="mono" value={manualHost} oninput={(event) => setManualHost(event.currentTarget.value)} placeholder="192.168.1.42" inputmode="decimal" />
         </label>
         <div class="grid2">
           <label>
             Pairing port
-            <input class="mono" bind:value={pairPort} type="number" min="1" max="65535" />
+            <input class="mono" bind:value={manualPairPort} placeholder="Shown on TV" type="number" min="1" max="65535" />
           </label>
           <label>
-            Connect port
-            <input class="mono" bind:value={connectPort} type="number" min="1" max="65535" />
+            Connect port (optional for pairing)
+            <input class="mono" bind:value={manualConnectPort} placeholder={manualPaired ? "Shown on TV" : "5555 for Network debugging"} type="number" min="1" max="65535" />
           </label>
         </div>
         <div class="manual-actions">
-          <button class="primary small" disabled={!host} onclick={manualPair}>Pair with code</button>
-          <button class="ghost small" disabled={!host} onclick={manualConnect}>Connect (no code)</button>
+          <button class="primary small" disabled={!manualHost.trim() || !validPort(manualPairPort) || !manualPortValid} onclick={manualPair}>Pair with code</button>
+          <button class="ghost small" disabled={!manualHost.trim() || !manualPortValid || (manualPaired && manualConnectPort === undefined)} onclick={manualConnect}>Connect (no code)</button>
         </div>
       </div>
     {/if}
@@ -668,6 +706,7 @@
 
       <div class="connect-copy">
         <h1>{error ? "Couldn't connect" : "Connecting…"}</h1>
+        {#if pairingSucceeded && error}<p class="lede">Pairing succeeded. Check the connect port shown on the TV.</p>{/if}
         <p class="lede">
           {#if error}
             The connection to <span class="soft">{connectionTargetLabel}</span> didn't complete.
@@ -741,6 +780,11 @@
     <button class="primary" onclick={onConnected}>
       Open dashboard<span class="msr">arrow_forward</span>
     </button>
+  {/if}
+  {#if step !== "connected"}
+    <HelpSheet title="Support and privacy">
+      <SupportReports />
+    </HelpSheet>
   {/if}
 </div>
 

@@ -133,6 +133,7 @@ export interface ActionResult {
 export interface ConnectResult {
   ok: boolean;
   message: string;
+  identity_mismatch?: "changed" | "unverified";
 }
 
 export interface OtherPackage {

@@ -16,6 +16,10 @@ What Google Play holds, read through the Play Developer API on 2026-11-21:
 | Closed testing (`alpha`) | 0.1.1 (1001) | Live (Console shows the app in Closed testing). The tester Google Group replaced the owner's email list on 2026-11-21; that change is in Google's review |
 | Production | none | |
 
+The [`mobile-v0.1.4` run](https://github.com/bryanroscoe/shield_optimizer/actions/runs/44964485346)
+subsequently verified and submitted versionCode 1004 to Internal and Closed testing. Check tester
+availability in Play separately. The connection and support fixes after that tag need a new candidate.
+
 Two things block sharing. **No Play-installed build has connected to a TV yet**: on 2026-11-05
 Play 0.1.1 installed on the Pixel 10 Pro, started and discovered four LAN endpoints, but the Shield
 never showed its "Allow debugging?" dialog. An app that can't connect is useless to a tester and
@@ -35,8 +39,8 @@ verifies the app, uploads it once, and releases it as *completed* on two tracks
 
 It is ready to share when these four steps pass, in order:
 
-1. **Update to 0.1.3 from the Play Store** once its tag has run. It carries the saved-TV name fix
-   (#370) and the 30-day retention copy (#363). Your account gets it at once if it is on the
+1. **Install the candidate from the Play Store** once the tag containing the fixes has run.
+   Check the installed version before testing. Your account gets it at once if it is on the
    Internal testing list. Otherwise it arrives with the closed release after Google's review; as
    the group's creator you are a member, and the group is now the only way into the closed test.
 2. **Connect it to two TVs yourself** (about 45 minutes, on Free). Shield: Network debugging,
@@ -45,7 +49,7 @@ It is ready to share when these four steps pass, in order:
    open the Dashboard and the app list, use the remote, open More > Emergency recovery, then
    force-stop the app, reopen it, pick the TV under "Which TV?" and confirm it connects with no new
    prompt. Any failure is the blocker to fix before anyone else sees the app: send the agent the
-   time it happened and More > Show debug log > Copy.
+   time it happened and a reviewed report from Support and privacy on the connection screen, or from More.
 3. **Run the purchase script as a license tester** (about 30 minutes): RELEASE.md §6, in its order.
    Add your account under Console Settings > License testing first. While you own Pro, turn off one
    unneeded app on a TV and turn it back on (Disable is a Pro action), before the script's refund.
@@ -53,8 +57,8 @@ It is ready to share when these four steps pass, in order:
    is nothing to promote by hand.
 
 The rest of the phone/TV matrix, Fast-remote Phase 4, the app-restart report (#105) and the 16 KB
-emulator check happen during the 14 days. That emulator check currently fails
-before testing: its runner is missing `libpulse.so.0`. Production access needs 12 testers opted in
+emulator check happen during the 14 days. Record a successful runtime receipt for the exact
+signed candidate using RELEASE.md. Production access needs 12 testers opted in
 for 14 days in a row, so the clock starts only once 12 have joined.
 
 ## 2. How people get it: one Google Group, two links

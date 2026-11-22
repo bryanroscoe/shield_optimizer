@@ -37,7 +37,8 @@ async function createPage(t, options = {}) {
     window.profileMode = options.profileMode ?? "matching";
     window.device = (host) => ({
       id: 1, serial: `${host}:5555`, name: host, model: "Shield",
-      status: "device", connection: "network", device_type: "shield", properties: null,
+      status: "device", connection: "network", device_type: "shield",
+      properties: options.initialHardwareId ? { serial_number: options.initialHardwareId } : null,
     });
     window.activeHost = options.activeHost ?? "";
     window.__TAURI_INTERNALS__ = { invoke: async (command, args) => {
@@ -405,7 +406,7 @@ test("Send Text survives a silent reconnect to the same verified TV, but never s
   assert.deepEqual(sent, [["A:5555", "a long wifi passphrase"]]);
 });
 
-test("Send Text closes when a reconnect lands on a different or unverifiable TV", async (t) => {
+test("Send Text closes when a reconnect reaches a different or unverifiable TV", async (t) => {
   // A different hardware id answering at the same address.
   const page = await open(t, "remote", { hardware: true });
   await page.getByRole("button", { name: "Keyboard input", exact: true }).click();
@@ -414,6 +415,10 @@ test("Send Text closes when a reconnect lands on a different or unverifiable TV"
   await page.evaluate(async () => { window.hardware.A = "HW-OTHER"; window.finishRedial(true); await window.redial; });
   await page.getByRole("dialog", { name: "Send Text to TV" }).waitFor({ state: "detached" });
   await page.getByText("The TV connection changed, so Send Text was closed.").waitFor();
+  assert.equal(await page.evaluate(() => window.session.isConnected), false);
+  assert.match(await page.evaluate(() => window.session.reconnectFailure), /different TV answered/);
+  await page.locator(".nav-row").getByRole("button", { name: /home/i }).click();
+  assert.equal(await page.evaluate(() => window.calls.some((c) => c.command === "send_key")), false);
 
   // A TV that reports no hardware id: the address alone proves nothing.
   const idless = await open(t, "remote");
@@ -425,6 +430,56 @@ test("Send Text closes when a reconnect lands on a different or unverifiable TV"
   for (const p of [page, idless]) {
     assert.equal(await p.evaluate(() => window.calls.some((c) => c.command === "send_text")), false);
   }
+});
+
+test("a saved TV is not auto-opened if a different hardware ID answers", async (t) => {
+  const page = await createPage(t, {
+    initialHardwareId: "replacement",
+    savedDevices: [{ ...savedA, hardwareId: "original" }],
+  });
+  await page.getByText(/A different TV answered at this address/).waitFor();
+  assert.equal(await page.getByText(/Allow debugging\?/).count(), 0);
+  assert.equal(await page.getByText(/isn't reachable right now/).count(), 0);
+  assert.equal(await page.evaluate(() => window.router.current), "onboarding");
+  assert.equal(await page.evaluate(() => window.session.isConnected), false);
+  const calls = await page.evaluate(() => window.calls);
+  const connect = calls.find((call) => call.command === "wireless_connect");
+  assert.equal(connect.args.expectedHardwareId, "original");
+  assert.equal(calls.find((call) => call.command === "wireless_cancel_connect").args.canceledRequestId, connect.args.requestId);
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem("atv.savedDevices.v1")).map((row) => row.hardwareId)), ["original"]);
+});
+
+test("network return retries an unverified TV but waits for choice after a confirmed swap", async (t) => {
+  const page = await open(t, "remote", { hardware: true });
+  const disposition = await page.evaluate(async () => {
+    window.handlers.wireless_connect = () => ({
+      ok: false, identity_mismatch: "unverified", message: "Couldn't verify the saved TV's identity.",
+    });
+    await window.session.recoverOrMarkLost();
+    const before = window.session.isConnected;
+    delete window.handlers.wireless_connect;
+    await window.session.onNetworkChange("changed");
+    const recovered = window.session.isConnected;
+    window.handlers.wireless_connect = () => ({
+      ok: false, identity_mismatch: "changed", message: "A different TV answered at this address.",
+    });
+    await window.session.recoverOrMarkLost();
+    const calls = window.calls.filter((call) => call.command === "wireless_connect").length;
+    await window.session.onNetworkChange("changed");
+    return { before, recovered, stayedOffline: !window.session.isConnected,
+      retried: window.calls.filter((call) => call.command === "wireless_connect").length !== calls };
+  });
+  assert.deepEqual(disposition, { before: false, recovered: true, stayedOffline: true, retried: false });
+});
+
+test("the mobile Remote Tab control sends the Android Tab action", async (t) => {
+  const page = await open(t, "remote");
+  await page.setViewportSize({ width: 275, height: 610 });
+  const keyboardRow = page.locator(".keyboard-controls");
+  assert.equal(await keyboardRow.evaluate((row) => row.scrollWidth <= row.clientWidth &&
+    [...row.querySelectorAll("button")].every((button) => button.getBoundingClientRect().width >= 44)), true);
+  await page.getByRole("button", { name: "Tab key" }).click();
+  await page.waitForFunction(() => window.calls.some((call) => call.command === "send_key" && call.args.key === "tab"));
 });
 
 test("ordinary remote taps cannot accumulate an unlimited backlog", async (t) => {
@@ -847,7 +902,7 @@ test("cold single saved TV waits for its profile, then opens a clean dashboard s
     connects: window.calls.filter((c) => c.command === "wireless_connect").length,
     profiles: window.calls.filter((c) => c.command === "list_devices").length,
   })), {
-    stack: ["onboarding"], serial: "", host: "A", connected: false, connects: 1, profiles: 1,
+    stack: ["onboarding"], serial: "", host: "", connected: false, connects: 1, profiles: 1,
   });
 
   await page.evaluate(() => window.pendingProfiles[0].resolve([window.device("A")]));

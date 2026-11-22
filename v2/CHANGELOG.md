@@ -22,6 +22,9 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Android: verify known saved-TV identity before reconnecting, show when PIN pairing succeeds, and offer Privacy and public or private diagnostic reports during setup.
+- Desktop and Android: use the Remote **Tab** button to move focus between fields on the TV.
+
 - Android: Optimize rows no longer print a paragraph under every app. Each row shows its name, safety tier, action and its choice, and **If you remove it** unfurls what the app does and what removing it costs. A Caution app the plan selects, or a Caution or Unknown app you choose to remove, unfurls on its own, and the Apply confirmation still names every removal with its reason. Routine notes on other screens moved behind their help buttons.
 - Android: show current advertised TV names beside preserved saved labels, including older entries named “Android TV”, without treating display metadata as hardware identity.
 - Anonymous reports: the report server keeps raw reports for 30 days instead of 90, and its privacy policy and Android's More › Privacy help say so. Per-model totals are kept longer, as before.

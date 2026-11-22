@@ -100,7 +100,7 @@ accepted can never be reused, even if its release is discarded.
 
 `mobile-16kb-runtime.yml` tests the existing signed Gradle universal APK without rebuilding,
 signing, uploading to Play or touching a physical device. Dispatch it from `main` with a
-successful manual `Mobile Play release` run ID, its full source SHA and the APK SHA-256 copied
+successful tagged or manual main `Mobile Play release` run ID, its full source SHA and the APK SHA-256 copied
 from its verified build receipt. Example for the retained build-only candidate 1003:
 
 ```sh
@@ -132,6 +132,7 @@ on disposal of the GitHub-hosted VM. Processes running as this job's runner user
 KVM kernel interface during the grant; untrusted job code could abuse that access. No permission
 change applies to a local computer or physical device.
 
+The workflow stages Ubuntu's PulseAudio client libraries in the temporary runner directory for the emulator.
 Sufficient disk and already accepted Android SDK licenses remain mandatory. Missing prerequisites
 fail clearly; the job never accepts new agreements or falls back to software emulation.
 KVM permission guidance: https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/ .

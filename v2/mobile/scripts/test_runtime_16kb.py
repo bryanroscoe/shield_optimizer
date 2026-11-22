@@ -33,6 +33,19 @@ class SourceProvenance(unittest.TestCase):
         self.comparison['status'] = 'identical'
         self.assertEqual(self.select()['source_sha'], self.sha)
 
+    def test_exact_tag_push_selects_its_artifact_and_rejects_other_origins(self):
+        self.run.update(event='push', head_branch='mobile-v0.1.3')
+        with self.assertRaisesRegex(ValueError, 'Artifact run provenance'):
+            self.select()
+        self.artifact['workflow_run']['head_branch'] = 'mobile-v0.1.3'
+        self.assertEqual(self.select()['artifact_id'], 8)
+        for branch in ('main', 'v2-2.5.1', 'mobile-vbeta'):
+            with self.subTest(branch=branch):
+                self.run['head_branch'] = branch
+                self.artifact['workflow_run']['head_branch'] = branch
+                with self.assertRaisesRegex(ValueError, 'Require a mobile release tag'):
+                    self.select()
+
     def test_run_must_be_successful_main_release_from_same_repository(self):
         for key, value in [('id', 43), ('head_sha', 'c' * 40), ('path', 'another.yml'),
                            ('event', 'pull_request'), ('head_branch', 'feature'),
@@ -221,7 +234,8 @@ class RuntimeEvidence(unittest.TestCase):
             self.assertNotIn(forbidden, workflow)
         for required in ('runs-on: ubuntu-24.04', 'timeout-minutes: 35', 'retention-days: 7',
                          "github.event.repository.visibility == 'public'", 'persist-credentials: false',
-                         'contents: read', 'actions: read', 'system-images;android-36;google_apis_ps16k;x86_64'):
+                         'contents: read', 'actions: read', 'system-images;android-36;google_apis_ps16k;x86_64',
+                         'apt-get download', 'libpulse0', 'dpkg-deb -x'):
             self.assertIn(required, workflow)
         preflight = (root / '.github/workflows/mobile-release-preflight.yml').read_text()
         self.assertEqual(preflight.count("'.github/workflows/mobile-16kb-runtime.yml'"), 2)

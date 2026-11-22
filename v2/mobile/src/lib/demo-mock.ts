@@ -222,6 +222,9 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "open_settings":
       return { ok: true, message: "", transport: "channel" };
     case "collect_diagnostics":
+      if (args.publicReport) {
+        return "## ATV Optimizer diagnostics\n\n- App version: Demo\n- OS: android (aarch64)\n- TV connection: connected\n";
+      }
       // The desktop fixture, with the phone's host facts: no adb binary, and
       // this app's own log tail.
       return String(sharedHandle(cmd, args))

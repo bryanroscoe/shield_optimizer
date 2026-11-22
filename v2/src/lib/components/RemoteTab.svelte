@@ -342,6 +342,7 @@
     <div class="remote-typing">
       <div class="typing-header">
         <h3>Live typing</h3>
+        <button class="small-action" onclick={() => sendRemoteKey("tab")} aria-label="Tab key" title="Move focus to the next TV field">Tab</button>
       </div>
       <p class="muted small">Sends typing to the focused TV app.</p>
       <HelpDetails label="Typing help">
