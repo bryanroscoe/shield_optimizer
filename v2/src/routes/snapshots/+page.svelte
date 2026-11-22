@@ -9,7 +9,8 @@
   import { confirmAction } from "$lib/confirm";
   import type { Device, SnapshotFile, SnapshotApplyPlan, ApplyResult } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
-  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
+  import { failureOutcome, homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
+  import PackageOutcomeList from "$lib/components/PackageOutcomeList.svelte";
   import { destructiveWarning } from "../../../shared/support";
   import { onSupportTiersUpdated } from "$lib/support-updates";
 
@@ -270,13 +271,17 @@
           <p>Home app: {applyResult.launcher_message}</p>
         {/if}
         {#if outcome.kept.length > 0}
-          <p>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</p>
+          <PackageOutcomeList label="Kept on:" items={outcome.kept} reasonsLabel="Why they were kept on" />
         {/if}
         {#if outcome.failed.length > 0}
-          <p class="warn-text">{outcome.failed.length} failed: {outcome.failed.join(", ")}</p>
+          <PackageOutcomeList label={`${outcome.failed.length} failed:`} items={outcome.failed.map(failureOutcome)} warn reasonsLabel="Why they failed" />
         {/if}
         {#if applyResult.settings_failed.length > 0}
-          <p class="warn-text">{applyResult.settings_failed.length} setting(s) failed: {applyResult.settings_failed.join(", ")}</p>
+          <PackageOutcomeList
+            label={`${applyResult.settings_failed.length} setting${applyResult.settings_failed.length === 1 ? "" : "s"} failed:`}
+            items={applyResult.settings_failed.map((entry) => ({ package: entry }))}
+            warn
+          />
         {/if}
       </div>
     {/if}
@@ -633,5 +638,4 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
   }
-  .warn-text { color: var(--warn); }
 </style>

@@ -12,6 +12,7 @@
   import { Channel } from "@tauri-apps/api/core";
   import { api } from "$lib/api";
   import { confirmAction } from "$lib/confirm";
+  import { removalConfirmation } from "$lib/run-confirmation";
   import SnapshotNameDialog from "$lib/components/SnapshotNameDialog.svelte";
   import type {
     Device,
@@ -32,7 +33,8 @@
     DeviceType,
   } from "$lib/types";
   import { deviceTypeLabel } from "$lib/types";
-  import { homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
+  import { failureOutcome, homeAlreadyMatches, launcherSkipReason, splitRestoreFailures } from "$lib/snapshot-restore";
+  import PackageOutcomeList from "$lib/components/PackageOutcomeList.svelte";
   import type { MemoryEntry } from "$lib/types";
   import { getKeptPackages, setPackageKept, getShellAcknowledged, setShellAcknowledged, idKey } from "$lib/prefs";
   import Icon from "$lib/components/Icon.svelte";
@@ -47,7 +49,6 @@
     safetyClass,
     safetyLabel,
     safetyReason,
-    verdictLabel,
     type SafetyStatus,
   } from "$lib/safety";
   import {
@@ -57,7 +58,6 @@
     isReinstallable,
     recommendation,
     sideloadSource,
-    uninstallNote,
     uninstallOutcome,
     type Recommendation,
   } from "$lib/recommendation";
@@ -1115,7 +1115,7 @@
       // uninstall, while there is still something to back up.
       const sideload = action === "uninstall" ? sideloadSource(pkg) : null;
       if (sideload && await confirmAction(
-        `Back up ${name}'s APK before uninstalling it?\n\n${name} isn't on the Play Store. To get it back you would reinstall it from ${sideload.url}. A backup keeps this exact version.\n\nOK: choose a folder and back it up first.\nCancel: continue without a backup.`,
+        `Back up ${name}'s APK before uninstalling it?\n\n• Not on the Play Store: to get it back you would reinstall it from ${sideload.url}.\n• A backup keeps this exact version.\n\nOK: choose a folder and back it up first.\nCancel: continue without a backup.`,
       )) {
         const folder = await openDialog({ directory: true, title: `Choose a folder for the ${name} APK backup` });
         if (!folder) {
@@ -1132,10 +1132,8 @@
         }
       }
       const entry = apps.find((a) => a.package === pkg) ?? null;
-      const note = action === "uninstall" ? uninstallNote(pkg, entry) : null;
-      const tierWarning = destructiveWarning(device?.support);
       const approved = await confirmAction(
-        `${action.toUpperCase()} ${name}\nPackage: ${pkg}\nSafety: ${verdictLabel(before.safety)}\nReason: ${before.safety.reason}${note ? `\n\n${note}` : ""}${tierWarning ? `\n\n${tierWarning}` : ""}\n\nProceed?`,
+        removalConfirmation(action, pkg, name, before.safety, entry, destructiveWarning(device?.support)),
       );
       if (!approved
         || !pageContextIsCurrent(context)
@@ -1369,7 +1367,7 @@
     if (cloneBusy) return;
     if (
       !(await confirmAction(
-        `Copy ${pkg} to ${target.name} (${target.serial})?\n\nApp data does not transfer, and DRM/licensed apps may refuse to run. Paid apps should be installed via the Play Store instead.`,
+        `Copy ${pkg} to ${target.name} (${target.serial})?\n\n• App data does not transfer.\n• DRM or licensed apps may refuse to run. Install paid apps from the Play Store instead.`,
       ))
       || cloneBusy
       || clonePkg !== pkg
@@ -1624,16 +1622,16 @@
         const back = await api.setDefaultLauncher(serial, prevDefault);
         await loadLauncher();
         launcherActionMessage = back.ok
-          ? `Enabled ${name}. Android made it the active launcher, so ${prevName} was re-set as your default.`
+          ? `Enabled ${name}.\nAndroid made it the active launcher, so ${prevName} was set as your default again.`
           : back.stock_takeover_available
-            ? `Enabled ${name} — it also took over HOME, and this build can't hand HOME back without disabling it again. Use "Set as default" on ${prevName} if you want it back.`
-            : `Enabled ${name} — Android made it the active launcher, and re-setting ${prevName} failed` +
+            ? `Enabled ${name}.\nIt also took over Home, and this TV can't hand Home back without disabling it again. Use "Set as default" on ${prevName} if you want it back.`
+            : `Enabled ${name}.\nAndroid made it the active launcher, and setting ${prevName} back failed` +
               `${back.last_error ? `: ${back.last_error}` : ""}. Use "Set as default" on your preferred launcher.`;
       } else {
         launcherActionMessage = `${name} enabled.`;
       }
       if (helperFailures.length > 0) {
-        launcherActionMessage += ` Couldn't re-enable Google TV's setup helper (${helperFailures.join("; ")}). Use Re-enable Setup Wraith to retry.`;
+        launcherActionMessage += `\nCouldn't re-enable Google TV's setup helper (${helperFailures.join("; ")}). Use Re-enable Setup Wraith to retry.`;
       }
       // A launcher's enabled state changed — the Health tab's report is now stale.
       invalidateDeviceCaches();
@@ -1704,14 +1702,14 @@
     }
     const name = row?.entry.name ?? pkg;
     const advice = row?.other
-      ? " Tip: save a snapshot first (Snapshot tab) so you have a record of today's state."
+      ? "\n\nTip: save a snapshot first (Snapshot tab) to record today's setup."
       : "";
     // Setup Wraith is Google TV's setup wizard. Custom-launcher guides do
     // disable it, but it is also where Home lands when no launcher is left,
     // and it runs first-time setup after a factory reset.
     const question = row?.setup_helper
-      ? `Disable ${pkg}?\n\nThis is Google TV's setup wizard, not a launcher. You don't need to disable it: the app already shows your real launcher as current. Disabling it is only useful if the Home button keeps landing on a setup screen.\n\nIt stays disabled until you re-enable it here, and Android TV needs it to run first-time setup. Re-enable it before a factory reset.`
-      : `Disable ${name}? You'll lose access to it as a HOME app until you re-enable.${advice}`;
+      ? `Disable Setup Wraith?\n\nAndroid TV needs it for first-time setup. Re-enable it here before a factory reset.`
+      : `Disable ${name}?\n\nYou can't use it as Home until you re-enable it.${advice}`;
     const tierWarning = destructiveWarning(device?.support);
     if (launcherActionBusy !== null) return;
     const context = capturePageContext();
@@ -1778,7 +1776,12 @@
         // Never do that silently — ask, then retry with the opt-in flag.
         launcherProgress = "";
         const proceed = await confirmAction(
-          `${r.last_error ?? "This device ignores the standard launcher-switch commands."}\n\nDisable the stock launcher and switch to ${name}? You can re-enable it from this list at any time.${destructiveWarning(device?.support) ? `\n\n${destructiveWarning(device?.support)}` : ""}`,
+          [
+            `Disable the stock launcher and switch to ${name}?`,
+            r.last_error ?? "This TV ignores the standard launcher-switch commands.",
+            "You can re-enable the stock launcher from this list at any time.",
+            destructiveWarning(device?.support) ?? "",
+          ].filter(Boolean).join("\n\n"),
         );
         if (proceed && pageContextIsCurrent(context)) r = await api.setDefaultLauncher(context.serial, pkg, true, onProgress);
       }
@@ -1787,11 +1790,11 @@
       if (r.ok) {
         message =
           r.strategy === "disable_stock_takeover"
-            ? `${name} is now your default launcher — the stock launcher was disabled to hand it over. Re-enable it from this list any time.`
+            ? `${name} is now your default launcher.\nThe stock launcher was disabled to hand it over. Re-enable it from this list any time.`
             : `${name} is now your default launcher.`;
         // A successful switch only carries `last_error` as a follow-up note
         // (e.g. the setup helper couldn't be re-enabled).
-        if (r.last_error) message += ` ${r.last_error}`;
+        if (r.last_error) message += `\n${r.last_error}`;
       } else {
         // Backend messages are full sentences (including the "device accepted
         // the change — press Home" case) — render them verbatim rather than
@@ -1813,7 +1816,7 @@
       const refreshed = await loadLauncher();
       if (!pageContextIsCurrent(context)) return;
       if (!refreshed) {
-        launcherSetResult = { package: pkg, message: `${message} Launcher status could not be refreshed; the displayed state may be stale. ${launcherErr ?? "Refresh to retry."}` };
+        launcherSetResult = { package: pkg, message: `${message}\nLauncher status could not be refreshed; the displayed state may be stale. ${launcherErr ?? "Refresh to retry."}` };
       }
       // The takeover may have disabled stock; either way launcher state changed,
       // so the Health tab's report is stale.
@@ -1983,7 +1986,7 @@
     const tierWarning = destructiveWarning(device?.support);
     const path = previewPath;
     const plan = preview;
-    if (!(await confirmAction(`Restore this snapshot? ${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
+    if (!(await confirmAction(`Restore this snapshot?\n\n${total} change(s) will be made to the device. Disabled packages can be re-enabled later via Recovery.${tierWarning ? `\n\n${tierWarning}` : ""}`))
       || previewPath !== path || preview !== plan || applyBusy || snapshotDeletePath) return;
     applyBusy = true;
     applyErr = null;
@@ -2897,7 +2900,7 @@
         </p>
       {/if}
       {#if launcherActionMessage}
-        <p class="muted small mono action-message" role="status">{launcherActionMessage}</p>
+        <p class="muted small mono action-message launcher-action-message" role="status">{launcherActionMessage}</p>
       {/if}
       {#if launcherErr}
         <div class="error">{launcherErr}</div>
@@ -3055,6 +3058,19 @@
                   will likely grab the Home button.
                 {/if}
               </span>
+              <span class="setup-helper-help">
+                <HelpTip label="About Setup Wraith">
+                  <p>
+                    Setup Wraith is Google TV's setup wizard, not a launcher. You don't need to
+                    disable it: this app already shows your real launcher as current.
+                  </p>
+                  <p>
+                    Disabling it only helps if the Home button keeps landing on a setup screen. It
+                    stays disabled until you re-enable it here, and Android TV needs it for
+                    first-time setup, so re-enable it before a factory reset.
+                  </p>
+                </HelpTip>
+              </span>
               {#if setupHelperState === "off"}
                 <button
                   class="small-action"
@@ -3118,6 +3134,13 @@
           {@const stockBlocks = homePickerChoice !== "" && stockHoldsHomeFor === homePickerChoice}
           {@const canDisableStock =
             homePickerChoice !== "" && !pickedStock && enabledStock && (pickedIsHome || stockBlocks)}
+          {@const stockOffReason = canDisableStock || homePickerChoice === ""
+            ? null
+            : !enabledStock
+              ? "Disable stock launcher: no enabled stock launcher on this TV."
+              : pickedStock
+                ? "Disable stock launcher: pick the app that should take over, not the stock launcher."
+                : "Disable stock launcher becomes available once the app is Home, or if Android says the stock launcher is in the way."}
           <details
             class="home-picker"
             ontoggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) void loadHomePicker(); }}
@@ -3166,31 +3189,37 @@
                   class="small-action subtle danger"
                   onclick={() => (stockConfirmOpen = true)}
                   disabled={!canDisableStock || homePickerBusy !== null || launcherActionBusy !== null}
-                  title={canDisableStock
-                    ? "Disable the stock launcher so Home goes to the app you picked"
-                    : !enabledStock
-                      ? "No enabled stock launcher on this TV"
-                      : pickedStock
-                        ? "Pick the app that should take over, not the stock launcher"
-                        : "Set the app as Home first. This stays off until it's Home, or until Android says the stock launcher is what's in the way."}
+                  aria-describedby={stockOffReason ? "stock-off-reason" : undefined}
+                  title={canDisableStock ? "Disable the stock launcher so Home goes to the app you picked" : undefined}
                 >{homePickerBusy === "stock" ? "Disabling…" : homePickerBusy === "save" ? "Saving snapshot…" : "Disable stock launcher"}</button>
               </div>
+              {#if stockOffReason}
+                <!-- A disabled button can't be hovered or focused, so the
+                     reason it is off is stated beside it. -->
+                <p class="muted small home-picker-off" id="stock-off-reason">{stockOffReason}</p>
+              {/if}
               {#if stockConfirmOpen}
                 <div class="callout callout-warn home-picker-confirm" role="alertdialog" aria-label="Confirm disabling the stock launcher">
                   <Icon name="warning" size={16} />
-                  <span>
-                    Disable the stock launcher and hand Home to <span class="mono">{homePickerChoice}</span>?
-                    If Home doesn't land on it, the stock launcher is re-enabled straight away. You can
-                    re-enable it from the list above at any time.
-                    {#if takeoverTurnsOffSetupHelper}
-                      Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home
-                      button back. You may need to turn it back on briefly to sign in to Google again
-                      or pair a remote.
-                    {/if}
+                  <div class="home-picker-confirm-text">
+                    <p class="home-picker-confirm-question">
+                      Disable the stock launcher and hand Home to <span class="mono">{homePickerChoice}</span>?
+                    </p>
+                    <ul>
+                      <li>If Home doesn't land on it, the stock launcher is re-enabled straight away.</li>
+                      <li>You can re-enable it from the list above at any time.</li>
+                      {#if takeoverTurnsOffSetupHelper}
+                        <li>
+                          Also turns off Google TV's setup helper (Setup Wraith), or it takes the Home
+                          button back. You may need to turn it back on briefly to sign in to Google again
+                          or pair a remote.
+                        </li>
+                      {/if}
+                    </ul>
                     {#if destructiveWarning(device?.support)}
-                      <strong class="tier-warning">{destructiveWarning(device?.support)}</strong>
+                      <p><strong class="tier-warning">{destructiveWarning(device?.support)}</strong></p>
                     {/if}
-                  </span>
+                  </div>
                   <span class="home-picker-confirm-actions">
                     <button class="small-action" onclick={() => disableStockFromPicker(true)}>Save snapshot first</button>
                     <button class="small-action subtle danger" onclick={() => disableStockFromPicker(false)}>Disable stock launcher</button>
@@ -3814,17 +3843,17 @@
               <ul>
                 <li><strong>{applyResult.packages_disabled.length}</strong> packages disabled</li>
                 {#if outcome.kept.length > 0}
-                  <li>Kept on: {outcome.kept.map((k) => `${k.package} (${k.reason})`).join(", ")}</li>
+                  <li><PackageOutcomeList label="Kept on:" items={outcome.kept} reasonsLabel="Why they were kept on" /></li>
                 {/if}
                 {#if outcome.failed.length > 0}
-                  <li class="warn-text"><strong>{outcome.failed.length}</strong> failed: {outcome.failed.join(", ")}</li>
+                  <li><PackageOutcomeList label={`${outcome.failed.length} failed:`} items={outcome.failed.map(failureOutcome)} warn reasonsLabel="Why they failed" /></li>
                 {/if}
                 {#if applyResult.launcher_message}
                   <li>Launcher: {applyResult.launcher_message}</li>
                 {/if}
                 <li><strong>{applyResult.settings_written.length}</strong> settings written</li>
                 {#if applyResult.settings_failed.length > 0}
-                  <li class="warn-text">Settings failed: {applyResult.settings_failed.join("; ")}</li>
+                  <li><PackageOutcomeList label="Settings failed:" items={applyResult.settings_failed.map((entry) => ({ package: entry }))} warn /></li>
                 {/if}
               </ul>
             </div>
@@ -3919,7 +3948,8 @@
 {/if}
 
 <style>
-  .launcher-set-result { overflow-wrap: anywhere; white-space: normal; max-width: 48rem; }
+  .launcher-set-result { overflow-wrap: anywhere; white-space: pre-line; max-width: 48rem; }
+  .launcher-action-message { white-space: pre-line; }
   .launcher-blocked { margin: 0.3rem 0 0; color: var(--warn); max-width: 48rem; }
   .back-row {
     margin-bottom: 1rem;
@@ -4779,14 +4809,36 @@
     align-items: center;
     flex-wrap: wrap;
   }
-  .home-picker-confirm > span:not(.home-picker-confirm-actions) {
+  .home-picker-confirm-text {
     flex: 1 1 20rem;
+    min-width: 0;
+  }
+  .home-picker-confirm-text p {
+    margin: 0;
+  }
+  .home-picker-confirm-question {
+    font-weight: 550;
+  }
+  .home-picker-confirm-text ul {
+    margin: 0.35rem 0;
+    padding-left: 1.2rem;
+  }
+  .home-picker-confirm-text li + li {
+    margin-top: 0.2rem;
   }
   .home-picker-confirm-actions {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
+  }
+  .setup-helper-help :global(.help-title) {
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .home-picker-off {
+    margin: 0;
   }
   .home-picker-result {
     margin: 0;

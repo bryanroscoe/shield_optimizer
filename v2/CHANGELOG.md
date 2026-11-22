@@ -22,6 +22,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## Unreleased
 
+- Desktop: the Optimize and Restore confirmation is an in-app dialog listing each app once under its safety tier, with what can't come back still shown and routine reasons folded. Other confirmations, the Pair form, connection help, the Shell warning and restore results are shorter, with explanations moved behind help.
 - Android: setup now says to turn on **Wireless debugging** (Android 11 and later) or **Network debugging** (Shield and older TVs) and where Developer options is, and every "Allow debugging?" hint says to tick **Always allow from this computer** so the TV stops asking on each connect.
 - Desktop and Android: Projectivy's **Source site** opens its Google Play listing again, with its GitHub releases as a second link beside it for people who install that build (#161).
 - Android: verify known saved-TV identity before reconnecting, show when PIN pairing succeeds, and offer Privacy and public or private diagnostic reports during setup.

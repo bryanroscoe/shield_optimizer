@@ -61,6 +61,7 @@ export const scenarios = [
       await ctx.step(`armed ${armed} rows by hand`);
 
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
       await ctx.step("plan ran");
 
@@ -98,6 +99,7 @@ export const scenarios = [
       await page.getByRole("button", { name: "Keep all" }).click();
       await arm(page, [CHOSEN[0]], "Disable");
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       await page.getByText(/Optimize complete: 1 applied/).waitFor({ timeout: 60_000 });
       ctx.assert.equal(await offers.count(), 0, "no offer after a run that changed nothing");
       await ctx.step("no offer after a run that changed nothing");
@@ -117,6 +119,7 @@ export const scenarios = [
       ctx.assert.equal(await armedCount(page), enableRows, "Re-enable all disabled armed every disabled row");
       await ctx.step(`restore plan armed: ${enableRows} rows`);
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       await page.getByText(/Restore complete:/).waitFor({ timeout: 60_000 });
       ctx.assert.equal(await offers.count(), 0, "no snapshot offer after a Restore run");
       await ctx.step("restore ran");
@@ -140,6 +143,7 @@ export const scenarios = [
       // Hold the App List's post-run re-read open long enough to report into.
       await ctx.fault({ matches: "pm list packages -d", effect: { type: "delay", ms: 6000 } });
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
       const after = (await ctx.device(SHIELD.serial)).packages;
       const pkg = after.disabled.find((p) => !before.disabled.includes(p));
@@ -183,6 +187,7 @@ export const scenarios = [
       await waitForPlan(page);
       await arm(page, CHOSEN, "Disable");
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       await page.getByText(/Optimize complete:/).waitFor({ timeout: 60_000 });
       const after = (await ctx.device(SHIELD.serial)).packages;
       const pkg = after.disabled.find((p) => !before.disabled.includes(p));
@@ -216,6 +221,7 @@ export const scenarios = [
       // still in progress while a report is opened for the finished package.
       await ctx.fault({ matches: "pm disable-user", after: 1, times: 1, effect: { type: "delay", ms: 8000 } });
       await page.getByRole("button", { name: /^Run plan/ }).click();
+      await ctx.confirmRun();
       let pkg;
       await ctx.waitFor(async () => {
         const now = (await ctx.device(SHIELD.serial)).packages;

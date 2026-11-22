@@ -21,6 +21,9 @@
   let powerUserPaths = $state(false);
   let filesBusy = $state<string | null>(null); // entry name currently being acted on
   let filesMessage = $state("");
+  /// The failures of the last multi-file drop, listed under its summary while
+  /// that summary is still the message on screen.
+  let uploadResult = $state<{ summary: string; failures: string[] } | null>(null);
   /// catalog id → search result (null until that app was searched). Keyed by
   /// the catalog's own id, not the package name, so the rows stay stable if a
   /// package id is corrected.
@@ -220,29 +223,37 @@
     const dir = filesPath;
     const allowSystem = powerUserPaths;
     filesBusy = "__upload__";
-    const lines: string[] = [];
+    const failures: string[] = [];
+    let lastMessage = "";
     let uploaded = 0;
     try {
       for (const path of paths) {
         filesMessage = `Uploading ${baseName(path)} to ${dir}…`;
         try {
           const r = await api.pushFile(serial, path, dir, allowSystem);
-          lines.push(r.message);
+          lastMessage = r.message;
           if (r.ok) uploaded += 1;
+          else failures.push(r.message);
         } catch (e) {
           // push_file refuses anything that is not a regular file.
-          lines.push(
-            String(e).startsWith("Not a file:")
-              ? `${baseName(path)} is a folder. Drop files, not folders.`
-              : String(e),
-          );
+          lastMessage = String(e).startsWith("Not a file:")
+            ? `${baseName(path)} is a folder. Drop files, not folders.`
+            : String(e);
+          failures.push(lastMessage);
         }
       }
     } finally {
       filesBusy = null;
     }
     if (uploaded > 0) await loadFiles(dir);
-    filesMessage = lines.join(" ");
+    if (paths.length === 1) {
+      filesMessage = lastMessage;
+      uploadResult = null;
+      return;
+    }
+    const summary = `${uploaded} uploaded to ${dir}${failures.length > 0 ? `, ${failures.length} failed` : ""}.`;
+    filesMessage = summary;
+    uploadResult = { summary, failures };
   }
 
   onMount(async () => {
@@ -409,7 +420,16 @@
     {/each}
   </nav>
   {#if filesMessage}
-    <p class="muted small mono action-message">{filesMessage}</p>
+    <div class="muted small mono action-message" role="status">
+      <p>{filesMessage}</p>
+      {#if uploadResult && uploadResult.summary === filesMessage && uploadResult.failures.length > 0}
+        <ul class="upload-failures">
+          {#each uploadResult.failures as failure, i (i)}
+            <li>{failure}</li>
+          {/each}
+        </ul>
+      {/if}
+    </div>
   {/if}
   {#if fileCopyName}
     <div class="clone-panel">
@@ -664,6 +684,13 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     word-break: break-word;
+  }
+  .action-message p {
+    margin: 0;
+  }
+  .upload-failures {
+    margin: 0.3rem 0 0;
+    padding-left: 1.2rem;
   }
   .clone-panel {
     display: flex;

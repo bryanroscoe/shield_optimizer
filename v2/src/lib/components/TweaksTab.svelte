@@ -559,11 +559,13 @@
     </div>
 
     <h3>Audio Passthrough</h3>
-    <p class="muted small">
-      Controls Android's encoded surround format policy. Auto uses the connected
-      equipment's advertised formats. Manual overrides can cause silence on
-      unsupported equipment. Playback also depends on the app and the audio path.
-    </p>
+    <p class="muted small">Manual can cause silence on equipment that doesn't support the formats you pick.</p>
+    <HelpDetails label="Passthrough help">
+      <p>
+        Controls Android's encoded surround format policy. Auto uses the formats the connected
+        equipment advertises. Playback also depends on the app and the audio path.
+      </p>
+    </HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{surroundLabel(tweaks.encoded_surround_output)}</strong></div>
