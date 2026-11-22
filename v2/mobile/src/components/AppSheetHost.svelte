@@ -7,8 +7,7 @@
   import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
-  import { verdictSummary } from "../lib/safety";
-  import { uninstallNote } from "../lib/recommendation";
+  import { uninstallOutcome } from "../lib/recommendation";
   import { isReportablePackage, type AppReportState } from "../lib/app-report";
   import {
     idleMeasurements,
@@ -28,6 +27,7 @@
   import AppDetailSheet from "./AppDetailSheet.svelte";
   import AppReportSheet from "./AppReportSheet.svelte";
   import ConfirmDialog from "./ConfirmDialog.svelte";
+  import RemovalConfirmDetail from "./RemovalConfirmDetail.svelte";
   import PaywallSheet from "./PaywallSheet.svelte";
 
   let {
@@ -312,8 +312,8 @@
     });
   }
 
-  const note = $derived(
-    intent?.action === "uninstall" ? uninstallNote(intent.app.package, intent.app.entry) : null,
+  const outcome = $derived(
+    intent?.action === "uninstall" ? uninstallOutcome(intent.app.package, intent.app.entry) : null,
   );
 
   const reportDevice = $derived(reportDeviceOf(session.connectedDevice, session.serial));
@@ -411,12 +411,14 @@
   title={`${intent?.action === "disable" ? "Disable" : "Uninstall"} ${intent ? label(intent.app) : "app"}?`}
   warning={intent?.verdict.reason ?? ""}
   supportWarning={destructiveWarning(session.support)}
-  message={intent?.action === "disable"
-    ? `${verdictSummary(intent.verdict)} Disable is reversible with Enable.`
-    : `${verdictSummary(intent?.verdict)} ${note ?? ""}`}
+  message=""
   confirmLabel={intent?.action === "disable" ? "Disable" : "Uninstall"}
   onConfirm={confirmRemoval}
   onCancel={() => (intent = null)}
-/>
+>
+  {#if intent}
+    <RemovalConfirmDetail verdict={intent.verdict} action={intent.action} {outcome} />
+  {/if}
+</ConfirmDialog>
 
 <PaywallSheet open={showPaywall} {navigate} onClose={() => (showPaywall = false)} />

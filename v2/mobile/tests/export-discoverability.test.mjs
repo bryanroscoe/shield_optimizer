@@ -142,7 +142,18 @@ test("diagnostic JSON and debug log Copy actions state clipboard-only output and
   await page.waitForFunction(() => !!localStorage.getItem("atv.unknownDiagnostics.v1"));
   await page.evaluate(() => router.navigate("more"));
   await page.getByRole("button", { name: "Review records" }).click();
-  await page.getByText(/Copy diagnostic JSON puts text on your clipboard; it does not save a file/).waitFor();
+  const review = page.locator(".diagnostics-review");
+  const privacy = review.getByRole("list", { name: "What the records contain" });
+  assert.match(await privacy.innerText(), /Includes app or process identifiers/);
+  assert.match(await privacy.innerText(), /Excludes network addresses, device serials, license keys and full debug logs/);
+  assert.equal(await review.getByText(/puts the text on your clipboard/).count(), 0);
+  const help = review.getByRole("button", { name: "Before you share" });
+  assert.equal(await help.getAttribute("aria-expanded"), "false");
+  await help.click();
+  const sheet = page.getByRole("dialog", { name: "Before you share" });
+  await sheet.getByText(/Copy diagnostic JSON puts the text on your clipboard; it does not save a file/).waitFor();
+  await sheet.getByRole("button", { name: "Done" }).click();
+  await sheet.waitFor({ state: "detached" });
   for (const width of [320, 384]) {
     await page.setViewportSize({ width, height: 812 });
     assert.equal(await page.locator(".diagnostics-review .log-toolbar").evaluate(el => el.scrollWidth <= el.clientWidth), true);

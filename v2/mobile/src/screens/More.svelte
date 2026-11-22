@@ -665,11 +665,13 @@
       </div>
       {#if diagnosticsPreview}
         <div class="diagnostics-review">
-          <p class="card-desc">
-            Includes app or process identifiers, observation times and version information. Review
-            the contents before sharing. No network addresses, device serials, license keys or full
-            debug logs are included. Copy diagnostic JSON puts text on your clipboard; it does not save a file.
-          </p>
+          <ul class="card-desc review-list" aria-label="What the records contain">
+            <li>Includes app or process identifiers, observation times and version information</li>
+            <li>Excludes network addresses, device serials, license keys and full debug logs</li>
+          </ul>
+          <HelpSheet title="Before you share">
+            <p>Review the contents below before sharing them. Copy diagnostic JSON puts the text on your clipboard; it does not save a file.</p>
+          </HelpSheet>
           <div class="log-toolbar">
             <button class="ghost-btn compact" onclick={takeDiagnosticsSnapshot}>
               <span class="msr">refresh</span>Refresh preview
@@ -868,6 +870,13 @@
     color: var(--muted);
     line-height: 1.45;
     margin: 0;
+  }
+  .review-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-left: 18px;
+    overflow-wrap: anywhere;
   }
 
   .notices {
