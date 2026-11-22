@@ -1,0 +1,48 @@
+# Weekly read-only check for the EU Geo-blocking Regulation (EU) 2018/302: every Play track
+# with a country list and every active one-time product must cover all 27 EU states. Uploads
+# already refuse a track that doesn't (play-publish.py upload); this catches what changes in
+# Play Console, such as the production promotion and new products. It opens and discards an
+# edit and never commits. See v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md (requirements table).
+
+name: Play EU geo-blocking check
+
+on:
+  schedule:
+    # Mondays 14:41 UTC.
+    - cron: '41 14 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: play-geo-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    name: Every track and Pro product covers the EU
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: google-play
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Check Play country availability
+        env:
+          SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+        run: |
+          umask 077
+          account="$RUNNER_TEMP/service-account.json"
+          trap 'rm -f "$account"' EXIT
+          printf '%s' "$SERVICE_ACCOUNT" > "$account"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          status=0
+          python3 v2/mobile/scripts/play-publish.py geo-check --service-account "$account" \
+            > "$RUNNER_TEMP/geo.txt" || status=$?
+          cat "$RUNNER_TEMP/geo.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          exit "$status"

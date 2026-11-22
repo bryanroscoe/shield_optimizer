@@ -311,7 +311,8 @@ deferred.
 - EU Geo-blocking Regulation (EU) 2018/302 (Play Console notice, 2026-11-22): the app and Pro stay
   available in every EU country, and nothing in the app gates features or purchases on country,
   locale, SIM, network or IP. Checked 2026-11-22: the code has no such check, and the closed track
-  `alpha` lists 177 countries including all 27 EU states. Steps and the API check:
+  `alpha` lists 177 countries including all 27 EU states. Uploads refuse a track missing an EU
+  state, and the weekly `play-geo-check.yml` workflow checks every track and active product. Steps:
   `PLAY-CONSOLE-WALKTHROUGH.md` (requirements table, §3.3, §6.2).
 - Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro` or a
   support tier in `SUPPORT_PRODUCT_IDS`) through

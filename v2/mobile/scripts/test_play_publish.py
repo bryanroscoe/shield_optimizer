@@ -16,8 +16,11 @@ ACCOUNT = {'client_email': 'ci@example.iam.gserviceaccount.com', 'private_key': 
 class FakePlay:
     """Records every request; answers like the Android Publisher API."""
 
-    def __init__(self, bundles=(), apks=(), tracks=(), fail=None, uploaded_code=None, uploaded_sha=None):
+    def __init__(self, bundles=(), apks=(), tracks=(), fail=None, uploaded_code=None, uploaded_sha=None,
+                 countries=None, products=None):
         self.requests = []
+        self.countries = countries or {}
+        self.products = products or []
         self.bundles, self.apks, self.tracks = list(bundles), list(apks), list(tracks)
         self.fail = fail
         self.uploaded_code = uploaded_code
@@ -41,6 +44,19 @@ class FakePlay:
             return 200, json.dumps({'apks': [{'versionCode': c} for c in self.apks]}).encode()
         if path == 'edits/e1/tracks':
             return 200, json.dumps({'tracks': self.tracks}).encode()
+        if path.startswith('edits/e1/countryAvailability/'):
+            track = path.rsplit('/', 1)[1]
+            if track == 'internal':
+                return 400, json.dumps({'error': {'message': 'Track internal does not support country availability.'}}).encode()
+            codes = self.countries.get(track, [])
+            return 200, json.dumps({'countries': [{'countryCode': c} for c in codes]} if codes else {}).encode()
+        if path == 'oneTimeProducts':
+            query = urllib.parse.parse_qs(url.split('?', 1)[1]) if '?' in url else {}
+            page = int(query.get('pageToken', ['0'])[0])
+            body = {'oneTimeProducts': self.products[page:page + 1]}
+            if page + 1 < len(self.products):
+                body['nextPageToken'] = str(page + 1)
+            return 200, json.dumps(body).encode()
         if path == 'edits/e1/bundles' and method == 'POST':
             return 200, json.dumps({'versionCode': self.uploaded_code,
                                     'sha256': self.uploaded_sha or hashlib.sha256(body).hexdigest()}).encode()
@@ -49,6 +65,16 @@ class FakePlay:
     def calls(self):
         return [(m, u.split('/applications/com.atvoptimizer.mobile/')[-1]) for m, u, _, _ in self.requests
                 if u != play.TOKEN_URL]
+
+
+EU = sorted(play.EU_COUNTRIES)
+WORLD = EU + ['US', 'GB', 'CA']
+
+
+def product(product_id, regions, state='ACTIVE'):
+    return {'productId': product_id, 'purchaseOptions': [{
+        'purchaseOptionId': 'pro-unlock', 'state': state,
+        'regionalPricingAndAvailabilityConfigs': [{'regionCode': r, 'availability': a} for r, a in regions.items()]}]}
 
 
 def client(fake):
@@ -154,6 +180,51 @@ class Publish(unittest.TestCase):
         with self.assertRaisesRegex(play.PlayError, 'HTTP 400.*:validate refused'):
             play.upload(client(fake), self.aab, 'internal', 'draft', 1002, 'x')
         self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+
+    def test_upload_refuses_a_track_missing_an_eu_state_before_uploading(self):
+        fake = FakePlay(uploaded_code=1003, countries={'alpha': [c for c in WORLD if c != 'MT']})
+        with self.assertRaisesRegex(play.PlayError, 'Track alpha is not available in MT'):
+            play.upload(client(fake), self.aab, 'internal,alpha', 'completed', 1003, 'x')
+        calls = fake.calls()
+        self.assertFalse(any(m == 'POST' and 'bundles' in u for m, u in calls))
+        self.assertFalse(any(m == 'PUT' for m, _ in calls))
+        self.assertEqual(calls[-1], ('DELETE', 'edits/e1'))
+
+    def test_upload_passes_eu_wide_track_and_internal_without_a_list(self):
+        fake = FakePlay(uploaded_code=1003, countries={'alpha': WORLD})
+        play.upload(client(fake), self.aab, 'internal,alpha', 'completed', 1003, 'x')
+        self.assertEqual(fake.calls()[-1], ('POST', 'edits/e1:commit'))
+
+    def test_geo_check_passes_when_everything_covers_the_eu(self):
+        fake = FakePlay(
+            tracks=[{'track': 'internal', 'releases': [{'versionCodes': ['1']}]},
+                    {'track': 'alpha', 'releases': [{'versionCodes': ['1']}]},
+                    {'track': 'production', 'releases': []}],
+            countries={'alpha': WORLD},
+            products=[product('atvopt_pro', {c: 'AVAILABLE' for c in WORLD}),
+                      product('atvopt_pro_support_1', {}, state='INACTIVE')])
+        lines, problems = play.geo_check(client(fake))
+        self.assertEqual(problems, [])
+        self.assertIn('track alpha: all EU states', lines)
+        self.assertIn('product atvopt_pro/pro-unlock: all EU states', lines)
+        self.assertIn('product atvopt_pro_support_1/pro-unlock: INACTIVE, skipped', lines)
+        self.assertEqual(fake.calls()[-3], ('DELETE', 'edits/e1'))
+        self.assertFalse(any(u.endswith(':commit') for _, u in fake.calls()))
+
+    def test_geo_check_reports_every_gap(self):
+        regions = {c: 'AVAILABLE' for c in WORLD}
+        regions['DE'] = 'NO_LONGER_AVAILABLE'
+        del regions['LU']
+        fake = FakePlay(
+            tracks=[{'track': 'alpha', 'releases': [{'versionCodes': ['1']}]},
+                    {'track': 'production', 'releases': [{'versionCodes': ['1']}]}],
+            countries={'alpha': ['US', 'FR']},
+            products=[product('atvopt_pro', regions)])
+        _, problems = play.geo_check(client(fake))
+        self.assertEqual(len(problems), 3)
+        self.assertTrue(problems[0].startswith('track alpha is missing AT, BE'))
+        self.assertEqual(problems[1], 'track production has releases but no country list')
+        self.assertEqual(problems[2], 'product atvopt_pro/pro-unlock is not available in DE, LU')
 
     def test_token_failure_does_not_echo_credentials(self):
         def http(method, url, headers, body, timeout):

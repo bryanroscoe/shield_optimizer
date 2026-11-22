@@ -5,7 +5,13 @@ Subcommands:
   version   Read tauri.conf.json, check a mobile-v* tag against it, print the versionCode.
   highest   Print the highest versionCode Play already holds (every bundle, APK and track).
   upload    Upload a verified AAB once and release it on one or more tracks (comma-separated),
-            as a draft unless told otherwise, in a single edit.
+            as a draft unless told otherwise, in a single edit. Refuses a track whose country
+            list leaves out an EU state.
+  geo-check Read-only: fail when a track or an active one-time product leaves out an EU state.
+
+EU Geo-blocking Regulation (EU) 2018/302: Play asks that an app distributed in the EU be
+accessible EU-wide, so every track with a country list and every active Pro product must
+cover all 27 member states (v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md, requirements table).
 
 Standard library plus the `openssl` binary only, so the release path has no third-party Python
 dependency. Credentials are read from files and never printed; API errors print Google's
@@ -33,6 +39,7 @@ TOKEN_URL = 'https://oauth2.googleapis.com/token'
 SCOPE = 'https://www.googleapis.com/auth/androidpublisher'
 MAX_VERSION_CODE = 2100000000
 MOBILE_DIR = Path(__file__).resolve().parents[1]
+EU_COUNTRIES = frozenset('AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IT LT LU LV MT NL PL PT RO SE SI SK'.split())
 
 
 class PlayError(Exception):
@@ -162,6 +169,32 @@ class Play:
                 codes += [int(code) for code in release.get('versionCodes', [])]
         return max(codes)
 
+    def eu_gaps(self, edit, track):
+        """EU states missing from a track's countries, or None if the track has no country list.
+
+        Internal testing has none, and a track Play has never released to answers with an empty
+        list; neither restricts anyone, so neither counts as a gap here.
+        """
+        try:
+            available = self.call('GET', f'edits/{edit}/countryAvailability/{track}')
+        except PlayError as error:
+            if 'does not support country availability' in str(error):
+                return None
+            raise
+        countries = {c.get('countryCode') for c in available.get('countries', [])}
+        if not countries:
+            return None
+        return sorted(EU_COUNTRIES - countries)
+
+    def one_time_products(self):
+        products, token = [], None
+        while True:
+            page = self.call('GET', 'oneTimeProducts' + (f'?pageToken={urllib.parse.quote(token)}' if token else ''))
+            products += page.get('oneTimeProducts', [])
+            token = page.get('nextPageToken')
+            if not token:
+                return products
+
 
 def error_message(payload):
     try:
@@ -205,6 +238,12 @@ def upload(play, aab, track, status, version_code, release_name, notes=None, exp
         current = play.highest(edit)
         if version_code <= current:
             raise PlayError(f'versionCode {version_code} is not above the highest code on Play ({current})')
+        for name in tracks:
+            gaps = play.eu_gaps(edit, name)
+            if gaps:
+                raise PlayError(f'Track {name} is not available in {", ".join(gaps)}. The EU geo-blocking rule '
+                                'needs every EU state: add them in Play Console > Test and release > '
+                                f'{name} > Countries / regions, then publish again')
         bundle = play.call('POST', f'edits/{edit}/bundles', upload=data, timeout=900)
         if int(bundle.get('versionCode', -1)) != version_code:
             raise PlayError(f'Play read versionCode {bundle.get("versionCode")} from the bundle, expected {version_code}')
@@ -225,6 +264,41 @@ def upload(play, aab, track, status, version_code, release_name, notes=None, exp
             'release_name': release_name, 'aab_sha256': digest, 'previous_highest_version_code': current}
 
 
+def geo_check(play):
+    """Return (report lines, problems) for every track and every active one-time purchase option."""
+    lines, problems = [], []
+    edit = play.open_edit()
+    try:
+        for track in play.call('GET', f'edits/{edit}/tracks').get('tracks', []):
+            name = track['track']
+            released = any(r.get('versionCodes') for r in track.get('releases', []))
+            gaps = play.eu_gaps(edit, name)
+            if gaps is None:
+                if released and name != 'internal':
+                    problems.append(f'track {name} has releases but no country list')
+                lines.append(f'track {name}: no country list' + (' (internal testing has none)' if name == 'internal' else ''))
+            elif gaps:
+                problems.append(f'track {name} is missing {", ".join(gaps)}')
+                lines.append(f'track {name}: missing {", ".join(gaps)}')
+            else:
+                lines.append(f'track {name}: all EU states')
+    finally:
+        play.discard_edit(edit)
+    for product in play.one_time_products():
+        for option in product.get('purchaseOptions', []):
+            label = f'{product.get("productId")}/{option.get("purchaseOptionId")}'
+            if option.get('state') != 'ACTIVE':
+                lines.append(f'product {label}: {option.get("state", "not active")}, skipped')
+                continue
+            available = {c.get('regionCode') for c in option.get('regionalPricingAndAvailabilityConfigs', [])
+                         if c.get('availability') == 'AVAILABLE'}
+            gaps = sorted(EU_COUNTRIES - available)
+            if gaps:
+                problems.append(f'product {label} is not available in {", ".join(gaps)}')
+            lines.append(f'product {label}: ' + (f'missing {", ".join(gaps)}' if gaps else 'all EU states'))
+    return lines, problems
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -232,7 +306,7 @@ def main(argv=None):
     version.add_argument('--config', type=Path, default=MOBILE_DIR / 'src-tauri/tauri.conf.json')
     version.add_argument('--tag')
     version.add_argument('--version-code')
-    for name in ['highest', 'upload']:
+    for name in ['highest', 'upload', 'geo-check']:
         sub = commands.add_parser(name)
         sub.add_argument('--service-account', type=Path, required=True)
         sub.add_argument('--package', default=PACKAGE)
@@ -250,6 +324,13 @@ def main(argv=None):
             print(json.dumps(resolve_version(args.config, args.tag, args.version_code)))
         elif args.command == 'highest':
             print(highest(Play.from_file(args.service_account, package=args.package)))
+        elif args.command == 'geo-check':
+            lines, problems = geo_check(Play.from_file(args.service_account, package=args.package))
+            print('\n'.join(lines))
+            if problems:
+                for problem in problems:
+                    print(f'EU geo-blocking: {problem}', file=sys.stderr)
+                return 1
         else:
             notes = args.notes_file.read_text().strip() if args.notes_file else None
             result = upload(Play.from_file(args.service_account, package=args.package), args.aab,
