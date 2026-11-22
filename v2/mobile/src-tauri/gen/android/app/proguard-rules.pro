@@ -1,21 +1,11 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Tauri and Wry generate the other JNI keep rules during the Rust build.
+# Wry calls these methods from Rust by name, but its generated rules omit them.
+-keepclassmembers class com.atvoptimizer.mobile.RustWebView {
+    public void clearAllBrowsingData();
+    public java.lang.String getCookies(java.lang.String);
+}
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
-
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
-
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Tauri discovers inherited commands by name on the unannotated base class.
+-keepclassmembers class app.tauri.plugin.Plugin {
+    @app.tauri.annotation.Command public <methods>;
+}

@@ -1,10 +1,10 @@
 # Android dependency notice inventory — release preparation
 
-## Resolved baseline (2026-11-03)
+## Resolved baseline (2026-11-22)
 
 `universalReleaseRuntimeClasspath` has been resolved with Gradle 8.14.3 / Android Gradle Plugin
-8.11.0 / JDK 21. The portable [`android-runtime-inventory.json`](android-runtime-inventory.json)
-records 94 resolved modules, the exact selected artifact hashes, POM hashes and declared licenses.
+8.11.1 / JDK 17. The portable [`android-runtime-inventory.json`](android-runtime-inventory.json)
+records 79 resolved modules, the exact selected artifact hashes, POM hashes and declared licenses.
 Metadata-only BOMs and multiplatform redirects are distinguished from binary artifacts.
 [`android-runtime-notices.md`](android-runtime-notices.md) retains 33 distinct upstream notice
 texts from JAR/AAR files and the Google SDKs' embedded third-party-license indexes, preserving
@@ -48,23 +48,24 @@ resolved Gradle dependency report.
 | App | androidx.webkit:webkit:1.14.0 |
 | App | androidx.appcompat:appcompat:1.7.1 |
 | App | androidx.activity:activity-ktx:1.10.1 |
-| App | com.google.android.material:material:1.12.0 |
 | App | androidx.lifecycle:lifecycle-process:2.10.0 |
 | ADB plugin | androidx.core:core-ktx:1.13.1 |
 | ADB plugin | org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
 | ADB plugin | androidx.activity:activity:1.10.1 (added 2026-11-08 for the Save a copy picker callback; Apache-2.0, already resolved at 1.10.1 through the app's activity-ktx, so the resolved runtime set is unchanged) |
 | Billing plugin | com.android.billingclient:billing:9.1.0 (Android Software Development Kit License, not Apache-2.0) |
 | Billing plugin | androidx.core:core-ktx:1.13.1; org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
-| Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0; Material:1.7.0 |
+| Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0 |
 | Tauri Android | com.fasterxml.jackson.core:jackson-databind:2.15.3 |
 | Opener | androidx.browser:browser:1.8.0; androidx.core:core-ktx:1.9.0; Jackson Databind:2.15.3 |
+
+The app excludes Tauri Android's transitive Material Components dependency. The native
+activity uses an AppCompat theme and the WebView supplies the UI.
 
 All listed libraries except the Play Billing Library declare Apache-2.0 licensing. The Play
 Billing Library is distributed under the Android Software Development Kit License Agreement;
 record its terms and any transitive Google artifacts it pulls in when the resolved graph is
 captured. Official project sources:
 https://android.googlesource.com/platform/frameworks/support/,
-https://github.com/material-components/material-components-android,
 https://github.com/Kotlin/kotlinx.coroutines,
 https://github.com/FasterXML/jackson-databind,
 https://github.com/FasterXML/jackson-datatypes-misc.

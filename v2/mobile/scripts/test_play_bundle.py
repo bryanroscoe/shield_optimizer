@@ -22,7 +22,7 @@ class BundleGate(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.dir = Path(directory.name)
         self.aab = self.dir / 'app.aab'
-        self.aab.write_bytes(b'aab')
+        self.write_bundle()
         self.values = {'jar': 'jar verified.', 'cert': f'Certificate fingerprints:\n\t SHA256: {CERT}\n',
                        'package': 'com.atvoptimizer.mobile', 'code': '1002',
                        'apk_cert': f'Signer #1 certificate SHA-256 digest: {HEX}\n'}
@@ -34,6 +34,13 @@ class BundleGate(unittest.TestCase):
         env = mock.patch.dict(os.environ, {'KS': 'store-secret', 'KP': 'key-secret'})
         env.start()
         self.addCleanup(env.stop)
+
+    def write_bundle(self, mapping=b'example.Class -> a.b:\n'):
+        with zipfile.ZipFile(self.aab, 'w') as archive:
+            archive.writestr('base/dex/classes.dex', b'dex')
+            archive.writestr(gate.R8_METADATA, b'{"version":"8.11.23"}')
+            if mapping is not None:
+                archive.writestr(gate.R8_MAPPING, mapping)
 
     def fake_apk_verify(self, apk, *tools, run):
         return {'apk': Path(apk).name, 'version_code': int(self.apk_results.pop(0) if self.apk_results else 1002)}
@@ -75,9 +82,18 @@ class BundleGate(unittest.TestCase):
     def test_accepts_expected_bundle(self):
         result = gate.verify(self.args(), run=self.fake_run)
         self.assertEqual(result['upload_certificate_sha256'], HEX)
+        self.assertEqual(result['dex'], {'uncompressed_bytes': 3, 'r8_version': '8.11.23'})
         self.assertEqual([a['apk'] for a in result['apks']], ['bundletool-universal.apk'])
         self.assertTrue(any('validate' in a for a in self.calls))
         self.assertFalse(any('secret' in str(a) for call in self.calls for a in call))
+
+    def test_rejects_unobfuscated_bundle(self):
+        self.write_bundle(mapping=None)
+        with self.assertRaisesRegex(ValueError, 'missing R8'):
+            gate.verify(self.args(), run=self.fake_run)
+        self.write_bundle(mapping=b'example.Class -> example.Class:\n')
+        with self.assertRaisesRegex(ValueError, 'no renamed classes'):
+            gate.verify(self.args(), run=self.fake_run)
 
     def test_rejections(self):
         cases = [('jar', 'jar is unsigned.', 'jarsigner'),
