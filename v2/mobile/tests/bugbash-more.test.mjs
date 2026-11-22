@@ -100,6 +100,15 @@ async function openMore(t, { telemetry, billingStatus = status(), notices } = {}
 const calls = (page, command) =>
   page.evaluate((c) => window.calls.filter((call) => call.command === c).map((call) => call.args), command);
 
+test("About shows the Android app version from the release config", async (t) => {
+  const { version } = JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
+  const page = await openMore(t);
+  const about = page.locator(".more-card").filter({
+    has: page.getByText("About", { exact: true }),
+  });
+  await about.getByText(`App version ${version}`, { exact: true }).waitFor();
+});
+
 test("Android backup and device transfer exclude every app-data domain", async () => {
   const android = new URL("../src-tauri/gen/android/app/src/main/", import.meta.url);
   const manifest = await readFile(new URL("AndroidManifest.xml", android), "utf8");

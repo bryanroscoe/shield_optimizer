@@ -137,8 +137,8 @@ every tester address out of this repository.
 
 Ask every reporter for four things first. Most problems resolve from them alone.
 
-- The app version: Android Settings > Apps > ATV Optimizer (at the bottom), or the first line of
-  More > Bug report.
+- The app version: More > About, or Support and privacy on the connection screen before connecting.
+  Android Settings > Apps > ATV Optimizer also lists the installed version at the bottom.
 - Phone model and Android version; TV model and Android version.
 - What they tapped, what they expected and the exact message on screen (a screenshot is best).
 - When it matters: More > **Bug report** (they review it, then it copies to the clipboard; nothing

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from "svelte";
+  import { version as appVersion } from "../../src-tauri/tauri.conf.json";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { setLocalBack } from "../lib/router.svelte";
@@ -787,6 +788,7 @@
   {/if}
   {#if step !== "connected"}
     <HelpSheet title="Support and privacy">
+      <p>App version <span class="mono">{appVersion}</span></p>
       <SupportReports />
     </HelpSheet>
   {/if}
