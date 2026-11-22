@@ -964,21 +964,29 @@ pub(crate) async fn uninstall_package_impl(
     Ok(result)
 }
 
-/// `reinstall_existing` — `cmd package install-existing <pkg>`. Brings back a
-/// previously-uninstalled app from /system without a Play Store fetch.
+/// Bring an existing APK back for the same user App List reads and removes.
 #[tauri::command]
 pub async fn reinstall_existing(
     state: State<'_, AppState>,
     serial: String,
     package: String,
 ) -> Result<ActionResult, String> {
-    if let Some(rejection) = reject_invalid_package(&package) {
+    reinstall_existing_impl(state.inner(), &serial, &package).await
+}
+
+async fn reinstall_existing_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+) -> Result<ActionResult, String> {
+    if let Some(rejection) = reject_invalid_package(package) {
         return Ok(rejection);
     }
+    // Android otherwise uses the foreground profile, which can differ from user 0.
     run(
-        &state,
-        &serial,
-        &format!("cmd package install-existing {package}"),
+        state,
+        serial,
+        &format!("cmd package install-existing --user 0 {package}"),
     )
     .await
 }
@@ -1032,6 +1040,35 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn reinstall_targets_the_profile_shown_in_app_list() {
+        use crate::adb::batch::{BATCH_SEPARATOR, BATCH_STATUS};
+        use crate::commands::test_support::{state_with, MockAdb};
+
+        let package = "com.google.android.videos";
+        let inventory =
+            checked_batch_command(&["pm list packages --user 0", "pm list packages -d --user 0"]);
+        let reinstall = format!("cmd package install-existing --user 0 {package}");
+        let mock = MockAdb::default()
+            .on_shell(
+                &inventory,
+                &format!("package:com.android.settings\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n{BATCH_STATUS}0\n"),
+            )
+            .on_shell(&reinstall, &format!("Package {package} installed for user: 0"));
+        let calls = mock.shell_log();
+        let state = state_with(mock);
+
+        let states = package_states_impl(&state, "serial", vec![package.to_string()])
+            .await
+            .unwrap();
+        assert_eq!(states[package], PackageState::Missing);
+        let restored = reinstall_existing_impl(&state, "serial", package)
+            .await
+            .unwrap();
+        assert!(restored.ok, "{}", restored.message);
+        assert_eq!(calls.lock().unwrap().as_slice(), [inventory, reinstall]);
+    }
 
     #[tokio::test]
     async fn user_installed_packages_reads_third_party_for_user_zero_or_fails() {

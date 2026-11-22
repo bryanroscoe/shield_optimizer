@@ -23,7 +23,10 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, ...(evidence ? { recordVideo: { dir: join(dir, 'raw'), size: { width: 1280, height: 900 } } } : {}) });
   const page = await context.newPage();
   for (const scenario of ['success', 'failure', 'noop', 'unverified', 'failure-refresh', 'list-refresh', 'current-refresh', 'channel-refresh', 'interrupted', 'cancel-takeover', 'leave-pending']) {
+    const narrow = scenario === 'failure';
+    await page.setViewportSize({ width: narrow ? 720 : 1280, height: 900 });
     await page.goto(base, { waitUntil: 'networkidle' });
+    if (narrow) await page.evaluate(() => { document.documentElement.style.fontSize = '125%'; });
     await page.evaluate(({ scenario, target, stock }) => {
       let attempted = false, current = stock;
       const original = window.__TAURI_INTERNALS__.invoke;
@@ -83,6 +86,11 @@ try {
     if (!scenario.includes('refresh')) {
       assert.equal(await row.locator('.launcher-set-result').count(), 1, 'feedback stays beside the clicked launcher');
       assert.ok(await result.isVisible());
+    }
+    if (narrow) {
+      const feedbackWidth = (await result.boundingBox()).width;
+      const rowWidth = (await row.boundingBox()).width;
+      assert.ok(feedbackWidth >= rowWidth / 2, `Launcher failure text shrank to ${feedbackWidth}px at the desktop minimum`);
     }
     if (scenario === 'success') {
       await row.locator('.current-default').waitFor();

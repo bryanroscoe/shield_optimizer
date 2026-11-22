@@ -132,9 +132,10 @@ on disposal of the GitHub-hosted VM. Processes running as this job's runner user
 KVM kernel interface during the grant; untrusted job code could abuse that access. No permission
 change applies to a local computer or physical device.
 
-The workflow stages Ubuntu's PulseAudio client libraries in the temporary runner directory for the emulator.
-Sufficient disk and already accepted Android SDK licenses remain mandatory. Missing prerequisites
-fail clearly; the job never accepts new agreements or falls back to software emulation.
+The workflow checks the signed artifact and loads the emulator before it requests KVM access. APT
+resolves missing PulseAudio dependencies and downloads them for extraction in the temporary runner
+directory. The job needs sufficient disk and existing Android SDK licenses. It uses hardware
+acceleration for the actual runtime test.
 KVM permission guidance: https://github.blog/changelog/2024-04-02-github-actions-hardware-accelerated-android-virtualization-now-available/ .
 The user-only ACL here is narrower than that article's all-user udev example.
 

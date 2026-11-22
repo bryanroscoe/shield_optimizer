@@ -24,6 +24,9 @@ this file and shows the newest few sections, dated, from its version button.
 
 - Android: verify known saved-TV identity before reconnecting, show when PIN pairing succeeds, and offer Privacy and public or private diagnostic reports during setup.
 - Desktop and Android: use the Remote **Tab** button to move focus between fields on the TV.
+- Desktop and Android: **Reinstall** restores the app for the same TV profile shown in App List, even when another profile is active (#233).
+- Desktop and Android: if Google TV's paired setup helper still holds Home after the stock launcher is disabled, the takeover checks for an enabled replacement, turns off the helper, and selects the replacement again. It attempts to restore both packages if Android still resolves Home to another app (#239).
+- Desktop: on narrow Launcher screens, status and actions wrap below the launcher name so takeover feedback stays readable at larger text sizes.
 
 - Android: Optimize rows no longer print a paragraph under every app. Each row shows its name, safety tier, action and its choice, and **If you remove it** unfurls what the app does and what removing it costs. A Caution app the plan selects, or a Caution or Unknown app you choose to remove, unfurls on its own, and the Apply confirmation still names every removal with its reason. Routine notes on other screens moved behind their help buttons.
 - Android: show current advertised TV names beside preserved saved labels, including older entries named “Android TV”, without treating display metadata as hardware identity.

@@ -497,11 +497,19 @@ impl Device {
     }
 
     fn role(&mut self, args: &[String]) -> Option<Out> {
-        let sub = args.first()?.as_str();
+        let (sub, args) = args.split_first()?;
+        let args = if args.first().is_some_and(|flag| flag == "--user") {
+            if args.get(1).map(String::as_str) != Some("0") {
+                return Some(Out::err("Error: simulator requires user 0\n", 1));
+            }
+            &args[2..]
+        } else {
+            args
+        };
         let sdk = self.sdk();
-        Some(match sub {
+        Some(match sub.as_str() {
             "get-role-holders" if sdk >= 31 => {
-                if args.get(1).map(String::as_str) != Some("android.app.role.HOME") {
+                if args.first().map(String::as_str) != Some("android.app.role.HOME") {
                     return Some(Out::ok("\n"));
                 }
                 Out::ok(format!(
@@ -510,7 +518,7 @@ impl Device {
                 ))
             }
             "add-role-holder" if sdk >= 29 => {
-                let Some(pkg) = args.iter().skip(2).find(|a| !a.starts_with('-')) else {
+                let Some(pkg) = args.get(1) else {
                     return Some(Out::err("Error: no package\n", 1));
                 };
                 let declares = self.home.components.iter().find(|c| &c.package == pkg);
