@@ -19,7 +19,7 @@ Regenerate this document with `mobile/scripts/gen-notices.sh` after any dependen
 ### Android/JVM runtime dependencies
 
 The resolved Android release runtime module inventory, license metadata and upstream archive
-notices are included below. It covers AndroidX, Material, Kotlin, Jackson, Play Billing and its
+notices are included below. It covers AndroidX, Kotlin, Jackson, Play Billing and its
 Google runtime dependencies, including licenses for code embedded inside upstream archives.
 Google Play Billing and Google Play services use the Android Software Development Kit License;
 they must not be relabeled Apache-2.0. SDK-bundled third-party notices are preserved as supplied.

@@ -20,6 +20,8 @@ import tempfile
 import zipfile
 
 PACKAGE = 'com.atvoptimizer.mobile'
+R8_METADATA = 'BUNDLE-METADATA/com.android.tools/r8.json'
+R8_MAPPING = 'BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map'
 spec = importlib.util.spec_from_file_location('apk_gate', Path(__file__).with_name('verify-release-apk.py'))
 apk_gate = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(apk_gate)
@@ -40,6 +42,23 @@ def secret_file(directory, name, value):
     return path
 
 
+def verify_dex(aab):
+    with zipfile.ZipFile(aab) as archive:
+        dex_bytes = sum(entry.file_size for entry in archive.infolist()
+                        if re.fullmatch(r'[^/]+/dex/classes[0-9]*\.dex', entry.filename))
+        if not dex_bytes:
+            raise ValueError('AAB contains no DEX code')
+        if R8_METADATA not in archive.namelist() or R8_MAPPING not in archive.namelist():
+            raise ValueError('AAB is missing R8 metadata or its obfuscation mapping')
+        metadata = json.loads(archive.read(R8_METADATA))
+        with archive.open(R8_MAPPING) as mapping:
+            for line in mapping:
+                match = re.fullmatch(rb'([^#\s]+) -> (\S+):', line.rstrip())
+                if match and match[1] != match[2]:
+                    return {'uncompressed_bytes': dex_bytes, 'r8_version': metadata['version']}
+        raise ValueError('AAB R8 mapping contains no renamed classes')
+
+
 def verify(args, run=subprocess.run):
     def command(argv, timeout=600):
         return run(argv, check=True, capture_output=True, text=True, timeout=timeout).stdout
@@ -55,6 +74,7 @@ def verify(args, run=subprocess.run):
         raise ValueError('AAB is not signed by the expected upload certificate')
     bundletool = [args.java, '-jar', str(args.bundletool)]
     command([*bundletool, 'validate', f'--bundle={aab}'])
+    dex = verify_dex(aab)
 
     def manifest(xpath):
         return command([*bundletool, 'dump', 'manifest', f'--bundle={aab}', f'--xpath={xpath}']).strip()
@@ -90,8 +110,9 @@ def verify(args, run=subprocess.run):
     return {'aab': aab.name, 'aab_sha256': hashlib.sha256(aab.read_bytes()).hexdigest(),
             'package': PACKAGE, 'version_code': args.version_code, 'upload_certificate_sha256': expected,
             'verified': ['aab-jar-signature', 'upload-certificate', 'bundletool-validate',
-                         'manifest-package-and-versionCode', 'generated-universal-apk', 'apk-signer-certificate'],
-            'apks': results}
+                         'r8-obfuscation', 'manifest-package-and-versionCode',
+                         'generated-universal-apk', 'apk-signer-certificate'],
+            'dex': dex, 'apks': results}
 
 
 def main():
