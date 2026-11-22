@@ -114,22 +114,21 @@ jobs:
       # ones with it on. With it off, renaming a directory that came from an
       # image layer fails with EXDEV: "Failed to update org.gnome.Sdk: Invalid
       # cross-device link", then flatpak-builder segfaults (exit 139). So copy
-      # the installation to the runner's disk, a bind mount rather than
-      # overlayfs, and mount the copy in its place. Later steps exec into the
-      # same container and see the mount. This runs on every host, so each
-      # run builds the same way, against runtimes updated from Flathub.
-      - name: Move the Flatpak system installation off overlayfs
+      # the installation into the container's writable layer first: a
+      # directory created there renames in place with redirect_dir off.
+      # cp -a keeps the hard links between the repo and its deploys. The image
+      # has no mount(8) or bash, so this is plain sh. It runs on every host,
+      # so each run builds the same way, against runtimes updated from
+      # Flathub.
+      - name: Copy the Flatpak system installation into the writable layer
         run: |
           echo "overlay redirect_dir: $(cat /sys/module/overlay/parameters/redirect_dir 2>/dev/null || echo unreadable)"
-          cp -a /var/lib/flatpak "$RUNNER_TEMP/flatpak-system"
-          mount --bind "$RUNNER_TEMP/flatpak-system" /var/lib/flatpak
-          fstype=$(stat -f -c %T /var/lib/flatpak)
-          echo "/var/lib/flatpak is now on $fstype"
-          if [ "$fstype" = overlayfs ]; then
-            echo "::error::/var/lib/flatpak is still on overlayfs"
-            exit 1
-          fi
-          df -h /var/lib/flatpak
+          cp -a /var/lib/flatpak /var/lib/flatpak.copy-up
+          rm -rf /var/lib/flatpak
+          mv /var/lib/flatpak.copy-up /var/lib/flatpak
+          # rename(2) without mv's copy fallback, so EXDEV would fail here.
+          python3 -c 'import os, sys; d = sys.argv[1]; os.rename(d, d + ".probe"); os.rename(d + ".probe", d)' /var/lib/flatpak/runtime
+          echo "/var/lib/flatpak renames in place ($(du -sh /var/lib/flatpak | cut -f1))"
           flatpak list --runtime --columns=application,branch,installation
 
       - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8 (v6 on 2026-11-11)
