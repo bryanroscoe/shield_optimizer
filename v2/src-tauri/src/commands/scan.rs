@@ -1221,7 +1221,7 @@ fn native_summary_message(
     pending: usize,
 ) -> String {
     if found == 0 {
-        return "No network ADB endpoints found. Enable Network debugging on SHIELD, or use Add by IP.".into();
+        return "No network ADB endpoints found. Make sure Network debugging or Wireless debugging is on, or use Add by IP.".into();
     }
     let mut message = format!("Connected {connected} of {found} network endpoints.");
     if pending > 0 {
@@ -1259,7 +1259,7 @@ fn summary_message(
 ) -> String {
     if found == 0 {
         return format!(
-            "No devices on {subnet_label}.x answered on the ADB port. Make sure Network \
+            "No devices on {subnet_label}.x responded on the ADB port. Make sure Network \
              debugging or Wireless debugging is on. A device that only offers Wireless \
              debugging may need Pair PIN first."
         );

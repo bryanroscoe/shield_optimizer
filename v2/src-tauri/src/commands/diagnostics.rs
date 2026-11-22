@@ -285,7 +285,7 @@ pub async fn collect_diagnostics(
     let adb_path = if adb.uses_host_server() {
         crate::adb::cached_adb_binary().map(|p| p.display().to_string())
     } else {
-        Some("(not applicable: direct network transport, no host binary)".into())
+        Some("(not applicable: Built-in ADB, no host binary)".into())
     };
     let tail = log_tail(logs.dir(), core_diagnostics::LOG_TAIL_LINES);
     Ok(core_diagnostics::collect_diagnostics_text(

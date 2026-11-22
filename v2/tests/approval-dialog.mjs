@@ -278,7 +278,7 @@ try {
     await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await dialog(page).waitFor({ state: 'detached' });
     const line = row(page).locator('[data-approval-line]');
-    await line.getByText("didn't answer within 20 seconds", { exact: false }).waitFor({ timeout: 5000 });
+    await line.getByText("didn't respond within 20 seconds", { exact: false }).waitFor({ timeout: 5000 });
     assert.ok(await line.evaluate(el => el.classList.contains('approval-result')));
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).waitFor();
     assert.equal(await dialog(page).count(), 0, 'the pop-up does not reopen by itself');

@@ -150,7 +150,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
 
   // Restart ADB's message carries adb's own words for each failed device.
   const restart =
-    "ADB server restarted.\nCould not reconnect after 4 tries: 192.168.1.9:5555: failed to connect to '192.168.1.9:5555': No route to host — check the TV is awake";
+    "ADB server restarted.\nCould not reconnect after 4 tries: 192.168.1.9:5555: failed to connect to '192.168.1.9:5555': No route to host — check that the TV is awake";
   assert.ok(isNoRoute(restart));
   assert.equal(LOCAL_NETWORK_POSSIBLE, "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.");
 }

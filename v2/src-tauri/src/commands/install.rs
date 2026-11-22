@@ -123,7 +123,7 @@ pub async fn restart_adb(state: State<'_, AppState>) -> Result<RestartResult, St
 async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     let adb = state.adb_snapshot().await;
     if !adb.uses_host_server() {
-        return Ok(RestartResult { ok: false, server_ready: false, message: "Direct ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use platform-tools, choose it under Settings > ADB engine.".into() });
+        return Ok(RestartResult { ok: false, server_ready: false, message: "Built-in ADB has no host server to restart. Disconnect this TV and use Add by IP again. To use Google platform-tools, choose it under Settings → ADB → ADB engine.".into() });
     }
 
     // kill-server drops every TCP connection. USB devices re-enumerate on
@@ -252,7 +252,7 @@ async fn restart_adb_impl(state: &AppState) -> Result<RestartResult, String> {
     }
     if !failed.is_empty() {
         message.push_str(&format!(
-            "\nCould not reconnect after {} tries: {} — check the TV is awake and Network Debugging is still on, then try Scan LAN or Add by IP.",
+            "\nCould not reconnect after {} tries: {} — check that the TV is awake and Network debugging is still on, then try Scan LAN or Add by IP.",
             RECONNECT_ATTEMPTS,
             failed.join(", ")
         ));
@@ -292,7 +292,7 @@ where
     Fut: std::future::Future<Output = Result<std::path::PathBuf, crate::adb::InstallError>>,
 {
     if !state.adb_snapshot().await.uses_host_server() {
-        return Err("Installing platform-tools would change the selected direct backend. Choose Google platform-tools under Settings > ADB engine first.".into());
+        return Err("Installing Google platform-tools would change the selected Built-in ADB engine. Choose Google platform-tools under Settings → ADB → ADB engine first.".into());
     }
     let operation = Arc::new(state.try_adb_operation().map_err(|e| e.to_string())?);
     match installer(Arc::clone(&operation)).await {
@@ -307,10 +307,10 @@ where
                 .adopt_installed_platform_tools(state, new_driver)
                 .await
             {
-                format!("Installed platform-tools to {}", path.display())
+                format!("Installed Google platform-tools to {}", path.display())
             } else {
                 format!(
-                    "Installed platform-tools to {}. The built-in engine is still in use; choose Google platform-tools under Settings > ADB engine to use it.",
+                    "Installed Google platform-tools to {}. Built-in ADB is still in use; choose Google platform-tools under Settings → ADB → ADB engine to use it.",
                     path.display()
                 )
             };
@@ -458,7 +458,7 @@ mod tests {
         })
         .await;
         assert!(
-            matches!(installed, Err(message) if message.contains("would change the selected direct backend"))
+            matches!(installed, Err(message) if message.contains("would change the selected Built-in ADB engine"))
         );
         assert!(!state.adb_snapshot().await.uses_host_server());
     }

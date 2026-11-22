@@ -495,7 +495,7 @@ async function adbEngineWaitsForDownload({ browser, base }) {
           if (command === "install_adb") {
             await new Promise((resolve) => (window.releaseDownload = resolve));
             installed = true;
-            return { ok: true, path: "/fixture/platform-tools/adb", message: "Installed platform-tools to /fixture/platform-tools/adb" };
+            return { ok: true, path: "/fixture/platform-tools/adb", message: "Installed Google platform-tools to /fixture/platform-tools/adb" };
           }
           if (command === "set_adb_engine") window.engineCalls.push(args.engine);
           return original(command, args);
@@ -519,7 +519,7 @@ async function adbEngineWaitsForDownload({ browser, base }) {
     await controls.section.screenshot({ path: join(engineEvidence, "simulated-720-download-running.png") });
   }
   await page.evaluate(() => window.releaseDownload());
-  await controls.section.getByText("Installed platform-tools to /fixture/platform-tools/adb").waitFor();
+  await controls.section.getByText("Installed Google platform-tools to /fixture/platform-tools/adb").waitFor();
   await page.waitForFunction((el) => el && !el.disabled, await controls.builtin.elementHandle());
   assert.equal(await controls.tools.isChecked(), true);
   assert.deepEqual(await engineCalls(page), [], "no switch was asked for");

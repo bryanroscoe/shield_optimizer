@@ -36,15 +36,15 @@ pub enum InstallError {
     Io(#[from] std::io::Error),
     #[error("ZIP error: {0}")]
     Zip(#[from] zip::result::ZipError),
-    #[error("platform-tools archive did not contain the expected adb binary")]
+    #[error("Google platform-tools archive did not contain the expected adb binary")]
     MissingAdb,
     #[error("could not resolve the install directory")]
     NoInstallDir,
-    #[error("platform-tools download is larger than {limit} bytes; refusing it")]
+    #[error("Google platform-tools download is larger than {limit} bytes; refusing it")]
     TooLarge { limit: u64 },
     #[error(
-        "could not replace the existing platform-tools at {path} ({source}); the existing \
-         install was left as it was. Quit anything using adb from that folder and try again."
+        "could not replace the existing Google platform-tools at {path} ({source}); the \
+         existing install was left as it was. Quit anything using adb from that folder and try again."
     )]
     Replace {
         path: String,

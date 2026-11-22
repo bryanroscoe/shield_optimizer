@@ -22,7 +22,7 @@ pub fn validate_existing_identity(path: &Path) -> Result<(), String> {
     #[cfg(not(any(unix, windows)))]
     {
         let _ = path;
-        Err("Secure native ADB identity storage is not yet supported on this platform.".into())
+        Err("Secure Built-in ADB identity storage is not yet supported on this platform.".into())
     }
 }
 
@@ -48,7 +48,7 @@ where
     #[cfg(not(any(unix, windows)))]
     {
         let _ = (app_data, validate, generate, write);
-        Err("Secure native ADB identity storage is not yet supported on this platform.".into())
+        Err("Secure Built-in ADB identity storage is not yet supported on this platform.".into())
     }
 }
 
@@ -74,7 +74,7 @@ mod unix {
     const MAX_KEY_BYTES: u64 = 32768;
     static NEXT: AtomicU64 = AtomicU64::new(0);
     fn error(action: &str, error: std::io::Error) -> String {
-        format!("Native ADB identity {action} failed: {error}")
+        format!("Built-in ADB identity {action} failed: {error}")
     }
     fn name(value: &str) -> CString {
         CString::new(value).expect("fixed identity filename has no NUL")
@@ -100,7 +100,7 @@ mod unix {
             mode & 0o022 == 0
         };
         if !kind || metadata.uid() != uid() || !permissions {
-            return Err("Native ADB identity path must be owned by this user, regular, and privately permissioned; existing files were not changed.".into());
+            return Err("Built-in ADB identity path must be owned by this user, regular and privately permissioned; existing files were not changed.".into());
         }
         Ok(())
     }
@@ -130,7 +130,7 @@ mod unix {
         let metadata = file.metadata().map_err(|e| error("metadata", e))?;
         secure_metadata(&metadata, false, true)?;
         if metadata.len() > MAX_KEY_BYTES {
-            return Err("Native ADB identity file is too large; it was not changed.".into());
+            return Err("Built-in ADB identity file is too large; it was not changed.".into());
         }
         let mut bytes = Vec::new();
         file.by_ref()
@@ -139,11 +139,11 @@ mod unix {
             .map_err(|e| error("read", e))?;
         if bytes.len() as u64 > MAX_KEY_BYTES {
             return Err(
-                "Native ADB identity file grew beyond its limit; it was not changed.".into(),
+                "Built-in ADB identity file grew beyond its limit; it was not changed.".into(),
             );
         }
         validate(&bytes).map_err(|_| {
-            "Native ADB identity is not a valid 2048-bit RSA PKCS#8 PEM; it was not changed."
+            "Built-in ADB identity is not a valid 2048-bit RSA PKCS#8 PEM; it was not changed."
                 .to_owned()
         })?;
         Ok(metadata)
@@ -161,7 +161,7 @@ mod unix {
         let current = std::fs::symlink_metadata(path).map_err(|e| error("path verification", e))?;
         if !current.is_file() || !same_file(&metadata, &current) {
             return Err(
-                "Native ADB identity path changed while being read; nothing was replaced.".into(),
+                "Built-in ADB identity path changed while being read; nothing was replaced.".into(),
             );
         }
         Ok(())
@@ -195,7 +195,7 @@ mod unix {
                         .map_err(|e| error("existing identity metadata", e))?,
                 ) {
                     return Err(
-                        "Native ADB identity changed while being read; nothing was replaced."
+                        "Built-in ADB identity changed while being read; nothing was replaced."
                             .into(),
                     );
                 }
@@ -224,7 +224,7 @@ mod unix {
                 )
             })
         {
-            return Err("Native ADB identity requires an absolute application-data directory; no fallback path was used.".into());
+            return Err("Built-in ADB identity requires an absolute application-data directory; no fallback path was used.".into());
         }
         match std::fs::DirBuilder::new().mode(0o700).create(app_data) {
             Ok(()) => {}
@@ -279,7 +279,7 @@ mod unix {
                     )
                 {
                     return Err(
-                        "Native ADB identity directory changed; no identity was replaced.".into(),
+                        "Built-in ADB identity directory changed; no identity was replaced.".into(),
                     );
                 }
             }
@@ -295,7 +295,7 @@ mod unix {
                     &current,
                 )
             {
-                return Err("Native ADB identity path changed; no identity was replaced.".into());
+                return Err("Built-in ADB identity path changed; no identity was replaced.".into());
             }
             Ok(())
         };
@@ -306,11 +306,11 @@ mod unix {
             return Ok(path);
         }
         let bytes = generate().map_err(|_| {
-            "Native ADB identity generation failed; existing identities were not changed."
+            "Built-in ADB identity generation failed; existing identities were not changed."
                 .to_owned()
         })?;
         validate(&bytes).map_err(|_| {
-            "Generated native ADB identity was invalid; nothing was published.".to_owned()
+            "Generated Built-in ADB identity was invalid; nothing was published.".to_owned()
         })?;
         let staging_name = name(&format!(
             ".identity-{}-{}.tmp",
@@ -345,7 +345,7 @@ mod unix {
             != bytes.len() as u64
         {
             return Err(
-                "Native ADB identity staging was incomplete; nothing was published.".into(),
+                "Built-in ADB identity staging was incomplete; nothing was published.".into(),
             );
         }
         staging
@@ -380,7 +380,7 @@ mod unix {
             .map_err(|e| error("staging cleanup sync", e))?;
         if !existing(&dir, &key, &validate)? {
             return Err(
-                "Native ADB identity disappeared after publication; it was not recreated.".into(),
+                "Built-in ADB identity disappeared after publication; it was not recreated.".into(),
             );
         }
         validate_path(&path, &validate)?;

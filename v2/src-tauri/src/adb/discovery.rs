@@ -87,7 +87,7 @@ pub(crate) fn row(
             IpAddr::V4(ip) if ip.is_link_local() || ambiguous => (
                 None,
                 Some(
-                    "This address needs interface selection that direct ADB cannot preserve."
+                    "This address needs interface selection that Built-in ADB can't preserve."
                         .into(),
                 ),
             ),
@@ -244,7 +244,7 @@ impl DiscoveryProvider for MdnsProvider {
             Err(error) => {
                 batch
                     .warnings
-                    .push(format!("Native mDNS discovery could not start: {error}"));
+                    .push(format!("Built-in mDNS discovery could not start: {error}"));
                 return batch;
             }
         };
@@ -525,12 +525,12 @@ impl DiscoveryManager {
     }
     pub async fn snapshot(self: &Arc<Self>, lease: Arc<Lease>) -> AdbResult<NativeDiscoveryReport> {
         if self.cleanup_pending() {
-            return Err(AdbError::Transport("Native discovery cleanup is unconfirmed. Additional discovery is blocked; manual connection remains available.".into()));
+            return Err(AdbError::Transport("Built-in discovery cleanup is unconfirmed. Additional discovery is blocked; manual connection remains available.".into()));
         }
         let gate = self.gate.clone().lock_owned().await;
         if self.cleanup_pending() {
             return Err(AdbError::Transport(
-                "Native discovery cleanup is still pending.".into(),
+                "Built-in discovery cleanup is still pending.".into(),
             ));
         }
         let signal = Arc::new(AtomicBool::new(false));
@@ -557,7 +557,7 @@ impl DiscoveryManager {
             let batch = if signal.load(Ordering::Acquire) {
                 DiscoveryBatch {
                     events: Vec::new(),
-                    warnings: vec!["Discovery was cancelled before browsing.".into()],
+                    warnings: vec!["Discovery was canceled before browsing.".into()],
                     cleanup_confirmed: true,
                 }
             } else {
@@ -570,7 +570,7 @@ impl DiscoveryManager {
                         DiscoveryBatch {
                             events: Vec::new(),
                             warnings: vec![
-                            "Native discovery failed unexpectedly; cleanup cannot be confirmed."
+                            "Built-in discovery failed unexpectedly; cleanup cannot be confirmed."
                                 .into(),
                         ],
                             cleanup_confirmed: false,
@@ -582,7 +582,7 @@ impl DiscoveryManager {
             if !batch.cleanup_confirmed {
                 warnings.insert(
                     0,
-                    "Native discovery shutdown was not confirmed; additional discovery is blocked."
+                    "Built-in discovery shutdown was not confirmed; additional discovery is blocked."
                         .into(),
                 );
                 *manager
@@ -608,7 +608,7 @@ impl DiscoveryManager {
             cache.report(now, warnings)
         })
         .await
-        .map_err(|error| AdbError::Transport(format!("Native discovery worker failed: {error}")))
+        .map_err(|error| AdbError::Transport(format!("Built-in discovery worker failed: {error}")))
     }
 }
 
