@@ -63,7 +63,7 @@ try {
     if (scenario === 'cancel-takeover') page.once('dialog', dialog => dialog.dismiss());
     await button.click();
     if (scenario === 'leave-pending') {
-      await row.getByText('Setting default launcher', { exact: false }).waitFor();
+      await row.getByText('Setting the Home app', { exact: false }).waitFor();
       await page.getByRole('button', { name: 'Back to devices' }).click();
       await page.locator('#tabpanel-launcher').waitFor({ state: 'detached' });
       const before = await page.evaluate(() => launcherCalls.filter(c => ['list_launchers', 'current_launcher'].includes(c.command)).length);
@@ -77,11 +77,11 @@ try {
     await result.waitFor({ timeout: 10000 });
     if (scenario.includes('refresh')) await result.filter({ hasText: 'displayed state may be stale' }).waitFor();
     const message = await result.innerText();
-    if (['success', 'list-refresh', 'current-refresh', 'channel-refresh'].includes(scenario)) assert.match(message, /Projectivy Launcher is now your default launcher/);
+    if (['success', 'list-refresh', 'current-refresh', 'channel-refresh'].includes(scenario)) assert.match(message, /Projectivy Launcher is now your Home app/);
     if (['failure', 'failure-refresh'].includes(scenario)) assert.match(message, /Android refused/);
-    if (scenario === 'unverified') assert.match(message, /Android did not verify.*No success was confirmed/);
+    if (scenario === 'unverified') assert.match(message, /Android didn't confirm .* as the Home app, so it may not have changed/);
     if (scenario === 'noop') assert.match(message, /still resolves to stock/);
-    if (scenario === 'interrupted') assert.match(message, /Could not confirm whether.*Refresh/);
+    if (scenario === 'interrupted') assert.match(message, /Couldn't confirm whether.*Refresh/);
     if (scenario === 'cancel-takeover') assert.match(message, /Stock still holds Home/);
     if (!scenario.includes('refresh')) {
       assert.equal(await row.locator('.launcher-set-result').count(), 1, 'feedback stays beside the clicked launcher');

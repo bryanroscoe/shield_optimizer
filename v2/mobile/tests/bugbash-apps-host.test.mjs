@@ -157,7 +157,7 @@ for (const screen of ["optimize", "diagnostics"]) {
     await sheet.getByRole("button", { name: "Back up APK" }).click();
     const note = sheet.getByRole("status").filter({ hasText: "APK parts" });
     await note.waitFor();
-    assert.match(await note.innerText(), /Saved 2 APK parts to this phone, in ATV Optimizer's private storage\./);
+    assert.match(await note.innerText(), /Saved 2 APK parts to ATV Optimizer's private storage on this phone\./);
     assert.doesNotMatch(await note.innerText(), /export|share|download/i);
     assert.deepEqual(
       await page.evaluate(() => calls.filter((c) => c.command === "backup_apk").map((c) => c.args)),

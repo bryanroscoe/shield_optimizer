@@ -49,7 +49,7 @@
     try {
       staged = await api.inspectApk(serial, path);
     } catch (e) {
-      dropError = `Could not read that APK: ${e}`;
+      dropError = `Couldn't read that APK: ${e}`;
     } finally {
       staging = false;
     }
@@ -85,12 +85,12 @@
         dragging = false;
         const apks = event.payload.paths.filter((path) => path.toLowerCase().endsWith(".apk"));
         if (apks.length === 0) {
-          dropError = "That is not an .apk. Drop an APK file, or use Pick file…";
+          dropError = "That isn't an .apk file. Drop an APK, or click Pick file…";
           return;
         }
         if (apks.length > 1) {
           // Installing several in one gesture would hide which one failed.
-          dropError = `Dropped ${apks.length} APKs — drop one at a time so each result is its own.`;
+          dropError = `Dropped ${apks.length} APKs — drop one at a time.`;
           return;
         }
         dropError = "";
@@ -225,11 +225,11 @@
     if (m) {
       if (m[0].includes("ALREADY_EXISTS")) return "Already installed (same version).";
       if (m[0].includes("VERSION_DOWNGRADE")) return "A newer version is already installed.";
-      if (m[0].includes("NO_MATCHING_ABIS")) return "Wrong CPU architecture for this device.";
-      if (m[0].includes("OLDER_SDK")) return "Needs a newer Android version than this device.";
+      if (m[0].includes("NO_MATCHING_ABIS")) return "Wrong CPU architecture for this TV.";
+      if (m[0].includes("OLDER_SDK")) return "Needs a newer Android version than this TV.";
       return `Install failed (${m[0]}).`;
     }
-    return "Installation not confirmed. Check installed apps before retrying.";
+    return "Couldn't confirm the installation. Check installed apps before trying again.";
   }
 
   function formatBytes(n: number): string {
@@ -272,9 +272,8 @@
   </div>
   <HelpDetails label="Install help">
     <p class="muted small">
-      Pick a file directly, drop one on this tab, or point at a folder and we'll list every APK
-      inside. The folder is kept for next time; scanning it only reads the files and checks which
-      apps this TV already has. Either way, install runs <code>adb install -r &lt;file&gt;</code>.
+      Pick a file, drop one here, or choose a folder to list its APKs. The folder is remembered for
+      next time; scanning only reads the files and checks which apps this TV already has.
     </p>
   </HelpDetails>
 
@@ -295,7 +294,7 @@
         <div class="staged-title">
           <div class="apk-name">{staged.name}</div>
           <div class="muted small mono">
-            {staged.package ?? "package id unreadable"} · {formatBytes(staged.size_bytes)}
+            {staged.package ?? "package name unreadable"} · {formatBytes(staged.size_bytes)}
           </div>
         </div>
       </div>
@@ -321,23 +320,23 @@
         <div class="callout callout-warn">
           <Icon name="warning" size={16} />
           <span>
-            This APK ships native code for {staged.abis.join(", ")}, and this TV
-            reports {staged.device_abis.join(", ")}. It will probably fail to
-            install, or install and crash on launch.
+            This APK is built for {staged.abis.join(", ")}, but this TV reports
+            {staged.device_abis.join(", ")}. It will probably fail to install, or
+            install and crash on launch.
           </span>
         </div>
       {:else if staged.abi_compatible === null && staged.abis.length > 0}
         <div class="callout">
           <Icon name="info" size={16} />
           <span>
-            The TV did not report its architecture, so whether this APK's native
-            code matches could not be checked.
+            The TV didn't report its processor type, so we couldn't check whether
+            this APK matches it.
           </span>
         </div>
       {/if}
       <p class="muted small">
-        Nothing has been installed. This is a third-party build from outside the
-        Play Store — install it only if you know where it came from.
+        Nothing is installed yet. This APK comes from outside the Play Store — install
+        it only if you trust the source.
       </p>
       <div class="staged-actions">
         <button
@@ -447,7 +446,7 @@
          It is the answer to "what do I even install", so it should not be a
          thing you have to know to open. -->
     <aside class="sideload-rail">
-      <p class="rail-label">Popularly requested sideloads · {sideloadCatalog.length}</p>
+      <p class="rail-label">Popular sideloads · {sideloadCatalog.length}</p>
       <ul class="catalog-list">
         {#each sideloadCatalog as entry (entry.package)}
           <li>

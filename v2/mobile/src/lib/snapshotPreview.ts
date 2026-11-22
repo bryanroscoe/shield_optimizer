@@ -42,7 +42,7 @@ export function launcherSkipNote(plan: SnapshotApplyPlan): string | null {
   if (plan.launcher_not_installed) return `${plan.launcher_not_installed} isn't installed on this TV.`;
   const disabled = homeSafety(plan).launcher_disabled;
   if (disabled) {
-    return `${disabled} is disabled on this TV, and a restore never re-enables anything. Enable it first, then restore again.`;
+    return `${disabled} is disabled on this TV, and restoring a snapshot never re-enables anything. Enable it first, then restore again.`;
   }
   return null;
 }
@@ -68,7 +68,7 @@ export function previewRows(plan: SnapshotApplyPlan, snapshotLauncher: string | 
     });
   }
   for (const pkg of plan.packages_absent_skipped ?? []) {
-    unchanged.push({ item: pkg, now: "—", result: "Recorded absent; unchanged because saved-TV hardware identity is unverified", kind: "disable" });
+    unchanged.push({ item: pkg, now: "—", result: "Skipped: recorded absent, and this TV's hardware ID isn't verified against the snapshot", kind: "disable" });
   }
   if (plan.launcher_to_set) {
     acting.push({
@@ -128,12 +128,12 @@ export function previewSummary(plan: SnapshotApplyPlan): string {
   const parts = [
     `${plan.packages_to_disable.length} to disable`,
     `${plan.packages_already_disabled.length} already disabled`,
-    `${plan.packages_not_installed.length} not on device`,
-    `${settings} setting${settings === 1 ? "" : "s"} to write`,
+    `${plan.packages_not_installed.length} not installed`,
+    `${settings} setting${settings === 1 ? "" : "s"} to change`,
     `${plan.settings_to_delete.length} to reset`,
   ];
   const absent = plan.packages_absent_skipped?.length ?? 0;
-  if (absent > 0) parts.push(`${absent} recorded absent; unchanged`);
+  if (absent > 0) parts.push(`${absent} recorded absent (skipped)`);
   const kept = homeSafety(plan).packages_kept.length;
   if (kept > 0) parts.push(`${kept} kept on for Home`);
   if (plan.launcher_to_set) parts.push("Home app");
@@ -175,7 +175,7 @@ export function restoreOutcome(
     rows.push(
       cut > 0
         ? { item: entry.slice(0, cut), reason: entry.slice(cut + 2) }
-        : { item: entry, reason: "Couldn't write it." },
+        : { item: entry, reason: "Couldn't change it." },
     );
   }
   return rows;

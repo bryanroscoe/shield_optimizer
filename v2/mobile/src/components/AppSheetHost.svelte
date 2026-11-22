@@ -220,7 +220,7 @@
     void run(async (t) => {
       const r = await settleChange(api.enablePackage(t.serial, a.package));
       if (!current(t)) return;
-      onToast(r.ok ? `Enabled ${label(a)}.` : r.message || "Enable failed.", r.ok ? "success" : "error");
+      onToast(r.ok ? `Enabled ${label(a)}.` : r.message || "Couldn't enable the app.", r.ok ? "success" : "error");
       changed(t);
       if (r.ok) closeSelection();
     });
@@ -307,7 +307,7 @@
         changed(t);
         closeSelection();
       } else {
-        onToast(r.message || "Reinstall failed. Try the Play Store.", "error");
+        onToast(r.message || "Couldn't reinstall. Try the Play Store instead.", "error");
       }
     });
   }

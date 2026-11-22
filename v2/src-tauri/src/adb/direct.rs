@@ -297,7 +297,7 @@ impl DirectNetworkAdb {
             .ok_or(AdbError::ShuttingDown)?;
         let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
         serial.parse::<std::net::SocketAddr>().map_err(|_| {
-            AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
+            AdbError::Transport("Built-in ADB requires a numeric IP address and port.".into())
         })?;
         let deadline = tokio::time::Instant::now()
             .checked_add(valid_for)
@@ -330,7 +330,10 @@ impl DirectNetworkAdb {
                     });
                 }
                 if jobs.len() >= MAX_SESSIONS {
-                    return Err(AdbError::Transport("Native scan connection limit reached; wait for pending connections to finish.".into()));
+                    return Err(AdbError::Transport(
+                        "Scan connection limit reached; wait for pending connections to finish."
+                            .into(),
+                    ));
                 }
                 let (sender, receiver) = watch::channel(None);
                 let pool = self.pool.clone();
@@ -344,7 +347,7 @@ impl DirectNetworkAdb {
                             .map_err(|_| {
                                 "Advertisement expired while queued; scan again.".to_string()
                             })?
-                            .map_err(|_| "Native scan is shutting down.".to_string())?;
+                            .map_err(|_| "Scan is shutting down.".to_string())?;
                         match tokio::time::timeout(
                             Duration::from_secs(45),
                             pool.connect(
@@ -399,7 +402,7 @@ impl DirectNetworkAdb {
             .ok_or(AdbError::ShuttingDown)?;
         let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
         serial.parse::<std::net::SocketAddr>().map_err(|_| {
-            AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
+            AdbError::Transport("Built-in ADB requires a numeric IP address and port.".into())
         })?;
         if self.closing.load(Ordering::Acquire) {
             return Err(AdbError::ShuttingDown);
@@ -485,7 +488,7 @@ impl DirectNetworkAdb {
                 }
                 tracing::info!(serial = %serial, "approval request: the TV did not answer");
                 return Err(AdbError::Transport(format!(
-                    "The TV at {serial} didn't answer within {} seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.",
+                    "The TV at {serial} didn't respond within {} seconds, so it wasn't asked. Check that it's awake and on the same network, then try again.",
                     APPROVAL_START_WAIT.as_secs()
                 )));
             }
@@ -721,7 +724,7 @@ impl ConnectionPool {
             .map(|slot| slot.session.clone())
             .ok_or_else(|| {
                 AdbError::Transport(format!(
-                    "Direct ADB is not connected to {serial}. Use Add by IP."
+                    "Built-in ADB is not connected to {serial}. Use Add by IP."
                 ))
             })
     }
@@ -759,7 +762,7 @@ impl ConnectionPool {
             .ok_or(AdbError::ShuttingDown)?;
         let serial = normalize_connect_address(address).map_err(AdbError::Transport)?;
         let endpoint: std::net::SocketAddr = serial.parse().map_err(|_| {
-            AdbError::Transport("Direct ADB requires a numeric IP address and port.".into())
+            AdbError::Transport("Built-in ADB requires a numeric IP address and port.".into())
         })?;
         let _lifecycle = if let Some(deadline) = lock_until {
             match tokio::time::timeout_at(deadline, self.lock_target(&serial)).await {
@@ -805,7 +808,7 @@ impl ConnectionPool {
             });
             if !sessions.contains_key(&serial) && sessions.len() >= MAX_SESSIONS {
                 return Err(AdbError::Transport(
-                    "Direct ADB session limit reached. Use Forget on a TV row to disconnect it first.".into(),
+                    "Built-in ADB session limit reached. Use Forget on a TV row to disconnect it first.".into(),
                 ));
             }
             let slot = sessions.entry(serial.clone()).or_insert_with(|| Slot {
@@ -863,7 +866,7 @@ impl ConnectionPool {
         if !session.ready().await {
             self.sessions.lock().await.remove(&serial);
             return Err(AdbError::Transport(format!(
-                "Direct ADB did not confirm {serial} is ready."
+                "Built-in ADB did not confirm {serial} is ready."
             )));
         }
         self.clear_not_allowed(&serial);
@@ -883,7 +886,7 @@ async fn wait_scan_result(
         result
             .changed()
             .await
-            .map_err(|_| "Native scan connection was canceled.".to_string())?;
+            .map_err(|_| "Scan connection was canceled.".to_string())?;
     }
 }
 
@@ -950,7 +953,7 @@ fn mdns_services_output(report: &NativeDiscoveryReport) -> AdbResult<AdbOutput> 
     let services = native_mdns_services(report, Duration::ZERO);
     if services.is_empty() && !report.warnings.is_empty() {
         return Err(AdbError::Transport(format!(
-            "Native mDNS discovery failed: {}",
+            "Built-in mDNS discovery failed: {}",
             report.warnings.join(" ")
         )));
     }
@@ -958,7 +961,7 @@ fn mdns_services_output(report: &NativeDiscoveryReport) -> AdbResult<AdbOutput> 
 }
 
 fn unsupported() -> AdbError {
-    AdbError::Transport("This operation is unavailable in the built-in ADB engine. To use it, choose Google platform-tools under Settings > ADB engine; no automatic fallback was performed.".into())
+    AdbError::Transport("This operation isn't available in Built-in ADB. To use it, choose Google platform-tools under Settings → ADB → ADB engine; no automatic fallback was performed.".into())
 }
 
 impl Drop for DirectNetworkAdb {
@@ -1017,7 +1020,7 @@ impl AdbDriver for DirectNetworkAdb {
                     }),
                     None if job.task.is_finished() => progress.failed.push(ScanConnectionFailure {
                         address: address.clone(),
-                        message: "Native scan connection was canceled.".into(),
+                        message: "Scan connection was canceled.".into(),
                     }),
                     None => progress.pending.push(address.clone()),
                 }
@@ -1063,7 +1066,7 @@ impl AdbDriver for DirectNetworkAdb {
         }
         if self.pool.operations.active() != 0 {
             return ServerStop::Skipped(
-                "Direct ADB work is still running; owned sockets were left alone.".into(),
+                "Built-in ADB work is still running; owned sockets were left alone.".into(),
             );
         }
         let mut sessions = self.pool.sessions.lock().await;
@@ -1073,14 +1076,14 @@ impl AdbDriver for DirectNetworkAdb {
             }
         }
         sessions.clear();
-        ServerStop::Skipped("Closed direct ADB sockets; there is no host server to stop.".into())
+        ServerStop::Skipped("Closed Built-in ADB sockets; there is no host server to stop.".into())
     }
 
     async fn raw(&self, args: &[&str]) -> AdbResult<AdbOutput> {
         match args {
             ["devices"] | ["devices", "-l"] => self.devices().await,
             ["version"] => Ok(output(
-                "Experimental direct ADB (shared Android transport); no host adb server".into(),
+                "Built-in ADB (shared Android transport); no host adb server".into(),
             )),
             ["connect", address] => self.connect_foreground(address).await,
             ["pair", address, code] => {
@@ -1994,7 +1997,7 @@ mod tests {
         );
         assert!(progress.not_allowed.is_empty(), "nothing refused");
         let error = request.await.unwrap().unwrap_err().to_string();
-        assert!(error.contains("didn't answer"), "{error}");
+        assert!(error.contains("didn't respond"), "{error}");
         assert!(!error.contains("Allow"), "{error}");
         assert!(!driver.pool.approval_active(target));
         let progress = driver.scan_connection_progress().await;
@@ -3231,7 +3234,12 @@ mod tests {
                     )
                 },
                 |_| batch(Vec::new(), &[]),
-                |_| batch(Vec::new(), &["Native mDNS discovery could not start: test"]),
+                |_| {
+                    batch(
+                        Vec::new(),
+                        &["Built-in mDNS discovery could not start: test"],
+                    )
+                },
             ],
         );
 

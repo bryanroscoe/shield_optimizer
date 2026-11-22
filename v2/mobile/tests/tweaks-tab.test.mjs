@@ -123,20 +123,20 @@ test("Turning the hooks back on is free; turning them off opens the paywall", as
 
 test("hooks row is hidden when the package is missing and on non-Shield read failures", async (t) => {
   const page = await open(t, "tweaks", { hooks: "missing" });
-  await page.getByText("Remote Assistant Button", { exact: true }).waitFor();
+  await page.getByText("Remote Assistant button", { exact: true }).waitFor();
   assert.equal(await page.getByText("Nvidia System Hooks", { exact: true }).count(), 0);
 
   const tv = await open(t, "tweaks", { deviceType: "google_tv" });
   await tv.evaluate(() => { handlers.package_states = () => Promise.reject("pm failed"); });
   await tv.getByRole("button", { name: "Re-read settings" }).click();
-  await tv.getByText("Remote Assistant Button", { exact: true }).waitFor();
+  await tv.getByText("Remote Assistant button", { exact: true }).waitFor();
   await tv.waitForFunction(() => calls.filter((c) => c.command === "package_states").length >= 2);
   assert.equal(await tv.getByText("Nvidia System Hooks", { exact: true }).count(), 0);
 });
 
 test("Assistant button revokes the mic through set_app_permission and re-reads", async (t) => {
   const page = await open(t, "tweaks", { pro: true });
-  const group = page.getByRole("group", { name: "Remote Assistant Button" });
+  const group = page.getByRole("group", { name: "Remote Assistant button" });
   await group.waitFor();
   await group.getByRole("button", { name: "Off", exact: true }).click();
   await page.getByText("Mic off", { exact: true }).waitFor();
@@ -182,7 +182,7 @@ test("a refused screensaver flag stops before the component is written", async (
       : { ok: true, message: "done" };
   });
   await page.locator('[data-tweak="screensaver"]').getByRole("button", { name: "Off", exact: true }).click();
-  await page.getByText(/screensaver was left unchanged/).waitFor();
+  await page.getByText(/refused the screensaver change \(denied\)\. Nothing changed\./).waitFor();
   assert.deepEqual((await writes(page, "write_setting")).map((a) => a.key), ["screensaver_enabled"]);
 });
 
@@ -403,7 +403,7 @@ if (process.env.MOBILE_POLISH_EVIDENCE === "1") test("capture simulated settings
     handlers.get_display_scaling = () => ({ size: "Physical size: 3840x2160\nOverride size: 1920x1080", density: "Physical density: 640\nOverride density: 320" });
   });
   await page.getByRole('button', { name: 'Re-read settings' }).click();
-  await page.getByText('Reported cached-process cap: 32', { exact: true }).waitFor();
+  await page.getByText('Reported cached-process limit: 32', { exact: true }).waitFor();
   await page.screenshot({ path: `${dir}/settings-simulated.png`, fullPage: true });
   await page.waitForTimeout(700);
   const dns = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
@@ -501,7 +501,7 @@ for (const action of ["Basic Daydream", "Restore previous"]) {
         tweaks[args.key] = args.value || null; return { ok: true, message: "done" };
       };
     });
-    await button().click(); await page.getByText(/switch was not confirmed/).waitFor();
+    await button().click(); await page.getByText(/on\/off setting wasn't confirmed/).waitFor();
     assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
     assert.equal(await page.evaluate(() => tweaks.screensaver_components), action === "Restore previous" ? VENDOR : BASIC);
     assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_components", "screensaver_enabled"]);
@@ -518,7 +518,7 @@ test("Off keeps the switch disabled if component clearing fails", async t => {
     };
   });
   await page.locator('[data-tweak="screensaver"]').getByRole("button", { name: "Off", exact: true }).click();
-  await page.getByText(/component was not confirmed/).waitFor();
+  await page.getByText(/screensaver choice wasn't confirmed/).waitFor();
   assert.equal(await page.evaluate(() => tweaks.screensaver_enabled), "0");
   assert.equal(await page.evaluate(() => tweaks.screensaver_components), VENDOR);
   assert.deepEqual((await writes(page, "write_setting")).map(a => a.key), ["screensaver_enabled", "screensaver_components"]);
@@ -762,9 +762,9 @@ test("display scaling, screensaver and cached-process help match desktop's visib
   for (const [summary, routine] of [
     ["About display scaling", /The resolution Android draws its menus at/],
     ["About cached processes", /not a count of running apps/],
-    ["About screensavers", /Restore previous also brings\s+back a custom screensaver/],
+    ["About screensavers", /Restore previous also\s+brings back a custom screensaver/],
     ["About screensavers", /Previous is what was set when Tweaks first read this TV\./],
-    ["About audio passthrough", /Actual playback depends on receiver and app support/],
+    ["About audio passthrough", /Actual playback depends on your receiver and app/],
   ]) {
     const text = page.getByText(routine);
     assert.equal(await text.isVisible(), false, summary);
@@ -775,6 +775,6 @@ test("display scaling, screensaver and cached-process help match desktop's visib
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "detached" });
   }
-  const legacy = page.getByText(/Removing this deletes only the stored value; it does not set the reported cap\./);
+  const legacy = page.getByText(/Removing it deletes only this stored value and doesn't change Android's reported limit\./);
   assert.equal(await legacy.evaluate((el) => !!el.closest("details")), false);
 });

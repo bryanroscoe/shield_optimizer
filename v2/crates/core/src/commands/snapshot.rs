@@ -633,7 +633,7 @@ async fn apply_snapshot_impl(
         (launcher_set, launcher_message) = switch_launcher(state, serial, launcher).await;
     } else if let Some(launcher) = &plan.launcher_disabled {
         launcher_message = Some(format!(
-            "{launcher} is disabled; enable it first, then restore"
+            "{launcher} is disabled; re-enable it first, then restore"
         ));
     } else if let Some(launcher) = &plan.launcher_not_installed {
         launcher_message = Some(format!("{launcher} isn't installed; skipped"));
@@ -713,15 +713,15 @@ async fn apply_snapshot_impl(
                     packages_disabled.retain(|p| p != stock);
                     drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                     packages_failed.push(if restored {
-                        format!("{stock} (turned back on: no other launcher took Home)")
+                        format!("{stock} (re-enabled: no other launcher took Home)")
                     } else {
-                        format!("{stock} (no other launcher took Home and turning it back on failed; use Emergency Recovery)")
+                        format!("{stock} (no other launcher took Home and re-enabling it failed; use Emergency recovery)")
                     });
                 } else {
                     helper_notes.push(format!(
-                        "{stock} is off but Google TV's setup helper (Setup Wraith) is still on and \
-                         can take the Home button. Set another launcher as Home, then use Turn it \
-                         off on the Launcher tab."
+                        "{stock} is disabled, but Google TV's setup helper (Setup Wraith) is still enabled \
+                         and can take the Home button. Set another launcher as Home, then use \
+                         Disable Setup Wraith in Launcher."
                     ));
                 }
             }
@@ -733,7 +733,7 @@ async fn apply_snapshot_impl(
         apply_settings_from_plan(adb.as_ref(), serial, &plan).await;
 
     let mut summary = format!(
-        "Disabled {} packages ({} failed). Launcher: {}. {} settings written, {} reset ({} failed).",
+        "Disabled {} apps ({} failed). Launcher: {}. {} settings updated, {} reset ({} failed).",
         packages_disabled.len(),
         real_failures(&packages_failed, &kept),
         launcher_outcome(&plan, launcher_set),
@@ -743,7 +743,7 @@ async fn apply_snapshot_impl(
     );
     if !plan.packages_absent_skipped.is_empty() {
         summary.push_str(&format!(
-            " Left {} {} recorded as absent unchanged (saved TV identity is unverified).",
+            " Left {} {} recorded as absent unchanged (this TV's hardware ID isn't verified against the snapshot).",
             plan.packages_absent_skipped.len(),
             if plan.packages_absent_skipped.len() == 1 {
                 "app"
@@ -801,7 +801,7 @@ fn launcher_outcome(plan: &SnapshotApplyPlan, launcher_set: bool) -> String {
         return format!("failed ({launcher} wasn't set as Home)");
     }
     if let Some(launcher) = &plan.launcher_disabled {
-        return format!("skipped ({launcher} is disabled; enable it first, then restore)");
+        return format!("skipped ({launcher} is disabled; re-enable it first, then restore)");
     }
     if let Some(launcher) = &plan.launcher_not_installed {
         return format!("skipped ({launcher} isn't installed)");
@@ -1394,13 +1394,13 @@ mod tests {
         assert_eq!(res.packages_absent_skipped, [GONE, "com.example.missing"]);
         assert!(res.packages_failed.is_empty(), "{:?}", res.packages_failed);
         assert!(
-            res.summary.starts_with("Disabled 1 packages (0 failed)."),
+            res.summary.starts_with("Disabled 1 apps (0 failed)."),
             "{}",
             res.summary
         );
         assert!(
             res.summary.contains(
-                "Left 2 apps recorded as absent unchanged (saved TV identity is unverified)."
+                "Left 2 apps recorded as absent unchanged (this TV's hardware ID isn't verified against the snapshot)."
             ),
             "{}",
             res.summary
@@ -1656,7 +1656,7 @@ mod tests {
         // isn't on this TV was skipped, not left "unchanged".
         assert!(
             res.summary.starts_with(
-                "Disabled 1 packages (0 failed). Launcher: skipped (com.spocky.projengmenu isn't installed)."
+                "Disabled 1 apps (0 failed). Launcher: skipped (com.spocky.projengmenu isn't installed)."
             ),
             "{}",
             res.summary
@@ -1700,7 +1700,7 @@ mod tests {
         );
         assert_eq!(
             launcher_outcome(&launcher_plan(None, Some(PROJECTIVY), None), false),
-            format!("skipped ({PROJECTIVY} is disabled; enable it first, then restore)")
+            format!("skipped ({PROJECTIVY} is disabled; re-enable it first, then restore)")
         );
         assert_eq!(
             launcher_outcome(&launcher_plan(None, None, Some(PROJECTIVY)), false),
@@ -1772,11 +1772,13 @@ mod tests {
         assert!(!res.launcher_set);
         assert_eq!(
             res.launcher_message,
-            Some(format!("{GTV} is disabled; enable it first, then restore"))
+            Some(format!(
+                "{GTV} is disabled; re-enable it first, then restore"
+            ))
         );
         assert!(
             res.summary.contains(&format!(
-                "Launcher: skipped ({GTV} is disabled; enable it first, then restore)"
+                "Launcher: skipped ({GTV} is disabled; re-enable it first, then restore)"
             )),
             "{}",
             res.summary

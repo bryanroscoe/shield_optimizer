@@ -23,23 +23,23 @@
   const features: { icon: string; title: string; desc: string }[] = [
     {
       icon: "auto_fix_high",
-      title: "Curated debloat & one-tap optimize",
-      desc: "Safely disable or uninstall known TV bloat.",
+      title: "Optimize & debloat",
+      desc: "Disable or uninstall known TV bloat, with safety checks.",
     },
     {
       icon: "photo_camera_back",
       title: "Snapshots",
-      desc: "Record which packages are disabled, plus the launcher and tracked settings — then re-apply that set to this TV later.",
+      desc: "Save which apps are disabled, your Home app and tracked settings, then reapply them to this TV later.",
     },
     {
       icon: "home",
-      title: "Launcher takeover",
-      desc: "Set a custom launcher and disable the stock one.",
+      title: "Custom launchers",
+      desc: "Set a custom Home app and disable the stock launcher.",
     },
     {
       icon: "tune",
-      title: "Write tweaks — CEC, frame rate, DNS",
-      desc: "Tune low-level system settings.",
+      title: "System tweaks",
+      desc: "Change HDMI-CEC, frame rate, audio, display scaling, Private DNS and more.",
     },
   ];
 
@@ -109,7 +109,7 @@
           </div>
           <p class="paywall-free">
             <span class="msr" aria-hidden="true">verified_user</span>
-            <span>{FREE_RECOVERY_PROMISE} Undoing settings, Home app or snapshot changes needs Pro.</span>
+            <span>{FREE_RECOVERY_PROMISE} Undoing settings, Home app, or snapshot changes requires Pro.</span>
           </p>
           {#if !session.isPro && !billing.available}
             <p class="paywall-status">{billing.unavailableReason}</p>
@@ -173,7 +173,7 @@
             Enter license key
           </button>
         {/if}
-        <button class="ghost paywall-later" onclick={onClose}>Maybe later</button>
+        <button class="ghost paywall-later" onclick={onClose}>Not now</button>
       </div>
       <button type="button" class="paywall-close" aria-label="Close" onclick={onClose}>
         <span class="msr" aria-hidden="true">close</span>

@@ -257,7 +257,7 @@
     {:else}
       <div class="callout accent">
         <span class="msr">cast</span>
-        <span class="callout-text">No TV connected. Pair one to get started.</span>
+        <span class="callout-text">No TV connected. Add one to get started.</span>
       </div>
     {/if}
 
@@ -304,7 +304,7 @@
     {/if}
 
     <HelpSheet title="About saved TVs">
-      <p>Your phone remembers each paired TV, so reconnecting is one tap — no code needed.</p>
+      <p>Your phone remembers each saved TV, so reconnecting is one tap — no code needed.</p>
     </HelpSheet>
   </div>
 
@@ -314,7 +314,7 @@
     open={forgetTarget !== null}
     icon="close"
     title={`Forget ${forgetTarget?.name ?? "this TV"}?`}
-    message="It's removed from this list. You can pair it again any time — the TV isn't affected."
+    message="Removes it from this list. Nothing changes on the TV, and you can add it again anytime."
     confirmLabel="Forget"
     onConfirm={() => forgetTarget && doForget(forgetTarget)}
     onCancel={() => (forgetTarget = null)}

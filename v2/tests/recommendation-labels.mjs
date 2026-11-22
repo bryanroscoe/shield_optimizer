@@ -86,8 +86,8 @@ async function checkRemovalHelp(page, root, where) {
   await page.keyboard.press("Enter");
   await panel.waitFor({ state: "visible" });
   const text = await panel.innerText();
-  assert.match(text, /Disable is suggested for every review app/);
-  assert.match(text, /does not prove Play Store origin/);
+  assert.match(text, /Disable is suggested for every REVIEW app/);
+  assert.match(text, /doesn't prove an app came from the Play Store/);
   assert.match(text, /Recorded absent apps are left unchanged/);
   await page.keyboard.press("Escape");
   await panel.waitFor({ state: "hidden" });

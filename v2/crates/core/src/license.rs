@@ -129,7 +129,7 @@ impl std::fmt::Display for LicenseError {
             ),
             LicenseError::UnknownKey(id) => write!(
                 f,
-                "That license key was signed by an unknown key (id {id}). Update the app, or contact support for a replacement."
+                "That license key wasn't recognized (signing key ID {id}). Update the app, or contact support for a replacement."
             ),
             LicenseError::UnsupportedVersion(v) => write!(
                 f,

@@ -127,15 +127,15 @@
     } catch {
       fallbackUrl = url;
       message = prefilled
-        ? "Couldn't open the browser from here. Copy the link, open it in your browser, and review the filled-in report before submitting."
-        : `Couldn't open the browser from here. ${copiedFirst ? "The report is on your clipboard. " : ""}Copy the link, open it in your browser, then paste the report into the Report field.`;
+        ? "Couldn't open your browser. Copy the link, open it in a browser, and review the report before submitting."
+        : `Couldn't open your browser. ${copiedFirst ? "The report is on your clipboard. " : ""}Copy the link, open it in a browser, then paste the report into the Report field.`;
       return;
     }
     message = prefilled
       ? "The GitHub form opened with this report filled in. Review it there, then submit it yourself."
       : copiedFirst
-        ? "This report is too long to fill in for you, so it's on your clipboard. Paste it into the Report field on GitHub."
-        : "This report is too long to fill in for you. Copy it, then paste it into the Report field on GitHub.";
+        ? "This report is too long to prefill, so it's on your clipboard. Paste it into the Report field on GitHub."
+        : "This report is too long to prefill. Copy it, then paste it into the Report field on GitHub.";
   }
 
   async function copyLink() {
@@ -166,11 +166,11 @@
 
     <p class="lede">Nothing is sent automatically. Any GitHub issue is one you review and submit yourself.</p>
     <HelpSheet title="How reporting works">
-      <p>Copy the report, or open a GitHub issue with it filled in. A report asks for a review; it never changes how the app rates this package. Copy puts report text on your clipboard; it does not save a file. Opening a long report may also copy its text before the GitHub form opens.</p>
+      <p>Copy the report or open a prefilled GitHub issue. A report asks for a review and never changes how ATV Optimizer rates this app. Copy puts the report on your clipboard and doesn't save a file. Opening a long report may also copy it before the GitHub form opens.</p>
     </HelpSheet>
 
     {#if !report}
-      <p class="alert" role="alert">This package id can't be carried by a report.</p>
+      <p class="alert" role="alert">This package name can't be included in a report.</p>
     {:else}
       <fieldset class="reasons">
         <legend>What's wrong</legend>
@@ -205,8 +205,8 @@
       </label>
 
       <p class="fine">
-        It carries no serial number, no IP address and no other installed packages. An address,
-        this TV's serial or another app's package id in the note is replaced with [redacted].
+        It includes no serial number, IP address or other installed apps. An address, this TV's
+        serial number or another app's package name in your note is replaced with [redacted].
       </p>
 
       <button class="preview-toggle" onclick={() => (previewOpen = !previewOpen)} aria-expanded={previewOpen}>

@@ -44,7 +44,7 @@ export function summarizeFind(result: FindResult): FindSummary {
 }
 
 export function unsearchedMessage(dirs: string[]): string {
-  return `Couldn't search ${dirs.join(", ")} — the TV didn't answer. Check the connection and try again.`;
+  return `Couldn't search ${dirs.join(", ")} — the TV didn't respond. Check the connection and try again.`;
 }
 
 export const NO_MATCHES_MESSAGE = "No matches — export from the app first, then search again.";

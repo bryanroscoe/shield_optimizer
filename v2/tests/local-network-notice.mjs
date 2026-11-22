@@ -114,7 +114,7 @@ async function run(browser, base) {
     assert.equal(await trigger.getAttribute("aria-expanded"), "true");
     const help = await helpText.innerText();
     for (const phrase of [
-      "then Local Network, and turn ATV Optimizer on",
+      "→ Local Network and turn ATV Optimizer on",
       "turn it off and on again",
       "If it's listed more than once, turn all of them on",
       "Then Restart ADB",
@@ -183,7 +183,7 @@ async function run(browser, base) {
       "the failure re-probes with the TV it was about",
     );
     const stale = await err.innerText();
-    assert.match(stale, /Couldn't reach 192\.168\.1\.9\. Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running\./);
+    assert.match(stale, /Couldn't reach 192\.168\.1\.9\. Try Restart ADB first\. After an update, macOS can block the ADB server left over from the previous version\./);
     assert.doesNotMatch(stale, /Local Network|Privacy|blocking/);
     const remedies = page.locator(".connect-form .remedies");
     await remedies.waitFor();
@@ -223,7 +223,7 @@ async function run(browser, base) {
     const macHelp = page.locator(".help-details .local-network-help");
     await macHelp.waitFor();
     const macText = await macHelp.innerText();
-    assert.match(macText, /On a Mac, after an update, macOS can cut off an ADB server the earlier version left running, and Restart ADB replaces it\./);
+    assert.match(macText, /On a Mac, after an update, macOS can block the ADB server left over from the previous version, and Restart ADB replaces it\./);
     assert.match(macText, /check that ATV Optimizer is on in Privacy & Security → Local Network/);
     await shot("local-network-connection-help");
     await macHelp.getByRole("button", { name: "Privacy & Security", exact: true }).click();
@@ -237,7 +237,7 @@ async function run(browser, base) {
       window.ln.status = "blocked";
     });
     await page.reload({ waitUntil: "networkidle" });
-    await page.getByTestId("adb-backend").getByText("Native Rust ADB · direct connection").waitFor();
+    await page.getByTestId("adb-backend").getByText("Built-in · direct connection").waitFor();
     await notice.waitFor();
     const nativeTrigger = notice.getByRole("button", { name: `About ${BLOCKED}`, exact: true });
     await nativeTrigger.click();

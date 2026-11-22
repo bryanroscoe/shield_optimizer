@@ -300,11 +300,11 @@
   },
   "com.nvidia.shield.remotelocator": {
     "name": "Remote Locator",
-    "description": "Makes a SHIELD remote beep so you can find it."
+    "description": "Makes a Shield remote beep so you can find it."
   },
   "com.nvidia.shield.smbserver": {
     "name": "SMB Server",
-    "description": "Shares SHIELD storage on your network as a Windows (SMB) share."
+    "description": "Shares Shield storage on your network as a Windows (SMB) share."
   },
   "com.klevico.monet": {
     "name": "Monet Launcher - Android TV",

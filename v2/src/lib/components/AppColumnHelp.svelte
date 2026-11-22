@@ -9,15 +9,15 @@
 
 {#if column === "app"}
   <HelpTip label="App" inline>
-    <p><strong>REVIEW</strong> marks an app worth a second look: check whether you actually use it before removing it.</p>
+    <p><strong>REVIEW</strong> marks an app to check before removing it: keep it if anyone uses it.</p>
   </HelpTip>
 {:else if column === "ram"}
   <HelpTip label="RAM" inline>
-    <p>Resident RAM right now (dumpsys meminfo). A number means the app is running; a dash means it isn't in memory.</p>
+    <p>RAM in use right now. A number means the app is running; a dash means it isn't in memory.</p>
   </HelpTip>
 {:else}
   <HelpTip label="Last used" inline>
     <p>Last foreground use, from Android's usage history.</p>
-    <p>Android keeps roughly a year of it and a factory reset clears it, so a dash can mean the record aged out rather than that the app was never opened.</p>
+    <p>Android keeps about a year of history and clears it on a factory reset, so a dash doesn't prove the app was never opened.</p>
   </HelpTip>
 {/if}

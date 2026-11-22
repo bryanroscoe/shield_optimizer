@@ -321,7 +321,7 @@ pub fn refusal_message(kind: UploadKind, status: u16, body: &str) -> String {
         (UploadKind::Bug, 429, Some("upload_global_cap")) => "Bug report limit reached: the developer's server has taken all the reports it can for today. Try again tomorrow, or report it on GitHub instead.".to_string(),
         (UploadKind::Bug, 429, _) => "Bug report limit reached: this app has sent today's maximum. Try again tomorrow, or report it on GitHub instead.".to_string(),
         (kind, 400, Some(code)) => format!("{} failed: the server refused it ({code}).", kind.noun()),
-        (kind, status, _) => format!("{} failed: the server answered {status}.", kind.noun()),
+        (kind, status, _) => format!("{} failed: the server responded with {status}.", kind.noun()),
     }
 }
 
@@ -590,12 +590,12 @@ mod tests {
         // A reason that isn't a plain code is not repeated to the user.
         assert_eq!(
             refusal_message(UploadKind::Bug, 400, r#"{"error":"<b>x</b>"}"#),
-            "Bug report failed: the server answered 400."
+            "Bug report failed: the server responded with 400."
         );
         assert!(refusal_message(UploadKind::Logs, 429, "").starts_with("Log upload limit reached"));
         assert_eq!(
             refusal_message(UploadKind::Logs, 503, ""),
-            "Log upload failed: the server answered 503."
+            "Log upload failed: the server responded with 503."
         );
     }
 }

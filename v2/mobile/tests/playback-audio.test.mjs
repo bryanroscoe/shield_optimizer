@@ -79,7 +79,7 @@ test("Free diagnostics reports are explicit, honest and per-interface", async (t
   assert.equal(await page.evaluate(() => calls.filter((call) => ["media_report", "resource_sample"].includes(call.command)).length), 0);
   await page.getByRole("button", { name: "Read playback report" }).click();
   await page.getByText("Listed; acceleration unknown", { exact: true }).waitFor();
-  assert.equal(await page.getByText("Unknown / not reported", { exact: true }).count(), 2);
+  assert.equal(await page.getByText("Not reported", { exact: true }).count(), 2);
   assert.equal(await page.getByText("Default / unset", { exact: true }).count(), 2);
   await page.getByRole("button", { name: "Sample resources" }).click();
   const wlan = page.getByRole("listitem", { name: "Interface wlan0", exact: true });
@@ -241,9 +241,9 @@ test("empty reports and failed rereads retain honest unavailable states and keyb
   await read.focus();
   await page.keyboard.press("Enter");
   await page.getByText("None / unset", { exact: true }).waitFor();
-  assert.equal(await page.getByText("Unknown / not reported", { exact: true }).count(), 2);
+  assert.equal(await page.getByText("Not reported", { exact: true }).count(), 2);
   await page.getByRole("button", { name: "Sample resources" }).click();
-  await page.getByText("No network counters available.", { exact: true }).waitFor();
+  await page.getByText("No network stats available.", { exact: true }).waitFor();
   assert.equal(await page.getByRole("region", { name: "Resource sample" }).getByText("Unavailable", { exact: true }).count(), 2);
   await page.evaluate(() => { handlers.media_report = () => Promise.reject("Configuration could not be read from this TV."); });
   await read.click();

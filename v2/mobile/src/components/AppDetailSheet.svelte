@@ -277,36 +277,36 @@
   const memoryFigure = $derived.by((): Figure => {
     const m = measures.memory;
     const p = pending(m);
-    if (p) return { value: p, scope: "RAM in use, from dumpsys meminfo" };
+    if (p) return { value: p, scope: "RAM in use" };
     if (m.status === "unavailable") {
-      return { value: "Unavailable", scope: `dumpsys meminfo failed at ${measuredAt(m.at)}`, warn: true };
+      return { value: "Unavailable", scope: `Couldn't read RAM use at ${measuredAt(m.at)}`, warn: true };
     }
     if (m.status !== "ready") return { value: "", scope: "" };
     if (memoryMb != null && memoryMb > 0) {
       return {
         value: `${memoryMb.toFixed(memoryMb >= 100 ? 0 : 1)} MB`,
-        scope: `RAM in use at ${measuredAt(m.at)}, not a promise of what stopping it frees`,
+        scope: `In use at ${measuredAt(m.at)}. Stopping the app may free less.`,
       };
     }
-    return { value: "Not running", scope: `No process for this app at ${measuredAt(m.at)}` };
+    return { value: "Not running", scope: `Checked at ${measuredAt(m.at)}` };
   });
 
   const storageFigure = $derived.by((): Figure => {
     const m = measures.storage;
     if (m.status === "idle" || m.status === "loading") {
-      return { value: pending(m) ?? "", scope: "Disk space, from dumpsys diskstats" };
+      return { value: pending(m) ?? "", scope: "Storage used" };
     }
     if (m.status === "ready" && hasStorage(storage ?? undefined) && storage) {
       const cache = formatBytes(storage.cache_bytes);
       return {
         value: `App ${sized(storage.app_bytes)} · Data ${sized(storage.data_bytes)}${cache ? ` (incl. ${cache} cache)` : ""}`,
-        scope: `Disk space, not RAM · measured at ${measuredAt(m.at)} · Android refreshes these sizes on its own schedule, so they can be older than that`,
+        scope: `Storage, not RAM · read at ${measuredAt(m.at)} · Android updates these sizes on its own schedule, so they can be older than that`,
       };
     }
     const why =
       m.status === "unavailable"
-        ? `dumpsys diskstats failed at ${measuredAt(m.at)}`
-        : `No storage row for this app at ${measuredAt(m.at)}`;
+        ? `Couldn't read storage size at ${measuredAt(m.at)}`
+        : `Storage size not reported at ${measuredAt(m.at)}`;
     if (apk.status === "loading") return { value: "Reading APK size…", scope: why };
     if (apk.status === "ready") {
       return {
@@ -323,9 +323,9 @@
   const usageFigure = $derived.by((): Figure => {
     const m = measures.usage;
     const p = pending(m);
-    if (p) return { value: p, scope: "Last opened, from dumpsys usagestats" };
+    if (p) return { value: p, scope: "Last used" };
     if (m.status === "unavailable") {
-      return { value: "Unavailable", scope: `dumpsys usagestats failed at ${measuredAt(m.at)}`, warn: true };
+      return { value: "Unavailable", scope: `Couldn't read usage history at ${measuredAt(m.at)}`, warn: true };
     }
     if (m.status !== "ready") return { value: "", scope: "" };
     const history = "Android keeps about a year of history and clears it on a factory reset";
@@ -391,7 +391,7 @@
           <span class="tier-tag {tier.cls}">{tier.label}</span>
         {/if}
         {#if app.entry}
-          <span class="meta-tag recognised">Recognised</span>
+          <span class="meta-tag recognised">In catalog</span>
         {/if}
       </div>
 
@@ -468,14 +468,14 @@
       {#if !stateKnown && !missing && !uninstalled}
         <p class="blocked-note">This app's state couldn't be read. Refresh the list before changing it.</p>
       {:else if blocked}
-        <p class="blocked-note">This package is protected — it can't be disabled or uninstalled from here.</p>
+        <p class="blocked-note">This app is protected and can't be disabled or uninstalled from here.</p>
       {:else if safetyError}
         <p class="blocked-note">
-          Safety unavailable. Disable and uninstall stay locked.
+          Couldn't check safety, so Disable and Uninstall aren't available.
           <button class="retry-safety" onclick={() => ++safetyRetry}>Retry safety check</button>
         </p>
       {:else if app.entry && !offerUninstall && !missing && !uninstalled}
-        <p class="fine-note">Not offered for uninstall: the Play Store can't give this one back. Disable is reversible.</p>
+        <p class="fine-note">Can't be uninstalled here: the Play Store can't reinstall it. Use Disable instead.</p>
       {/if}
       {#if onResearch}
         <button class="tier-toggle" disabled={busy} onclick={() => app && onResearch?.(app.package)}>Research sources</button>
@@ -541,8 +541,8 @@
       </div>
       {#if backup.status === "saved"}
         <p class="backup-note" role="status">
-          Saved {backup.parts} APK part{backup.parts === 1 ? "" : "s"} to this phone, in ATV Optimizer's
-          private storage.
+          Saved {backup.parts} APK part{backup.parts === 1 ? "" : "s"} to ATV Optimizer's private
+          storage on this phone.
           <button class="inline-link" onclick={openBackups}>View in Backups</button>
         </p>
       {:else if backup.status === "failed"}

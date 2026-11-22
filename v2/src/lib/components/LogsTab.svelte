@@ -39,7 +39,7 @@
   <div class="card-header">
     <div>
       <h2><Icon name="description" size={20} /> Device logs</h2>
-      <p class="muted small">Recent logcat snapshots, read only</p>
+      <p class="muted small">Recent system logs (read-only)</p>
     </div>
   </div>
   <p class="muted small">
@@ -73,8 +73,8 @@
   <details class="capture-details small">
     <summary>Capture limits and app scope</summary>
     <p>App filtering covers the currently running main process only; helper processes are excluded.</p>
-    <p>Refreshes 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream; resolving an app adds a separate bounded read. Stop prevents further refreshes; an in-flight read finishes within its limits. Leaving this tab or hiding the app stops refreshes.</p>
-    <p>Android can reuse process IDs, so older entries may belong to a previous process. Filters and logcat options depend on the TV's Android version. Snapshots can overlap or miss high-volume traffic; this is not a lossless recording. Raw logs are not added to automatic bug reports.</p>
+    <p>Auto-refresh reads again 3 seconds after each read finishes. Each read is limited to 30 seconds and 256 KiB per output stream. Stopping ends further refreshes; a read already running finishes within those limits. Leaving this tab or hiding the app stops auto-refresh.</p>
+    <p>Older lines may come from a previous process if Android reused its ID. Snapshots can overlap or miss high-volume bursts, so this isn't a complete recording. Filter support depends on the TV's Android version. Raw logs aren't added to automatic bug reports.</p>
   </details>
   {#if pollState.error}<p class="error" role="alert">{pollState.error}</p>{/if}
   {#if pollState.value}

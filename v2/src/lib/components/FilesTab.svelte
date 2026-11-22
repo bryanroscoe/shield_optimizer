@@ -131,14 +131,14 @@
   }
 
   async function deleteEntry(entry: FileEntry) {
-    const what = entry.is_dir ? "folder AND EVERYTHING IN IT" : "file";
+    const what = entry.is_dir ? "folder and everything in it" : "file";
     const outsideSdcard = !filesPath.startsWith("/sdcard");
     const prefix = outsideSdcard
-      ? `⚠️ SYSTEM PATH (${filesPath}). Deleting here can break the device.\n\n`
+      ? `Warning: system path (${filesPath}). Deleting here can break the TV.\n\n`
       : "";
     if (filesBusy) return;
     const dir = filesPath;
-    if (!(await confirmAction(`${prefix}Delete ${what} "${entry.name}" from the device? This cannot be undone.`))
+    if (!(await confirmAction(`${prefix}Delete ${what} "${entry.name}" from the TV? This can't be undone.`))
       || filesBusy
       || filesPath !== dir) return;
     filesBusy = entry.name;
@@ -326,7 +326,7 @@
   </div>
   <p class="muted small files-intro">
     {#if powerUserPaths}
-      Browsing the whole filesystem. Most system paths are read-only without root;
+      Browsing all folders. Most system paths are read-only;
       deletes outside <code>/sdcard</code> are double-confirmed and critical mounts are refused.
     {:else}
       Browsing the device's user storage (<code>/sdcard</code>).
@@ -340,12 +340,12 @@
           loadFiles(powerUserPaths ? filesPath : "/sdcard");
         }}
       />
-      Show system paths (power user)
+      Show system folders
     </label>
   </p>
 
   <details class="app-backups">
-    <summary>App file backups — find &amp; save exports (Projectivy theme, SmartTube settings, …)</summary>
+    <summary>Find app backups</summary>
     <p class="muted small">
       App settings live in protected storage, but most apps can export a backup to
       <code>/sdcard</code>. Export in the app first, then find the file here and save it to
@@ -374,7 +374,7 @@
           <!-- The search never ran against these, so "no matches" would be a
                claim we cannot make. Say what actually happened instead. -->
           <p class="muted small found-list">
-            Couldn't search {unsearched.join(", ")} — the TV didn't answer. Check the
+            Couldn't search {unsearched.join(", ")} — the TV didn't respond. Check the
             connection and try again.
           </p>
         {/if}
@@ -513,9 +513,9 @@
                   class="file-tool danger"
                   onclick={() => deleteEntry(f)}
                   disabled={filesBusy !== null}
-                  title="Delete from the device{f.is_dir ? ' (recursive!)' : ''}"
+                  title="Delete from the TV{f.is_dir ? ' (and everything inside)' : ''}"
                     data-tip="Delete from TV" data-tip-align="end"
-                  aria-label={`Delete ${f.name} from the device`}
+                  aria-label={`Delete ${f.name} from the TV`}
                 ><Icon name="delete" size={16} /></button>
               </div>
             </td>

@@ -692,9 +692,7 @@ mod tests {
         .unwrap();
         assert!(installed.ok);
         assert!(
-            installed
-                .message
-                .contains("built-in engine is still in use"),
+            installed.message.contains("Built-in ADB is still in use"),
             "{}",
             installed.message
         );

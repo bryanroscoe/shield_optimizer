@@ -59,7 +59,6 @@ for (const [width, scale] of [[384, 1], [320, 2]]) test(`screenshot destination,
   const page = await open(t, "dashboard", { width, scale }); const preview = await capture(page); await preview.waitFor();
   await preview.getByText(`Private app location: ${path}`, { exact: true }).waitFor();
   await preview.getByText(/not in Gallery or Downloads/).waitFor();
-  await preview.getByText("Close screenshot preview hides this view. The saved image stays in the app.", { exact: true }).waitFor();
   assert.equal(await preview.getByRole("img").getAttribute("src"), await page.evaluate(() => `data:image/png;base64,${shot.base64}`));
   // Save a copy and Share are offered, and nothing is exported until one is tapped.
   await preview.getByRole("button", { name: "Save a copy", exact: true }).waitFor();
@@ -93,7 +92,7 @@ test("screenshot failure creates no preview or false saved result and preserves 
 
 test("file-copy success identifies the actual private destination and failure adds no copied row", async t => {
   const page = await open(t, "files"); const file = page.locator(".file-row").filter({ hasText: "report.txt" }); await file.waitFor();
-  await page.getByText(/not the phone's public Downloads/).waitFor();
+  await page.getByText(/private storage on this phone,\s+not to Downloads/).waitFor();
   await page.evaluate(() => { failPull = true; }); await file.click(); await page.getByText("Copy failed (simulated)", { exact: true }).waitFor();
   assert.equal(await page.getByText("Copied this session", { exact: true }).count(), 0);
   await page.evaluate(() => { failPull = false; }); await file.click();
@@ -113,7 +112,7 @@ test("report copy and oversized GitHub fallback use preview text and never claim
   const page = await open(t); const report = await openReport(page);
   await report.getByRole("button", { name: "How reporting works", exact: true }).click();
   const howTo = page.getByRole("dialog", { name: "How reporting works" });
-  await howTo.getByText(/Copy puts report text on your clipboard; it does not save a file/).waitFor();
+  await howTo.getByText(/Copy puts the report on your clipboard and doesn't save a file/).waitFor();
   await howTo.getByRole("button", { name: "Done", exact: true }).click();
   await howTo.waitFor({ state: "detached" });
   await report.getByRole("button", { name: "Show the full report" }).click();
@@ -122,7 +121,7 @@ test("report copy and oversized GitHub fallback use preview text and never claim
   assert.equal(await page.evaluate(() => copied[0]), text);
   await report.getByPlaceholder("What you expected, or where you saw it").fill("🧪".repeat(500));
   const longText = await report.getByRole("textbox", { name: "Report preview" }).inputValue();
-  await report.getByRole("button", { name: "Open GitHub issue" }).click(); await report.getByText(/This report is too long to fill in for you, so it's on your clipboard/).waitFor();
+  await report.getByRole("button", { name: "Open GitHub issue" }).click(); await report.getByText(/This report is too long to prefill, so it's on your clipboard/).waitFor();
   assert.equal(await page.evaluate(() => copied.at(-1)), longText);
   assert.equal(await page.evaluate(() => calls.filter(c => c.command === "plugin:opener|open_url").length), 1);
 });
@@ -144,8 +143,8 @@ test("diagnostic JSON and debug log Copy actions state clipboard-only output and
   await page.getByRole("button", { name: "Review records" }).click();
   const review = page.locator(".diagnostics-review");
   const privacy = review.getByRole("list", { name: "What the records contain" });
-  assert.match(await privacy.innerText(), /Includes app or process identifiers/);
-  assert.match(await privacy.innerText(), /Excludes network addresses, device serials, license keys and full debug logs/);
+  assert.match(await privacy.innerText(), /Includes app or process names/);
+  assert.match(await privacy.innerText(), /Excludes network addresses, serial numbers, license keys, and full debug logs/);
   assert.equal(await review.getByText(/puts the text on your clipboard/).count(), 0);
   const help = review.getByRole("button", { name: "Before you share" });
   assert.equal(await help.getAttribute("aria-expanded"), "false");
@@ -162,7 +161,7 @@ test("diagnostic JSON and debug log Copy actions state clipboard-only output and
   await page.getByText("Diagnostic JSON copied.", { exact: true }).waitFor(); assert.equal(await page.evaluate(() => copied.at(-1)), json);
   await page.evaluate(() => { failCopy = true; }); await page.getByRole("button", { name: "Copy diagnostic JSON" }).click();
   await page.getByText("Couldn't copy. You can select and copy the text below.", { exact: true }).waitFor();
-  await page.getByText(/Copy puts log text on your clipboard; it does not save a file/).waitFor();
+  await page.getByText(/Copy puts log text on your clipboard; it doesn't save a file/).waitFor();
   await page.getByRole("button", { name: "Show debug log" }).click();
   await page.locator(".more-card").filter({ has: page.getByText("Debug log", { exact: true }) }).getByRole("button", { name: "Copy" }).click(); await page.getByText("Couldn't copy to clipboard.", { exact: true }).waitFor();
   await page.evaluate(() => { failCopy = false; }); await page.locator(".more-card").filter({ has: page.getByText("Debug log", { exact: true }) }).getByRole("button", { name: "Copy" }).click();

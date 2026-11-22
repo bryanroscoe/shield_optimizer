@@ -100,7 +100,7 @@ async function main() {
     await panel.locator(".drop-overlay").waitFor();
     await fire(page, { type: "drop", paths: ["/Users/me/notes.txt"], position: at });
     await panel.locator(".drop-overlay").waitFor({ state: "detached" });
-    const alert = panel.getByRole("alert").filter({ hasText: "not an .apk" });
+    const alert = panel.getByRole("alert").filter({ hasText: "isn't an .apk" });
     await alert.waitFor();
 
     await panel.getByRole("button", { name: "Scan folder" }).click();

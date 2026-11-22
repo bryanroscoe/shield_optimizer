@@ -171,20 +171,20 @@
     const m = measures?.memory;
     if (!m) return null;
     const p = pending(m);
-    if (p) return { value: p, scope: "PSS from dumpsys meminfo" };
+    if (p) return { value: p, scope: "RAM in use" };
     if (m.status === "unavailable") {
-      return { value: "Unavailable", scope: `dumpsys meminfo failed at ${measuredAt(m.at)} — ${m.reason}`, warn: true };
+      return { value: "Unavailable", scope: `Couldn't read RAM use at ${measuredAt(m.at)} — ${m.reason}`, warn: true };
     }
     if (m.status !== "ready") return null;
     if (memoryMb !== undefined && memoryMb > 0) {
       return {
         value: `${memoryMb.toFixed(memoryMb >= 100 ? 0 : 1)} MB PSS`,
-        scope: `Proportional set size, summed over this package's processes · dumpsys meminfo at ${measuredAt(m.at)} · RAM in use then, not a promise of what stopping it frees`,
+        scope: `RAM in use at ${measuredAt(m.at)}, summed over this app's processes. Stopping the app may free less.`,
       };
     }
     return {
       value: "Not running",
-      scope: `No process for this package in dumpsys meminfo at ${measuredAt(m.at)}`,
+      scope: `Not running at ${measuredAt(m.at)}`,
     };
   });
 
@@ -192,28 +192,28 @@
     const m = measures?.storage;
     if (!m) return null;
     if (m.status === "idle" || m.status === "loading") {
-      return { value: pending(m) ?? "", scope: "Installed size from dumpsys diskstats" };
+      return { value: pending(m) ?? "", scope: "Storage used" };
     }
     if (m.status === "ready" && hasStorage(storage)) {
       const cache = formatBytes(storage.cache_bytes);
       return {
         value: `App ${sized(storage.app_bytes)} · Data ${sized(storage.data_bytes)}${cache ? ` (incl. ${cache} cache)` : " · cache unavailable"}`,
-        scope: `Disk space, not RAM · dumpsys diskstats read at ${measuredAt(m.at)} · Android caches these sizes and refreshes them on its own schedule, so they can be older than the read`,
+        scope: `Storage, not RAM · read at ${measuredAt(m.at)} · Android updates these sizes on its own schedule, so they can be older than the read`,
       };
     }
     const why =
       m.status === "unavailable"
-        ? `dumpsys diskstats failed at ${measuredAt(m.at)} — ${m.reason}`
-        : `No row for this package in dumpsys diskstats at ${measuredAt(m.at)}`;
+        ? `Couldn't read storage size at ${measuredAt(m.at)} — ${m.reason}`
+        : `Storage size not reported at ${measuredAt(m.at)}`;
     if (apk.status === "loading") return { value: "Reading APK size…", scope: why };
     if (apk.status === "ready") {
       return {
         value: `APK files ${sized(apk.value.app_bytes)} · data and cache unavailable`,
-        scope: `${why}. Fallback: pm path + stat at ${measuredAt(apk.at)} — APK files only, not compiled code, data or cache`,
+        scope: `${why}. APK files only, measured at ${measuredAt(apk.at)}; excludes compiled code, data and cache`,
       };
     }
     if (apk.status === "unavailable") {
-      return { value: "Unavailable", scope: `${why}. APK size fallback failed — ${apk.reason}`, warn: true };
+      return { value: "Unavailable", scope: `${why}. Couldn't read APK size either — ${apk.reason}`, warn: true };
     }
     return { value: "Unavailable", scope: why, warn: true };
   });
@@ -222,22 +222,22 @@
     const m = measures?.usage;
     if (!m) return null;
     const p = pending(m);
-    if (p) return { value: p, scope: "Last foreground use from dumpsys usagestats" };
+    if (p) return { value: p, scope: "Last used" };
     if (m.status === "unavailable") {
-      return { value: "Unavailable", scope: `dumpsys usagestats failed at ${measuredAt(m.at)} — ${m.reason}`, warn: true };
+      return { value: "Unavailable", scope: `Couldn't read usage history at ${measuredAt(m.at)} — ${m.reason}`, warn: true };
     }
     if (m.status !== "ready") return null;
-    const history = "Android keeps roughly a year of history and clears it on a factory reset";
+    const history = "Android keeps about a year of history and clears it on a factory reset";
     if (!usage || daysSinceUsed(usage) === null) {
       return {
         value: "No recorded use",
-        scope: `Nothing in dumpsys usagestats at ${measuredAt(m.at)} · ${history}, so this is not proof it was never opened`,
+        scope: `As of ${measuredAt(m.at)} · ${history}, so this isn't proof it was never opened`,
       };
     }
     const launches = usage.launch_count === 1 ? "1 launch" : `${usage.launch_count} launches`;
     return {
       value: `${usageLabel(usage).replace(/^./, (c) => c.toUpperCase())} · ${launches}`,
-      scope: `${usage.last_used} · dumpsys usagestats at ${measuredAt(m.at)} · ${history}`,
+      scope: `${usage.last_used} · read at ${measuredAt(m.at)} · ${history}`,
     };
   });
 </script>

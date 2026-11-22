@@ -69,7 +69,7 @@ try {
     }
   }
   await page.goto(`${base}/catalog?package=${encodeURIComponent(pkg)}`, { waitUntil: "networkidle" });
-  assert.equal(await page.getByRole("searchbox", { name: "Search package IDs" }).inputValue(), pkg);
+  assert.equal(await page.getByRole("searchbox", { name: "Search package names" }).inputValue(), pkg);
   assert.equal(await page.locator("[data-package-source]").count(), 0, "a package link still requires an explicit source profile");
   assert.deepEqual(errors, []);
   console.log("Profile catalog filtering, source context isolation, notices, license and desktop navigation passed");

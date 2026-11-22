@@ -67,9 +67,9 @@ pub enum SafetySource {
     NoRecord,
 }
 
-const LAUNCHER_REASON: &str = "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. The app refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in the Launcher tab first.";
+const LAUNCHER_REASON: &str = "A third-party Home screen you installed. Nothing else on the TV depends on it, so removing it only matters if it is your current Home app. ATV Optimizer refuses to disable or uninstall the last enabled launcher; to stop using this one, switch Home in Launcher first.";
 
-const UNKNOWN_REASON: &str = "No reviewed app list covers this package, so what it does and what removing it would break are both unknown. Check it yourself before removing it.";
+const UNKNOWN_REASON: &str = "This app isn't in the catalog, so what it does and what removing it would break are both unknown. Check it yourself before removing it.";
 
 /// Classify a package using only the rule tables in this module.
 ///
@@ -290,15 +290,15 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     // --- Settings + recovery surface ---
     (
         "com.android.settings",
-        "Settings app. Disabling removes your recovery surface.",
+        "Settings app. Disabling removes the Settings screen you need for recovery.",
     ),
     (
         "com.android.tv.settings",
-        "TV Settings — the emergency HOME fallback on Android TV. Never disable.",
+        "TV Settings — the emergency Home fallback on Android TV. Never disable.",
     ),
     (
         "com.android.providers.settings",
-        "Settings provider. Disabling breaks settings persistence across reboot.",
+        "Settings provider. Disabling stops settings from saving across reboots.",
     ),
     // --- ADB / shell — disabling kills our connection to the device ---
     (
@@ -308,11 +308,11 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     // --- Package install / permission infrastructure ---
     (
         "com.android.packageinstaller",
-        "Package Installer. Disabling makes ALL future installs (including ADB ones) fail.",
+        "Package Installer. Disabling makes all future installs (including ADB ones) fail.",
     ),
     (
         "com.google.android.packageinstaller",
-        "Google Package Installer. Disabling makes installs fail on Google-flavor builds.",
+        "Google Package Installer. Disabling makes installs fail on Google builds.",
     ),
     (
         "com.android.permissioncontroller",
@@ -337,12 +337,12 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     ),
     (
         "com.android.providers.downloads.ui",
-        "Downloads UI. Pair with the provider — disabling breaks visible downloads.",
+        "Downloads UI. Works with the Downloads provider — disabling breaks visible downloads.",
     ),
     // --- Connectivity that the remote relies on ---
     (
         "com.android.bluetooth",
-        "Bluetooth stack. TV remotes pair over BT — disabling can leave the device unreachable.",
+        "Bluetooth stack. TV remotes pair over Bluetooth — disabling can leave the device unreachable.",
     ),
     (
         "com.android.bluetoothmidiservice",
@@ -364,7 +364,7 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     // --- Google base layer — disabling these on Google-flavor TVs is a brick ---
     (
         "com.google.android.gms",
-        "Google Play Services. Disabling breaks every Google app + most third-party apps.",
+        "Google Play Services. Disabling breaks every Google app and most third-party apps.",
     ),
     (
         "com.google.android.gsf",
@@ -385,7 +385,7 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     ),
     (
         "com.android.providers.calendar",
-        "Calendar provider. Required by apps that reminder-schedule.",
+        "Calendar provider. Required by apps that schedule reminders.",
     ),
     (
         "com.android.providers.contacts",
@@ -399,18 +399,18 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     ),
     (
         "com.google.android.leanbackkeyboard",
-        "Leanback Keyboard — the Android TV system IME. Disabling removes on-screen text input.",
+        "Leanback Keyboard — the Android TV system keyboard. Disabling removes on-screen text input.",
     ),
     (
         "com.android.inputmethod.latin",
-        "AOSP keyboard. Disabling can remove on-screen text input on builds that ship it as the IME.",
+        "AOSP keyboard. Disabling can remove on-screen text input on builds that use it as the system keyboard.",
     ),
 ];
 
 const CAUTION: &[(&str, &str)] = &[
     (
         "com.android.providers.tv",
-        "Live Channels provider — disabling breaks Watch Next / Continue Watching rows for Netflix, Apple TV, Disney+, etc. and the Live Channels app.",
+        "Live Channels provider — disabling breaks Watch Next / Continue Watching rows (Netflix, Apple TV, Disney+ and others) and the Live Channels app.",
     ),
     (
         "com.google.android.tts",
@@ -418,7 +418,7 @@ const CAUTION: &[(&str, &str)] = &[
     ),
     (
         "com.google.android.katniss",
-        "Google app / Assistant — provides the device's voice RecognitionService. Disabling kills the remote mic button AND in-app voice search (SmartTube, etc.).",
+        "Google app / Assistant — provides the device's voice recognition service. Disabling breaks the remote mic button and in-app voice search (such as SmartTube).",
     ),
     (
         "com.google.android.speech.pumpkin",
@@ -430,7 +430,7 @@ const CAUTION: &[(&str, &str)] = &[
     ),
     (
         "com.android.vending",
-        "Google Play Store. Disabling removes your install path for everything not yet on disk.",
+        "Google Play Store. Disabling removes your way to install apps that aren't already on the device.",
     ),
     (
         "com.google.android.feedback",
@@ -438,7 +438,7 @@ const CAUTION: &[(&str, &str)] = &[
     ),
     (
         "com.android.printspooler",
-        "Print Spooler. Unused on TV but listed so users don't think it's hidden bloat.",
+        "Print Spooler. Unused on TV; shown here so it isn't mistaken for bloat.",
     ),
 ];
 
@@ -799,7 +799,7 @@ mod tests {
         match verdict {
             Safety::Unknown { reason, source } => {
                 assert_eq!(source, SafetySource::NoRecord);
-                assert!(reason.contains("No reviewed app list"), "{reason}");
+                assert!(reason.contains("isn't in the catalog"), "{reason}");
             }
             other => panic!("expected Unknown, got {other:?}"),
         }

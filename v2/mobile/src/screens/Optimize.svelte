@@ -191,7 +191,7 @@
         !session.isConnected
       ) return;
       if (p.mode !== nextMode) {
-        error = "The optimizer returned a plan for a different mode. Retry.";
+        error = "The plan came back for the wrong mode. Try again.";
         return;
       }
       plan = p;
@@ -752,7 +752,7 @@
         const untouched = items.length - completed - failures.length - unconfirmed;
         showToast(
           `Stopped after ${completed} of ${items.length}.${failures.length ? ` ${failures.length} failed.` : ""}${
-            unconfirmed ? ` ${unconfirmed} result${unconfirmed === 1 ? "" : "s"} unknown.` : ""
+            unconfirmed ? ` ${unconfirmed} result${unconfirmed === 1 ? "" : "s"} couldn't be confirmed.` : ""
           } ${untouched} left untouched.`,
           "info",
         );
@@ -849,10 +849,10 @@
     <!-- Locked (Free tier): no fabricated list, an honest upsell. -->
     <div class="locked-card">
       <span class="locked-icon msr">lock</span>
-      <h2>Debloat is a Pro feature</h2>
+      <h2>Optimize is a Pro feature</h2>
       <p class="locked-desc">
-        Pro unlocks the full debloat plan for this TV. Every disable and uninstall
-        is still checked against the safety list first.
+        Pro unlocks the full Optimize plan for this TV. Every disable and uninstall
+        still goes through the safety checks first.
       </p>
       <button class="primary" onclick={() => (showPaywall = true)}>
         <span class="msr">star</span>Unlock Pro
@@ -892,25 +892,25 @@
         class:active={activeTab === (mode === "optimize" ? "optional" : "all")}
         onclick={() => chooseTab(mode === "optimize" ? "optional" : "all")}
       >
-        {mode === "optimize" ? "Optional apps" : "All curated"}
+        {mode === "optimize" ? "Optional apps" : "All catalog"}
       </button>
     </div>
     <div class="help-row">
       {#if mode === "optimize"}
         <HelpSheet title="About this plan">
-          <p>These are curated choices for this TV. Recommended apps start selected. Optional apps start on Keep: keep anything you use. Nothing changes until you confirm, and everything else installed on the TV is in the Apps tab.</p>
+          <p>Recommended apps start selected. Optional apps start on Keep: keep anything you use. Nothing changes until you confirm. Everything else installed on the TV is in the Apps tab.</p>
           <p>Tap a row's <b>If you remove it</b> to see what the app does and what removing it costs. Tap its name for the full app details.</p>
           <p><b>Unknown</b> means no safety rule matched the app, not that removing it is safe.</p>
-          <p><b>RAM in play</b> is what the selected apps' processes are using right now, not a guaranteed saving: Android reclaims and restarts memory on its own.</p>
+          <p><b>RAM in play</b> is the RAM the selected apps use right now, not a guaranteed saving: Android frees memory and restarts apps on its own.</p>
         </HelpSheet>
         <HelpSheet title="Undoing a run">
-          <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers curated apps only; Emergency recovery in More re-enables every disabled package on the TV.</p>
-          <p><b>Uninstall:</b> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
+          <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers catalog apps only; Emergency recovery in More re-enables every disabled app on the TV.</p>
+          <p><b>Uninstall:</b> removes the app for the TV's current user, and Restore can't bring it back. Each row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
         </HelpSheet>
       {:else}
         <HelpSheet title="What Restore covers">
-          <p>Restore re-enables curated apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest.</p>
-          <p>It never reinstalls an app that was uninstalled. To turn on a disabled app that isn't curated, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled package on the TV at once.</p>
+          <p>Restore re-enables catalog apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest.</p>
+          <p>It never reinstalls an app that was uninstalled. To re-enable a disabled app that isn't in the catalog, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled app on the TV at once.</p>
         </HelpSheet>
       {/if}
     </div>
@@ -933,7 +933,7 @@
     {#if safetyFailed}
       <div class="stale-warning" role="alert">
         <span class="msr">warning</span>
-        <span>Couldn't check what's safe to change, so nothing will be applied.</span>
+        <span>Couldn't run the safety checks, so nothing will be applied.</span>
         <button class="retry-link" onclick={() => plan && loadSafety(plan)}>Retry</button>
       </div>
     {/if}
@@ -953,7 +953,7 @@
         <p class="lede empty">No optional app changes are available for this TV.</p>
       {:else}
         <p class="lede empty">
-          Nothing to restore — none of the curated apps are disabled.
+          Nothing to restore — no catalog apps are disabled.
         </p>
       {/if}
     {:else}
@@ -1044,7 +1044,7 @@
                 tone={explainTone(item, tier)}
               >
                 {#if shownReason}<p class="row-reason" id={consequenceId(item, tier)}>{shownReason}</p>{/if}
-                {#if unavailable}<p class="row-reason">Safety guidance could not be loaded. Retry before selecting this action.</p>{/if}
+                {#if unavailable}<p class="row-reason">Couldn't load safety details. Retry before selecting this action.</p>{/if}
                 {#if purpose}<p class="row-purpose">{purpose}</p>{/if}
               </Unfurl>
             {/if}
@@ -1095,9 +1095,9 @@
             <p class="snapshot-result" class:failed={!snapshotResult.ok} role="status">{snapshotResult.message}</p>
           {/if}
           <HelpSheet title="What a snapshot is for">
-            <p>Use it to set this TV up the same way again, for example after a factory reset: restoring it from the Snapshots screen disables the apps it recorded and puts back its Home app and settings.</p>
-            <p>It disables every app it recorded, with no per-app choice, on whichever TV you restore it to. Don't restore it to another TV unless nobody there uses those apps.</p>
-            <p>It can't undo this run. It never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To turn apps back on, use Restore here.</p>
+            <p>Use it to set this TV up the same way again, for example after a factory reset. Restoring it from Snapshots disables the apps it recorded and puts back its Home app and settings.</p>
+            <p>Restoring disables every app it recorded, with no per-app choice, on whichever TV you restore it to. Don't restore it to another TV unless nobody there uses those apps.</p>
+            <p>It can't undo this run: it never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To re-enable apps, use Restore here.</p>
           </HelpSheet>
         </div>
       {/if}

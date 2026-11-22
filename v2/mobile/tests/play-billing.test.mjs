@@ -293,7 +293,7 @@ test("Restore purchases says it is for a purchase or promo code made outside the
   const card = licensing(page);
   await card.getByText("Already bought Pro, or redeemed a promo code on Google Play? Tap Restore purchases.").waitFor();
   await card.getByRole("button", { name: "Restore purchases" }).click();
-  await card.getByText(/No Pro purchase found for the Google account on this phone\. A code redeemed on the Play Store website can take a few minutes/).waitFor();
+  await card.getByText(/No Pro purchase found for this phone's Google account\. A code redeemed on the Play Store website can take a few minutes/).waitFor();
   assert.equal(await card.locator(".license-badge").textContent(), "Free");
 });
 
@@ -375,7 +375,7 @@ test("a sideload build keeps offline license-key entry", async (t) => {
 
 test("a locked Optimize opens a Play paywall with the price and no key hint in Play builds", async (t) => {
   const page = await open(t, status(), "optimize");
-  await page.getByRole("heading", { name: "Debloat is a Pro feature" }).waitFor();
+  await page.getByRole("heading", { name: "Optimize is a Pro feature" }).waitFor();
   assert.equal(await page.getByRole("button", { name: /Already have a key/ }).count(), 0);
   await page.getByRole("button", { name: "Unlock Pro" }).click();
   const paywall = page.getByRole("dialog", { name: "ATV Optimizer Pro" });
@@ -383,7 +383,7 @@ test("a locked Optimize opens a Play paywall with the price and no key hint in P
   await paywall.getByRole("button", { name: "Buy Pro · €3,49" }).waitFor();
   await paywall.getByRole("button", { name: "Restore purchases" }).waitFor();
   await paywall.getByText("Already bought Pro, or redeemed a promo code on Google Play? Tap Restore purchases.").waitFor();
-  await paywall.getByText(/Re-enabling apps and emergency recovery are always free\. Undoing settings, Home app or snapshot changes needs Pro\./).waitFor();
+  await paywall.getByText(/Re-enabling apps and emergency recovery are always free\. Undoing settings, Home app, or snapshot changes requires Pro\./).waitFor();
   assert.equal(await paywall.getByRole("button", { name: "Enter license key" }).count(), 0);
   assert.equal(await paywall.getByText(/license key/i).count(), 0);
 });
@@ -407,7 +407,7 @@ test("buying from the paywall closes it once the backend grants Pro", async (t) 
   await paywall.waitFor({ state: "detached" });
   assert.equal(await page.evaluate(async () => (await import("/src/lib/session.svelte.ts")).session.isPro), true);
   // The screen it was bought from reloads instead of staying locked.
-  await page.getByRole("heading", { name: "Debloat is a Pro feature" }).waitFor({ state: "detached" });
+  await page.getByRole("heading", { name: "Optimize is a Pro feature" }).waitFor({ state: "detached" });
   assert.ok((await count(page, "prepare_optimize")) >= 2);
   // The anonymous report carries the outcome only: no order, token, price or product.
   const report = await page.evaluate(() => window.calls.find(purchaseReport)?.args);

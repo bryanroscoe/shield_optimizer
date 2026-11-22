@@ -55,7 +55,7 @@
         if (copied === id) copied = "";
       }, 2000);
     } catch (e) {
-      copyError = `Couldn't reach the clipboard (${e}). Your support ID is ${id}.`;
+      copyError = `Couldn't reach the clipboard (${e}). Your Support ID is ${id}.`;
     }
   }
 
@@ -126,7 +126,7 @@
     if (restartBusy) return;
     if (
       !(await confirmAction(
-        "Restart the shared ADB server? This disconnects other tools using ADB. Current network connections will be retried.",
+        "Restart the shared ADB server? This disconnects other tools using ADB on this computer. Current network connections will be retried.",
       ))
       || restartBusy
     )
@@ -342,7 +342,7 @@
     <div class="row">
       <div class="row-text">
         <HelpTip label="Send logs to developer">
-          Sends this app's recent logs once, after you confirm. Works with reports on or off.
+          Sends this app's recent logs once, after you confirm, even if anonymous reports are off.
         </HelpTip>
       </div>
       <div class="row-control">
@@ -356,8 +356,8 @@
         <p id="send-title" class="send-title">Send logs to the developer?</p>
         <p class="row-help">
           This uploads a diagnostics bundle and this app's recent logs, with addresses, serial
-          numbers, names and file paths removed, labeled with your support ID. Nothing is sent
-          until you press Send logs.
+          numbers, names and file paths removed, labeled with your Support ID. Nothing is sent
+          until you click Send logs.
         </p>
         <div class="send-actions">
           <button onclick={() => (sendStage = "idle")} disabled={sendStage === "sending"}>
@@ -375,7 +375,7 @@
         <span>
           Sent {kilobytes(sent.bytes)}.
           {#if sent.shortId}
-            Quote support ID <code class="support-id small-id">{sent.shortId}</code> when you report
+            Quote Support ID <code class="support-id small-id">{sent.shortId}</code> when you report
             the problem.
           {/if}
         </span>
@@ -412,7 +412,7 @@
     <div class="row">
       <div class="row-text">
         <HelpTip label="Auto-update" forId="auto-update">
-          Downloads and installs updates on launch. When off, you can review release notes before updating.
+          Downloads and installs updates automatically on launch.
         </HelpTip>
       </div>
       <div class="row-control">
@@ -486,8 +486,8 @@
       <div class="row-text">
         <HelpTip label="ADB engine">
           <p>
-            Built-in connects to TVs directly, with no adb server or download. It works over the
-            network only, so USB devices need platform-tools.
+            Built-in connects to TVs directly, with no ADB server or download. It works over the
+            network only, so USB devices need Google platform-tools.
           </p>
           <p>
             Built-in uses this computer's platform-tools key when there is one, so TVs that already
@@ -495,10 +495,10 @@
             debugging.
           </p>
           <p>
-            Google platform-tools uses the adb server shared with other tools on this computer, such
+            Google platform-tools uses the ADB server shared with other tools on this computer, such
             as Android Studio and scrcpy.
           </p>
-          <p>Switching closes the current engine's connections. Connect TVs again from Devices.</p>
+          <p>Switching disconnects TVs connected with the current engine. Reconnect them from Devices.</p>
         </HelpTip>
         {#if !engine}
           <p class="row-note" role="status">
@@ -574,24 +574,24 @@
       <div class="row-text">
         <HelpTip label="ADB">
           {#if nativeAdb}
-            Native Rust ADB is built into this app. Connection recovery is on Devices.
+            Built-in ADB is included with this app. Manage connections on Devices.
           {:else}
             <p>The app can download Google's official platform-tools into its own folder.</p>
-            <p>To use a different adb, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
+            <p>To use a different ADB, set <code>ATV_OPTIMIZER_ADB</code> to its full path and relaunch.</p>
           {/if}
         </HelpTip>
         <p class="row-help">
           {#if adbError}
-            Couldn't check adb: {adbError}
+            Couldn't check ADB: {adbError}
           {:else if !adb}
             Checking…
           {:else if nativeAdb}
-            Native Rust ADB · direct connection{adb.available ? "" : " unavailable"}
+            Built-in · direct connection{adb.available ? "" : " unavailable"}
             {#if !adb.available && adb.last_probe}<span>{adb.last_probe}</span>{/if}
           {:else if adb.available}
             Using <span class="mono path">{adb.path ?? "adb from PATH"}</span>
           {:else if adb.failure !== "missing_binary"}
-            ADB could not respond: {adb.last_probe ?? "The availability check failed."}
+            ADB couldn't respond: {adb.last_probe ?? "The availability check failed."}
           {:else}
             Not found{adb.path ? ` at ${adb.path}` : ""}.
           {/if}
@@ -613,10 +613,10 @@
       <div class="row-text">
         <HelpTip label="Restart ADB">
           {#if nativeAdb}
-            Native ADB has no shared server. Use the TV's Forget or Try again action on Devices.
+            Built-in has no shared server. Use the TV's Forget or Try again action on Devices.
           {:else}
-            Stops and starts the shared adb server, then retries network connections. Other tools
-            using adb are disconnected too.
+            Stops and starts the shared ADB server, then retries network connections. Other tools
+            using ADB are disconnected too.
           {/if}
         </HelpTip>
         {#if restartMessage}
@@ -632,7 +632,7 @@
     </div>
     <div class="row">
       <div class="row-text">
-        <HelpTip label="Stop ADB when quitting" forId="stop-adb-on-quit">{nativeAdb ? "Native connections close when the app quits. This preference applies when using platform-tools." : QUIT_ADB_TIP}</HelpTip>
+        <HelpTip label="Stop ADB when quitting" forId="stop-adb-on-quit">{nativeAdb ? "Built-in connections close when the app quits. This preference applies to Google platform-tools." : QUIT_ADB_TIP}</HelpTip>
         {#if stopOnQuit.setting === null && stopOnQuit.pending > 0}
           <p class="row-note">Checking…</p>
         {/if}

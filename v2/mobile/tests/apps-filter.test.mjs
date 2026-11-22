@@ -147,7 +147,7 @@ test("filtering never mutates packages and protected-app safety stays enforced",
 
   const disable = page.getByRole("button", { name: "Disable", exact: true });
   const uninstall = page.getByRole("button", { name: /Uninstall/ });
-  await page.getByText("This package is protected", { exact: false }).waitFor();
+  await page.getByText("This app is protected", { exact: false }).waitFor();
   assert.equal(await disable.isDisabled(), true);
   assert.equal(await uninstall.isDisabled(), true);
 

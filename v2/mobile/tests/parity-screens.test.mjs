@@ -286,11 +286,11 @@ test("when safety can't be loaded, a row's toggle says what the app does and tha
     plans: { optimize: { mode: "optimize", items: [row] } },
   });
   await openScreen(page, "optimize");
-  await page.getByText("Couldn't check what's safe to change", { exact: false }).waitFor();
+  await page.getByText("Couldn't run the safety checks", { exact: false }).waitFor();
   assert.equal(await page.getByRole("button", { name: "If you remove it, Unchecked App" }).count(), 0);
   const toggle = page.getByRole("button", { name: "What it does, Unchecked App", exact: true });
   await toggle.click();
-  await page.getByText("Safety guidance could not be loaded. Retry before selecting this action.").waitFor();
+  await page.getByText("Couldn't load safety details. Retry before selecting this action.").waitFor();
   await page.getByText("Unchecked App is optional on this TV.").waitFor();
 });
 

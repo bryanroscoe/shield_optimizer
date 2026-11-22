@@ -531,7 +531,7 @@ impl Telemetry {
     /// returned so the UI can say the choice may not survive a restart.
     pub fn set_enabled(&self, enabled: bool) -> Result<TelemetrySettings, String> {
         if enabled && self.config.test_build.is_some() {
-            return Err("Test builds never send anonymous reports. Send logs still works.".into());
+            return Err("Test builds never send anonymous reports.".into());
         }
         {
             let mut inner = self.lock();

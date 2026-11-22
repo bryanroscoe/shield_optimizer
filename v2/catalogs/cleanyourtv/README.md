@@ -7,7 +7,7 @@ Profile membership records what the upstream author wrote. Each result is
 unreviewed and non-actionable.
 
 The app also exposes a read-only source browser at Catalog on desktop and
-More → Device & package catalog on mobile. Package-detail links prefill a package
+More → Device & app catalog on mobile. Package-detail links prefill a package
 identity and require the person to choose a source profile. This browser displays
 the selected upstream material without matching it to the connected TV. The full
 MIT notice is bundled in its Source attribution section. Core app lists, safety

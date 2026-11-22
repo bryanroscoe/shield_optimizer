@@ -551,7 +551,7 @@ class Session {
           const state = states[pkg];
           return state === "enabled" || state === "disabled" || state === "missing";
         });
-        if (!complete) throw new Error("Recommended app status is incomplete. Retry.");
+        if (!complete) throw new Error("Couldn't read status for all recommended apps. Try again.");
         enabled = packages.filter((pkg) => states[pkg] === "enabled").length;
         installed = packages.filter(
           (pkg) => states[pkg] === "enabled" || states[pkg] === "disabled",

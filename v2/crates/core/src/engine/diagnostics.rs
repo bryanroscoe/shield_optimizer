@@ -332,8 +332,8 @@ mod tests {
 
     #[test]
     fn native_transport_version_does_not_invent_a_host_binary_or_google_build() {
-        let version = "Experimental direct ADB (shared Android transport); no host adb server";
-        let path = "(not applicable: direct network transport, no host binary)";
+        let version = "Built-in ADB (shared Android transport); no host adb server";
+        let path = "(not applicable: Built-in ADB, no host binary)";
         let output = format!("{version}\nVersion 37.0.1-15733141\nInstalled as /private/adb\n");
         let report = host_report(Some(&output), path);
         assert!(

@@ -53,24 +53,24 @@ export function stockDisableGate(input: {
   stockHoldsHomeFor: string | null;
 }): StockDisableGate {
   const { launchers, choice, currentPkg, stockHoldsHomeFor } = input;
-  if (!choice) return { allowed: false, reason: "Choose the app that should take over Home first." };
+  if (!choice) return { allowed: false, reason: "Choose a replacement Home app first." };
   if (!launchers.some((l) => l.stock && l.enabled)) {
-    return { allowed: false, reason: "No enabled stock launcher on this TV." };
+    return { allowed: false, reason: "No enabled stock launcher found on this TV." };
   }
   if (launchers.some((l) => l.stock && l.entry.package === choice)) {
-    return { allowed: false, reason: "Pick the app that should take over, not the stock launcher." };
+    return { allowed: false, reason: "Choose another app, not the stock launcher." };
   }
   if (launchers.some((l) => l.setup_helper && l.entry.package === choice)) {
     return {
       allowed: false,
-      reason: "That is Google TV's setup helper, not a launcher. Pick a real launcher.",
+      reason: "That's Google TV's setup helper, not a launcher. Choose a launcher instead.",
     };
   }
   if (currentPkg === choice || stockHoldsHomeFor === choice) return { allowed: true, reason: "" };
   return {
     allowed: false,
     reason:
-      "Set the app as Home first. This stays off until it's Home, or until Android says the stock launcher is what's in the way.",
+      "Set the app as Home first. This becomes available once it's Home, or if Android says the stock launcher is blocking it.",
   };
 }
 
@@ -142,12 +142,12 @@ export function stockDisableMessage(
   helperExpectedOff: boolean,
   helperAfter: SetupHelperState | null,
 ): string {
-  if (!result.ok) return result.last_error ?? "The stock launcher was left alone.";
+  if (!result.ok) return result.last_error ?? "The stock launcher wasn't changed.";
   let wraith = "";
   if (helperExpectedOff && helperAfter === "off") {
-    wraith = " Google TV's setup helper (Setup Wraith) was turned off too.";
+    wraith = " Google TV's setup helper (Setup Wraith) was disabled too.";
   } else if (helperAfter === "risk") {
-    wraith = " Setup Wraith still reads as on, so it may take the Home button back; see below.";
+    wraith = " Setup Wraith still reads as enabled, so it may reclaim the Home button. See below.";
   }
-  return `The stock launcher is disabled and ${target} is Home.${wraith} Re-enable stock from the list above any time.`;
+  return `The stock launcher is disabled and ${target} is now Home.${wraith} You can re-enable the stock launcher from the list above anytime.`;
 }

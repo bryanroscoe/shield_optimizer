@@ -73,9 +73,9 @@ try {
   });
 
   const apps = page.locator("#tabpanel-apps");
-  const state = page.getByRole("combobox", { name: "Package state", exact: true });
+  const state = page.getByRole("combobox", { name: "Status", exact: true });
   const search = page.locator(".app-search");
-  const showSystem = page.getByRole("checkbox", { name: "Show system packages", exact: true });
+  const showSystem = page.getByRole("checkbox", { name: "Show system apps", exact: true });
   const hideMissing = page.getByRole("checkbox", { name: "Hide not installed", exact: true });
   const hideDecided = page.getByRole("checkbox", { name: "Hide decided", exact: true });
   async function packages(table, expected) {
@@ -87,7 +87,7 @@ try {
   }
   async function counts(curatedCount, otherCount) {
     await page.waitForFunction(({ curatedCount, otherCount }) =>
-      document.querySelector("#tabpanel-apps .header-actions")?.textContent.includes(`${curatedCount} of 4 curated · ${otherCount} of 4 other`),
+      document.querySelector("#tabpanel-apps .header-actions")?.textContent.includes(`${curatedCount} of 4 catalog · ${otherCount} of 4 other`),
     { curatedCount, otherCount });
   }
 
@@ -122,7 +122,7 @@ try {
   await packages(0, []);
   await packages(1, []);
   await counts(0, 0);
-  assert.equal(await apps.getByText("No curated apps match your filters.", { exact: true }).count(), 1);
+  assert.equal(await apps.getByText("No catalog apps match your filters.", { exact: true }).count(), 1);
   assert.equal(await apps.getByText("Nothing matches your filters.", { exact: true }).count(), 1);
 
   await search.fill("");

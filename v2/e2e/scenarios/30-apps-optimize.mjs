@@ -33,8 +33,8 @@ async function arm(page, names, action) {
 }
 
 async function armedCount(page) {
-  const text = await page.getByText(/rows are armed/).innerText();
-  return Number(text.match(/(\d+) of \d+ rows are armed/)[1]);
+  const text = await page.getByText(/apps selected\. Run plan/).innerText();
+  return Number(text.match(/(\d+) of \d+ apps selected/)[1]);
 }
 
 export const scenarios = [

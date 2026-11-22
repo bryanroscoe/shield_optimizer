@@ -75,8 +75,8 @@ try {
       assert.doesNotMatch(text, /Installed\./);
       if (fixture.error) assert.ok(text.includes(fixture.error));
       else if (fixture.name === "unconfirmed") {
-        assert.match(text, /Installation not confirmed\./);
-        assert.match(text, /Check installed apps before retrying\./);
+        assert.match(text, /Couldn't confirm the installation\./);
+        assert.match(text, /Check installed apps before trying again\./);
         assert.equal(fixture.result.hint, null);
       } else if (fixture.result.hint) assert.ok(text.includes(fixture.result.hint));
     }

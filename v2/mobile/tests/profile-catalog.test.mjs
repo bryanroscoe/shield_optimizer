@@ -36,7 +36,7 @@ test("mobile catalog exposes attributed observations without package mutations",
         return invoke(command, args);
       };
     });
-    await page.getByRole("button", { name: /Device & package catalog/ }).click();
+    await page.getByRole("button", { name: /Device & app catalog/ }).click();
     if (evidence) await labelSyntheticCapture(page);
     await exerciseProfileCatalog(page, () => page.evaluate(() => window.catalogCalls.filter((c) => c.command === "plugin:opener|open_url").map((c) => c.args.url)));
     const writes = await page.evaluate(() => window.catalogCalls.filter((c) => /^(disable_package|uninstall_package|apply_|optimize|set_home|shell_run)/.test(c.command)));
@@ -52,7 +52,7 @@ test("mobile catalog exposes attributed observations without package mutations",
       await page.waitForTimeout(900);
     }
     await page.getByRole("button", { name: "← Back", exact: true }).click();
-    await page.getByRole("button", { name: /Device & package catalog/ }).waitFor();
+    await page.getByRole("button", { name: /Device & app catalog/ }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await context?.close();

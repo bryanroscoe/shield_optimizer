@@ -122,7 +122,7 @@ async fn open(
     connections: &Connections,
 ) -> AdbResult<AdbOwnedService> {
     if cancel.is_cancelled() {
-        return Err(AdbError::Transport("Remote startup cancelled.".into()));
+        return Err(AdbError::Transport("Remote startup canceled.".into()));
     }
     let request = {
         let adb = adb.clone();
@@ -141,7 +141,7 @@ async fn open(
     let result = tokio::select! {
         biased;
         result = request => result?,
-        _ = cancel.cancelled() => return Err(AdbError::Transport("Remote startup cancelled.".into())),
+        _ = cancel.cancelled() => return Err(AdbError::Transport("Remote startup canceled.".into())),
     };
     connections
         .0
@@ -150,7 +150,7 @@ async fn open(
         .push(result.cancellation.clone());
     if cancel.is_cancelled() {
         result.cancellation.cancel();
-        return Err(AdbError::Transport("Remote startup cancelled.".into()));
+        return Err(AdbError::Transport("Remote startup canceled.".into()));
     }
     Ok(result)
 }
@@ -422,7 +422,7 @@ impl NativeRemoteSession {
         cancel: Arc<RemoteStartCancellation>,
         deadline: Duration,
     ) -> Result<Self, String> {
-        tokio::time::timeout(deadline,Self::start_inner(adb,jar_path,serial,cancel)).await.map_err(|_|"Remote startup deadline expired. Owned connections were cancelled; helper file cleanup could not be confirmed.".to_string())?
+        tokio::time::timeout(deadline,Self::start_inner(adb,jar_path,serial,cancel)).await.map_err(|_|"Remote startup deadline expired. Owned connections were canceled; helper file cleanup could not be confirmed.".to_string())?
     }
 
     async fn start_inner(
@@ -433,7 +433,7 @@ impl NativeRemoteSession {
     ) -> Result<Self, String> {
         let connections = Arc::new(Connections(Mutex::new(Vec::new())));
         if cancel.is_cancelled() {
-            return Err("Remote startup cancelled.".into());
+            return Err("Remote startup canceled.".into());
         }
         let request = {
             let adb = adb.clone();
@@ -441,11 +441,11 @@ impl NativeRemoteSession {
             shielded(async move { adb.device_binding(&serial).await }, drop)
         };
         let binding = tokio::select! {biased;
-            _=cancel.cancelled()=>return Err("Remote startup cancelled.".into()),
+            _=cancel.cancelled()=>return Err("Remote startup canceled.".into()),
             binding=request=>binding.map_err(|e|e.to_string())?,
         };
         if cancel.is_cancelled() {
-            return Err("Remote startup cancelled.".into());
+            return Err("Remote startup canceled.".into());
         }
         let id = NEXT_ID.fetch_add(1, Ordering::Relaxed) & 0x7fff_ffff;
         let nonce = std::time::SystemTime::now()
@@ -511,7 +511,7 @@ impl NativeRemoteSession {
         .await?;
         upload_cancel.cancel();
         if cancel.is_cancelled() {
-            return Err("Remote startup cancelled.".into());
+            return Err("Remote startup canceled.".into());
         }
         let command = format!("shell:trap 'rm -f -- \"{jar}\"' EXIT; CLASSPATH={jar} app_process / com.genymobile.scrcpy.Server 3.1 scid={scid} log_level=warn video=false audio=false control=true tunnel_forward=true send_device_meta=false send_dummy_byte=true </dev/null");
         let renew_at = tokio::time::Instant::now() + LIFETIME - RENEW_MARGIN;
@@ -532,7 +532,7 @@ impl NativeRemoteSession {
             match result {
                 Err(AdbError::ServiceRejected{..}) if attempt<9 => {
                     attempt+=1;
-                    tokio::select!{biased; _=cancel.cancelled()=>break Err(AdbError::Transport("Remote startup cancelled.".into())), _=tokio::time::sleep(Duration::from_millis(150))=>{}}
+                    tokio::select!{biased; _=cancel.cancelled()=>break Err(AdbError::Transport("Remote startup canceled.".into())), _=tokio::time::sleep(Duration::from_millis(150))=>{}}
                 }
                 result=>break result,
             }
@@ -571,7 +571,7 @@ impl NativeRemoteSession {
             let _ = Box::new(session).close().await;
             return Err(handshake
                 .err()
-                .unwrap_or_else(|| "Remote startup cancelled.".into()));
+                .unwrap_or_else(|| "Remote startup canceled.".into()));
         }
         session.poisoned = false;
         Ok(session)

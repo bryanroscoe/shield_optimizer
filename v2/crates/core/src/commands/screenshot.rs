@@ -34,11 +34,11 @@ fn validate_png(bytes: &[u8]) -> Result<(), String> {
     let text = text.trim();
     if text.is_empty() {
         Err(
-            "screencap returned no data — the screen may be off or showing protected content."
+            "Screenshot returned no data — the screen may be off or showing protected content."
                 .into(),
         )
     } else {
-        Err(format!("screencap failed: {text}"))
+        Err(format!("Screenshot failed: {text}"))
     }
 }
 

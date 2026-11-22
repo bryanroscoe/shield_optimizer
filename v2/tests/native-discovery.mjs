@@ -49,7 +49,7 @@ try {
     await page.waitForTimeout(1800);
   };
   await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
-  await page.getByTestId('adb-backend').filter({ hasText: 'Native Rust ADB' }).waitFor();
+  await page.getByTestId('adb-backend').filter({ hasText: 'Built-in · direct connection' }).waitFor();
   await page.getByText('SIMULATED: Found 1 TV.', { exact: false }).waitFor();
   const scanDetails = page.locator('details').filter({ has: page.locator('summary', { hasText: 'Scan details' }) });
   assert.equal(await scanDetails.locator('pre').isVisible(), false);

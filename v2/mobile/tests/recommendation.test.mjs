@@ -132,7 +132,7 @@ test("uninstallOutcome names how each kind of app comes back", () => {
 
   const defunct = rec.uninstallOutcome("com.example.app", entry({ defunct: true }));
   assert.equal(defunct.short, "Discontinued: no way to download it again");
-  assert.match(defunct.recover, /nowhere to download it again/);
+  assert.match(defunct.recover, /you can't download it again/);
 
   const unknown = rec.uninstallOutcome("com.example.unlisted", null);
   assert.equal(unknown.short, "May not be on the Play Store");

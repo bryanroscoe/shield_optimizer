@@ -192,7 +192,7 @@
 
   async function readCatalog(serial: string, deviceType: DeviceType) {
     const entries = await api.appListForDevice(deviceType);
-    if (!Array.isArray(entries)) throw new Error("The recognised-app list is unavailable.");
+    if (!Array.isArray(entries)) throw new Error("Couldn't load the app catalog.");
     const packages = entries.map((entry) => entry.package);
     const [raw, thirdParty] = await Promise.all([
       packages.length > 0 ? api.packageStates(serial, packages) : {},
@@ -253,7 +253,7 @@
         catalogError = "";
         catalogNote =
           unread > 0
-            ? `State unavailable for ${unread} recognised ${unread === 1 ? "app" : "apps"}. Refresh before changing them.`
+            ? `Couldn't read status for ${unread} catalog ${unread === 1 ? "app" : "apps"}. Refresh before changing them.`
             : "";
       } else {
         catalog = [];
@@ -493,7 +493,7 @@
       } else {
         // Not-ok can still have landed (stock enabled, its setup helper not),
         // so reload the real state instead of reverting the row.
-        showFailure(`Couldn't enable ${label(app)}`, r.message || "Action failed.");
+        showFailure(`Couldn't enable ${label(app)}`, r.message || "Couldn't complete that action.");
         await loadApps(true);
       }
     } catch (e) {
@@ -684,7 +684,7 @@
         removedIdentity = null;
         await loadApps(true);
       } else {
-        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Reinstall failed. Try the Play Store.");
+        showFailure(`Couldn't reinstall ${label(app)}`, r.message || "Couldn't reinstall. Try the Play Store instead.");
       }
     } catch (e) {
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
@@ -911,7 +911,7 @@
   </div>
 
   <HelpSheet title="Using the app list">
-    <p class="search-hint">Search covers every app on the TV, by name or package. Long-press an app for quick actions. Tap for descriptions, consequences and safety details. Recognised apps have catalog notes; apps under “Everything else” do not. All removals use the same safety checks.</p>
+    <p class="search-hint">Search covers every app on the TV, by name or package name. Tap an app for its description, consequences and safety details, or long-press it for quick actions. Catalog apps have reviewed notes; apps under “Everything else” don't. Every removal runs the same safety checks.</p>
   </HelpSheet>
 
   <div class="filters-row">
@@ -945,8 +945,8 @@
         <span class="system-toggle-title">Hide not installed</span>
         <span class="system-toggle-detail">
           {hideNotInstalled
-            ? `${notInstalledCount} recognised ${notInstalledCount === 1 ? "app isn't" : "apps aren't"} on this TV`
-            : "Recognised apps missing from this TV are shown"}
+            ? `${notInstalledCount} catalog ${notInstalledCount === 1 ? "app isn't" : "apps aren't"} on this TV`
+            : "Catalog apps missing from this TV are shown"}
         </span>
       </span>
       <span class="switch-track" aria-hidden="true"><span class="switch-knob"></span></span>
@@ -1027,7 +1027,7 @@
 
       {#if catalogError}
         <div class="section-error">
-          <ErrorNotice error={catalogError} title="Couldn't load recognised apps" action="List recognised apps" />
+          <ErrorNotice error={catalogError} title="Couldn't load catalog apps" action="List catalog apps" />
           <button class="ghost small" onclick={() => loadApps(true)}>Retry</button>
         </div>
       {:else if catalogNote}
@@ -1038,7 +1038,7 @@
       {/if}
       {#if visibleCatalog.length > 0}
         <div class="section-head">
-          <h4>Recognised apps <span class="mono">{visibleCatalog.length}</span></h4>
+          <h4>Catalog apps <span class="mono">{visibleCatalog.length}</span></h4>
         </div>
         {#each visibleCatalog as app (app.package)}
           {@render row(app)}

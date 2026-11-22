@@ -81,7 +81,7 @@
     {/each}
     {#if !restoreMode}
       <ul class="rules">
-        <li>Restore mode can turn disabled apps back on.</li>
+        <li>You can re-enable disabled apps later with Restore mode.</li>
         {#if uninstalls > 0}
           <li data-uninstall-rule>
             Uninstall removes an app for this TV's user. Restore can't bring it back.

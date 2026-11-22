@@ -39,7 +39,7 @@
 {#if rows.length}
   <section class="connection-choices" aria-label="Connection addresses">
     <h3>Connection addresses</h3>
-    <p class="muted small">Choose an address from the same advertised service. Names come from network announcements; connecting checks the device details.</p>
+    <p class="muted small">Choose one of the addresses this device announced. Names come from those network announcements; connecting checks the device's details.</p>
     {#if rows.some(row => stale(choice(row)))}<p class="muted small" role="status">Scan LAN again to connect using these addresses.</p>{/if}
     <ul>
       {#each rows as row (row.key)}

@@ -266,7 +266,7 @@ impl RemoteRegistry {
                 || cancel.is_cancelled()
                 || generation.is_some_and(|g| cell.generation.load(Ordering::Acquire) != g)
             {
-                return Err("Remote startup was cancelled.".into());
+                return Err("Remote startup was canceled.".into());
             }
             let tag = generation.unwrap_or_else(|| cell.generation.load(Ordering::Acquire));
             let mut renewing = false;
@@ -312,11 +312,11 @@ impl RemoteRegistry {
                 || paused.load(Ordering::Acquire)
                 || generation.is_some_and(|g| cell.generation.load(Ordering::Acquire) != g)
             {
-                return Err("Remote startup was cancelled.".into());
+                return Err("Remote startup was canceled.".into());
             }
             started.store(true, Ordering::Release);
             *lock(&cell.start_cancel) = Some((tag, cancel.clone()));
-            let result = tokio::select! { _=cancel.cancelled()=>Err("Remote startup was cancelled.".into()),result=factory(cancel.clone())=>result };
+            let result = tokio::select! { _=cancel.cancelled()=>Err("Remote startup was canceled.".into()),result=factory(cancel.clone())=>result };
             {
                 let mut current = lock(&cell.start_cancel);
                 if current
@@ -350,7 +350,7 @@ impl RemoteRegistry {
             };
             if !published {
                 let _ = session.take().unwrap().close().await;
-                return Err("Remote startup was cancelled before publication.".into());
+                return Err("Remote startup was canceled before it finished.".into());
             }
             Ok(())
         });

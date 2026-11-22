@@ -389,7 +389,7 @@
     {#if session.healthError}
       <div class="stale-warning" role="alert">
         <span class="msr">cloud_off</span>
-        <span>Refresh failed. Showing the last successful metrics for this TV.</span>
+        <span>Couldn't refresh. Showing the last readings from this TV.</span>
       </div>
     {/if}
     <div class="diagnostics-content">
@@ -406,7 +406,7 @@
           <p class="metric-detail">{memory.free == null ? "Free/available RAM not reported" : `${metricNumber(memory.free)} MB reported free/available`}</p>
         {/if}
         <HelpSheet title="About RAM use">
-          <p>Android can reclaim cached memory. High RAM use alone does not establish memory pressure.</p>
+          <p>Android can reclaim cached memory, so high RAM use alone doesn't mean the TV is low on memory.</p>
         </HelpSheet>
       </section>
 
@@ -435,7 +435,7 @@
           <p class="metric-detail">Temperature unavailable</p>
         {/if}
         {#if thermal.value != null}<p class="metric-detail">{thermal.sensor}</p>{/if}
-        {#if thermal.cached}<p class="temp-note">No current sensor reading was supplied; showing a cached value.</p>{/if}
+        {#if thermal.cached}<p class="temp-note">No live sensor reading available; showing a cached value.</p>{/if}
         {#if thermal.value != null || thermal.status != null}
         <p class="thermal-status" class:thermal-warning={thermal.status != null && thermal.status >= 2} class:thermal-critical={thermal.status != null && thermal.status >= 4}>
           {thermal.status == null ? thermal.statusLabel : `${thermal.statusScope}: ${thermal.statusLabel}`}
@@ -455,7 +455,7 @@
         {#if !statusHelpInline}
           <HelpSheet title="About temperature readings"><p>{thermal.statusHelp}</p></HelpSheet>
         {/if}
-        {:else}<p class="temp-note">Sensor and thermal-status data were not supplied.</p>{/if}
+        {:else}<p class="temp-note">Temperature and thermal status weren't reported.</p>{/if}
       </section>
 
       <!-- Display & Audio -->
@@ -488,7 +488,7 @@
         {:else}
           <p class="lede empty">
             The TV hasn't reported its details. Reconnect, and if the TV shows
-            "Allow debugging?", tick Always allow from this computer and select Allow.
+            "Allow debugging?", check Always allow from this computer and select Allow.
           </p>
         {/if}
       </div>
@@ -498,9 +498,9 @@
         <span class="section-label">Top memory consumers</span>
         <HelpSheet title="About process suggestions">
           <p class="consumers-note">
-            The suggestion for an app is the same one the Apps and Optimize screens give it — tap it
-            for details. Names we can't tie to an installed package are processes, not apps, and
-            there is nothing to remove.
+            An app's suggestion matches the one in Apps and Optimize — tap it for details. Names we
+            can't match to an installed app are processes, not apps, so there's nothing to
+            remove.
           </p>
         </HelpSheet>
         {#if installed.status === "failed"}

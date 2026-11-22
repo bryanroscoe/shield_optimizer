@@ -198,7 +198,7 @@
       return;
     }
     if (!session.isConnected) {
-      modalError = "The TV isn't answering right now. Nothing was sent; your text is kept, so send it again once it reconnects.";
+      modalError = "The TV isn't responding. Nothing was sent; your text is kept, so send it again once it reconnects.";
       return;
     }
     sending = true;
@@ -239,7 +239,7 @@
     const key = session.deviceEpoch;
     if (key === watched) return;
     watched = key;
-    if (showKeyboardModal) remoteMessage = "The TV connection changed, so Send Text was closed.";
+    if (showKeyboardModal) remoteMessage = "The TV connection changed, so Send text was closed.";
     showKeyboardModal = false;
     powerConfirm = false;
     keyboardTarget = null;
@@ -375,7 +375,7 @@
 
     <label class="compat-toggle">
       <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
-      Force compatible mode (slower, universal)
+      Compatibility mode (slower, universal)
     </label>
 
     {#if remoteMessage}
@@ -399,8 +399,8 @@
         <div class="modal-body" bind:this={modalBody}>
           <div bind:this={modalContent}>
             <div class="modal-head">
-              <h3 id="send-text-title">Send Text to TV</h3>
-              <button class="modal-close" type="button" aria-label="Close Send Text" onclick={closeKeyboard}>
+              <h3 id="send-text-title">Send text to TV</h3>
+              <button class="modal-close" type="button" aria-label="Close Send text" onclick={closeKeyboard}>
                 <span class="msr" aria-hidden="true">close</span>
               </button>
             </div>
@@ -408,7 +408,7 @@
             <input
               type="text"
               bind:value={textToSend}
-              placeholder="Enter text..."
+              placeholder="Enter text…"
               class="modal-input"
               aria-label="Text to send"
               use:focusOnOpen
@@ -421,7 +421,7 @@
         </div>
         <div class="modal-actions" class:divided={modalOverflowing}>
           <button class="primary small" disabled={!textToSend || sending} onclick={handleSendText}>
-            {sending ? "Sending..." : "Send Text"}
+            {sending ? "Sending…" : "Send text"}
           </button>
           <button class="ghost small" onclick={closeKeyboard}>Cancel</button>
         </div>
@@ -434,7 +434,7 @@
     danger
     icon="power_settings_new"
     title="Send the power button?"
-    message="POWER toggles the TV: it wakes a sleeping TV and puts an awake one to sleep. Use Wake if you only want to turn the screen on."
+    message="Power toggles the TV: it wakes a sleeping TV and puts an awake one to sleep. Use Wake if you only want to turn the screen on."
     confirmLabel="Send power"
     onConfirm={confirmPower}
     onCancel={() => (powerConfirm = false)}

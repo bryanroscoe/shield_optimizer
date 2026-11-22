@@ -133,7 +133,7 @@ export const scenarios = [
       await ctx.openDevice(SHIELD.key, "launcher");
       await callout(ctx).waitFor();
       ctx.assert.equal(await callout(ctx).getAttribute("data-setup-helper"), "on");
-      ctx.assert.match(await callout(ctx).innerText(), /Disable stock launcher turns it off too/);
+      ctx.assert.match(await callout(ctx).innerText(), /Disable stock launcher disables it too/);
       // Its only button is the "About Setup Wraith" help.
       ctx.assert.equal(await callout(ctx).locator("button.small-action").count(), 0, "no action while stock is on");
       ctx.assert.equal(await callout(ctx).getByRole("button", { name: "About Setup Wraith" }).count(), 1);
@@ -144,11 +144,11 @@ export const scenarios = [
       await ctx.openDevice(SHIELD.key, "launcher");
       await callout(ctx).waitFor();
       ctx.assert.equal(await callout(ctx).getAttribute("data-setup-helper"), "risk");
-      ctx.assert.match(await callout(ctx).innerText(), /will likely grab the Home button/);
+      ctx.assert.match(await callout(ctx).innerText(), /will likely take the Home button/);
       ctx.assert.match((await device(ctx)).home.resolved, new RegExp(WRAITH), "the resolver names Setup Wraith");
       await ctx.step("enabled while stock is off");
 
-      await callout(ctx).getByRole("button", { name: "Turn it off" }).click();
+      await callout(ctx).getByRole("button", { name: "Disable Setup Wraith" }).click();
       await ctx.waitFor(async () => (await device(ctx)).packages.disabled.includes(WRAITH), { message: "Setup Wraith disabled" });
       await ctx.waitFor(async () => (await callout(ctx).getAttribute("data-setup-helper")) === "off", { message: "callout says it is off" });
       ctx.assert.match((await device(ctx)).home.resolved, new RegExp(PROJECTIVY), "Home lands on Projectivy");
@@ -196,8 +196,8 @@ export const scenarios = [
       const confirm = ctx.page.locator(".home-picker-confirm");
       await confirm.waitFor();
       const text = await confirm.innerText();
-      ctx.assert.match(text, /Also turns off Google TV's setup helper \(Setup Wraith\)/);
-      ctx.assert.match(text, /turn it back on briefly to sign in to Google again or\s+pair a remote/);
+      ctx.assert.match(text, /Also disables Google TV's setup helper \(Setup Wraith\)/);
+      ctx.assert.match(text, /re-enable it briefly to sign in to Google again or\s+pair a remote/);
       ctx.assert.match(text, /Save snapshot first/, "snapshot-first is still offered");
       await ctx.step("confirm names both effects");
     },

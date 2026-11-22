@@ -145,7 +145,7 @@ async function openApps(t, { openerFails = false, modalEvidence = false, safetyE
     router.reset("dashboard");
     router.navigate("apps");
   });
-  await page.getByRole("heading", { name: /Recognised apps/ }).waitFor();
+  await page.getByRole("heading", { name: /Catalog apps/ }).waitFor();
   return page;
 }
 
@@ -179,7 +179,7 @@ test("a disabled katniss is found by package and by name, and can be re-enabled"
   await page.locator(".sheet .description", { hasText: katniss.optimize_description }).waitFor();
   await page.getByText(`Reviewed ${katniss.reviewed_at}`).waitFor();
   await page.getByText(/App 12\.0 MB · Data 3\.0 MB \(incl\. 1\.0 MB cache\)/).waitFor();
-  await page.getByText(/measured at/).first().waitFor();
+  await page.getByText(/read at/).first().waitFor();
   const enable = page.getByRole("button", { name: "Enable", exact: true });
   await enable.click();
   await page.waitForFunction(() => window.calls.some((c) => c.command === "enable_package"));
@@ -218,7 +218,7 @@ test("long-press opens the action menu without opening the sheet; a tap still op
   assert.equal(await page.getByRole("menu").count(), 0);
 
   await row.click();
-  await page.getByText("This package is protected", { exact: false }).waitFor();
+  await page.getByText("This app is protected", { exact: false }).waitFor();
   assert.equal(await page.getByRole("button", { name: "Disable", exact: true }).isDisabled(), true);
   const sent = await commands(page);
   assert.equal(sent.includes("disable_package"), false);
@@ -274,7 +274,7 @@ test("without an opener, report falls back to copy and a link to copy", async (t
   await page.getByRole("menu").getByRole("menuitem", { name: "Report this app" }).click();
   const dialog = page.getByRole("dialog", { name: "Report this app" });
   await dialog.getByRole("button", { name: "Open GitHub issue" }).click();
-  await dialog.getByText(/Couldn't open the browser/).waitFor();
+  await dialog.getByText(/Couldn't open your browser/).waitFor();
   await dialog.getByRole("button", { name: "Copy link" }).click();
   await page.waitForFunction(() => window.copied.some((t) => t.startsWith("https://github.com/")));
   await dialog.getByRole("button", { name: "Copy report" }).click();
@@ -408,7 +408,7 @@ test('diskstats remains the report source when a complete measured row exists', 
   const page = await openApps(t);
   await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
   const details = page.getByRole('dialog', { name: /App details for/ });
-  await details.locator('[data-measure="storage"]').getByText(/Android refreshes these sizes/).waitFor();
+  await details.locator('[data-measure="storage"]').getByText(/Android updates these sizes/).waitFor();
   const { preview } = await reportFromDetails(page, details);
   assert.deepEqual(JSON.parse(await preview.inputValue()).records[0].state.storage, { source: 'diskstats', app_bytes: 12582912, data_bytes: 3145728, cache_bytes: 1048576 });
   assert.equal((await commands(page)).includes('app_apk_size'), false);
@@ -556,7 +556,7 @@ for (const transition of ['reopen', 'package', 'reconnect']) test(`report safety
   if (transition !== 'reopen') await details.getByRole('button', { name: 'Close', exact: true }).click();
   if (transition === 'reconnect') {
     await page.evaluate(() => session.connect('TV', 5555));
-    await page.getByRole('heading', { name: /Recognised apps/ }).waitFor();
+    await page.getByRole('heading', { name: /Catalog apps/ }).waitFor();
     await page.locator(`.app-row[data-package="${katniss.package}"]`).click();
   } else if (transition === 'package') await page.locator(`.app-row[data-package="${protectedEntry.package}"]`).click();
   await details.getByText('Safety unavailable', { exact: true }).waitFor();

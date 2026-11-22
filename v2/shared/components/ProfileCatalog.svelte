@@ -63,19 +63,19 @@
   });
 </script>
 
-<section class="profile-catalog" aria-label="Device and package catalog">
+<section class="profile-catalog" aria-label="Device and app catalog">
   <header class="catalog-heading">
     <div>
       <span class="eyebrow">Research reference</span>
-      <h1>Device & package catalog</h1>
-      <p class="counts">{catalog.profiles.length} device profiles · {packageCount.toLocaleString()} package IDs</p>
+      <h1>Device & app catalog</h1>
+      <p class="counts">{catalog.profiles.length} device profiles · {packageCount.toLocaleString()} package names</p>
     </div>
     <span class="evidence-status">Unreviewed source</span>
   </header>
   <p class="scope-note">Source profiles have no verified match to your TV or firmware. Removal safety stays with the app’s reviewed checks.</p>
   <details class="catalog-help">
     <summary>How to read this catalog</summary>
-    <p>Choose an upstream profile to inspect its original observations. An upstream disable entry records that author’s choice. A commented entry may be kept, optional, or absent. Source notes retain warnings and dependencies. These observations do not change package verdicts or select apps for removal.</p>
+    <p>Choose an upstream profile to inspect its original observations. An upstream disable entry records that author's choice. A commented entry may be kept, optional or absent. Source notes retain warnings and dependencies. These observations don't change safety verdicts or select apps for removal.</p>
     <p>Model, OS and firmware statements belong to the selected source. They have not been independently verified for your device.</p>
   </details>
 
@@ -83,8 +83,8 @@
     <label>Device or OS
       <input aria-label="Search device profiles" type="search" placeholder="Brand, model or Android version" bind:value={deviceQuery} oninput={resetSelection} />
     </label>
-    <label>Package ID
-      <input aria-label="Search package IDs" type="search" placeholder="com.example.app" bind:value={packageQuery} oninput={resetSelection} />
+    <label>Package name
+      <input aria-label="Search package names" type="search" placeholder="com.example.app" bind:value={packageQuery} oninput={resetSelection} />
     </label>
   </div>
 
@@ -109,7 +109,7 @@
 
     <div class="profile-content" aria-live="polite">
       {#if !selected}
-        <div class="catalog-empty"><h2>Choose a source profile</h2><p>Search a package to find the device profiles that mention it.</p></div>
+        <div class="catalog-empty"><h2>Choose a source profile</h2><p>Search for a package name to find the device profiles that mention it.</p></div>
       {:else}
         <div class="source-heading">
           <span class="eyebrow">Selected source profile</span>
@@ -129,7 +129,7 @@
           <p role="alert">{sourceError}</p>
           <button class="catalog-button" onclick={() => selected && chooseProfile(selected)}>Retry source</button>
         {:else}
-          <h3>{rows.length} package {rows.length === 1 ? "identity" : "identities"}</h3>
+          <h3>{rows.length} package {rows.length === 1 ? "name" : "names"}</h3>
           {#each rows.slice(0, packageLimit) as row (row.package)}
             <article class="package-source" data-package-source={row.package}>
               <h4>{row.package}</h4>

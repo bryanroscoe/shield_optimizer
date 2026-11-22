@@ -256,7 +256,7 @@
 {#snippet snapshotHelp()}
   <HelpSheet title="What snapshots include">
     <p>A snapshot records disabled and absent apps, your Home app and display, audio, HDMI-CEC and screensaver settings. Use it to set this TV up the same way again, for example after a factory reset.</p>
-    <p>Restoring disables recorded disabled apps, with no per-app choice. Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.</p>
+    <p>Restoring disables the apps it recorded as disabled, with no per-app choice, and never re-enables or reinstalls apps. Recorded absent apps are skipped because this TV's hardware ID isn't verified against the snapshot.</p>
   </HelpSheet>
 {/snippet}
 
@@ -309,8 +309,8 @@
       <span class="locked-icon msr">photo_camera_back</span>
       <h2>Snapshots are a Pro feature</h2>
       <ul class="locked-list" aria-label="What a snapshot does">
-        <li>Records disabled apps, known apps that aren't installed, your Home app and display, audio, HDMI-CEC and screensaver settings</li>
-        <li>Restoring disables apps it recorded as disabled, if they're on, and puts the settings back</li>
+        <li>Records disabled apps, catalog apps that aren't installed, your Home app, and display, audio, HDMI-CEC, and screensaver settings</li>
+        <li>Restoring disables any recorded apps that are currently enabled and puts the settings back</li>
         <li>It never re-enables anything, and never uninstalls or reinstalls apps</li>
       </ul>
       {@render snapshotHelp()}
@@ -327,7 +327,7 @@
     <button class="primary" onclick={load}>Retry</button>
     <div class="spacer"></div>
   {:else}
-    <p class="intro">Restoring disables recorded disabled apps and restores settings. It never re-enables anything or reinstalls apps.</p>
+    <p class="intro">Restoring disables the apps a snapshot recorded as disabled and restores settings. It never re-enables anything or reinstalls apps.</p>
     {@render snapshotHelp()}
 
     <!-- Create -->
@@ -463,7 +463,7 @@
             {#if nothingToDo}
               <p class="plan-empty">
                 {(pending.plan.packages_absent_skipped?.length ?? 0) > 0
-                  ? "No changes will be made. Recorded absent apps are left unchanged."
+                  ? "Nothing to change. Recorded absent apps are skipped."
                   : homeSkip || kept.length > 0 || refused.length > 0
                   ? "Nothing to change. Everything else already matches the snapshot."
                   : "This TV already matches the snapshot — nothing to change."}
@@ -506,11 +506,11 @@
             {/if}
 
             <p class="plan-note">
-              Restore never re-enables anything or reinstalls apps. Settings the snapshot recorded as
-              never set are reset.
+              Restore never re-enables anything or reinstalls apps. Settings that were unset when the
+              snapshot was saved are reset to the TV's defaults.
             </p>
-            <HelpSheet title="Turning an app back on">
-              <p>A restore never turns apps back on. To turn one back on afterwards, use Emergency recovery under More, or Enable in the app's sheet.</p>
+            <HelpSheet title="Re-enabling an app">
+              <p>A restore never re-enables apps. To re-enable one afterward, use Enable in the app's sheet, or Emergency recovery in More.</p>
             </HelpSheet>
           </div>
         </div>

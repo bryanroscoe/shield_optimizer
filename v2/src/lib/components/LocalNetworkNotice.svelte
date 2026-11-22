@@ -4,7 +4,7 @@
   import { LOCAL_NETWORK_BLOCKED } from "$lib/adb-errors";
   import { localNetwork, openLocalNetworkSettings } from "$lib/local-network.svelte";
 
-  /// Native Rust ADB connects from the app itself, so there is no server to restart.
+  /// Built-in ADB connects from the app itself, so there is no server to restart.
   let { hostServer = true }: { hostServer?: boolean } = $props();
 </script>
 
@@ -16,13 +16,12 @@
       <HelpTip label={LOCAL_NETWORK_BLOCKED}>
         <p>If macOS is asking right now, choose Allow.</p>
         <p>
-          Otherwise, click Open Privacy &amp; Security, then Local Network, and turn ATV Optimizer on.
-          If it is already on, turn it off and on again. If it's listed more than once, turn all of
+          Otherwise, click Open Privacy &amp; Security → Local Network and turn ATV Optimizer on.
+          If it's already on, turn it off and on again. If it's listed more than once, turn all of
           them on. {hostServer ? "Then Restart ADB." : "Then try again."}
         </p>
         <p>
-          macOS remembers an earlier Don't Allow, or a prompt that was dismissed, and doesn't ask
-          again.
+          If you clicked Don't Allow earlier or dismissed the prompt, macOS won't ask again.
         </p>
         <p>A VPN or a firewall app such as Little Snitch or LuLu can also block local connections.</p>
       </HelpTip>

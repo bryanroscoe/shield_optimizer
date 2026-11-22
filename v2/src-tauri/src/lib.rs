@@ -130,7 +130,7 @@ fn identity_app_data(
 ) -> Result<PathBuf, String> {
     match local_data {
         Some(root) if data_dir.starts_with(&root) => Ok(data_dir.to_path_buf()),
-        _ => Err("Rust ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string()),
+        _ => Err("Built-in ADB could not find the app storage folder. Reopen the app after restoring access to your user profile. Existing identities were not replaced.".to_string()),
     }
 }
 

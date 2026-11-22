@@ -1,7 +1,7 @@
 # ATV Optimizer
 
-Debloat and tune your Android TV from your computer. Disable bloat, switch launchers, sideload
-APKs, adjust HDMI-CEC and frame-rate matching, and check device health, all from a desktop app.
+Debloat and tune your Android TV from a desktop app: disable bloat, switch launchers,
+sideload APKs, adjust HDMI-CEC and frame-rate matching, and check device health.
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
 Android TV devices.
 
@@ -19,7 +19,7 @@ Android TV devices.
 
 It's a native app for macOS, Windows and Linux. It connects to your TVs directly with its own
 built-in ADB, finds them on your network, and updates itself. You don't need a terminal, Google's
-`adb` or any scripting. Google's platform-tools are still one click away in **Settings → ADB** if a
+`adb` or any scripting. Google platform-tools are still one click away in **Settings → ADB** if a
 TV doesn't get along with the built-in engine, or for a TV connected by USB.
 
 ## Install
@@ -70,7 +70,7 @@ Turn on ADB on the TV. You only do this once:
    that's what your TV offers. Many Google TV devices only have Wireless debugging.
 
 The TV has to allow this computer once. A TV that hasn't yet is listed as **Not allowed yet**:
-click **Request approval**, then on the TV tick **Always allow from this computer** and choose
+click **Request approval**, then on the TV check **Always allow from this computer** and choose
 **Allow**.
 
 ## Using it
@@ -86,7 +86,7 @@ click **Request approval**, then on the TV tick **Always allow from this compute
 | **Playback** | What the TV is actually outputting: resolution, refresh rate, HDR and audio passthrough. |
 | **Launcher** | Install a supported launcher, make it the default, and, where the firmware allows it, disable the stock launcher after you confirm. |
 | **App List** | Disable, enable or uninstall any app, or install one from the Play Store. |
-| **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, untick anything you want to keep, then **Run**. Undo it later with Restore. |
+| **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, uncheck anything you want to keep, then **Run**. Undo it later with Restore. |
 | **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough, Private DNS. |
 | **Remote** | An on-screen D-pad and live typing over a low-latency channel. Paste a long URL or password instead of typing it on the TV. |
 | **Files** | Browse `/sdcard`, copy files to and from your computer, and find an app's exported backups. |
@@ -100,7 +100,7 @@ Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
 **A TV that has never allowed this computer** is listed as **Not allowed yet**. Scanning never
 shows anything on the TV. Click **Request approval** on its row: the TV asks "Allow debugging?"
-(some say "Allow USB debugging?"). Tick **Always allow from this computer** and choose Allow. The
+(some say "Allow USB debugging?"). Check **Always allow from this computer** and choose Allow. The
 app waits up to 10 minutes; **Cancel** stops waiting. TVs that already allow Google's `adb` on this
 computer connect without asking. With Google platform-tools chosen in Settings, the TV asks by
 itself the first time the app connects instead.
@@ -131,7 +131,7 @@ own, it shows up when the device list refreshes.
   may prevent it. Uninstalling can remove data that Restore can't bring back.
 - A curated **do-not-disable list** blocks disables that would break the device, in every curated
   action: Optimize, App List, the Launcher wizard and Snapshot apply.
-- **Recovery** asks the TV to re-enable every disabled package and reports any it refused.
+- **Emergency recovery** asks the TV to re-enable every disabled app and reports any it refused.
 - The **Shell** tab is the exception: it runs whatever you type. Its warnings are there for a
   reason. A bad command can erase data or leave the device unusable.
 
@@ -156,7 +156,7 @@ service, authorize the connection, and be reachable on your network.
 The app shows each connected TV's support status next to its name: **Fully supported**,
 **Supported**, **Beta**, **Not supported**, or **Not verified** for a model nobody has checked yet.
 The status is information only. It never loosens the do-not-disable list, and on an unsupported TV
-the app warns before making changes but still lets you re-enable apps and run Recovery.
+the app warns before making changes but still lets you re-enable apps and run Emergency recovery.
 
 ## Privacy
 
@@ -176,7 +176,7 @@ nothing.
 
 ## Known limitations
 
-**SHIELD discovery on macOS.** If your SHIELD goes offline or is missing from **Scan LAN** on
+**Shield discovery on macOS.** If your Shield goes offline or is missing from **Scan LAN** on
 2.4.1, update to the [latest desktop release](https://github.com/bryanroscoe/shield_optimizer/releases/latest).
 ADB discovery and recovery improvements shipped in 2.5.0. If you still have trouble, see
 [connection troubleshooting](#cant-find-your-tv) and the [original report](https://github.com/bryanroscoe/shield_optimizer/issues/235).
@@ -196,24 +196,27 @@ tracks a Toshiba Fire TV report that's still waiting on version and build detail
 
 **Renamed from Shield Optimizer.** It's the same app with the same update channel. From 2.5.0 it
 also uses the new name for its data folder and app identifier: the first launch copies your
-settings, snapshots and logs over and leaves the old copies in place. On Windows, the 2.5.0
-`-setup.exe` installer (and an in-app update of a setup install) removes a leftover "Shield
-Optimizer" install; the `.msi` doesn't, so remove that one from Add/Remove Programs yourself. On
-macOS, a `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you quit it. If you
-have both `Shield Optimizer.app` and `ATV Optimizer.app` (for example from installing a DMG beside
-an older copy), drag `Shield Optimizer.app` to the Trash. The Homebrew cask is now
-`atv-optimizer`; `shield-optimizer` keeps working and `brew upgrade` moves you over.
+settings, snapshots and logs over and leaves the old copies in place.
+
+- **Windows:** the 2.5.0 `-setup.exe` installer (and an in-app update of a setup install) removes a
+  leftover "Shield Optimizer" install. The `.msi` doesn't, so remove that one from Add/Remove
+  Programs yourself.
+- **macOS:** `Shield Optimizer.app` renames itself to `ATV Optimizer.app` when you quit it. If you
+  have both (for example from installing a DMG beside an older copy), drag `Shield Optimizer.app`
+  to the Trash.
+- **Homebrew:** the cask is now `atv-optimizer`; `shield-optimizer` keeps working and
+  `brew upgrade` moves you over.
 
 ## ATV Optimizer for Android
 
 Use the Android app to manage apps, switch launchers and adjust settings on your TV over Wi-Fi.
 
 **Help test it.** It's in a Google Play closed test. You need an Android phone and an Android TV,
-Google TV or NVIDIA Shield (not Fire TV). The guide covers joining, installing, connecting your TV
+Google TV or Nvidia Shield (not Fire TV). The guide covers joining, installing, connecting your TV
 and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.com/atv-optimizer/testing/)**.
 
 - Everything the test asks for is free, apart from the optional app change: connecting, the
-  remote, the app list, diagnostics, files and backups, re-enabling apps and emergency recovery. Don't buy Pro to help test; Google Play
+  remote, the app list, diagnostics, files and backups, re-enabling apps and Emergency recovery. Don't buy Pro to help test; Google Play
   charges real money even during the test.
 - **The first 12 testers get Pro free.** After you join and install, email
   bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
@@ -235,7 +238,7 @@ The desktop app is free. If it saved you an afternoon of fiddling, you can
 [buy me a coffee on Ko-fi](https://ko-fi.com/bryanroscoe).
 
 **Donated on Ko-fi? You get the Android app's Pro for free.** Leave a note with your donation (or
-message me on Ko-fi afterwards) and I'll send you a Google Play code that unlocks Pro. Redeem it now
+message me on Ko-fi afterward) and I'll send you a Google Play code that unlocks Pro. Redeem it now
 by [joining the Android test](https://bryanroscoe.com/atv-optimizer/testing/), or once the app is
 public.
 

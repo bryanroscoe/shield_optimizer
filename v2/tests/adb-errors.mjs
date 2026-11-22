@@ -68,7 +68,7 @@ assert.equal(explainAdbFailure("connect", "1.2.3.4:5", "Failed: Wrong password")
 // Subnet warning.
 assert.equal(
   subnetWarning("182.168.42.211", "192.168.42.17"),
-  "This computer is on 192.168.42.x, and 182.168.42.211 isn't on it. Typo?",
+  "This computer is on 192.168.42.x, so 182.168.42.211 looks like a different network. Check for a typo.",
 );
 assert.equal(subnetWarning("192.168.42.211", "192.168.42.17"), null);
 assert.equal(subnetWarning("192.168.42.211", null), null, "unknown local address claims nothing");
@@ -104,7 +104,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(blocked.localNetwork, "blocked");
   assert.equal(
     blocked.summary,
-    "Couldn't reach 192.168.1.9. macOS is blocking ATV Optimizer from your local network. Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then Restart ADB.",
+    "Couldn't reach 192.168.1.9. macOS is blocking ATV Optimizer from your local network. Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (if it's already on, turn it off and back on), then Restart ADB.",
   );
   assert.ok(blocked.summary.includes(LOCAL_NETWORK_BLOCKED));
 
@@ -112,7 +112,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(allowed.localNetwork, "restart");
   assert.equal(
     allowed.summary,
-    "Couldn't reach 192.168.1.9. Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running. If that doesn't help, check the TV's current IP and that both devices are on the same local network.",
+    "Couldn't reach 192.168.1.9. Try Restart ADB first. After an update, macOS can block the ADB server left over from the previous version. If that doesn't help, check the TV's current IP and that both devices are on the same local network.",
   );
   assert.doesNotMatch(allowed.summary, /Local Network|Privacy|blocking/, "allowed never points at settings");
 
@@ -120,7 +120,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(unknown.localNetwork, "restart_or_settings");
   assert.equal(
     unknown.summary,
-    "Couldn't reach 192.168.1.9. Try Restart ADB first: after an update, macOS can cut off an ADB server the earlier version left running. If that doesn't help, macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.",
+    "Couldn't reach 192.168.1.9. Try Restart ADB first. After an update, macOS can block the ADB server left over from the previous version. If that doesn't help, macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.",
   );
   assert.doesNotMatch(unknown.summary, /macOS is blocking/, "a possibility, never a certainty");
   assert.ok(unknown.summary.indexOf("Restart ADB") < unknown.summary.indexOf("may be blocking"), "restart first");
@@ -150,7 +150,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
 
   // Restart ADB's message carries adb's own words for each failed device.
   const restart =
-    "ADB server restarted.\nCould not reconnect after 4 tries: 192.168.1.9:5555: failed to connect to '192.168.1.9:5555': No route to host — check the TV is awake";
+    "ADB server restarted.\nCould not reconnect after 4 tries: 192.168.1.9:5555: failed to connect to '192.168.1.9:5555': No route to host — check that the TV is awake";
   assert.ok(isNoRoute(restart));
   assert.equal(LOCAL_NETWORK_POSSIBLE, "macOS may be blocking local network access for ATV Optimizer, or a VPN or firewall app may be in the way.");
 }
@@ -165,7 +165,7 @@ for (const bad of ["adb-unknown-x", "adb--x", "adb-1321920044953", "adb-ABC-", "
   assert.equal(blocked.localNetwork, "blocked");
   assert.equal(
     blocked.summary,
-    `Couldn't reach 192.168.1.9. ${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (off and on again if it already is), then try again.`,
+    `Couldn't reach 192.168.1.9. ${LOCAL_NETWORK_BLOCKED} Turn ATV Optimizer on in System Settings → Privacy & Security → Local Network (if it's already on, turn it off and back on), then try again.`,
   );
 
   // The app itself reached the network: Local Network is not the cause.

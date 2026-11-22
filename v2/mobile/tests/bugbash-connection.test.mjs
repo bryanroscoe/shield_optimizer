@@ -195,7 +195,7 @@ const settle = (page, ms = 40) => page.evaluate((ms) => new Promise((resolve) =>
 async function enterManualHost(page, host, connectPort, pairPort) {
   await page.getByRole("button", { name: "Enter IP address manually" }).click();
   await page.getByRole("textbox", { name: "TV IP address" }).fill(host);
-  if (connectPort) await page.getByRole("spinbutton", { name: /Connect port/ }).fill(connectPort);
+  if (connectPort) await page.getByRole("spinbutton", { name: /Connection port/ }).fill(connectPort);
   if (pairPort) await page.getByRole("spinbutton", { name: "Pairing port" }).fill(pairPort);
 }
 
@@ -348,7 +348,7 @@ test("a wrong pairing code returns to code entry with the spent code cleared, an
   await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("654321");
   await page.getByRole("button", { name: "Pair & connect" }).click();
   await page.getByRole("heading", { name: "Couldn't connect" }).waitFor();
-  await page.getByText(/Pairing succeeded. Check the connect port/).waitFor();
+  await page.getByText(/Paired. Check the connection port/).waitFor();
   await page.getByRole("button", { name: "Try again" }).click();
   await page.getByRole("button", { name: "Open dashboard" }).waitFor();
   assert.equal((await commands(page, "wireless_pair")).length, 2);
@@ -359,15 +359,15 @@ test("manual pairing with only the pairing address never dials port 5555", async
   const page = await createPage(t);
   await enterManualHost(page, "A", "42000");
   await page.getByRole("textbox", { name: "TV IP address" }).fill("B");
-  assert.equal(await page.getByRole("spinbutton", { name: /Connect port/ }).inputValue(), "");
+  assert.equal(await page.getByRole("spinbutton", { name: /Connection port/ }).inputValue(), "");
   await page.getByRole("spinbutton", { name: "Pairing port" }).fill("41099");
   await page.getByRole("button", { name: "Pair with code", exact: true }).click();
   await page.getByRole("textbox", { name: "6-digit pairing code" }).fill("123456");
   await page.getByRole("button", { name: "Pair with code", exact: true }).click();
-  await page.getByText(/Pairing succeeded. Scan for the TV/).waitFor();
+  await page.getByText(/Paired. Scan for the TV/).waitFor();
   await page.getByRole("button", { name: "Scan network" }).click();
   await page.getByText("No TVs found", { exact: true }).waitFor();
-  await page.getByText(/Pairing succeeded. Scan for the TV/).waitFor();
+  await page.getByText(/Paired. Scan for the TV/).waitFor();
   assert.equal((await commands(page, "wireless_pair"))[0].args.port, 41099);
   assert.equal((await commands(page, "wireless_connect")).length, 0);
   await enterManualHost(page, "B", "41100");

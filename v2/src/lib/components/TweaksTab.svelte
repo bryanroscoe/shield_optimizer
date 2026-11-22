@@ -292,7 +292,7 @@
       if (!enabledResult.ok) {
         tweaksActionMessage =
           `screensaver_enabled → ${enabled || "(default)"} was refused: ` +
-          `${enabledResult.message.trim()}. The screensaver was left unchanged.`;
+          `${enabledResult.message.trim()}. Nothing changed.`;
         return;
       }
       const componentResult = await api.writeSetting(target, "secure", "screensaver_components", component);
@@ -341,7 +341,7 @@
       : preset === "hd_720p" ? "720p (1280x720, density 213)"
       : "device defaults";
     if (displayScaleBusy) return;
-    if (!(await confirmAction(`Change display scaling to ${label}? The screen will redraw.`)) || displayScaleBusy) return;
+    if (!(await confirmAction(`Change display scaling to ${label}? The screen will flicker briefly as menus redraw.`)) || displayScaleBusy) return;
     displayScaleBusy = preset;
     displayScaleMessage = "";
     try {
@@ -364,7 +364,7 @@
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-tweaks" aria-labelledby="tab-tweaks">
   <div class="card-header">
-    <h2><Icon name="tune" size={20} /> System Tweaks</h2>
+    <h2><Icon name="tune" size={20} /> Tweaks</h2>
     <button onclick={loadTweaks} disabled={tweaksLoading}>
       {tweaksLoading ? "Loading…" : "Refresh"}
     </button>
@@ -380,8 +380,8 @@
     {/if}
 
     {#if netflixHooksState && netflixHooksState !== "missing"}
-      <h3>Nvidia System Hooks</h3>
-      <p class="muted small">Off stops the controller's Guide button acting as Home. It does not change the remote's Netflix button.</p>
+      <h3>Nvidia system hooks</h3>
+      <p class="muted small">Off stops the controller's Guide button from acting as Home. It doesn't change the remote's Netflix button.</p>
       <HelpDetails label="Controller button help"><p>Turning Nvidia's system hooks (<code>{NETFLIX_HOOKS_PKG}</code>) off can fix Guide button conflicts in Steam Link and Moonlight. The remote's Netflix button is handled in firmware; use a button remapper app for it.</p></HelpDetails>
       <div class="tweak-row">
         <div>
@@ -406,8 +406,8 @@
     {/if}
 
     {#if assistantState && assistantState !== "missing"}
-      <h3>Remote Assistant Button</h3>
-      <p class="muted small">Off revokes Google search's microphone access and turns off Play Store voice search.</p>
+      <h3>Remote Assistant button</h3>
+      <p class="muted small">Off revokes the Google search app's microphone access and turns off Play Store voice search. The Assistant may still open briefly.</p>
       <HelpDetails label="Assistant button help"><p>The remote's Assistant button can still open the assistant briefly, but Google's search app (<code>{ASSISTANT_PKG}</code>) cannot hear you. You can restore access with On.</p></HelpDetails>
       <div class="tweak-row">
         <div>
@@ -484,15 +484,13 @@
     {/if}
 
     <h3>HDMI-CEC</h3>
-    <p class="muted small">
-      Lets the TV and this box control each other over HDMI. Turning off the
-      main switch usually turns off the other three as well.
-    </p>
+    <p class="muted small">Turning off the main switch usually turns off the other three as well.</p>
+    <HelpDetails label="HDMI-CEC help"><p>HDMI-CEC lets the TV and this box control each other over HDMI.</p></HelpDetails>
     <div class="tweak-grid">
       {#each [
         { key: "hdmi_control_enabled", label: "Main switch", value: tweaks.hdmi_control_enabled },
-        { key: "hdmi_control_auto_wakeup_enabled", label: "Auto wake on TV power", value: tweaks.hdmi_control_auto_wakeup_enabled },
-        { key: "hdmi_control_auto_device_off_enabled", label: "Auto sleep when TV off", value: tweaks.hdmi_control_auto_device_off_enabled },
+        { key: "hdmi_control_auto_wakeup_enabled", label: "Auto-wake the TV", value: tweaks.hdmi_control_auto_wakeup_enabled },
+        { key: "hdmi_control_auto_device_off_enabled", label: "Auto-off with the TV", value: tweaks.hdmi_control_auto_device_off_enabled },
         { key: "hdmi_system_audio_control_enabled", label: "System audio control", value: tweaks.hdmi_system_audio_control_enabled },
       ] as row (row.key)}
         <div class="tweak-row">
@@ -524,7 +522,7 @@
       {/each}
     </div>
 
-    <h3>Match Content Frame Rate</h3>
+    <h3>Match content frame rate</h3>
     <HelpDetails label="Frame rate help">
       <p class="muted small">
         Lets apps change the TV's refresh rate to match the video, such as 24 Hz
@@ -558,7 +556,7 @@
       </div>
     </div>
 
-    <h3>Audio Passthrough</h3>
+    <h3>Audio passthrough</h3>
     <p class="muted small">Manual can cause silence on equipment that doesn't support the formats you pick.</p>
     <HelpDetails label="Passthrough help">
       <p>
@@ -618,13 +616,13 @@
       </div>
     {/if}
 
-    <h3>Background Process Limit</h3>
+    <h3>Cached background processes</h3>
     <HelpDetails label="Background process help">
       <p class="muted small">
         Android keeps recently used apps in memory so they open faster. This shows
-        how many it will keep. This app can't change that number. Earlier versions
-        wrote a setting for it, but a Shield TV ignored that setting and kept its
-        limit at 32.
+        how many it will keep. ATV Optimizer can't change that number: earlier
+        versions wrote a setting for it, but the Shield TV we tested ignored that
+        setting and kept its limit at 32.
       </p>
       <p class="muted small">
         To set a limit, open Developer options on the TV and use Background process
@@ -643,7 +641,7 @@
         </div>
         <div class="muted small mono">CUR_MAX_CACHED_PROCESSES = {tweaks.cached_process_limit ?? "(not reported)"}</div>
         {#if tweaks.background_process_limit !== null}
-          <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit} (ignored by Android)</div>
+          <div class="muted small mono">global.background_process_limit = {tweaks.background_process_limit} (old setting, ignored on the tested Shield TV)</div>
         {/if}
       </div>
       {#if tweaks.background_process_limit !== null}
@@ -657,7 +655,7 @@
       {/if}
     </div>
 
-    <h3>Long Press Timeout</h3>
+    <h3>Long-press timeout</h3>
     <p class="muted small">Lower values make accidental long presses more likely.</p>
     <HelpDetails label="Long press help"><p>How long you hold OK before it counts as a long press. Android's default is 400 ms.</p></HelpDetails>
     <div class="tweak-row">
@@ -683,8 +681,7 @@
     </div>
 
     <h3>Screensaver</h3>
-    <p class="muted small">Restore previous uses the screensaver selected when this tab opened.</p>
-    <HelpDetails label="Screensaver help"><p>Basic Daydream is Android's built-in screensaver. Restore previous also supports a vendor screensaver this app cannot name.</p></HelpDetails>
+    <HelpDetails label="Screensaver help"><p>Restore previous uses the screensaver selected when this tab opened.</p><p>Basic Daydream is Android's built-in screensaver. Restore previous also supports a vendor screensaver this app cannot name.</p></HelpDetails>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{screensaverLabel(tweaks.screensaver_components, tweaks.screensaver_enabled)}</strong></div>
@@ -711,7 +708,7 @@
       </div>
     </div>
 
-    <h3>UI Animations</h3>
+    <h3>Animation speed</h3>
     <div class="tweak-row">
       <div>
         <div class="current">Current: <strong>{animationsLabel(tweaks)}</strong></div>
@@ -742,11 +739,10 @@
       </div>
     </div>
 
-    <h3>Display Scaling</h3>
+    <h3>Display scaling</h3>
     <HelpDetails label="Display scaling help">
       <p class="muted small">
-        Changes the resolution Android draws its menus at, using
-        <code>wm size</code> and <code>wm density</code>. The TV still gets its
+        Changes the resolution Android draws its menus at. The TV still gets its
         usual output resolution, and the menus are scaled up to fit.
       </p>
       <p class="muted small">
@@ -793,7 +789,7 @@
         onclick={() => applyDisplayScaling("hd_720p")}
       >
         <span class="scale-title">{displayScaleBusy === "hd_720p" ? "Applying…" : "720p"}</span>
-        <span class="muted small">1280×720, density 213. Lightest, but menus look soft.</span>
+        <span class="muted small">1280×720, density 213. Lightest, but menus look softer.</span>
       </button>
       <button
         class="scale-option"

@@ -133,7 +133,7 @@ test("an opt-out that couldn't be saved says reports may come back, and retry sa
   await toggle.click();
   const warning = page.getByRole("alert").filter({ hasText: "couldn't be saved" });
   await warning.waitFor();
-  assert.match(await warning.innerText(), /Reports are off for now, but this choice couldn't be saved\. They may turn back on the next time the app starts\./);
+  assert.match(await warning.innerText(), /Reports are off for now, but this choice couldn't be saved\. They may turn back on next time the app starts\./);
   assert.equal(await toggle.isChecked(), false);
 
   // Still said after leaving More and coming back in the same session.

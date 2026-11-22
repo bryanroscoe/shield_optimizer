@@ -52,7 +52,7 @@ for (const [width, scale] of [[360, 1], [320, 2]]) test(`help opens in a bottom 
   assert.equal(await trigger.getAttribute("aria-haspopup"), "dialog");
   assert.ok((await trigger.boundingBox()).height >= 44);
   const sheet = page.getByRole("dialog", { name: "About System Hooks" });
-  const info = sheet.getByText(/Turning the hooks off can fix/);
+  const info = sheet.getByText(/Disabling them can fix/);
   assert.equal(await sheet.count(), 0, "help is on demand, not in the screen");
   const before = await page.evaluate(() => document.documentElement.scrollHeight);
   for (let i = 0; i < 3; i++) {
@@ -102,7 +102,7 @@ test("app descriptions remain available on tap while row safety stays visible", 
   const page = await open(t, "apps");
   await page.getByRole("button", { name: "Using the app list", exact: true }).tap();
   const help = page.getByRole("dialog", { name: "Using the app list" });
-  await help.getByText(/Tap for descriptions, consequences and safety details/).waitFor();
+  await help.getByText(/Tap an app for its description, consequences and safety details/).waitFor();
   await help.getByRole("button", { name: "Done", exact: true }).tap();
   await help.waitFor({ state: "detached" });
   const row = page.locator('.app-row[data-package="com.google.android.videos"]');
@@ -118,12 +118,12 @@ test("app descriptions remain available on tap while row safety stays visible", 
 
 test("playback uncertainty remains visible and optional measurement context does not sample", async t => {
   const page = await open(t, "diagnostics");
-  await page.getByText("Advertised configuration, not a playback test.", { exact: true }).waitFor();
+  await page.getByText("Reported capabilities only, not a playback test.", { exact: true }).waitFor();
   const trigger = page.getByRole("button", { name: "How samples are measured", exact: true });
-  assert.equal(await page.getByText(/VPN traffic can also appear/).count(), 0);
+  assert.equal(await page.getByText(/VPN traffic can also show up/).count(), 0);
   await trigger.tap();
-  await page.getByRole("dialog", { name: "How samples are measured" }).getByText(/VPN traffic can also appear/).waitFor();
-  assert.equal(await page.getByText("No network counters available.", { exact: true }).count(), 0);
+  await page.getByRole("dialog", { name: "How samples are measured" }).getByText(/VPN traffic can also show up/).waitFor();
+  assert.equal(await page.getByText("No network stats available.", { exact: true }).count(), 0);
   assert.deepEqual(await page.evaluate(() => helpCalls.filter(command => ["resource_sample", "media_report"].includes(command))), []);
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });

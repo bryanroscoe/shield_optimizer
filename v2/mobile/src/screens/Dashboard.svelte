@@ -145,7 +145,7 @@
     try {
       const result = await api.trimCaches(session.serial);
       if (generation !== session.generation) return;
-      showToast(result.message || (result.ok ? "Caches trimmed." : "Failed to trim caches."), result.ok ? "success" : "error");
+      showToast(result.message || (result.ok ? "App caches cleared." : "Couldn't clear app caches."), result.ok ? "success" : "error");
       if (result.ok) {
         session.invalidateHealth();
         session.loadHealth(true);
@@ -190,7 +190,7 @@
         state === "reconnected"
           ? "The TV reconnected, so the reboot wasn't sent. Confirm Reboot again."
           : state === "offline"
-            ? "The TV isn't answering. Nothing was sent."
+            ? "The TV isn't responding. Nothing was sent."
             : "The TV connection changed. Nothing was sent.",
         "error",
       );
@@ -303,7 +303,7 @@
 
         <div class="health-details">
           <span class="cta-eyebrow">Optimize</span>
-          <span class="health-title">Recommended app review</span>
+          <span class="health-title">Review apps</span>
           <span class="health-desc">
             {#if session.bloatLoading}
               Checking installed recommended apps…
@@ -382,9 +382,9 @@
       <div class="actions-grid">
         <button class="action-btn" disabled={busyAction !== ""} onclick={handleTrimCaches}>
           {#if busyAction === "trim_caches"}
-            <span class="pdot blink"></span><span class="action-text">Trimming…</span>
+            <span class="pdot blink"></span><span class="action-text">Clearing…</span>
           {:else}
-            <span class="msr action-icon">cleaning_services</span><span class="action-text">Trim caches</span>
+            <span class="msr action-icon">cleaning_services</span><span class="action-text">Clear caches</span>
           {/if}
         </button>
 
@@ -407,8 +407,8 @@
     </div>
 
     <div class="bottom-help">
-      <HelpSheet title="Turning apps back on">
-        <p>Apps your TV needs can't be disabled. Turn an app back on from Apps, or re-enable every disabled app from More. Both are always free.</p>
+      <HelpSheet title="Re-enabling apps">
+        <p>Apps your TV needs can't be disabled. Re-enable one app from Apps, or every disabled app with Emergency recovery in More. Both are always free.</p>
       </HelpSheet>
     </div>
   {/if}
@@ -442,7 +442,7 @@
       <HelpSheet title="About saving and sharing">
         <p>
           Save a copy opens Android's file picker. The copy goes only where you choose, and
-          backing out saves nothing. Share opens Android's share sheet and lets the app you pick
+          canceling saves nothing. Share opens Android's share sheet and lets the app you pick
           read a copy. Android doesn't tell ATV Optimizer whether that app finished.
         </p>
         <p>
@@ -452,7 +452,6 @@
           the app.
         </p>
       </HelpSheet>
-      <p class="shot-note">Close screenshot preview hides this view. The saved image stays in the app.</p>
     </div>
   {/if}
 

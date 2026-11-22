@@ -70,7 +70,7 @@ try {
     const request = row(page).getByRole('button', { name: 'Request approval from Bedroom TV', exact: true });
     await request.click();
     await dialog(page).getByRole('heading', { name: 'Allow this computer on Bedroom TV' }).waitFor();
-    await dialog(page).getByText('On Bedroom TV, tick Always allow from this computer, then choose Allow.').waitFor();
+    await dialog(page).getByText('On Bedroom TV, check Always allow from this computer, then choose Allow.').waitFor();
     assert.equal(await dialog(page).getAttribute('data-phase'), 'waiting');
     assert.equal(await dialog(page).getAttribute('aria-modal'), 'true');
     assert.match(await dialog(page).innerText(), /Closing this window keeps waiting; only Cancel request\s+stops it/);
@@ -87,9 +87,9 @@ try {
     await dialog(page).locator('summary', { hasText: 'Not seeing the prompt?' }).click();
     const help = await dialog(page).locator('details').innerText();
     assert.match(help, /Wake the TV/);
-    assert.match(help, /Chose Cancel on the TV\? The TV doesn't tell this computer/);
+    assert.match(help, /Pressed Cancel on the TV\? The TV doesn't tell this computer/);
     assert.match(help, /Revoke USB debugging authorizations/);
-    assert.doesNotMatch(help, /tap this computer/, 'a :5555 transport never appears under Wireless debugging');
+    assert.doesNotMatch(help, /Wireless debugging → this computer/, 'a :5555 transport never appears under Wireless debugging');
     await shot(page, '02-builtin-waiting-help-dark');
     await page.keyboard.press('Escape');
     await dialog(page).waitFor({ state: 'detached' });
@@ -108,7 +108,7 @@ try {
     await page.emulateMedia({ colorScheme: 'light' });
     await page.setViewportSize({ width: 720, height: 900 });
     await request.click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
     await shot(page, '04-builtin-waiting-light-720');
     await page.evaluate(() => { document.documentElement.style.fontSize = '125%'; });
@@ -125,7 +125,7 @@ try {
   {
     const { context, page } = await open(['adbEngineBuiltin', 'approvalTv', 'approvalAutoAllow'], { video: true });
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await page.waitForTimeout(1500);
     await dialog(page).getByRole('heading', { name: 'Bedroom TV allowed this computer' }).waitFor({ timeout: 10_000 });
     await shot(page, '06-builtin-allowed-dark');
@@ -147,7 +147,7 @@ try {
     assert.equal(await row(page).getByRole('button', { name: 'Retry approval' }).count(), 0);
     await shot(page, '07-platform-tools-row-dark');
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     assert.ok(await page.evaluate(() => window.__calls.includes('reprompt_device')), 'the server asks again');
     assert.ok(!(await page.evaluate(() => window.__calls.includes('request_device_approval'))));
     await shot(page, '08-platform-tools-waiting-dark');
@@ -177,7 +177,7 @@ try {
   {
     const { context, page } = await open(['adbEngineBuiltin', 'approvalTv', 'approvalAutoAllow']);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await page.getByRole('button', { name: 'Pair PIN' }).click();
     const pairInput = page.locator('.pair-form input').first();
@@ -194,7 +194,7 @@ try {
   {
     const { context, page } = await open(['adbEngineBuiltin', 'approvalTv', 'approvalAutoAllow', 'approvalGap']);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     const phases = new Set();
     const until = Date.now() + 15_000;
     while (Date.now() < until) {
@@ -226,7 +226,7 @@ try {
   {
     const { context, page } = await open(['adbEngineBuiltin', 'approvalTv', 'approvalRefuses', 'approvalLateAllow']);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await dialog(page).getByRole('button', { name: 'Cancel request' }).focus();
     await dialog(page).getByRole('heading', { name: "Bedroom TV didn't allow this computer" }).waitFor({ timeout: 8000 });
     await page.waitForFunction(() => document.activeElement?.textContent?.trim() === 'Try again'
@@ -263,7 +263,7 @@ try {
     await dialog(page).getByRole('button', { name: 'Cancel request' }).click();
     await dialog(page).waitFor({ state: 'detached' });
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await page.waitForTimeout(2200);
     assert.equal(await dialog(page).getAttribute('data-phase'), 'waiting', 'the first request\'s failure is dropped');
     assert.equal(await page.getByText('SIMULATED stale request failure').count(), 0);
@@ -278,7 +278,7 @@ try {
     await dialog(page).getByRole('button', { name: 'Close', exact: true }).click();
     await dialog(page).waitFor({ state: 'detached' });
     const line = row(page).locator('[data-approval-line]');
-    await line.getByText("didn't answer within 20 seconds", { exact: false }).waitFor({ timeout: 5000 });
+    await line.getByText("didn't respond within 20 seconds", { exact: false }).waitFor({ timeout: 5000 });
     assert.ok(await line.evaluate(el => el.classList.contains('approval-result')));
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).waitFor();
     assert.equal(await dialog(page).count(), 0, 'the pop-up does not reopen by itself');
@@ -291,7 +291,7 @@ try {
   {
     const { context, page } = await open(['adbEngineBuiltin', 'approvalTv']);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await page.keyboard.press('Escape');
     await row(page).getByText('WAITING FOR ALLOW', { exact: true }).waitFor();
     await row(page).getByRole('button', { name: 'Forget' }).click();
@@ -309,7 +309,7 @@ try {
     const { context, page } = await open(['approvalTv'], { clock: true });
     const count = () => page.evaluate(() => window.__calls.filter(c => c === 'transport_state').length);
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await page.keyboard.press('Escape');
     const waiting = await count();
     await page.clock.runFor(5000);
@@ -328,7 +328,7 @@ try {
   {
     const { context, page } = await open(['approvalTv', 'transportStateSlow'], { clock: true });
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     const lists = () => page.evaluate(() => window.__calls.filter(c => c === 'list_devices').length);
     const reads = () => page.evaluate(() => window.__calls.filter(c => c === 'transport_state').length);
     const before = await lists();
@@ -346,7 +346,7 @@ try {
   {
     const { context, page } = await open(['approvalTv', 'transportStateFails'], { clock: true });
     await row(page).getByRole('button', { name: 'Request approval from Bedroom TV' }).click();
-    await dialog(page).getByText('On Bedroom TV, tick', { exact: false }).waitFor();
+    await dialog(page).getByText('On Bedroom TV, check', { exact: false }).waitFor();
     await page.keyboard.press('Escape');
     await page.clock.fastForward('09:00');
     await row(page).getByRole('button', { name: 'Show the approval request for Bedroom TV' }).click();

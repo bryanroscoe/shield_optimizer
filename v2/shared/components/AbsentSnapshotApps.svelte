@@ -4,7 +4,7 @@
 
 {#if packages.length > 0}
   <div class="absent-apps" data-plan-item="absent-skipped">
-    <p>Recorded absent apps are left unchanged because saved-TV hardware identity is unverified.</p>
+    <p>Recorded absent apps are left unchanged because this TV's hardware ID isn't verified against the snapshot.</p>
     <details>
       <summary>Recorded absent apps ({packages.length})</summary>
       <ul>{#each packages as pkg (pkg)}<li>{pkg}</li>{/each}</ul>

@@ -252,7 +252,7 @@ pub async fn report_all(state: State<'_, AppState>) -> Result<Vec<DeviceReport>,
                 serial: d.serial.clone(),
                 name: d.name.clone(),
                 report: None,
-                error: Some(format!("device not authorized (state: {:?})", d.status)),
+                error: Some(format!("device not ready (state: {:?})", d.status)),
             });
             continue;
         }

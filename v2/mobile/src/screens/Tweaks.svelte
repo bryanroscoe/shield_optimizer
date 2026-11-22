@@ -257,7 +257,7 @@
     apply(
       enabled ? "hooks-on" : "hooks-off",
       (target) => enabled ? api.enablePackage(target, HOOKS_PKG) : api.disablePackage(target, HOOKS_PKG),
-      enabled ? "Nvidia System Hooks turned on." : "Nvidia System Hooks turned off.",
+      enabled ? "Nvidia System Hooks enabled." : "Nvidia System Hooks disabled.",
     );
   }
   function setAssistant(grant: boolean) {
@@ -549,15 +549,15 @@
           return {
             ok: false,
             message: turningOff
-              ? `The TV refused the screensaver switch (${first.message.trim() || "no reason given"}). The screensaver was left unchanged.`
-              : `The TV refused the screensaver component (${first.message.trim() || "no reason given"}). The screensaver switch was not written.`,
+              ? `The TV refused the screensaver change (${first.message.trim() || "no reason given"}). Nothing changed.`
+              : `The TV refused the screensaver choice (${first.message.trim() || "no reason given"}). Nothing changed.`,
           };
         }
         if (connection !== session.generation || !session.isConnected || target !== session.serial) throw new Error("TV connection changed.");
         const second = await api.writeSetting(target, "secure", secondKey, turningOff ? component : enabled);
         if (!second.ok) return {
           ok: false,
-          message: `${second.message.trim() || "The second screensaver write failed."} The ${turningOff ? "switch" : "component"} was written, but the ${turningOff ? "component" : "switch"} was not confirmed. Recheck current settings.`,
+          message: `${second.message.trim() || "Couldn't finish updating the screensaver."} The ${turningOff ? "on/off setting" : "screensaver choice"} was saved, but the ${turningOff ? "screensaver choice" : "on/off setting"} wasn't confirmed. Refresh to check the current settings.`,
         };
         return second;
       },
@@ -616,12 +616,12 @@
 
   const scaleConfirmMessage = $derived(
     scaleConfirm === "reset"
-      ? "Clears the size and density override so the TV goes back to its own defaults. The screen will flicker while it re-lays out."
+      ? "Clears the size and density override so the TV goes back to its own defaults. The screen will flicker while it redraws."
       : scaleConfirm === "uhd_4k"
-        ? "Sets the UI to 3839x2160 at density 640. The screen will flicker and some apps re-layout; use Reset if anything looks wrong."
+        ? "Sets the UI to 4K (3839×2160, density 640). The screen will flicker and some apps redraw; use Reset if anything looks wrong."
         : scaleConfirm === "hd_720p"
-          ? "Sets the UI to 1280x720 at density 213. Lightest on the TV, but menus look soft. Use Reset if anything looks wrong."
-          : "Sets the UI to 1920x1080 at density 320. The screen will flicker and some apps re-layout; use Reset if anything looks wrong.",
+          ? "Sets the UI to 720p (1280×720, density 213). Lightest on the TV, but menus look softer. Use Reset if anything looks wrong."
+          : "Sets the UI to 1080p (1920×1080, density 320). The screen will flicker and some apps redraw; use Reset if anything looks wrong.",
   );
 
   const showHooks = $derived(
@@ -661,8 +661,8 @@
 
   <HelpSheet title="About these settings">
     <p class="intro">
-      Settings Android hides or buries, read straight from the TV. Reset puts a setting back to the
-      TV's default.
+      Settings Android hides or buries, read directly from the TV. Reset puts a setting back to
+      the TV's default.
     </p>
   </HelpSheet>
 
@@ -703,10 +703,10 @@
             </div>
             <HelpSheet title="About System Hooks">
               <p class="t-note">
-                The hooks make the Xbox Guide button act as Home. Turning the hooks off can fix
-                Guide button conflicts in Steam Link and Moonlight. This doesn't change the Shield
-                remote's Netflix button, which is handled in firmware; use a button remapper app for
-                that. Turning the hooks back on is always free.
+                The hooks make the Xbox Guide button act as Home. Disabling them can fix Guide
+                button conflicts in Steam Link and Moonlight. They don't control the Shield remote's
+                Netflix button, which is handled in firmware; use a button remapper app for that.
+                Re-enabling the hooks is always free.
               </p>
             </HelpSheet>
             {#if hooksError}
@@ -739,7 +739,7 @@
             <div class="t-row-head">
               <span class="msr t-icon" aria-hidden="true">settings_remote</span>
               <div class="t-info">
-                <span class="t-title">Remote Assistant Button</span>
+                <span class="t-title">Remote Assistant button</span>
                 <span class="t-desc">
                   {#if assistantError}
                     Couldn't read the microphone permission
@@ -755,7 +755,7 @@
             {#if assistantError}
               {@render readError(assistantError)}
             {:else}
-              <div class="segmented" role="group" aria-label="Remote Assistant Button">
+              <div class="segmented" role="group" aria-label="Remote Assistant button">
                 <button
                   class="seg"
                   class:active={assistant === "granted"}
@@ -918,8 +918,8 @@
             <p class="t-note">Manual overrides can cause silence on unsupported equipment.</p>
             <HelpSheet title="About audio passthrough">
               <p class="t-note">
-                Actual playback depends on receiver and app support. In Manual, of the formats listed,
-                only the ones you tick are enabled; encodings this list doesn't show are left as they are.
+                Actual playback depends on your receiver and app. In Manual, only the formats you
+                check are enabled; formats this list doesn't show are left as they are.
               </p>
             </HelpSheet>
             <div class="segmented">
@@ -997,9 +997,9 @@
             </div>
             <HelpSheet title="About screensavers">
               <p class="t-note">
-                Which screensaver (Daydream) runs when the TV is idle. Basic Daydream is the plain one
-                built into Android. Names come from the app catalog; Restore previous also brings
-                back a custom screensaver this app can't name.
+                Chooses the screensaver (Daydream) that runs when the TV is idle. Basic Daydream is
+                Android's built-in one. Names come from the app catalog; Restore previous also
+                brings back a custom screensaver this app can't name.
               </p>
               <p class="t-note">
                 Previous is what was set when Tweaks first read this TV.
@@ -1024,7 +1024,7 @@
               >
             </div>
             {#if !ssIsBasic && !ssIsOff}
-              <span class="t-desc">{ssComponent ? "A different screensaver is configured; neither option above matches it." : "No explicit screensaver is configured; the TV may use its default."}</span>
+              <span class="t-desc">{ssComponent ? "Another screensaver is set; neither option above matches it." : "No explicit screensaver is configured; the TV may use its default."}</span>
             {/if}
             {#if screensaverOriginal}
               <button
@@ -1088,21 +1088,21 @@
               <div class="t-info">
                 <span class="t-title">Cached background processes</span>
                 <span class="t-desc">
-                  <span class="state">{cachedLimit != null ? `Reported cached-process cap: ${cachedLimit}` : "Not reported by this TV"}</span>
+                  <span class="state">{cachedLimit != null ? `Reported cached-process limit: ${cachedLimit}` : "Not reported by this TV"}</span>
                 </span>
               </div>
             </div>
             <HelpSheet title="About cached processes">
               <p class="t-note">
-                Android’s reported cap on cached processes, not a count of running apps. Apps may use
-                multiple processes. This app does not change this cap; Developer options on the TV
-                can, and that behavior varies by Android version. The legacy
-                global.background_process_limit key had no effect on the tested Shield TV running
-                Android 11; vendor behavior may differ.
+                Android's reported limit on cached processes, not a count of running apps; one app
+                can use several. ATV Optimizer doesn't change this limit. Developer options on the
+                TV can, and that varies by Android version. The legacy
+                global.background_process_limit setting had no effect on the tested Shield TV
+                running Android 11; other TVs may differ.
               </p>
             </HelpSheet>
             {#if bgLimit != null}
-              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing this deletes only the stored value; it does not set the reported cap.</p>
+              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing it deletes only this stored value and doesn't change Android's reported limit.</p>
                 <button
                   class="reset-btn"
                   class:busy={busy === "bg-remove"}

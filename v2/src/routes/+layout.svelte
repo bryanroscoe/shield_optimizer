@@ -141,7 +141,7 @@
       await navigator.clipboard.writeText(supportId);
       supportCopied = true;
     } catch (e) {
-      bugMessage = `Couldn't reach the clipboard (${e}). Your support ID is ${supportId}.`;
+      bugMessage = `Couldn't reach the clipboard (${e}). Your Support ID is ${supportId}.`;
     }
   }
 
@@ -166,7 +166,7 @@
         checkMessage =
           u.update_available && u.latest
             ? `v${u.latest} is out. Run flatpak update, or install the new .flatpak from the Releases page if you downloaded this one.`
-            : "No update found. You have the latest version.";
+            : "You're up to date.";
         return;
       }
       const [available] = await Promise.all([
@@ -180,7 +180,7 @@
         pendingUpdate = available;
         checkMessage = `v${available.version} is available.`;
       } else {
-        checkMessage = "No update found. You have the latest version the updater offers.";
+        checkMessage = "You're on the latest version the updater offers.";
       }
     } catch (e) {
       checkMessage = `Couldn't check for updates: ${e}`;
@@ -424,7 +424,7 @@
     const { url, prefilled } = issueUrl(bugBusy ? "" : bugBundle, bugNote);
     if (!prefilled) {
       bugMessage = bugBundle
-        ? "The diagnostics are too long to fill in for you. Click Copy, then paste them into the Diagnostics field on GitHub."
+        ? "The diagnostics are too long to prefill. Click Copy, then paste them into the Diagnostics field on GitHub."
         : "Paste the diagnostics into the Diagnostics field on GitHub once they have been collected.";
     }
     void openUrl(url);
@@ -465,7 +465,7 @@
       await navigator.clipboard.writeText(id);
       sentIdCopied = true;
     } catch (e) {
-      bugMessage = `Couldn't reach the clipboard (${e}). Your support ID is ${id}.`;
+      bugMessage = `Couldn't reach the clipboard (${e}). Your Support ID is ${id}.`;
     }
   }
   let bugBundle = $state("");
@@ -757,7 +757,7 @@
       </p>
     {:else}
       <p class="notes-current">
-        v{pendingVersion} is ready. Restart now to start using it, or carry on and it
+        v{pendingVersion} is ready. Restart now to start using it, or keep working and it
         will start the next time you open the app.
       </p>
     {/if}
@@ -810,9 +810,9 @@
         <HelpDetails label="What's removed before sending">
           <p>
             Addresses, serial numbers, the names of your TVs the app knows, your user name and
-            file paths are removed from everything sent, your description included. The report is labeled with your support
-            ID, kept for 30 days, and goes to the app's developer whether or not anonymous reports
-            are on.
+            file paths are removed from everything sent, including your description. The report is
+            labeled with your Support ID, kept for 30 days, and goes to the app's developer even if
+            anonymous reports are off.
           </p>
           <p>Open GitHub issue instead opens a public form you review and submit yourself.</p>
         </HelpDetails>
@@ -828,7 +828,7 @@
         <span>
           Sent{bugSent.reportId != null ? ` as report #${bugSent.reportId}` : ""}. Thank you.
           {#if bugSent.shortId}
-            Your support ID is <code class="mono">{bugSent.shortId}</code>.
+            Your Support ID is <code class="mono">{bugSent.shortId}</code>.
           {/if}
         </span>
         {#if bugSent.shortId}
@@ -895,8 +895,8 @@
       {:else}
         <span class="muted">
           {telemetry?.available === false
-            ? "No support ID: this build doesn't send reports."
-            : "No support ID while reports are off."}
+            ? "No Support ID: this build doesn't send reports."
+            : "No Support ID while reports are off."}
         </span>
       {/if}
       <button class="bug-inline link" onclick={openSettingsFromBug}>

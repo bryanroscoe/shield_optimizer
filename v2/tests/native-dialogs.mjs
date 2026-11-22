@@ -151,7 +151,7 @@ try {
     await page.waitForFunction(() => window.__DIALOG_TEST__.calls.some((c) => c.cmd === "plugin:dialog|message"));
     await settle();
     const [asked] = await calls("plugin:dialog|message");
-    assert.match(asked.message, /^Reboot the device\?/);
+    assert.match(asked.message, /^Reboot this TV\?/);
     assert.equal(asked.buttons, "OkCancel");
     assert.equal((await calls("reboot_device")).length, 0, "Cancel in the native dialog doesn't reboot");
 
@@ -234,7 +234,7 @@ try {
     await page.getByRole("button", { name: "Disable stock launcher" }).click();
     await stockConfirm.getByRole("button", { name: "Save snapshot first" }).click();
     await nameDialog.getByRole("button", { name: "Cancel" }).click();
-    await page.getByText("The snapshot wasn't saved, so the stock launcher was left alone.").waitFor();
+    await page.getByText("The snapshot wasn't saved, so the stock launcher wasn't changed.").waitFor();
     assert.equal((await calls("disable_stock_launcher")).length, 0);
 
     await page.getByRole("button", { name: "Disable stock launcher" }).click();

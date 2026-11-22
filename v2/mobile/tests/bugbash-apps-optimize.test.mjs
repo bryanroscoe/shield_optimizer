@@ -91,7 +91,7 @@ test("a lost connection mid-run that redials silently still summarizes the run a
     };
   });
   await apply(page);
-  await page.getByText("Stopped after 5 of 10. 1 result unknown. 4 left untouched.", { exact: true }).waitFor();
+  await page.getByText("Stopped after 5 of 10. 1 result couldn't be confirmed. 4 left untouched.", { exact: true }).waitFor();
   await page.waitForFunction(() => session.liveness === "live");
   assert.equal(await page.evaluate(() => session.bloatLoaded), false, "the Dashboard must re-read its count");
   assert.equal(await page.evaluate(() => calls.filter((c) => c.command === "apply_performance_settings").length), 0);

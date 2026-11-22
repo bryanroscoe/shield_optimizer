@@ -79,7 +79,7 @@
     const closingEpoch = epoch;
     void session.promise.then(generation => api.remoteClose(session.serial, generation), () => undefined).catch(error => {
       if (epoch === closingEpoch && serial === session.serial) {
-        remoteMessage = [remoteMessage, `Remote cleanup not confirmed: ${String(error)}`].filter(Boolean).join(" ");
+        remoteMessage = [remoteMessage, `Couldn't confirm the remote disconnected: ${String(error)}`].filter(Boolean).join(" ");
       }
     });
   }
@@ -112,7 +112,7 @@
   function remoteEnqueue(work: (target: string, mode: boolean, generation: string) => Promise<SendTextResult>, bytes = 0) {
     if (!active) return;
     if (pendingActions >= MAX_PENDING_ACTIONS || pendingBytes + bytes > MAX_PENDING_BYTES) {
-      rejectInput("Remote queue is full. Unsent input was discarded; check the TV before sending more.");
+      rejectInput("Too many presses queued. Unsent input was dropped; check the TV before sending more.");
       return;
     }
     pendingActions++;
@@ -164,7 +164,7 @@
   /// paste something different from what was on the clipboard.
   function sendPastedText(raw: string) {
     if (raw.length > MAX_PENDING_BYTES) {
-      rejectInput("Paste exceeds Remote limits. Nothing from this paste was sent; unsent input was discarded.");
+      rejectInput("That paste is too long for Remote. Nothing from it was sent, and unsent input was dropped.");
       return;
     }
     const text = raw.replace(/\r\n?/g, "\n");
@@ -173,7 +173,7 @@
     const actions = lines.filter(line => line.length > 0).length + lines.length - 1;
     const bytes = encoder.encode(text).length + encoder.encode(remoteBuffer).length;
     if (pendingActions + actions + (remoteBuffer ? 1 : 0) > MAX_PENDING_ACTIONS || pendingBytes + bytes > MAX_PENDING_BYTES) {
-      rejectInput("Paste exceeds Remote limits. Nothing from this paste was sent; unsent input was discarded.");
+      rejectInput("That paste is too long for Remote. Nothing from it was sent, and unsent input was dropped.");
       return;
     }
     remoteFlushBuffer();
@@ -277,7 +277,7 @@
 
   function appendBuffered(text: string) {
     if (text.length > MAX_PENDING_BYTES || pendingBytes + encoder.encode(remoteBuffer).length + encoder.encode(text).length > MAX_PENDING_BYTES) {
-      rejectInput("Remote text exceeds queue limits. Unsent input was discarded; check the TV before sending more.");
+      rejectInput("Text is too long for the remote queue. Unsent text was dropped; check the TV before sending more.");
       return false;
     }
     remoteBuffer += text;
@@ -319,8 +319,8 @@
       {#if transport}
         <span class="transport" class:live={transport === "channel"}
           title={transport === "channel"
-            ? "Low-latency control channel — presses reach the TV in milliseconds, and holding a D-pad button repeats."
-            : "Compatibility mode — each press is a slower ADB call (~0.7s)."}>
+            ? "Fast channel: presses reach the TV in milliseconds, and holding a D-pad button repeats."
+            : "Compatibility mode: about 0.7s per press."}>
           {transport === "channel" ? "● instant" : "○ compatible (slower)"}
         </span>
       {/if}
@@ -429,17 +429,17 @@
         <button onclick={() => sendRemoteKey("volume_up")} title="Volume up" data-tip="Volume up" aria-label="Volume up"><Icon name="volume_up" size={18} /></button>
       </div>
       <div class="remote-row">
-        <button onclick={openSettings} title="Open Settings (the Shield remote's gear button)"><Icon name="settings" size={16} /> Settings</button>
-        <button onclick={() => sendRemoteKey("wakeup")} title="Wake the screen (KEYCODE_WAKEUP)">Wake</button>
+        <button onclick={openSettings} title="Open TV Settings"><Icon name="settings" size={16} /> Settings</button>
+        <button onclick={() => sendRemoteKey("wakeup")} title="Wake the TV">Wake</button>
         <button class="power" onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={16} /> Power</button>
       </div>
       </div>
       <!-- A setting about how this remote talks to the TV, so it sits with the
            remote and with the caption it changes — not in the card header,
            where it would look like a page-level control. -->
-      <label class="compat-toggle" title="Skip the fast channel and use the slower, universal ADB input — use this if the instant channel misbehaves on your device.">
+      <label class="compat-toggle" title="Use the slower, universal input if the fast channel isn't working on this TV.">
         <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
-        Force compatible mode
+        Compatibility mode
       </label>
     </div>
   </div>

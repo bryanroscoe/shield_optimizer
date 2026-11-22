@@ -138,7 +138,7 @@ test("Dashboard treats incomplete package state replies as unavailable", async (
   });
   await openScreen(page, "dashboard");
   await page.getByRole("button", { name: /Retry/ }).waitFor();
-  assert.match(await page.locator(".health-card").innerText(), /incomplete/i);
+  assert.match(await page.locator(".health-card").innerText(), /Couldn't read status for all recommended apps/);
   assert.doesNotMatch(await page.locator(".health-card").innerText(), /0 of 0/);
 });
 
@@ -371,10 +371,10 @@ test("Restore keeps Recommended and All curated tabs with its prior defaults", a
   });
   await openScreen(page, "optimize");
   await page.getByRole("button", { name: "Restore", exact: true }).click();
-  await page.getByRole("button", { name: "All curated", exact: true }).waitFor();
+  await page.getByRole("button", { name: "All catalog", exact: true }).waitFor();
   assert.equal(await page.getByText("Default Restore", { exact: true }).count(), 1);
   assert.equal(await page.getByText("Other Restore", { exact: true }).count(), 0);
-  await page.getByRole("button", { name: "All curated", exact: true }).click();
+  await page.getByRole("button", { name: "All catalog", exact: true }).click();
   assert.equal(await page.getByText("Other Restore", { exact: true }).count(), 1);
   assert.match(await page.locator(".optimize-summary-card").innerText(), /1 selected/);
 });
@@ -536,7 +536,7 @@ test("after a run changes the TV, Optimize offers to save a snapshot", async (t)
   assert.deepEqual(saves, [{ serial: "A:5555", deviceName: "Living Room", label: "After Optimize" }]);
   // Switching to Restore drops the offer.
   await page.getByRole("button", { name: "Restore", exact: true }).click();
-  await page.getByRole("button", { name: "All curated", exact: true }).waitFor();
+  await page.getByRole("button", { name: "All catalog", exact: true }).waitFor();
   assert.equal(await page.getByRole("button", { name: /snapshot/i }).count(), 0);
 });
 

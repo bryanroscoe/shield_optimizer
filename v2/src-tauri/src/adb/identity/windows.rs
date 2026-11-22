@@ -47,7 +47,7 @@ const MAX_KEY_BYTES: u64 = 32768;
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
 fn error(action: &str, error: std::io::Error) -> String {
-    format!("Native ADB identity {action} failed: {error}")
+    format!("Built-in ADB identity {action} failed: {error}")
 }
 
 fn last_error(action: &str) -> String {
@@ -83,7 +83,7 @@ impl CurrentUser {
             GetTokenInformation(token.as_raw_handle(), TokenUser, null_mut(), 0, &mut length)
         };
         if !(size_of::<TOKEN_USER>() as u32..=65536).contains(&length) {
-            return Err("Native ADB identity token has an invalid size.".into());
+            return Err("Built-in ADB identity token has an invalid size.".into());
         }
         let mut buffer = vec![0usize; (length as usize).div_ceil(size_of::<usize>())];
         if unsafe {
@@ -100,7 +100,7 @@ impl CurrentUser {
         }
         let user = Self(buffer);
         if unsafe { IsValidSid(user.sid()) } == 0 {
-            return Err("Native ADB identity token has an invalid user SID.".into());
+            return Err("Built-in ADB identity token has an invalid user SID.".into());
         }
         Ok(user)
     }
@@ -122,10 +122,10 @@ impl CurrentUser {
             length += 1;
         }
         if length == 256 {
-            return Err("Native ADB identity SID text exceeded its limit.".into());
+            return Err("Built-in ADB identity SID text exceeded its limit.".into());
         }
         let sid = String::from_utf16(unsafe { std::slice::from_raw_parts(text, length) })
-            .map_err(|_| "Native ADB identity SID text is invalid.".to_owned())?;
+            .map_err(|_| "Built-in ADB identity SID text is invalid.".to_owned())?;
         descriptor(&format!("O:{sid}D:P(A;;FA;;;{sid})"))
     }
 }
@@ -158,7 +158,7 @@ fn security_attributes(descriptor: &LocalAllocation) -> SECURITY_ATTRIBUTES {
 fn wide(path: &Path) -> Result<Vec<u16>, String> {
     let mut value: Vec<u16> = path.as_os_str().encode_wide().collect();
     if value.contains(&0) || value.len() > 32766 {
-        return Err("Native ADB identity path is invalid or too long.".into());
+        return Err("Built-in ADB identity path is invalid or too long.".into());
     }
     value.push(0);
     Ok(value)
@@ -184,7 +184,7 @@ fn local_absolute(path: &Path) -> Result<(), String> {
             _ => true,
         })
     {
-        return Err("Native ADB identity requires an absolute local-drive path without aliases or alternate streams; no fallback path was used.".into());
+        return Err("Built-in ADB identity requires an absolute local-drive path without aliases or alternate streams; no fallback path was used.".into());
     }
     Ok(())
 }
@@ -229,7 +229,7 @@ fn metadata(file: &File, directory: bool) -> Result<BY_HANDLE_FILE_INFORMATION, 
     if info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT != 0
         || (info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY != 0) != directory
     {
-        return Err("Native ADB identity path must be regular and contain no reparse points; existing files were not changed.".into());
+        return Err("Built-in ADB identity path must be regular and contain no reparse points; existing files were not changed.".into());
     }
     Ok(info)
 }
@@ -279,7 +279,7 @@ fn check_security(file: &File, user: &CurrentUser, private: bool) -> Result<(), 
     }
     let _descriptor = LocalAllocation(raw);
     let unsafe_permissions = || {
-        "Native ADB identity storage must be owned by this user with a private protected ACL; existing permissions were not changed.".to_owned()
+        "Built-in ADB identity storage must be owned by this user with a private protected ACL; existing permissions were not changed.".to_owned()
     };
     if owner.is_null()
         || acl.is_null()
@@ -379,7 +379,7 @@ fn read_file<V: Fn(&[u8]) -> Result<(), String>>(
     check_security(&file, user, true)?;
     let length = (u64::from(before.nFileSizeHigh) << 32) | u64::from(before.nFileSizeLow);
     if length > MAX_KEY_BYTES {
-        return Err("Native ADB identity file is too large; it was not changed.".into());
+        return Err("Built-in ADB identity file is too large; it was not changed.".into());
     }
     let mut bytes = Vec::new();
     file.by_ref()
@@ -387,10 +387,11 @@ fn read_file<V: Fn(&[u8]) -> Result<(), String>>(
         .read_to_end(&mut bytes)
         .map_err(|e| error("read", e))?;
     if bytes.len() as u64 > MAX_KEY_BYTES {
-        return Err("Native ADB identity file grew beyond its limit; it was not changed.".into());
+        return Err("Built-in ADB identity file grew beyond its limit; it was not changed.".into());
     }
     validate(&bytes).map_err(|_| {
-        "Native ADB identity is not a valid 2048-bit RSA PKCS#8 PEM; it was not changed.".to_owned()
+        "Built-in ADB identity is not a valid 2048-bit RSA PKCS#8 PEM; it was not changed."
+            .to_owned()
     })?;
     Ok(before)
 }
@@ -405,7 +406,7 @@ fn validate_held_path<V: Fn(&[u8]) -> Result<(), String>>(
     let current = open(path, false, GENERIC_READ | READ_CONTROL)?;
     check_security(&current, user, true)?;
     if !same_file(&before, &metadata(&current, false)?) {
-        return Err("Native ADB identity changed while being read; nothing was replaced.".into());
+        return Err("Built-in ADB identity changed while being read; nothing was replaced.".into());
     }
     Ok(())
 }
@@ -417,7 +418,7 @@ pub(super) fn validate_path<V: Fn(&[u8]) -> Result<(), String>>(
     local_absolute(path)?;
     let parent = path
         .parent()
-        .ok_or("Native ADB identity has no parent directory.")?;
+        .ok_or("Built-in ADB identity has no parent directory.")?;
     let _anchors = anchor_directories(parent)?;
     validate_held_path(path, &CurrentUser::load()?, &validate)
 }
@@ -490,7 +491,7 @@ where
     local_absolute(app_data)?;
     let parent = app_data
         .parent()
-        .ok_or("Native ADB identity has no application parent.")?;
+        .ok_or("Built-in ADB identity has no application parent.")?;
     let _parents = anchor_directories(parent)?;
     let user = CurrentUser::load()?;
     let descriptor = user.descriptor()?;
@@ -513,10 +514,10 @@ where
         Err(e) => return Err(error("existing identity metadata", e)),
     }
     let bytes = generate().map_err(|_| {
-        "Native ADB identity generation failed; existing identities were not changed.".to_owned()
+        "Built-in ADB identity generation failed; existing identities were not changed.".to_owned()
     })?;
     validate(&bytes).map_err(|_| {
-        "Generated native ADB identity was invalid; nothing was published.".to_owned()
+        "Generated Built-in ADB identity was invalid; nothing was published.".to_owned()
     })?;
     let staging_path = directory.join(format!(
         ".identity-{}-{}.tmp",
@@ -555,7 +556,7 @@ where
         .len()
         != bytes.len() as u64
     {
-        return Err("Native ADB identity staging was incomplete; nothing was published.".into());
+        return Err("Built-in ADB identity staging was incomplete; nothing was published.".into());
     }
     staging
         .file

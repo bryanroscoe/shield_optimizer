@@ -590,12 +590,12 @@ pub(crate) async fn disable_package_impl(
         {
             Outcome::Untouched => {}
             Outcome::Disabled { target } => result.message.push_str(&format!(
-                " Google TV's setup helper (Setup Wraith) was turned off too, so {target} keeps the Home button."
+                " Google TV's setup helper (Setup Wraith) was disabled too, so {target} keeps the Home button."
             )),
             Outcome::RolledBack { reason } => {
                 result.ok = false;
                 result.message = format!(
-                    "Couldn't turn off Google TV's setup helper after disabling {package}: {reason}."
+                    "Couldn't disable Google TV's setup helper after disabling {package}: {reason}."
                 );
             }
             // Reported as not-ok so every caller shows it: a success toast
@@ -604,8 +604,8 @@ pub(crate) async fn disable_package_impl(
                 result.ok = false;
                 result.message = format!(
                     "{package} was disabled, but Google TV's setup helper (Setup Wraith) is still \
-                     on and can take the Home button. Set another launcher as Home, then use Turn \
-                     it off on the Launcher tab."
+                     enabled and can take the Home button. Set another launcher as Home, then use \
+                     Disable Setup Wraith in Launcher."
                 );
             }
         }
@@ -915,7 +915,7 @@ pub fn decode_uninstall_error(stdout: &str) -> Option<&'static str> {
         return Some("Blocked by device policy manager (work profile / admin).");
     }
     if stdout.contains("DELETE_FAILED_OWNER_BLOCKED") {
-        return Some("Blocked — package is owned by another user or profile.");
+        return Some("Blocked — app is owned by another user or profile.");
     }
     None
 }

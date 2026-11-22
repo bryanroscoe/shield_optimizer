@@ -231,9 +231,9 @@ test("snapshot preview: recorded absent apps remain unchanged, without guessing 
   assert.deepEqual(unchanged.map(r => r.item), ["com.new", "com.missing", "com.disabled"]);
   for (const row of unchanged) {
     assert.equal(row.now, "—");
-    assert.match(row.result, /unchanged because saved-TV hardware identity is unverified/);
+    assert.match(row.result, /^Skipped: recorded absent, and this TV's hardware ID isn't verified against the snapshot$/);
   }
-  assert.match(snap.previewSummary(plan({ packages_absent_skipped: ["com.new"] })), /1 recorded absent; unchanged/);
+  assert.match(snap.previewSummary(plan({ packages_absent_skipped: ["com.new"] })), /1 recorded absent \(skipped\)/);
 });
 
 test("Health: review apps suggest Disable for every install source", () => {
@@ -263,7 +263,7 @@ test("Optimize never pre-selects a review row, whatever its install source", () 
 test("snapshot preview summary matches desktop's wording", () => {
   assert.equal(
     snap.previewSummary(plan({ packages_to_disable: ["a"], settings_to_write: { k: "v" }, launcher_to_set: "h" })),
-    "1 to disable · 0 already disabled · 0 not on device · 1 setting to write · 0 to reset · Home app",
+    "1 to disable · 0 already disabled · 0 not installed · 1 setting to change · 0 to reset · Home app",
   );
 });
 
