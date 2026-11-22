@@ -106,6 +106,32 @@ jobs:
           name: flatpak-generated-sources
           path: v2/flatpak/generated-sources
 
+      # The image ships the GNOME runtimes in the system installation,
+      # /var/lib/flatpak, on the container's overlayfs root, and
+      # flatpak-builder updates them before it builds. An update renames the
+      # deploy directory it retires. AWS-hosted runners (this repo's first was
+      # on 2026-11-21) load overlayfs with redirect_dir off, and Azure-hosted
+      # ones with it on. With it off, renaming a directory that came from an
+      # image layer fails with EXDEV: "Failed to update org.gnome.Sdk: Invalid
+      # cross-device link", then flatpak-builder segfaults (exit 139). So copy
+      # the installation to the runner's disk, a bind mount rather than
+      # overlayfs, and mount the copy in its place. Later steps exec into the
+      # same container and see the mount. This runs on every host, so each
+      # run builds the same way, against runtimes updated from Flathub.
+      - name: Move the Flatpak system installation off overlayfs
+        run: |
+          echo "overlay redirect_dir: $(cat /sys/module/overlay/parameters/redirect_dir 2>/dev/null || echo unreadable)"
+          cp -a /var/lib/flatpak "$RUNNER_TEMP/flatpak-system"
+          mount --bind "$RUNNER_TEMP/flatpak-system" /var/lib/flatpak
+          fstype=$(stat -f -c %T /var/lib/flatpak)
+          echo "/var/lib/flatpak is now on $fstype"
+          if [ "$fstype" = overlayfs ]; then
+            echo "::error::/var/lib/flatpak is still on overlayfs"
+            exit 1
+          fi
+          df -h /var/lib/flatpak
+          flatpak list --runtime --columns=application,branch,installation
+
       - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8 (v6 on 2026-11-11)
         with:
           manifest-path: v2/flatpak/io.github.bryanroscoe.ATVOptimizer.yml
