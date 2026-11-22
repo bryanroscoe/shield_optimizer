@@ -49,7 +49,7 @@ export function runConfirmation(items: RunConfirmItem[]): {
   const enables: RunConfirmApp[] = [];
   let uninstalls = 0;
   for (const item of items) {
-    if (item.action === "enable" || !item.verdict) {
+    if (item.action === "enable") {
       enables.push({
         package: item.package,
         name: item.name,
@@ -65,13 +65,16 @@ export function runConfirmation(items: RunConfirmItem[]): {
     if (uninstall) uninstalls++;
     const outcome = uninstall ? uninstallOutcome(item.package, item.entry) : null;
     const noWayBack = uninstall && !item.entry?.play_store;
-    const apps = byTier.get(item.verdict.kind) ?? [];
-    byTier.set(item.verdict.kind, apps);
+    // A removal is never listed as a re-enable. Without a verdict it can claim
+    // nothing about safety, so it reads as Unknown.
+    const kind = item.verdict?.kind ?? "unknown";
+    const apps = byTier.get(kind) ?? [];
+    byTier.set(kind, apps);
     apps.push({
       package: item.package,
       name: item.name,
       verb: uninstall ? "Uninstall" : "Disable",
-      reason: item.verdict.reason.trim(),
+      reason: item.verdict?.reason.trim() ?? "",
       outcome: outcome?.short ?? null,
       outcomeDetail: outcome?.detail ?? null,
       noWayBack,
