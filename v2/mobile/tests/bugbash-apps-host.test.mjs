@@ -202,3 +202,23 @@ test("diagnostics: memory rows give the process name the row at 320px and show t
     assert.equal(row.pageOverflow, false);
   }
 });
+
+test("the sheet's uninstall confirm shows the tier chip and two visible bullets, the how-to folded", async (t) => {
+  const page = await open(t, "optimize");
+  const sheet = await openSheet(page, "optimize");
+  await sheet.getByRole("button", { name: /^Uninstall/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Uninstall Example video?" });
+  assert.match(await dialog.getByTestId("removal-tier").innerText(), /Safe to remove/);
+  assert.deepEqual(await dialog.getByRole("list", { name: "What happens" }).getByRole("listitem").allInnerTexts(), [
+    "Removed for this TV's user",
+    "Get it back from the Play Store",
+  ]);
+  const toggle = dialog.getByRole("button", { name: "Getting it back" });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  await toggle.focus();
+  await page.keyboard.press("Space");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  await dialog.getByText(/while its APK is still on the TV/).waitFor();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  assert.equal(await page.evaluate(() => calls.some((c) => c.command === "uninstall_package")), false);
+});

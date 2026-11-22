@@ -505,8 +505,8 @@
             {/if}
 
             <p class="plan-note">
-              It never re-enables anything or reinstalls apps. Settings the snapshot recorded as never
-              set are reset.
+              Restore never re-enables anything or reinstalls apps. Settings the snapshot recorded as
+              never set are reset.
             </p>
             <HelpSheet title="Turning an app back on">
               <p>A restore only disables apps. To turn one back on afterwards, use Emergency recovery under More, or Enable in the app's sheet.</p>
@@ -898,7 +898,8 @@
   }
   .plan-item {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    /* The current value keeps room for a word; the reason chip wraps instead. */
+    grid-template-columns: minmax(min(8.5em, 50%), 1fr) auto;
     gap: 4px 10px;
     padding: 9px 11px;
     border-radius: 11px;

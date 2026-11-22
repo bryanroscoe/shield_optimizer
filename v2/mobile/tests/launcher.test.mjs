@@ -711,3 +711,16 @@ test("stock takeover dialog keeps its three choices on screen while its text scr
   assert.equal(await dialog.locator(".dialog-body").evaluate((el) => el.scrollHeight > el.clientHeight), true);
   assert.equal(await count(page, "disable_stock_launcher"), 0);
 });
+
+test("the Setup Wraith confirm keeps setup and factory-reset consequences in two short sentences", async t => {
+  const page = await open(t, { launchers: [stock(false), wraith(true), row(PROJECTIVY)], current: PROJECTIVY });
+  await page.locator('.launcher-row', { hasText: 'Setup Wraith' }).getByRole('button', { name: 'Disable', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Disable Setup Wraith?', exact: true });
+  assert.equal((await dialog.locator('.dialog-message').innerText()).trim(), 'Android TV needs it for first-time setup. Re-enable it here before a factory reset.');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: 'About changing launchers' }).click();
+  const help = page.getByRole('dialog', { name: 'About changing launchers' });
+  await help.getByText(/Setup Wraith is Google TV's setup wizard, not a launcher/).waitFor();
+  await help.getByText(/only helps if the\s+Home button keeps landing on a setup screen/).waitFor();
+  assert.equal(await count(page, 'disable_setup_helper'), 0);
+});

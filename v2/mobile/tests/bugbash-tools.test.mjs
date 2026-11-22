@@ -40,7 +40,7 @@ const plan = (over = {}) => ({
   ...over,
 });
 
-async function open(t, screen, { width = 384, setup, record = false } = {}) {
+async function open(t, screen, { width = 384, setup, record = false, entitlement = "pro" } = {}) {
   const evidence = record && process.env.REFUSED_SETTINGS_EVIDENCE;
   const page = await browser.newPage({ viewport: { width, height: 812 }, ...(evidence ? { recordVideo: { dir: evidence, size: { width, height: 812 } } } : {}) });
   page.setDefaultTimeout(10000);
@@ -65,7 +65,7 @@ async function open(t, screen, { width = 384, setup, record = false } = {}) {
         window.calls.push({ command, args });
         if (window.handlers[command]) return window.handlers[command](args);
         switch (command) {
-          case "get_entitlement": return "pro";
+          case "get_entitlement": return window.entitlement ?? "pro";
           case "wireless_connect": window.activeHost = args.host; return { ok: true };
           case "wireless_status": return { connected: true };
           case "list_devices": return window.activeHost ? [{
@@ -86,16 +86,16 @@ async function open(t, screen, { width = 384, setup, record = false } = {}) {
     if (setup) new Function(setup)();
   }, setup ? `(${setup})()` : "");
   await page.goto(origin);
-  await page.evaluate(async (screen) => {
+  await page.evaluate(async ({ screen, entitlement }) => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");
     window.session = session;
     window.router = router;
-    session.entitlement = "pro";
+    session.entitlement = entitlement;
     await session.connect("A", 5555);
     router.reset("dashboard");
     router.navigate(screen);
-  }, screen);
+  }, { screen, entitlement });
   return page;
 }
 
@@ -247,7 +247,13 @@ test("restore preview shows a skipped Home app beside Restore and the result lis
   await page.getByRole("button", { name: "Preview restore" }).click();
   const card = page.locator(".plan-card");
   await card.getByText(/The Home app won't change: com\.spocky\.projengmenu is disabled on this TV, and a restore never re-enables anything/).waitFor();
-  await card.getByText("Kept on so the TV keeps a Home screen: com.google.android.tvlauncher (only Home app).").waitFor();
+  const kept = card.getByTestId("kept-for-home");
+  await kept.getByText("Kept on so the TV keeps a Home screen:").waitFor();
+  assert.deepEqual(
+    (await kept.getByRole("list", { name: "Kept on" }).getByRole("listitem").allInnerTexts()).map((t) => t.replace(/\s+/g, " ")),
+    ["com.google.android.tvlauncher only Home app"],
+  );
+  assert.equal(await kept.getByRole("button", { name: "Why each is kept" }).count(), 0);
   assert.match(await card.innerText(), /never re-enables anything or/);
   await card.getByRole("button", { name: "Restore", exact: true }).click();
   const list = page.getByRole("list", { name: "Not restored" });
@@ -543,4 +549,89 @@ test("restore preview pins Cancel and Restore while a long plan scrolls inside t
   await page.keyboard.press("Escape");
   await dialog.waitFor({ state: "detached" });
   assert.equal(await count(page, "apply_snapshot"), 0);
+});
+
+test("more than two kept-on packages list one per line with their reasons behind an expander", async (t) => {
+  const page = await open(t, "snapshots", {
+    setup: () => {
+      window.snapshots = [{ path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Saved",
+        device_name: "A", device_serial: "A:5555", device_type: "shield", disabled_count: 3, settings_count: 0, launcher: null }];
+      window.handlers.preview_apply = () => ({
+        cross_device_warning: null, packages_to_disable: ["com.bloat"], packages_already_disabled: [], packages_not_installed: [],
+        launcher_to_set: null, current_launcher: "com.one", launcher_not_installed: null,
+        packages_kept: [
+          { package: "com.one", reason: "current Home app" },
+          { package: "com.two", reason: "only other Home app" },
+          { package: "com.three", reason: "Home fallback" },
+        ],
+        settings_to_write: {}, settings_to_delete: [], settings_already_set: [], current_values: {},
+      });
+    },
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  const kept = page.locator(".plan-card").getByTestId("kept-for-home");
+  const items = kept.getByRole("list", { name: "Kept on" }).getByRole("listitem");
+  assert.deepEqual(await items.allInnerTexts(), ["com.one", "com.two", "com.three"]);
+  const toggle = kept.getByRole("button", { name: "Why each is kept" });
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await kept.getByText("Home fallback").isVisible(), false);
+  await toggle.click();
+  assert.equal(await toggle.getAttribute("aria-expanded"), "true");
+  await kept.getByText("Home fallback").waitFor();
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  assert.equal(await toggle.getAttribute("aria-expanded"), "false");
+  assert.equal(await count(page, "apply_snapshot"), 0);
+});
+
+test("the restore preview keeps what it never does visible and the recovery pointer in help", async (t) => {
+  for (const width of [384, 275]) {
+    const page = await open(t, "snapshots", {
+      width,
+      setup: () => {
+        window.snapshots = [{ path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Saved",
+          device_name: "A", device_serial: "A:5555", device_type: "shield", disabled_count: 1, settings_count: 0, launcher: null }];
+        window.handlers.preview_apply = () => ({
+          cross_device_warning: null, packages_to_disable: ["com.bloat"], packages_already_disabled: [], packages_not_installed: [],
+          launcher_to_set: null, current_launcher: null, launcher_not_installed: null, packages_kept: [],
+          settings_to_write: {}, settings_to_delete: [], settings_already_set: [], current_values: {},
+        });
+      },
+    });
+    await page.getByRole("button", { name: "Preview restore" }).click();
+    const card = page.locator(".plan-card");
+    const note = card.locator(".plan-note");
+    assert.match((await note.innerText()).replace(/\s+/g, " "), /^Restore never re-enables anything or reinstalls apps\. Settings the snapshot recorded as never set are reset\.$/);
+    assert.equal(await card.getByText(/Emergency recovery/).count(), 0);
+    await card.getByRole("button", { name: "Turning an app back on" }).click();
+    const help = page.getByRole("dialog", { name: "Turning an app back on" });
+    await help.getByText(/Emergency recovery under More/).waitFor();
+    await help.getByRole("button", { name: "Done" }).click();
+    await help.waitFor({ state: "detached" });
+    await card.waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
+});
+
+test("the locked Snapshots card is three bullets, with the hardware-identity caveat in help", async (t) => {
+  for (const width of [384, 275]) {
+    const page = await open(t, "snapshots", {
+      width,
+      entitlement: "free",
+      setup: () => {
+        window.entitlement = "free";
+        window.handlers.list_snapshots = () => { throw "LOCKED: Snapshots are a Pro feature"; };
+      },
+    });
+    const list = page.getByRole("list", { name: "What a snapshot does" });
+    const items = list.getByRole("listitem");
+    assert.equal(await items.count(), 3);
+    assert.match(await items.nth(0).innerText(), /^Records disabled apps/);
+    assert.match(await items.nth(1).innerText(), /^Restoring disables recorded apps that are on/);
+    assert.equal(await items.nth(2).innerText(), "It never re-enables anything, and never uninstalls or reinstalls apps");
+    assert.equal(await page.getByText(/hardware identity is unverified/).count(), 0);
+    await page.getByRole("button", { name: "What snapshots include" }).click();
+    await page.getByRole("dialog", { name: "What snapshots include" }).getByText(/saved-TV hardware identity is unverified/).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  }
 });
