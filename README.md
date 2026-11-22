@@ -8,9 +8,6 @@ Android TV devices.
 > **[ATV Optimizer for Android](#atv-optimizer-for-android)** lets you manage your TV over Wi-Fi
 > from an Android phone or tablet. [See how to join the Google Play closed test](https://bryanroscoe.com/atv-optimizer/testing/).
 
-> **Known ADB issue in 2.4.1:** A SHIELD TV Pro on macOS has been reported missing from Scan LAN
-> or going offline until connected with standalone ADB. [Workaround and status](#known-limitations).
-
 <img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
 <details>
@@ -179,19 +176,10 @@ nothing.
 
 ## Known limitations
 
-**ADB discovery and reconnection.**
-
-[Issue #235](https://github.com/bryanroscoe/shield_optimizer/issues/235) reports a SHIELD TV Pro on macOS running
-2.4.1 being missed by **Scan LAN**, or later appearing **OFFLINE**, until connected with standalone
-ADB and refreshed in the app. The full cause is still under investigation.
-
-If this happens, try **Add by IP** with the TV's current address, approve any debugging prompt on
-the TV, then **Refresh**. The reporter has not confirmed whether Add by IP avoids this failure;
-the recovery they verified used standalone ADB. **Restart ADB** disconnects other tools using the
-same server, and did not recover the reporter's connection in 2.4.1.
-
-Connection-recovery improvements are merged for the next desktop release and await physical
-confirmation of this report. They are not included in 2.4.1.
+**SHIELD discovery on macOS.** If your SHIELD goes offline or is missing from **Scan LAN** on
+2.4.1, update to the [latest desktop release](https://github.com/bryanroscoe/shield_optimizer/releases/latest).
+ADB discovery and recovery improvements shipped in 2.5.0. If you still have trouble, see
+[connection troubleshooting](#cant-find-your-tv) and the [original report](https://github.com/bryanroscoe/shield_optimizer/issues/235).
 
 **Built-in ADB is network-only.** A TV connected by USB needs **Google platform-tools**, chosen in
 **Settings → ADB → ADB engine**. Switching takes effect immediately, and you can switch back.
