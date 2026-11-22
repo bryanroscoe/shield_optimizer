@@ -90,3 +90,9 @@ pub(crate) struct ProductArgs<'a> {
 pub(crate) struct AcknowledgeArgs<'a> {
     pub purchase_token: &'a str,
 }
+
+#[cfg(mobile)]
+#[derive(Serialize)]
+pub(crate) struct WatchPurchasesPayload {
+    pub channel: tauri::ipc::Channel,
+}

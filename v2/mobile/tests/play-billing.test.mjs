@@ -41,11 +41,11 @@ function status(over = {}) {
   };
 }
 
-async function open(t, initial, screen = "more", { clock = false } = {}) {
+async function open(t, initial, screen = "more", { clock = false, events = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 390, height: 1400 } });
   t.after(() => page.close());
   if (clock) await page.clock.install();
-  await page.addInitScript((init) => {
+  await page.addInitScript(({ init, events }) => {
     window.calls = [];
     window.handlers = {};
     // The connection itself reports a "connect" action; purchases report "other".
@@ -75,7 +75,28 @@ async function open(t, initial, screen = "more", { clock = false } = {}) {
         }
       },
     };
-  }, initial);
+    if (events) {
+      // Just enough of Tauri's event plugin for App.svelte's `listen` calls,
+      // plus `emitTauriEvent` to deliver a backend event to them.
+      const callbacks = new Map();
+      let nextId = 0;
+      window.eventListeners = [];
+      window.__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
+      window.__TAURI_INTERNALS__.transformCallback = (callback) => {
+        callbacks.set(++nextId, callback);
+        return nextId;
+      };
+      window.handlers["plugin:event|listen"] = ({ event, handler }) => {
+        window.eventListeners.push({ event, handler, id: ++nextId });
+        return nextId;
+      };
+      window.emitTauriEvent = (event, payload) => {
+        for (const listener of window.eventListeners) {
+          if (listener.event === event) callbacks.get(listener.handler)?.({ event, id: listener.id, payload });
+        }
+      };
+    }
+  }, { init: initial, events });
   await page.goto(origin);
   await page.evaluate(async (target) => {
     const { session } = await import("/src/lib/session.svelte.ts");
@@ -182,6 +203,52 @@ test("Restore purchases unlocks only when the backend reports a verified Play pu
   assert.deepEqual(restore.args, { force: true });
 });
 
+const OWNED = { entitlement: "pro", sources: ["play"], play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false } };
+
+test("a promo code redeemed in the Play Store while the app is open unlocks Pro and says so", async (t) => {
+  const page = await open(t, status(), "more", { events: true });
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Restore purchases" }).waitFor();
+  await page.waitForFunction(() => window.eventListeners.some((l) => l.event === "purchases-updated"));
+  await page.evaluate((owned) => {
+    window.billingStatus = { ...window.billingStatus, ...owned };
+    window.emitTauriEvent("purchases-updated", null);
+  }, OWNED);
+  await page.getByRole("status").filter({ hasText: "Pro unlocked from your Google Play purchase." }).waitFor();
+  await card.locator(".license-badge", { hasText: "Pro" }).waitFor();
+  const last = await page.evaluate(() => window.calls.filter((c) => c.command === "billing_refresh").at(-1));
+  assert.deepEqual(last.args, { force: true }, "the event asks Play now instead of reusing the last answer");
+});
+
+test("a purchase that arrives by the next resume says Pro unlocked; an owner's launch says nothing", async (t) => {
+  const owner = await open(t, status({ play: OWNED.play }));
+  await licensing(owner).locator(".license-badge", { hasText: "Pro" }).waitFor();
+  const before = await count(owner, "billing_refresh");
+  await owner.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await owner.waitForFunction((n) => window.calls.filter((c) => c.command === "billing_refresh").length > n, before);
+  await owner.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await owner.getByText("Pro unlocked from your Google Play purchase.").count(), 0);
+
+  const page = await open(t, status());
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Restore purchases" }).waitFor();
+  await page.evaluate((owned) => {
+    window.billingStatus = { ...window.billingStatus, ...owned };
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, OWNED);
+  await page.getByText("Pro unlocked from your Google Play purchase.").waitFor();
+  await card.locator(".license-badge", { hasText: "Pro" }).waitFor();
+});
+
+test("Restore purchases says it is for a purchase or promo code made outside the app", async (t) => {
+  const page = await open(t, status());
+  const card = licensing(page);
+  await card.getByText("Already bought Pro, or redeemed a promo code on Google Play? Tap Restore purchases.").waitFor();
+  await card.getByRole("button", { name: "Restore purchases" }).click();
+  await card.getByText(/No Pro purchase found for the Google account on this phone\. A code redeemed on the Play Store website can take a few minutes/).waitFor();
+  assert.equal(await card.locator(".license-badge").textContent(), "Free");
+});
+
 test("a refund seen on resume drops Pro, and emergency recovery stays available", async (t) => {
   const page = await open(t, status({ play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false } }));
   const card = licensing(page);
@@ -267,6 +334,7 @@ test("a locked Optimize opens a Play paywall with the price and no key hint in P
   await paywall.getByRole("heading", { name: "Unlock ATV Optimizer Pro" }).waitFor();
   await paywall.getByRole("button", { name: "Buy Pro · €3,49" }).waitFor();
   await paywall.getByRole("button", { name: "Restore purchases" }).waitFor();
+  await paywall.getByText("Already bought Pro, or redeemed a promo code on Google Play? Tap Restore purchases.").waitFor();
   await paywall.getByText(/Re-enabling apps and emergency recovery are always free\. Undoing settings, Home app or snapshot changes needs Pro\./).waitFor();
   assert.equal(await paywall.getByRole("button", { name: "Enter license key" }).count(), 0);
   assert.equal(await paywall.getByText(/license key/i).count(), 0);

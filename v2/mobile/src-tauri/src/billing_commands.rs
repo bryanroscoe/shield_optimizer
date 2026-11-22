@@ -8,8 +8,10 @@
 //! other.
 //!
 //! The owned-purchase query runs at launch, whenever the WebView becomes
-//! visible again (`billing_refresh` from the frontend) and after every purchase
-//! flow. It is what restores Pro on a new install and what notices refunds and
+//! visible again (`billing_refresh` from the frontend), when Play reports a
+//! purchase made outside the app such as a redeemed promo code (the billing
+//! plugin's `purchases-updated` event, which the frontend answers with a forced
+//! `billing_refresh`) and after every purchase flow. It is what restores Pro on a new install and what notices refunds and
 //! revocations.
 
 use std::path::{Path, PathBuf};

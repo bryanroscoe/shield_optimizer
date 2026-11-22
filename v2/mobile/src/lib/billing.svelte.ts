@@ -10,6 +10,13 @@ import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind } fr
 
 export const FREE_RECOVERY_PROMISE = "Re-enabling apps and emergency recovery are always free.";
 
+/// Shown beside Restore purchases: a purchase or promo code redeemed outside
+/// the app (on the Play Store website, say) can reach the phone late.
+export const RESTORE_HINT = "Already bought Pro, or redeemed a promo code on Google Play? Tap Restore purchases.";
+
+/// Matches the Kotlin plugin's event (tauri-plugin-atv-billing, PURCHASES_UPDATED_EVENT).
+export const PURCHASES_UPDATED_EVENT = "purchases-updated";
+
 function isStatus(value: unknown): value is BillingStatus {
   return (
     !!value &&
@@ -45,6 +52,9 @@ class BillingStore {
   restoring = $state(false);
   message = $state("");
   tone = $state<Tone>("info");
+  /// Set when a check the user didn't start (launch, resume, Play reporting a
+  /// purchase made outside the app) newly finds Pro owned on Google Play.
+  unlockNote = $state("");
 
   /// Offline key entry is a sideload/dev unlock. Unknown status hides it, the
   /// policy-safe default; the backend refuses keys in Play builds regardless.
@@ -87,7 +97,7 @@ class BillingStore {
   private watchPending(pending: boolean) {
     if (pending && this.pendingTimer === undefined) {
       this.pendingTimer = setInterval(() => {
-        if (document.visibilityState === "visible") void this.refresh();
+        if (document.visibilityState === "visible") void this.checkOwned();
       }, PENDING_POLL_MS);
     } else if (!pending && this.pendingTimer !== undefined) {
       clearInterval(this.pendingTimer);
@@ -118,6 +128,17 @@ class BillingStore {
     }
   }
 
+  /// Launch, resume, and Play reporting a purchase made outside the app (a
+  /// promo code redeemed on the Play Store). Says so when that unlocks Pro.
+  /// The stored status is read first, so an owner launching the app again
+  /// isn't told Pro "unlocked".
+  async checkOwned(force = false): Promise<void> {
+    if (this.status === null) await this.load();
+    const before = this.ownsViaPlay;
+    const status = await this.refresh(force);
+    if (status && !before && this.ownsViaPlay) this.unlockNote = "Pro unlocked from your Google Play purchase.";
+  }
+
   async restore(): Promise<void> {
     if (this.restoring || this.purchasing) return;
     this.restoring = true;
@@ -130,7 +151,10 @@ class BillingStore {
       else if (play.state === "pending")
         this.say("Your purchase is still pending. Pro unlocks once Google Play confirms the payment.", "info");
       else if (play.state === "not_owned")
-        this.say("No Pro purchase found for the Google account on this phone.", "info");
+        this.say(
+          "No Pro purchase found for the Google account on this phone. A code redeemed on the Play Store website can take a few minutes to reach the phone: check it was the same Google account, then try again shortly.",
+          "info",
+        );
       else if (play.state === "error") this.say(play.message, "error");
       else if (play.state === "unavailable") this.say(play.reason, "error");
     } finally {
