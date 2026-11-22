@@ -55,6 +55,9 @@ class BillingStore {
   /// Set when a check the user didn't start (launch, resume, Play reporting a
   /// purchase made outside the app) newly finds Pro owned on Google Play.
   unlockNote = $state("");
+  /// Counts Restore and Buy runs, so a background check that overlapped one
+  /// leaves reporting the result to it.
+  private userChecks = 0;
 
   /// Offline key entry is a sideload/dev unlock. Unknown status hides it, the
   /// policy-safe default; the backend refuses keys in Play builds regardless.
@@ -129,18 +132,26 @@ class BillingStore {
   }
 
   /// Launch, resume, and Play reporting a purchase made outside the app (a
-  /// promo code redeemed on the Play Store). Says so when that unlocks Pro.
-  /// The stored status is read first, so an owner launching the app again
-  /// isn't told Pro "unlocked".
+  /// promo code redeemed on the Play Store). Says so when that unlocks Pro,
+  /// but only when Play had definitely said not owned (or pending) before: an
+  /// owner whose stored purchase is too old to trust offline starts Unknown,
+  /// and finding their Pro again is not news. A Restore or Buy the user
+  /// started reports its own result, so the note stays out of it.
   async checkOwned(force = false): Promise<void> {
     if (this.status === null) await this.load();
-    const before = this.ownsViaPlay;
+    const prior = this.status?.play.state;
+    const wasWithout = (prior === "not_owned" || prior === "pending") && !this.ownsViaPlay;
+    const userChecks = this.userChecks;
     const status = await this.refresh(force);
-    if (status && !before && this.ownsViaPlay) this.unlockNote = "Pro unlocked from your Google Play purchase.";
+    const overlapped = userChecks !== this.userChecks || this.restoring || this.purchasing;
+    if (status && wasWithout && this.ownsViaPlay && !overlapped) {
+      this.unlockNote = "Pro unlocked from your Google Play purchase.";
+    }
   }
 
   async restore(): Promise<void> {
     if (this.restoring || this.purchasing) return;
+    this.userChecks++;
     this.restoring = true;
     this.say("", "info");
     try {
@@ -165,6 +176,7 @@ class BillingStore {
   /// Buy Pro. A support tier's product id buys the same Pro at its higher price.
   async purchase(productId?: string): Promise<PurchaseOutcome | null> {
     if (this.purchasing || this.restoring) return null;
+    this.userChecks++;
     this.purchasing = true;
     this.purchasingId = productId ?? this.status?.offer?.product_id ?? null;
     this.say("", "info");

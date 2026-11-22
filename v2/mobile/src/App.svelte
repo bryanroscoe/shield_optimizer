@@ -123,8 +123,10 @@
     return () => clearTimeout(timer);
   });
 
+  // The identity note takes the toast spot first, so the unlock note's clock
+  // only starts once it is actually on screen.
   $effect(() => {
-    if (!billing.unlockNote) return;
+    if (!billing.unlockNote || session.identityNote) return;
     const timer = setTimeout(() => {
       billing.unlockNote = "";
     }, 4000);

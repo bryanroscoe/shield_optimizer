@@ -240,6 +240,54 @@ test("a purchase that arrives by the next resume says Pro unlocked; an owner's l
   await card.locator(".license-badge", { hasText: "Pro" }).waitFor();
 });
 
+test("an owner whose stored purchase is too old to trust offline isn't told Pro unlocked", async (t) => {
+  const page = await browser.newPage({ viewport: { width: 390, height: 1400 } });
+  t.after(() => page.close());
+  await page.addInitScript((owned) => {
+    window.calls = [];
+    const unknown = { entitlement: "free", sources: [], distribution: "play", license_key_entry: false, available: true, play: { state: "unknown" }, offer: null, ack_pending: false, product_id: "atvopt_pro" };
+    window.__TAURI_INTERNALS__ = {
+      transformCallback: () => 0,
+      invoke: async (command) => {
+        window.calls.push({ command });
+        if (command === "get_entitlement") return "free";
+        if (command === "billing_status") return unknown;
+        if (command === "billing_refresh") return { ...unknown, ...owned };
+        if (command === "license_info") return null;
+        return { ok: true };
+      },
+    };
+  }, OWNED);
+  await page.goto(origin);
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "billing_refresh"));
+  await page.waitForFunction(async () => (await import("/src/lib/session.svelte.ts")).session.isPro);
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await page.getByText("Pro unlocked from your Google Play purchase.").count(), 0);
+});
+
+test("a background check that resolves after a Restore leaves the result to Restore", async (t) => {
+  const page = await open(t, status(), "more", { events: true });
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Restore purchases" }).waitFor();
+  await page.waitForFunction(() => window.eventListeners.some((l) => l.event === "purchases-updated"));
+  await page.evaluate((owned) => {
+    let release;
+    const gate = new Promise((resolve) => (release = resolve));
+    window.releaseRefresh = release;
+    window.handlers.billing_refresh = async () => {
+      if (!window.heldOnce) { window.heldOnce = true; await gate; }
+      return { ...window.billingStatus, ...owned };
+    };
+    window.emitTauriEvent("purchases-updated", null);
+  }, OWNED);
+  await page.waitForFunction(() => window.heldOnce);
+  await card.getByRole("button", { name: "Restore purchases" }).click();
+  await card.getByText("Pro restored from Google Play.").waitFor();
+  await page.evaluate(() => window.releaseRefresh());
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+  assert.equal(await page.getByText("Pro unlocked from your Google Play purchase.").count(), 0);
+});
+
 test("Restore purchases says it is for a purchase or promo code made outside the app", async (t) => {
   const page = await open(t, status());
   const card = licensing(page);
