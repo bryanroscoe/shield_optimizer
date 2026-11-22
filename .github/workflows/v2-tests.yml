@@ -496,6 +496,10 @@ jobs:
         working-directory: v2
         run: npm run test:optimize-plan
 
+      - name: Optimize run confirmation dialog
+        working-directory: v2
+        run: npm run test:run-plan-dialog
+
       - name: Playback and expert shell regressions
         working-directory: v2
         run: npm run test:playback-shell

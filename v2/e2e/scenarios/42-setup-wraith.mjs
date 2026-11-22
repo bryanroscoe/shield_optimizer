@@ -134,7 +134,9 @@ export const scenarios = [
       await callout(ctx).waitFor();
       ctx.assert.equal(await callout(ctx).getAttribute("data-setup-helper"), "on");
       ctx.assert.match(await callout(ctx).innerText(), /Disable stock launcher turns it off too/);
-      ctx.assert.equal(await callout(ctx).getByRole("button").count(), 0, "no action while stock is on");
+      // Its only button is the "About Setup Wraith" help.
+      ctx.assert.equal(await callout(ctx).locator("button.small-action").count(), 0, "no action while stock is on");
+      ctx.assert.equal(await callout(ctx).getByRole("button", { name: "About Setup Wraith" }).count(), 1);
       await ctx.step("enabled while stock is on");
 
       // Enabled while stock is off and nothing real holds Home: it grabs Home.

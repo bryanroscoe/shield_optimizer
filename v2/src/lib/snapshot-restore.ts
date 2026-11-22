@@ -31,3 +31,10 @@ export function splitRestoreFailures(res: ApplyResult): { kept: KeptPackage[]; f
   }
   return { kept, failed };
 }
+
+/// A failure entry is `pkg (why)`; split it so the list can show the name
+/// first. Anything else is shown as it came.
+export function failureOutcome(entry: string): { package: string; reason: string | null } {
+  const m = /^(\S+) \((.+)\)$/s.exec(entry.trim());
+  return m ? { package: m[1], reason: m[2] } : { package: entry.trim(), reason: null };
+}

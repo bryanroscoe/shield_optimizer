@@ -55,7 +55,7 @@ async function captureScreens(page, shot) {
     // 2. Pairing, caught while it waits for the device to advertise its
     // connect port (the demo never advertises one, so the frame is stable).
     await page.locator(".connect-form").getByRole("button", { name: "Pair PIN" }).click();
-    await page.getByText("Do not reuse the pairing port.", { exact: false }).waitFor();
+    await page.locator(".pair-form .pair-steps").waitFor();
     const pairAddress = page.getByPlaceholder("IP:pair_port — e.g. 192.168.42.71:43219");
     const pairPin = page.getByPlaceholder("6-digit PIN");
     const connectAddress = page.getByPlaceholder("IP[:port] — e.g. 192.168.42.71");
