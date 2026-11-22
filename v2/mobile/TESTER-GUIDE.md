@@ -45,11 +45,13 @@ The app is a free download. Pro is an optional one-time Google Play purchase, wi
 
 ### Redeem a Pro promo code
 
-1. On your Android phone, use the Google account you used to join the test and install ATV Optimizer. Open the link in your promo-code email, or go to **Play Store › profile picture › Payments & subscriptions › Redeem code**.
-2. Paste the code if it isn't already filled in, tap **Redeem**, then check the Google account and follow the prompts. Cancel if Google Play shows a charge.
+1. On your Android phone, use the Google account you used to join the test and install ATV Optimizer. Open the link in your promo-code email, or choose one of these routes if you have just the code.
+   - **In ATV Optimizer:** Open **More › Licensing**, then tap **Buy Pro** to open Google Play checkout. Tap the listed payment method or the arrow next to it and choose **Redeem code**.
+   - **In the Play Store:** Tap your profile picture, then **Payments & subscriptions › Redeem code**.
+2. Paste the code if it isn't already filled in, tap **Redeem**, then check the Google account and follow the prompts. If you started in the app, confirm the purchase only after Google Play shows a zero total. Cancel if it shows a charge.
 3. Open ATV Optimizer within three days of redemption so the app can confirm it with Google Play. Check **More › Licensing** for **Current plan: Pro**. If it still shows **Free**, check the Play Store account and tap **More › Restore purchases**.
 
-Each code works once. Keep it private. See the [public redemption guide with a Google Play screenshot](https://bryanroscoe.com/atv-optimizer/testing/#redeem-code).
+Each code works once. Keep it private. See the [public redemption guide with Google Play screenshots](https://bryanroscoe.com/atv-optimizer/testing/#redeem-code).
 
 ### Test purchases by invitation
 
