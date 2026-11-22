@@ -2,7 +2,6 @@ import { checkAdmin, deviceReport, parseGroup } from "./admin";
 import type { Env } from "./env";
 import { error, json, readBodyLimited } from "./http";
 import { consumeQuota, purgeExpired, releaseQuota, storeEvents, utcDay } from "./ingest";
-import { notifyUpload } from "./notify";
 import {
   DEFAULT_EVENT_LIMIT,
   DEFAULT_UPLOAD_LIST_LIMIT,
@@ -83,7 +82,7 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
   });
 }
 
-async function postDiagnostics(request: Request, env: Env, ctx: ExecutionContext | undefined): Promise<Response> {
+async function postDiagnostics(request: Request, env: Env): Promise<Response> {
   const body = await readJson(request, UPLOAD_MAX_BODY);
   if (!body.ok) return body.response;
   const upload = validateUpload(body.value);
@@ -100,15 +99,13 @@ async function postDiagnostics(request: Request, env: Env, ctx: ExecutionContext
       "retry-after": String(secondsUntilUtcMidnight(now)),
     });
   }
-  let id: number;
   try {
-    id = await storeUpload(env, upload.value, now);
+    const id = await storeUpload(env, upload.value, now);
+    return json({ ok: true, id, bytes: upload.value.body.length }, 201, { "cache-control": "no-store" });
   } catch {
     await releaseUpload(env, upload.value.install_id, uploadBytes(upload.value), now).catch(() => undefined);
     return error(503, "storage_unavailable");
   }
-  ctx?.waitUntil(notifyUpload(env, { id, received_at: now.toISOString(), upload: upload.value }, now));
-  return json({ ok: true, id, bytes: upload.value.body.length }, 201, { "cache-control": "no-store" });
 }
 
 async function admin(request: Request, env: Env, path: string): Promise<Response> {
@@ -200,7 +197,7 @@ async function admin(request: Request, env: Env, path: string): Promise<Response
   return error(404, "not_found");
 }
 
-async function route(request: Request, env: Env, ctx: ExecutionContext | undefined): Promise<Response> {
+async function route(request: Request, env: Env): Promise<Response> {
   const url = new URL(request.url);
   const path = url.pathname.replace(/\/+$/, "") || "/";
 
@@ -224,7 +221,7 @@ async function route(request: Request, env: Env, ctx: ExecutionContext | undefin
 
   if (path === "/v1/diagnostics") {
     if (request.method !== "POST") return error(405, "method_not_allowed", {}, { allow: "POST, OPTIONS" });
-    return postDiagnostics(request, env, ctx);
+    return postDiagnostics(request, env);
   }
 
   if (path === "/v1/support-tiers") {
@@ -240,9 +237,9 @@ async function route(request: Request, env: Env, ctx: ExecutionContext | undefin
 }
 
 export default {
-  async fetch(request: Request, env: Env, ctx?: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      return await route(request, env, ctx);
+      return await route(request, env);
     } catch {
       // No logging: the error could carry request data.
       return error(500, "internal_error");

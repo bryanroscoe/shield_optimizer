@@ -8,9 +8,8 @@ A Cloudflare Worker with one D1 database. It does two jobs:
 2. Serves the support-tier list (`GET /v1/support-tiers`), so a TV can move from beta to supported
    without an app release.
 3. Takes the logs a desktop user chooses to send and the bug reports desktop and phone users send
-   (`POST /v1/diagnostics`), emails the owner about each one (once
-   [set up](#email-notifications)), and lets the owner find everything stored for one install by
-   the support ID the user quotes (`scripts/support-lookup.sh`).
+   (`POST /v1/diagnostics`), and lets the owner list new bug reports and find everything stored for
+   one install by the support ID the user quotes (`scripts/support-lookup.sh`).
 
 Telemetry is on by default in the apps with an opt-out. The app side lives in the desktop and mobile
 code; this directory is only the backend. It runs on the Cloudflare free plan.
@@ -399,34 +398,6 @@ fabricated production telemetry just to test a deploy. Admin access is proven by
 Migration `0004_bug_reports.sql` (bug reports) must be applied before deploying the Worker that
 writes `kind` and `note`; it is additive, so the Worker already live keeps working against it.
 
-### Email notifications
-
-Once set up, every stored upload sends the owner one plain-text email through Cloudflare Email
-Routing's `send_email` binding (`src/notify.ts`): subject `[ATV Optimizer] Bug report #12 from
-mobile 0.2.0 (7D0B-0B9E)` (or `Logs #12 ...`), and a body with the upload id, kind, app, version,
-OS, support ID, received time, text size, the redacted note (first 2,000 characters) and the admin
-commands that fetch the rest. Never the log text. It is sent after the response
-(`ctx.waitUntil`), so it can't slow or fail an upload; a failed send is dropped silently. At most
-`REPORT_MAIL_DAILY` (50) a UTC day (`rate_daily` key `report-mail:*`); past that, uploads are
-stored and listed but not emailed. With the binding or either address missing, nothing is sent.
-
-Turning it on is an owner step (not part of a routine redeploy):
-
-1. In the Cloudflare dashboard, enable **Email Routing** on a zone the owner controls and add the
-   destination address (the inbox the reports should reach) under **Destination addresses**;
-   Cloudflare emails it a link, which must be clicked before it is verified.
-2. In `wrangler.toml`, uncomment the `[[send_email]]` block (`name = "REPORT_MAIL"`,
-   `destination_address` set to that verified address) and the `REPORT_MAIL_FROM` (an address on
-   the Email Routing zone, such as `reports@<zone>`), `REPORT_MAIL_TO` (the same verified address)
-   and optionally `REPORT_MAIL_DAILY` vars.
-3. Apply `0004_bug_reports.sql` if it isn't yet, deploy as in [Redeploy](#redeploy), and send one
-   test bug report from a test build; check it arrives and appears in
-   `GET /v1/admin/uploads?kind=bug`.
-
-The email goes to the destination inbox's provider (Gmail for the owner's), so it holds only what
-the admin API already does, redacted, and the Android privacy policy says the developer is
-notified by email.
-
 ### Rotating ADMIN_TOKEN
 
 An owner-authorized operation, separate from deploys. Three copies must change together, or the
@@ -513,8 +484,7 @@ Cloudflare's free plan (check the current numbers on the
   writes go through `json_each` over one JSON parameter). Row writes per accepted event are lowest
   in big batches (aggregates are merged per batch) and highest for a one-event error batch: about
   nine (three quota rows, the raw row and its two index entries, three aggregate rows). A Send
-  logs upload or bug report is about six (three quota rows, the row and its two index entries), seven
-when it is emailed (the email counter). A support
+  logs upload or bug report is about six (three quota rows, the row and its two index entries). A support
   lookup reads through the `events_install` index and runs at most 1 + 7 × 5 queries. Over the
   daily limits, D1 refuses queries until the daily reset; the apps just lose that day's telemetry.
   Over the size limit, every write fails until space is freed, which is what the storage budget
@@ -534,8 +504,8 @@ Abuse protection:
   one-event error batch under a made-up install id) plus about four for the cron's deletes (its
   quota row after two days, the raw row and its two index entries after 30). Under a sustained
   flood that is roughly thirteen writes per event per day: 7,000 events is about 63,000 writes on
-  arrival and 28,000 in the cron's retention purge. Uploads add at most about 1,400 on arrival
-  (200 a day at about six writes each, seven with the email counter) and 600 when they expire. The cron run as a whole, purge
+  arrival and 28,000 in the cron's retention purge. Uploads add at most about 1,200 on arrival
+  (200 a day at about six writes each) and 600 when they expire. The cron run as a whole, purge
   and storage trim together, spends at most `STORAGE_TRIM_MAX_ROW_WRITES` (30,000): the purge
   first, the trim what is left. So the worst case is about 63,000 + 1,200 + 30,000 ≈ 94,000 of the
   100,000 free writes a day. Raise them only together with a paid plan.

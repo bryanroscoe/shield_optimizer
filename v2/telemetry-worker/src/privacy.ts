@@ -54,8 +54,7 @@ addresses, host names and license keys before sending, and the developer's servi
 again before storing the report. Do not put private information in the description.</p>
 <p>A bug report is sent over HTTPS to the same service as reports, which does not store your request
 IP address or location. It is stored with your installation's Support ID so the developer can match
-it to your request, and the developer receives an email notice with its details and your
-description. Bug reports are deleted after ${logDays} days, or sooner on request (below).</p>
+it to your request. Bug reports are deleted after ${logDays} days, or sooner on request (below).</p>
 <h2>Purchases</h2>
 <p>Google Play processes the optional one-time Pro purchase under Google's terms and privacy
 policy. The app does not receive your card or bank details. It verifies and stores the signed
