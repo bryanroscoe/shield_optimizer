@@ -845,11 +845,15 @@
       <input type="checkbox" checked={debugLogging} onchange={toggleDebugLogging} />
       Debug logging
     </label>
-    <p class="bug-prose muted">
-      While it's on, this session is also recorded (adb calls and the buttons you press) to
-      <span class="mono">logs/sessions</span>. That recording stays on this computer and is never
-      part of this report.
-    </p>
+    <div class="bug-reports-help">
+      <HelpDetails label="What debug logging records">
+        <p>
+          While it's on, this session is also recorded (adb calls and the buttons you press) to
+          <span class="mono">logs/sessions</span>. That recording stays on this computer and is never
+          part of this report.
+        </p>
+      </HelpDetails>
+    </div>
     <p class="bug-path muted mono">
       {logPath ? `Logs: ${logPath}` : "Logs: (no log folder)"}
     </p>
