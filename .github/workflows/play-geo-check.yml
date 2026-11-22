@@ -2,7 +2,8 @@
 # with a country list and every active one-time product must cover all 27 EU states. Uploads
 # already refuse a track that doesn't (play-publish.py upload); this catches what changes in
 # Play Console, such as the production promotion and new products. It opens and discards an
-# edit and never commits. See v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md (requirements table).
+# edit and never commits. A required reviewer on the google-play environment would hold each
+# run until approved. See v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md (requirements table).
 
 name: Play EU geo-blocking check
 
@@ -42,7 +43,7 @@ jobs:
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           status=0
           python3 v2/mobile/scripts/play-publish.py geo-check --service-account "$account" \
-            > "$RUNNER_TEMP/geo.txt" || status=$?
-          cat "$RUNNER_TEMP/geo.txt" | tee -a "$GITHUB_STEP_SUMMARY"
+            > "$RUNNER_TEMP/geo.txt" 2>&1 || status=$?
+          tee -a "$GITHUB_STEP_SUMMARY" < "$RUNNER_TEMP/geo.txt"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
           exit "$status"

@@ -175,6 +175,8 @@ class Play:
         Internal testing has none, and a track Play has never released to answers with an empty
         list; neither restricts anyone, so neither counts as a gap here.
         """
+        if track == 'internal':
+            return None
         try:
             available = self.call('GET', f'edits/{edit}/countryAvailability/{track}')
         except PlayError as error:
@@ -285,6 +287,10 @@ def geo_check(play):
     finally:
         play.discard_edit(edit)
     for product in play.one_time_products():
+        restricted = sorted(EU_COUNTRIES & set(product.get('restrictedPaymentCountries', {}).get('regionCodes', [])))
+        if restricted:
+            problems.append(f'product {product.get("productId")} restricts payment methods in {", ".join(restricted)}')
+            lines.append(f'product {product.get("productId")}: payment restricted in {", ".join(restricted)}')
         for option in product.get('purchaseOptions', []):
             label = f'{product.get("productId")}/{option.get("purchaseOptionId")}'
             if option.get('state') != 'ACTIVE':
@@ -337,7 +343,7 @@ def main(argv=None):
                             args.track, args.status, args.version_code, args.release_name, notes, args.expected_aab_sha256)
             print(json.dumps(result, indent=2))
     except (PlayError, OSError, ValueError, subprocess.SubprocessError) as error:
-        print(f'Play publish failed: {error}', file=sys.stderr)
+        print(f'Play {args.command} failed: {error}', file=sys.stderr)
         return 1
     return 0
 

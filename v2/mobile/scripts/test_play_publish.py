@@ -1,4 +1,6 @@
+import contextlib
 import hashlib
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -225,6 +227,31 @@ class Publish(unittest.TestCase):
         self.assertTrue(problems[0].startswith('track alpha is missing AT, BE'))
         self.assertEqual(problems[1], 'track production has releases but no country list')
         self.assertEqual(problems[2], 'product atvopt_pro/pro-unlock is not available in DE, LU')
+
+    def test_geo_check_flags_eu_payment_restrictions(self):
+        restricted = product('atvopt_pro', {c: 'AVAILABLE' for c in WORLD})
+        restricted['restrictedPaymentCountries'] = {'regionCodes': ['US', 'FR']}
+        _, problems = play.geo_check(client(FakePlay(products=[restricted])))
+        self.assertEqual(problems, ['product atvopt_pro restricts payment methods in FR'])
+
+    def test_unexpected_country_error_propagates_and_discards(self):
+        fake = FakePlay(uploaded_code=1003, fail='countryAvailability/alpha')
+        with self.assertRaisesRegex(play.PlayError, 'HTTP 400'):
+            play.upload(client(fake), self.aab, 'alpha', 'draft', 1003, 'x')
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+        self.assertFalse(any(m == 'POST' and 'bundles' in u for m, u in fake.calls()))
+
+    def test_geo_check_command_exits_nonzero_with_problems_on_stderr(self):
+        fake = FakePlay(tracks=[{'track': 'alpha', 'releases': []}], countries={'alpha': ['US']})
+        original = play.Play.from_file
+        play.Play.from_file = classmethod(lambda cls, path, **kw: client(fake))
+        self.addCleanup(setattr, play.Play, 'from_file', original)
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = play.main(['geo-check', '--service-account', 'unused.json'])
+        self.assertEqual(code, 1)
+        self.assertIn('track alpha: missing AT', out.getvalue())
+        self.assertIn('EU geo-blocking: track alpha is missing AT', err.getvalue())
 
     def test_token_failure_does_not_echo_credentials(self):
         def http(method, url, headers, body, timeout):
