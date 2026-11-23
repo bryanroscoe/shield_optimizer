@@ -10,7 +10,7 @@ use crate::adb::{
     parse_installed_packages_output,
 };
 use crate::engine::snapshot::{
-    absent_catalog_packages, compute_apply_plan, hold_protected, is_tracked_setting,
+    absent_catalog_packages, compute_apply_plan_with_roles, is_tracked_setting,
     tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan, SCHEMA_VERSION,
 };
 use crate::engine::{home_keep_reason, is_valid_package_name, may_be_home_handler};
@@ -175,28 +175,28 @@ async fn plan_for(
         .ok()
         .and_then(|r| r.package);
     let catalog = state.app_lists.for_device(device_type);
-    let mut plan = compute_apply_plan(
-        snap,
-        &ApplyPlanInputs {
-            target_device_type: device_type,
-            currently_installed: &reads.installed,
-            currently_disabled: &reads.disabled,
-            current_settings: &current_settings,
-            current_launcher: current_launcher.as_deref(),
-            home_handlers: reads.home_handlers.as_deref(),
-            launchers: launchers(),
-            catalog: &catalog,
-        },
-    );
+    let inputs = ApplyPlanInputs {
+        target_device_type: device_type,
+        currently_installed: &reads.installed,
+        currently_disabled: &reads.disabled,
+        current_settings: &current_settings,
+        current_launcher: current_launcher.as_deref(),
+        home_handlers: reads.home_handlers.as_deref(),
+        launchers: launchers(),
+        catalog: &catalog,
+    };
+    let no_roles = crate::engine::ActiveRoles::default();
+    let plan = compute_apply_plan_with_roles(snap, &inputs, &no_roles);
     // Only a package disable, or the setup helper that follows a stock
-    // launcher's, can reach a role holder. A settings-only restore skips the
-    // read. Apply plans again, so it reads the roles afresh.
-    let roles = if plan.packages_to_disable.is_empty() {
-        crate::engine::ActiveRoles::default()
+    // launcher's, can reach a role holder, so a plan with no package to turn
+    // off skips the read. With one, the roles are read and the plan is made
+    // again from them, so Home planning sees role holders staying on. Apply
+    // plans again, so it reads the roles afresh.
+    let (plan, roles) = if plan.packages_to_disable.is_empty() && plan.packages_kept.is_empty() {
+        (plan, no_roles)
     } else {
         let roles = super::apps::read_active_roles(adb.as_ref(), serial).await;
-        hold_protected(&mut plan, &roles);
-        roles
+        (compute_apply_plan_with_roles(snap, &inputs, &roles), roles)
     };
     Ok((
         plan,
@@ -499,7 +499,7 @@ struct HomeGuard<'a> {
     /// fresh check before they go.
     handlers: Option<&'a [String]>,
     current_home: Option<&'a str>,
-    /// Packages the plan already kept on.
+    /// Packages the plan already kept on, for Home or protection.
     kept: Vec<String>,
 }
 
@@ -544,6 +544,8 @@ async fn disable_from_plan(
         // the write.
         if let Some(reason) = crate::engine::removal_refusal_reason(pkg, roles) {
             out.failed.push(format!("{pkg} (protected: {reason})"));
+            // It stays on, so a setup helper paired with it stays too.
+            kept_names.push(pkg.clone());
             continue;
         }
         let mut inventory = None;
@@ -689,7 +691,11 @@ async fn apply_snapshot_impl(
         HomeGuard {
             handlers: reads.home_handlers.as_deref(),
             current_home: plan.current_launcher.as_deref(),
-            kept: kept.clone(),
+            kept: kept
+                .iter()
+                .cloned()
+                .chain(plan.packages_protected.iter().map(|p| p.package.clone()))
+                .collect(),
         },
         roles,
     )
@@ -728,6 +734,31 @@ async fn apply_snapshot_impl(
         .await
         {
             Outcome::Untouched | Outcome::Disabled { .. } => {}
+            // Older snapshots list stock alone, so the helper may not be in
+            // the plan: name it here rather than imply it went off with stock.
+            Outcome::Held { held } => {
+                for helper in &held {
+                    let prefix = format!("{} (", helper.package);
+                    if packages_failed.iter().any(|f| f.starts_with(&prefix)) {
+                        continue;
+                    }
+                    if helper.protected {
+                        packages_failed
+                            .push(format!("{} (protected: {})", helper.package, helper.reason));
+                    } else {
+                        packages_failed.push(format!(
+                            "{} (kept: {})",
+                            helper.package,
+                            crate::engine::HomeKeepReason::OnlyHomeApp.label()
+                        ));
+                        kept.push(helper.package.clone());
+                    }
+                }
+                helper_notes.push(format!(
+                    "{stock} is disabled, but {}",
+                    crate::commands::launcher::held_helpers_note(&held)
+                ));
+            }
             Outcome::RolledBack { reason } => {
                 packages_disabled.retain(|p| p != stock);
                 drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
@@ -1803,6 +1834,36 @@ mod tests {
             assert_eq!(res.packages_failed, [format!("{STOCK} (kept: {reason})")]);
             assert!(!disabled_any(&log, STOCK));
         }
+    }
+
+    #[tokio::test]
+    async fn a_setup_helper_left_on_is_named_when_the_snapshot_lists_stock_alone() {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        const GTV: &str = "com.google.android.apps.tv.launcherx";
+        const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+        let home = [GTV, WRAITH, PROJECTIVY, SETTINGS];
+        let mock = restore_tv(&home, &[], &home, &home_list(&home))
+            .on_shell("resolve-activity", &format!("{PROJECTIVY}/.Main"))
+            .on_shell(
+                "default_input_method",
+                &format!("{WRAITH}/.Ime\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\n{BATCH_STATUS}0\n"),
+            );
+        let log = mock.shell_log();
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(None, &[GTV]))
+            .await
+            .unwrap();
+        assert_eq!(res.packages_disabled, [GTV]);
+        assert!(!disabled_any(&log, WRAITH));
+        assert!(
+            res.packages_failed
+                .iter()
+                .any(|f| f.starts_with(&format!("{WRAITH} (protected: "))),
+            "{:?}",
+            res.packages_failed
+        );
+        assert!(res.summary.contains("(0 failed)"), "{}", res.summary);
+        assert!(res.summary.contains("was left on"), "{}", res.summary);
+        assert!(res.summary.contains("Setup Wraith"), "{}", res.summary);
     }
 
     #[tokio::test]

@@ -72,10 +72,10 @@ async fn run_shell_impl(
     }
 
     let adb = state.adb_snapshot().await;
-    let out = adb.shell_bounded(serial, trimmed).await;
-    // An expert command can change the keyboard or WebView behind the app.
-    state.forget_roles(serial);
-    let out = out.map_err(|e| e.to_string())?;
+    let out = adb
+        .shell_bounded(serial, trimmed)
+        .await
+        .map_err(|e| e.to_string())?;
 
     Ok(ShellRunResult {
         stdout: out.stdout,

@@ -204,6 +204,18 @@ pub struct ActiveRoles {
     pub webview: Option<String>,
 }
 
+impl ActiveRoles {
+    /// A later read within the same action. A role it names replaces what
+    /// `earlier` found; a role it couldn't read keeps `earlier`'s answer, so
+    /// a failed re-read never lifts a refusal a successful one established.
+    pub fn read_after(self, earlier: &ActiveRoles) -> ActiveRoles {
+        ActiveRoles {
+            keyboard: self.keyboard.or_else(|| earlier.keyboard.clone()),
+            webview: self.webview.or_else(|| earlier.webview.clone()),
+        }
+    }
+}
+
 const ACTIVE_KEYBOARD_REASON: &str = "The TV reports it as the keyboard in use. Removing it may leave you no way to type. Choose another keyboard in Settings first.";
 
 const ACTIVE_WEBVIEW_REASON: &str = "The TV reports it as the WebView in use. Removing it may break apps that show web pages or sign-in screens. Choose another WebView in Developer options first.";
@@ -563,6 +575,24 @@ const CAUTION: &[(&str, &str)] = &[
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_later_read_replaces_named_roles_and_keeps_unread_ones() {
+        use super::ActiveRoles;
+        let earlier = ActiveRoles {
+            keyboard: Some("com.example.stock".into()),
+            webview: Some("com.android.webview".into()),
+        };
+        let failed = ActiveRoles::default().read_after(&earlier);
+        assert_eq!(failed, earlier, "a failed re-read keeps both");
+        let moved = ActiveRoles {
+            keyboard: Some("com.example.other".into()),
+            webview: None,
+        }
+        .read_after(&earlier);
+        assert_eq!(moved.keyboard.as_deref(), Some("com.example.other"));
+        assert_eq!(moved.webview.as_deref(), Some("com.android.webview"));
+    }
+
     use super::*;
 
     #[test]

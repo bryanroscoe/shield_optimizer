@@ -46,15 +46,36 @@ async fn shield_profile_lists_as_a_shield() {
 }
 
 #[tokio::test]
-async fn the_simulated_shield_reports_its_keyboard_and_webview() {
+async fn the_simulated_shield_answers_a_role_read() {
     let sim = shield_world();
     let roles = crate::commands::apps::read_active_roles(&sim, "192.0.2.1:5555").await;
     assert_eq!(
         roles.keyboard.as_deref(),
         Some("com.google.android.inputmethod.latin")
     );
-    assert_eq!(roles.webview.as_deref(), Some("com.google.android.webview"));
+    // Synthetic coverage, not captured evidence: the profile has no
+    // webviewupdate capture, so this checks only that the simulator's own
+    // reply parses. It says nothing about which provider a real Shield uses.
+    assert!(roles.webview.is_some());
     assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}
+
+#[tokio::test]
+async fn a_supplied_webview_reply_decides_the_provider() {
+    let sim = shield_world();
+    {
+        let mut w = sim.world();
+        let serial = profile("shield-tv-pro").serial;
+        let device = w.devices.get_mut(&serial).expect("the Shield");
+        device.texts.insert(
+            "dumpsys webviewupdate".into(),
+            "Current WebView Update Service state\n  Current WebView package (name, version): \
+             (com.android.chrome, 120.0)\n"
+                .into(),
+        );
+    }
+    let roles = crate::commands::apps::read_active_roles(&sim, "192.0.2.1:5555").await;
+    assert_eq!(roles.webview.as_deref(), Some("com.android.chrome"));
 }
 
 #[tokio::test]

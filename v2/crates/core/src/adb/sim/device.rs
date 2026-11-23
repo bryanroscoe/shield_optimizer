@@ -675,6 +675,7 @@ impl Device {
             "activity" if args.len() == 2 && args[1] == "settings" => {
                 "ACTIVITY MANAGER SETTINGS (dumpsys activity settings) activity_manager_constants:\n  max_cached_processes=32\n\n  CUR_MAX_CACHED_PROCESSES=32\n  CUR_MAX_EMPTY_PROCESSES=16\n".into()
             }
+            // Synthetic: see `webview_update`.
             "webviewupdate" if args.len() == 1 => self.webview_update(),
             _ => return None,
         }))
@@ -701,9 +702,14 @@ impl Device {
             .collect()
     }
 
-    /// AOSP's WebViewUpdateService report, for a profile with no capture of
-    /// it: the first stock provider this TV has installed and enabled, or
-    /// null when it has none.
+    /// A synthetic WebViewUpdateService report in AOSP's format, for a
+    /// profile with no capture of it (no checked-in profile has one; the
+    /// capture script doesn't record it). It names the first enabled stock
+    /// provider from a fixed list, which is the simulator's guess and not
+    /// Android's choice: real devices pick by validity and the user's
+    /// setting. It exists so role reads get an answer offline; a test of
+    /// which provider is current must supply an explicit
+    /// `dumpsys webviewupdate` text instead.
     fn webview_update(&self) -> String {
         let current = [
             "com.google.android.webview",

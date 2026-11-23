@@ -1557,11 +1557,16 @@
     homePickerBusy = "stock";
     homePickerMessage = "";
     try {
-      const wraithNote = takeoverTurnsOffSetupHelper
-        ? " Google TV's setup helper (Setup Wraith) was disabled too."
-        : "";
+      const expectWraithOff = takeoverTurnsOffSetupHelper;
       const r = await api.disableStockLauncher(context.serial, pkg);
       if (!pageContextIsCurrent(context)) return;
+      // A successful takeover carries `last_error` only as a follow-up note,
+      // such as a setup helper it had to leave on.
+      const wraithNote = r.last_error
+        ? ` ${r.last_error}`
+        : expectWraithOff
+          ? " Google TV's setup helper (Setup Wraith) was disabled too."
+          : "";
       homePickerOk = r.ok;
       homePickerMessage = r.ok
         ? `The stock launcher is disabled and ${pkg} is now Home.${wraithNote} You can re-enable the stock launcher from the list above at any time.`
