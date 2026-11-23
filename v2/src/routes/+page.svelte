@@ -119,8 +119,29 @@
   /// How long launch (or Connect) waits for a saved address to answer.
   const SAVED_DIAL_MS = 8000;
   /// Connect on a saved row with a MAC wakes it first, then keeps dialling
-  /// while it boots. Never used by the launch or restart redials.
-  const SAVED_WAKE: WakeFirst = { wake: api.wakeDevice, wakeMs: 2000, retryMs: 3000, waitMs: 30_000 };
+  /// while it boots, until it's unsaved or listed (perhaps at a new address).
+  /// Never used by the launch or restart redials.
+  function wakeFirstFor(saved: SavedDevice): WakeFirst {
+    return {
+      wake: api.wakeDevice,
+      connect: api.connectDeviceQuietly,
+      report: api.reportConnect,
+      // Storage, not this screen's copy: the dial outlives the screen.
+      keepGoing: () =>
+        loadSaved().devices.some((d) => d.hardwareId === saved.hardwareId) && !liveDeviceFor(saved, devices),
+      wakeMs: 2000,
+      retryMs: 3000,
+      waitMs: 30_000,
+    };
+  }
+
+  /// Connect on a saved row. While a dial is under way the button stays
+  /// focusable (`aria-disabled`), so keyboard focus isn't dropped, and a
+  /// press does nothing.
+  function connectSaved(saved: SavedDevice, busy: boolean) {
+    if (busy) return;
+    void dialSaved(saved, wakeFirstFor(saved));
+  }
   /// Hardware ids whose MAC has been asked for this session.
   const macRead = savedDialWork.macRead;
 
@@ -1854,6 +1875,7 @@
 {/snippet}
 
 {#snippet savedRow(saved: SavedDevice, status: SavedStatus)}
+  {@const dialBusy = status === "connecting" || status === "waking" || !!savedDialSession.pending[saved.hardwareId]}
   <li>
     <div
       class="device-row not-clickable saved-offline"
@@ -1901,8 +1923,9 @@
         </button>
         <button
           class="row-action primary"
-          onclick={() => dialSaved(saved, SAVED_WAKE)}
-          disabled={status === "connecting" || status === "waking" || !!savedDialSession.pending[saved.hardwareId] || directUnavailable || adbMissing}
+          onclick={() => connectSaved(saved, dialBusy)}
+          disabled={directUnavailable || adbMissing}
+          aria-disabled={dialBusy ? "true" : undefined}
           aria-label={status === "waking" ? `Waking ${saved.name}` : status === "connecting" ? `Connecting to ${saved.name}` : `Connect to ${saved.name}`}
         >
           {status === "waking" ? "Waking…" : status === "connecting" ? "Connecting…" : "Connect"}

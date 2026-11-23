@@ -143,6 +143,14 @@ export const api = {
 
   connectDevice: (address: string) =>
     invoke<ConnectResult>("connect_device", { address }),
+  /// A saved TV's wake-and-retry dial: each attempt goes unreported, and
+  /// `reportConnect` reports the one outcome the user saw.
+  connectDeviceQuietly: (address: string) =>
+    tauriInvoke<ConnectResult>("connect_device", { address }),
+  reportConnect: (address: string, outcome: { value: unknown } | { error: unknown }) =>
+    "error" in outcome
+      ? observeCall(send, "connect_device", { address }, undefined, outcome.error ?? "unknown error")
+      : observeCall(send, "connect_device", { address }, outcome.value),
   /// Never fails on the device side: an unreadable MAC comes back null.
   deviceMacAddress: (serial: string, host: string | null) =>
     invoke<DeviceMacAddress>("device_mac_address", { serial, host }),

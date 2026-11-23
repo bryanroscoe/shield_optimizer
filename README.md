@@ -103,9 +103,9 @@ every launch, so a box that sleeps through a scan still shows up. A saved TV tha
 is probably asleep: wake it and click **Connect**. When the app knows the TV's MAC address,
 **Connect** also sends a Wake-on-LAN packet first and keeps trying for about 30 seconds while the
 TV starts; many TVs ignore it while asleep, especially on Wi-Fi. Only **Connect** sends one, never
-the launch. The bookmark on a row saves or unsaves it, and an unsaved TV stays unsaved. A saved TV only counts as connected when the device at its address
-reports the same hardware ID; if another device answers there, the saved row says **Different
-device**.
+the launch. The bookmark on a row saves or unsaves it, and an unsaved TV stays unsaved. A saved
+TV only counts as connected when the device at its address reports the same hardware ID; if
+another device answers there, the saved row says **Different device**.
 
 **A TV that has never allowed this computer** is listed as **Not allowed yet**. Scanning never
 shows anything on the TV. Click **Request approval** on its row: the TV asks "Allow debugging?"

@@ -308,15 +308,64 @@ export function wakeMac(mac: string | null | undefined): string | null {
 /// then dial, retrying while a woken TV boots.
 export interface WakeFirst {
   wake: (mac: string, host: string) => Promise<unknown>;
+  /// Dials without reporting each attempt to telemetry; `report` gets the
+  /// final outcome once, so one Connect is one event however many retries.
+  connect: (address: string) => Promise<{ ok: boolean } | null>;
+  report: (address: string, outcome: { value: unknown } | { error: unknown }) => void;
+  /// Asked before every dial after the first wake: false once the record is
+  /// unsaved or the TV is already listed (perhaps at a new address). The
+  /// dial then stops quietly, with no "Didn't answer" and no report.
+  keepGoing: () => boolean;
   /// The longest the wake send may hold up the first dial.
   wakeMs: number;
   /// The pause between dials.
   retryMs: number;
   /// Replaces the normal wait: a woken box needs time.
   waitMs: number;
+  /// Tests only: a virtual clock for the retry schedule.
+  clock?: { now: () => number; sleep: (ms: number) => Promise<void> };
 }
 
-const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const realClock = {
+  now: () => Date.now(),
+  sleep: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+};
+
+/// The wake path: the packet, then dials one at a time until one answers,
+/// the wait runs out, or `keepGoing` says stop (`stopped`).
+async function wakeThenDial(
+  session: DialSession,
+  saved: Pick<SavedDevice, "hardwareId" | "address">,
+  mac: string,
+  w: WakeFirst,
+): Promise<{ ok: boolean } | null | "stopped"> {
+  const id = saved.hardwareId;
+  const clock = w.clock ?? realClock;
+  const deadline = clock.now() + w.waitMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    // A failed or slow send never blocks the dial.
+    Promise.resolve().then(() => w.wake(mac, hostOfAddress(saved.address))).catch(() => undefined),
+    new Promise<void>((resolve) => { timer = setTimeout(resolve, w.wakeMs); }),
+  ]);
+  clearTimeout(timer);
+  if (session.dial[id] === "waking") session.dial[id] = "connecting";
+  for (;;) {
+    if (!w.keepGoing()) return "stopped";
+    let outcome: { value: { ok: boolean } | null } | { error: unknown };
+    try {
+      outcome = { value: await w.connect(saved.address) };
+    } catch (error) {
+      outcome = { error };
+    }
+    const r = "value" in outcome ? outcome.value : null;
+    if (r?.ok || clock.now() + w.retryMs >= deadline) {
+      w.report(saved.address, outcome);
+      return r;
+    }
+    await clock.sleep(w.retryMs);
+  }
+}
 
 /// Dial a saved address. Resolves when the call returns or after `waitMs`,
 /// whichever is first; at the wait the row says "Didn't answer", but the
@@ -326,8 +375,9 @@ const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 ///
 /// With `wakeFirst` and a usable MAC on the record, the row says "Waking…"
 /// while the packet goes out, then dials one call at a time until one
-/// answers or `wakeFirst.waitMs` runs out. Without either it dials once, as
-/// the launch and restart redials always do: they never wake anything.
+/// answers, `wakeFirst.waitMs` runs out, or `keepGoing` says stop. Without
+/// either it dials once, as the launch and restart redials always do: they
+/// never wake anything.
 export function dialSavedAddress(
   session: DialSession,
   saved: Pick<SavedDevice, "hardwareId" | "address" | "mac">,
@@ -339,30 +389,18 @@ export function dialSavedAddress(
   if (session.pending[id]) return Promise.resolve();
   const mac = wakeFirst ? wakeMac(saved.mac) : null;
   const wait = mac && wakeFirst ? wakeFirst.waitMs : waitMs;
-  const deadline = Date.now() + wait;
   session.pending[id] = true;
   session.dial[id] = mac ? "waking" : "connecting";
-  const attempt = async (): Promise<{ ok: boolean } | null> => {
-    if (!mac || !wakeFirst) return connect(saved.address).catch(() => null);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    await Promise.race([
-      // A failed or slow send never blocks the dial.
-      Promise.resolve().then(() => wakeFirst.wake(mac, hostOfAddress(saved.address))).catch(() => undefined),
-      new Promise<void>((resolve) => { timer = setTimeout(resolve, wakeFirst.wakeMs); }),
-    ]);
-    clearTimeout(timer);
-    if (session.dial[id] === "waking") session.dial[id] = "connecting";
-    for (;;) {
-      const r = await connect(saved.address).catch(() => null);
-      if (r?.ok || Date.now() + wakeFirst.retryMs >= deadline) return r;
-      await pause(wakeFirst.retryMs);
-    }
-  };
-  const settled = attempt()
+  const attempt = mac && wakeFirst
+    ? wakeThenDial(session, saved, mac, wakeFirst)
+    : Promise.resolve().then(() => connect(saved.address));
+  const settled = attempt
     .catch(() => null)
     .then((r) => {
       delete session.pending[id];
-      if (r?.ok) {
+      if (r === "stopped") {
+        delete session.dial[id];
+      } else if (r?.ok) {
         delete session.dial[id];
         session.landed += 1;
       } else {

@@ -209,7 +209,7 @@ button.primary {
   border-color: var(--accent);
   color: var(--accent-ink);
 }
-button.primary:hover:not(:disabled) {
+button.primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--accent-strong-hover);
 }
 /* There was no disabled rule at all, so a disabled button looked exactly like

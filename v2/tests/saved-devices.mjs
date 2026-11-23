@@ -265,28 +265,43 @@ for (const bad of [undefined, null, "", "nope", "00:00:00:00:00:00", "ff:ff:ff:f
   const withMac = { hardwareId: "XMS3B0042A", address: "192.168.1.64:5555", mac: "a4:5e:60:1d:42:0a" };
   const noMac = { hardwareId: "XMS3B0042A", address: "192.168.1.64:5555" };
   const tick = () => new Promise((r) => setTimeout(r, 0));
-  /// A recorder for wake and connect calls; `answers` are connect's replies
-  /// in order (the last one repeats).
+  /// A virtual clock: sleeping advances it at once, so the retry schedule is
+  /// exact whatever the machine's load.
+  const virtualClock = () => {
+    let t = 0;
+    return { now: () => t, sleep: async (ms) => { t += ms; } };
+  };
+  /// Records wake, connect and report calls. `answers` are connect's replies
+  /// in order (the last one repeats); an Error answer is thrown.
   const recorder = (answers) => {
     const log = [];
+    const reports = [];
     let active = 0;
     let maxActive = 0;
     let n = 0;
     return {
       log,
+      reports,
       maxActive: () => maxActive,
+      dials: () => log.filter((e) => e[0] === "connect").length,
       wake: async (mac, host) => { log.push(["wake", mac, host]); },
+      report: (address, outcome) => reports.push([address, outcome]),
       connect: async (address) => {
         active += 1;
         maxActive = Math.max(maxActive, active);
         log.push(["connect", address]);
-        await new Promise((r) => setTimeout(r, 5));
+        await Promise.resolve();
         active -= 1;
-        return answers[Math.min(n++, answers.length - 1)];
+        const answer = answers[Math.min(n++, answers.length - 1)];
+        if (answer instanceof Error) throw answer;
+        return answer;
       },
     };
   };
-  const wakeFirst = (r, over = {}) => ({ wake: r.wake, wakeMs: 200, retryMs: 10, waitMs: 1000, ...over });
+  const wakeFirst = (r, over = {}) => ({
+    wake: r.wake, connect: r.connect, report: r.report, keepGoing: () => true,
+    wakeMs: 200, retryMs: 20, waitMs: 100, clock: virtualClock(), ...over,
+  });
 
   // Connect with a MAC: "Waking…", the packet, then the dial.
   {
@@ -302,16 +317,20 @@ for (const bad of [undefined, null, "", "nope", "00:00:00:00:00:00", "ff:ff:ff:f
     await done;
     assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect"], "wake, then dial");
     assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1]);
+    assert.deepEqual(r.reports, [["192.168.1.64:5555", { value: { ok: true } }]], "one report, the outcome");
   }
 
-  // Connect without a MAC behaves as before: no wake, one dial.
+  // Connect without a MAC behaves as before: no wake, one dial through the
+  // normal (reported) connect.
   {
     let woke = 0;
     const r = recorder([{ ok: false }]);
+    const quiet = recorder([{ ok: true }]);
     const s = session();
-    await saved.dialSavedAddress(s, noMac, r.connect, 1000, wakeFirst(r, { wake: async () => { woke += 1; } }));
+    await saved.dialSavedAddress(s, noMac, r.connect, 1000, wakeFirst(quiet, { wake: async () => { woke += 1; } }));
     assert.equal(woke, 0, "no MAC, no wake");
     assert.deepEqual(r.log, [["connect", "192.168.1.64:5555"]], "and a single dial, no retries");
+    assert.equal(quiet.dials(), 0);
     assert.equal(s.dial.XMS3B0042A, "no_answer");
     // An unusable MAC is the same, and isn't an error.
     const r2 = recorder([{ ok: true }]);
@@ -329,43 +348,80 @@ for (const bad of [undefined, null, "", "nope", "00:00:00:00:00:00", "ff:ff:ff:f
     assert.deepEqual(r.log, [["connect", "192.168.1.64:5555"]], "redial: one dial, never a wake");
   }
 
-  // A woken TV boots slowly: dials repeat, one at a time, until one answers.
+  // A woken TV boots slowly: dials repeat, one at a time, until one answers,
+  // and telemetry hears once, about the outcome.
   {
-    const r = recorder([{ ok: false }, { ok: false }, { ok: true }]);
+    const r = recorder([{ ok: false }, new Error("adb connect: timed out"), { ok: true }]);
     const s = session();
-    await saved.dialSavedAddress(s, withMac, r.connect, 20, wakeFirst(r));
+    await saved.dialSavedAddress(s, withMac, async () => { throw new Error("the reported connect is not used"); }, 20,
+      wakeFirst(r));
     assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect", "connect", "connect"]);
     assert.equal(r.maxActive(), 1, "never two dials at once");
     assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1], "the longer wait, not the normal one, applies");
+    assert.deepEqual(r.reports, [["192.168.1.64:5555", { value: { ok: true } }]],
+      "the failed retries aren't reported, only the final outcome");
   }
 
   // Connect again during the longer wait starts nothing: no second wake or dial.
   {
     const r = recorder([{ ok: false }, { ok: true }]);
     const s = session();
-    const first = saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, { retryMs: 30 }));
-    await new Promise((res) => setTimeout(res, 15));
+    const gate = deferred();
+    const first = saved.dialSavedAddress(s, withMac, r.connect, 8000,
+      wakeFirst(r, { clock: { now: () => 0, sleep: () => gate.promise } }));
+    await tick();
     await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r));
     await saved.dialSavedAddress(s, withMac, r.connect, 8000);
+    gate.resolve();
     await first;
     assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect", "connect"], "only the first Connect's calls");
     assert.equal(r.maxActive(), 1);
   }
 
-  // It gives up at the longer wait and says Didn't answer.
+  // It gives up at the longer wait, says Didn't answer and reports one failure.
+  // With the virtual clock the schedule is exact: dials at 0, 20, 40, 60 and
+  // 80 ms of a 100 ms wait.
   {
-    const r = recorder([{ ok: false }]);
+    const r = recorder([{ ok: false, message: "failed to connect" }]);
     const s = session();
-    const started = Date.now();
-    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, { retryMs: 20, waitMs: 120 }));
-    await new Promise((res) => setTimeout(res, 60));
-    const dials = r.log.filter((e) => e[0] === "connect").length;
-    assert.ok(dials >= 2 && dials <= 6, `retried a bounded number of times (${dials})`);
-    assert.ok(Date.now() - started < 1000);
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r));
+    assert.equal(r.dials(), 5);
     assert.equal(s.dial.XMS3B0042A, "no_answer");
     assert.equal(s.pending.XMS3B0042A, undefined, "and stops dialling");
-    await new Promise((res) => setTimeout(res, 60));
-    assert.equal(r.log.filter((e) => e[0] === "connect").length, dials, "no dial after giving up");
+    assert.deepEqual(r.reports, [["192.168.1.64:5555", { value: { ok: false, message: "failed to connect" } }]]);
+    await tick();
+    assert.equal(r.dials(), 5, "no dial after giving up");
+    // A thrown last attempt is reported as the error it was.
+    const r2 = recorder([new Error("adb connect: refused")]);
+    await saved.dialSavedAddress(session(), withMac, r2.connect, 8000, wakeFirst(r2));
+    assert.equal(r2.reports.length, 1);
+    assert.equal(r2.reports[0][1].error.message, "adb connect: refused");
+  }
+
+  // Stops quietly once the record is unsaved, or once the TV is listed
+  // (perhaps at a new address): no more dials, no Didn't answer, no report.
+  for (const why of ["unsaved", "online elsewhere"]) {
+    const r = recorder([{ ok: false }]);
+    const s = session();
+    let go = true;
+    const clock = virtualClock();
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, {
+      keepGoing: () => go,
+      clock: { now: clock.now, sleep: async (ms) => { await clock.sleep(ms); if (r.dials() === 2) go = false; } },
+    }));
+    assert.equal(r.dials(), 2, `${why}: no dial after it stops`);
+    assert.equal(s.dial.XMS3B0042A, undefined, `${why}: no stale Didn't answer`);
+    assert.equal(s.pending.XMS3B0042A, undefined);
+    assert.equal(s.landed, 0);
+    assert.deepEqual(r.reports, [], `${why}: nothing reported`);
+  }
+  // Already stopped before the first dial (unsaved while the packet went out).
+  {
+    const r = recorder([{ ok: true }]);
+    const s = session();
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, { keepGoing: () => false }));
+    assert.deepEqual(r.log.map((e) => e[0]), ["wake"]);
+    assert.deepEqual([s.dial, s.pending], [{}, {}]);
   }
 
   // A failed or hung wake never blocks the dial.
@@ -394,12 +450,14 @@ const rowIn = (scope, name) => scope.locator("li", { has: scope.page().getByText
 const foundList = (page) => page.locator("ul.device-list").last();
 const stored = (page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), KEY);
 
-/// Records every wake_device and connect_device call from page load on.
+/// Records every wake_device and connect_device call, and every connect
+/// telemetry report, from page load on.
 function recordWakes(context) {
   return context.addInitScript(() => {
     let wrapped = null;
     window.__wakes = [];
     window.__dials = [];
+    window.__connectReports = [];
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true,
       get: () => wrapped,
@@ -408,6 +466,7 @@ function recordWakes(context) {
         bridge.invoke = (cmd, args = {}) => {
           if (cmd === "wake_device") window.__wakes.push(args);
           if (cmd === "connect_device") window.__dials.push(args.address);
+          if (cmd === "telemetry_action" && args.action === "connect") window.__connectReports.push(args.ok);
           return original(cmd, args);
         };
         wrapped = bridge;
@@ -455,18 +514,29 @@ async function exercise(browser, base) {
   // Connect wakes the box (its record has a MAC), then dials the saved
   // address until the woken box answers; it goes Online by id. The demo box
   // misses the first dial and answers the retry.
+  // By keyboard: focus stays on the button while it's busy, and pressing it
+  // again starts nothing.
   const dialsBefore = (await page.evaluate(() => window.__dials)).filter((a) => a === "192.168.1.64:5555").length;
-  await box.getByRole("button", { name: "Connect to Bedroom Xiaomi Box" }).click();
+  const reportsBefore = (await page.evaluate(() => window.__connectReports)).length;
+  const focusedLabel = () => page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
+  await box.getByRole("button", { name: "Connect to Bedroom Xiaomi Box" }).focus();
+  await page.keyboard.press("Enter");
   await box.getByText("Waking…", { exact: true }).first().waitFor();
-  assert.equal(await box.getByRole("button", { name: "Waking Bedroom Xiaomi Box" }).isDisabled(), true,
-    "no second Connect while waking");
+  const waking = box.getByRole("button", { name: "Waking Bedroom Xiaomi Box" });
+  assert.equal(await waking.getAttribute("aria-disabled"), "true", "Connect is off while waking");
+  assert.equal(await focusedLabel(), "Waking Bedroom Xiaomi Box", "and keeps keyboard focus");
+  await page.keyboard.press("Enter");
   assert.deepEqual(await page.evaluate(() => window.__wakes), [{ mac: "a4:5e:60:1d:42:0a", host: "192.168.1.64" }]);
   await box.getByText("Connecting…", { exact: true }).first().waitFor();
-  assert.equal(await box.getByRole("button", { name: "Connecting to Bedroom Xiaomi Box" }).isDisabled(), true);
+  assert.equal(await box.getByRole("button", { name: "Connecting to Bedroom Xiaomi Box" }).getAttribute("aria-disabled"), "true");
+  assert.equal(await focusedLabel(), "Connecting to Bedroom Xiaomi Box", "focus stays through Connecting…");
+  await page.keyboard.press("Enter");
   await rowIn(savedSection(page), "Bedroom Xiaomi Box").locator("a.device-row").waitFor();
   const boxDials = (await page.evaluate(() => window.__dials)).filter((a) => a === "192.168.1.64:5555").length - dialsBefore;
-  assert.equal(boxDials, 2, "the first dial missed, the retry landed");
+  assert.equal(boxDials, 2, "the first dial missed, the retry landed, and the extra presses started nothing");
   assert.equal((await page.evaluate(() => window.__wakes)).length, 1, "one wake per Connect");
+  assert.deepEqual((await page.evaluate(() => window.__connectReports)).slice(reportsBefore), [true],
+    "one Connect, one telemetry report: the outcome, not each retry");
 
   // Forget a saved device: it disconnects and its row returns to the offline state.
   await rowIn(savedSection(page), "Bedroom Xiaomi Box").getByRole("button", { name: "Forget" }).click();
@@ -618,6 +688,33 @@ async function exerciseRemount(browser, base) {
   await context.close();
 }
 
+// Unsaving the box while Connect is still retrying stops the retries: the
+// unsaved TV is never connected, and nothing is left saying Didn't answer.
+async function exerciseUnsaveDuringWake(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
+  await recordWakes(context);
+  const page = await context.newPage();
+  page.setDefaultTimeout(15000);
+  await page.goto(base, { waitUntil: "domcontentloaded" });
+  const box = rowIn(savedSection(page), "Bedroom Xiaomi Box");
+  await box.getByText("Didn't answer", { exact: true }).waitFor({ timeout: 20000 });
+  const boxDials = async () => (await page.evaluate(() => window.__dials)).filter((a) => a === "192.168.1.64:5555").length;
+  const before = await boxDials();
+  const reportsBefore = (await page.evaluate(() => window.__connectReports)).length;
+  await box.getByRole("button", { name: "Connect to Bedroom Xiaomi Box" }).click();
+  // The demo box misses the first dial; unsave it while the retry waits.
+  await page.waitForFunction((n) => window.__dials.filter((a) => a === "192.168.1.64:5555").length === n + 1, before);
+  await page.waitForTimeout(2000);
+  await box.getByRole("button", { name: "Unsave Bedroom Xiaomi Box" }).click();
+  await savedSection(page).getByText("Bedroom Xiaomi Box", { exact: true }).waitFor({ state: "detached" });
+  await page.waitForTimeout(4500);
+  assert.equal(await boxDials(), before + 1, "no retry after it was unsaved");
+  assert.equal(await page.locator('[data-serial="192.168.1.64:5555"]').count(), 0, "the unsaved TV wasn't connected");
+  assert.equal((await page.evaluate(() => window.__connectReports)).length, reportsBefore,
+    "a stopped Connect reports no failure");
+  await context.close();
+}
+
 process.env.VITE_DEMO = "1";
 const { createServer } = await import("vite");
 const { chromium } = await import("playwright");
@@ -632,6 +729,7 @@ try {
   browser = await chromium.launch();
   await exercise(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
   await exerciseRemount(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
+  await exerciseUnsaveDuringWake(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
   console.log("Saved devices screen passed.");
 } finally {
   await browser?.close();
