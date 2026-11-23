@@ -413,6 +413,7 @@ pub fn run() {
             file_commands::delete_backup,
             file_commands::find_files,
             file_commands::delete_path,
+            file_commands::list_storage_volumes,
             export_commands::export_file,
             import_commands::import_pick,
             import_commands::discard_import,

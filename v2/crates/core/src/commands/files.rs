@@ -10,12 +10,52 @@ use crate::adb::AdbDriver;
 use crate::commands::apps::ActionResult;
 use crate::commands::quote_shell_arg;
 
-/// Validate a device path for file-manager use. Always absolute, no `..`
-/// traversal, no control characters (they'd corrupt the shell line even
-/// quoted). When `allow_system` is false the path must also live under
-/// `/sdcard`; power-user mode lifts only that boundary — the injection guards
-/// stay. Returns the trimmed path.
-pub fn validate_device_path(path: &str, allow_system: bool) -> Result<String, String> {
+/// Where Android mounts removable (public) volumes such as USB drives and SD
+/// cards: `/storage/<fs uuid>`.
+pub const VOLUME_PARENT: &str = "/storage";
+
+/// A removable volume's directory name under `/storage`: the filesystem UUID
+/// Android names it by, in one of the shapes vold produces — `1A2B-3C4D`
+/// (FAT/exFAT), 16 hex digits (NTFS) or a dashed 8-4-4-4-12 UUID (ext4, f2fs).
+/// Nothing else counts: not `emulated` or `self` (internal storage's own
+/// aliases), not `null` (what `sm` prints for a drive with no UUID) and not a
+/// legacy name such as `sdcard0`.
+pub fn is_volume_name(name: &str) -> bool {
+    let groups: Vec<&str> = name.split('-').collect();
+    let lengths: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+    groups
+        .iter()
+        .all(|g| g.chars().all(|c| c.is_ascii_hexdigit()))
+        && matches!(lengths.as_slice(), [4, 4] | [16] | [8, 4, 4, 4, 12])
+}
+
+/// FAT32 stores sizes in 32 bits, so 4 GiB is the first size it can't hold.
+pub const FAT32_MAX_FILE: u64 = 1 << 32;
+
+/// Appended to a failed upload of `size` bytes to `target`: a file of 4 GiB or
+/// more on a USB drive most likely hit FAT32's limit. Empty otherwise.
+pub fn drive_size_hint(target: &str, size: u64) -> &'static str {
+    let on_drive = user_storage_root(target).is_some_and(|root| root != "/sdcard");
+    if on_drive && size >= FAT32_MAX_FILE {
+        " USB drives formatted as FAT32 can't hold files of 4 GB or more; exFAT or NTFS can."
+    } else {
+        ""
+    }
+}
+
+/// The user-storage root a path lives in: `/sdcard` (internal storage) or
+/// `/storage/<uuid>` (a USB drive or SD card), or `None` outside both. Purely
+/// lexical; callers have already refused `..` and control characters.
+pub fn user_storage_root(path: &str) -> Option<String> {
+    if path == "/sdcard" || path.starts_with("/sdcard/") {
+        return Some("/sdcard".to_string());
+    }
+    let rest = path.strip_prefix("/storage/")?;
+    let name = rest.split('/').next().unwrap_or("");
+    is_volume_name(name).then(|| format!("{VOLUME_PARENT}/{name}"))
+}
+
+fn validate_path_syntax(path: &str) -> Result<String, String> {
     let p = path.trim();
     if !p.starts_with('/') {
         return Err(format!("Path must be absolute: {p:?}"));
@@ -26,16 +66,192 @@ pub fn validate_device_path(path: &str, allow_system: bool) -> Result<String, St
     if p.chars().any(|c| c.is_control()) {
         return Err("Path contains control characters.".to_string());
     }
-    if !allow_system && p != "/sdcard" && !p.starts_with("/sdcard/") {
-        return Err(format!("Path must be under /sdcard: {p:?}"));
-    }
     Ok(p.to_string())
 }
 
-/// `/sdcard`-confined validation — for the paths that are user-storage only by
-/// design (the device-to-device copy and the backup finder).
-pub fn validate_sdcard_path(path: &str) -> Result<String, String> {
+/// Validate a device path for file-manager use. Always absolute, no `..`
+/// traversal, no control characters (they'd corrupt the shell line even
+/// quoted). When `allow_system` is false the path must also live in user
+/// storage: `/sdcard` or a removable drive under `/storage/<uuid>`. Power-user
+/// mode lifts only that boundary — the injection guards stay. Returns the
+/// trimmed path.
+pub fn validate_device_path(path: &str, allow_system: bool) -> Result<String, String> {
+    let p = validate_path_syntax(path)?;
+    if !allow_system && user_storage_root(&p).is_none() {
+        return Err(format!(
+            "Path must be under /sdcard or on a USB drive: {p:?}"
+        ));
+    }
+    Ok(p)
+}
+
+/// User-storage validation: `/sdcard` or a removable drive. The bound for
+/// uploads and for deletes outside power-user mode.
+pub fn validate_user_storage_path(path: &str) -> Result<String, String> {
     validate_device_path(path, false)
+}
+
+/// `/sdcard`-confined validation — for the paths that are internal storage
+/// only by design (the device-to-device copy and the backup finder).
+pub fn validate_sdcard_path(path: &str) -> Result<String, String> {
+    let p = validate_path_syntax(path)?;
+    if p != "/sdcard" && !p.starts_with("/sdcard/") {
+        return Err(format!("Path must be under /sdcard: {p:?}"));
+    }
+    Ok(p)
+}
+
+/// A removable volume the TV has mounted: a USB drive or SD card set up as
+/// portable storage. Drives set up as internal storage merge into `/sdcard`
+/// and are not listed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct StorageVolume {
+    /// `/storage/<uuid>`.
+    pub path: String,
+    /// The filesystem UUID Android names the volume by.
+    pub uuid: String,
+    pub read_only: bool,
+    /// The filesystem as `/proc/mounts` names it (`vfat`, `exfat`, `ntfs`, …),
+    /// or `None` when the TV didn't say.
+    pub fs_type: Option<String>,
+}
+
+/// Parse `sm list-volumes public`: one `<id> <state> <fs uuid>` line per
+/// volume, e.g. `public:8,1 mounted 1A2B-3C4D`. Only mounted volumes with a
+/// usable name are kept.
+pub fn parse_sm_volumes(out: &str) -> Vec<StorageVolume> {
+    let mut volumes: Vec<StorageVolume> = Vec::new();
+    for line in out.lines() {
+        let mut fields = line.split_whitespace();
+        let (Some(id), Some(state), Some(uuid)) = (fields.next(), fields.next(), fields.next())
+        else {
+            continue;
+        };
+        if !id.starts_with("public:") || !is_volume_name(uuid) {
+            continue;
+        }
+        let read_only = match state {
+            "mounted" => false,
+            "mounted_ro" => true,
+            _ => continue,
+        };
+        if volumes.iter().any(|v| v.uuid == uuid) {
+            continue;
+        }
+        volumes.push(StorageVolume {
+            path: format!("{VOLUME_PARENT}/{uuid}"),
+            uuid: uuid.to_string(),
+            read_only,
+            fs_type: None,
+        });
+    }
+    volumes
+}
+
+/// Printed when `sm` itself is unavailable, so an empty volume list can be
+/// told apart from a TV without the tool.
+const NO_SM: &str = "__ATVOPT_NO_SM__";
+
+/// The filesystem of the drive named `uuid`, from `/proc/mounts`. vold mounts
+/// the real filesystem at `/mnt/media_rw/<uuid>` and exposes it at
+/// `/storage/<uuid>` through FUSE or sdcardfs, so the former is the one that
+/// says `vfat` or `exfat`; `/storage/<uuid>` is the fallback on TVs that mount
+/// the drive there directly.
+pub fn mount_fs_type(mounts: &str, uuid: &str) -> Option<String> {
+    let media_rw = format!("/mnt/media_rw/{uuid}");
+    let storage = format!("{VOLUME_PARENT}/{uuid}");
+    let fs_at = |point: &str| {
+        mounts.lines().find_map(|line| {
+            let mut fields = line.split_whitespace();
+            let (_, Some(mount), Some(fs)) = (fields.next(), fields.next(), fields.next()) else {
+                return None;
+            };
+            (mount == point).then(|| fs.to_string())
+        })
+    };
+    fs_at(&media_rw).or_else(|| {
+        fs_at(&storage).filter(|fs| !matches!(fs.as_str(), "fuse" | "sdcardfs" | "esdfs"))
+    })
+}
+
+/// FAT32 as Linux names it.
+pub fn is_fat32(fs_type: Option<&str>) -> bool {
+    matches!(fs_type, Some("vfat" | "msdos"))
+}
+
+/// Refuse, before any bytes move, a file FAT32 can't hold on a drive known to
+/// be FAT32. A drive whose filesystem is unknown is left to the transfer
+/// itself, whose failure carries [`drive_size_hint`].
+pub fn fat32_refusal(name: &str, size: u64, fs_type: Option<&str>) -> Result<(), String> {
+    if size >= FAT32_MAX_FILE && is_fat32(fs_type) {
+        return Err(format!(
+            "{name} is 4 GB or larger, and this USB drive is formatted as FAT32, which can't hold files that big. Nothing was copied. Reformat the drive as exFAT or NTFS, or use a smaller file."
+        ));
+    }
+    Ok(())
+}
+
+/// The filesystem of the drive `path` is on, read from the TV's
+/// `/proc/mounts`; `None` for internal storage or when it can't be read.
+pub async fn drive_fs_type_with(adb: &dyn AdbDriver, serial: &str, path: &str) -> Option<String> {
+    let root = user_storage_root(path)?;
+    let uuid = root.strip_prefix(&format!("{VOLUME_PARENT}/"))?;
+    let out = adb.shell(serial, "cat /proc/mounts").await.ok()?;
+    mount_fs_type(&out.stdout, uuid)
+}
+
+/// Fill in each drive's filesystem from `/proc/mounts`. An unreadable file
+/// leaves them unknown rather than failing the list.
+async fn with_fs_types(
+    adb: &dyn AdbDriver,
+    serial: &str,
+    mut volumes: Vec<StorageVolume>,
+) -> Vec<StorageVolume> {
+    if volumes.is_empty() {
+        return volumes;
+    }
+    if let Ok(out) = adb.shell(serial, "cat /proc/mounts").await {
+        for v in &mut volumes {
+            v.fs_type = mount_fs_type(&out.stdout, &v.uuid);
+        }
+    }
+    volumes
+}
+
+/// The removable drives mounted on the TV, with their filesystems. Reads
+/// `sm list-volumes public`; where `sm` is missing, falls back to the volume
+/// directories under `/storage` (read/write state then unknown, so reported
+/// writable and left to the upload itself to fail).
+pub async fn list_storage_volumes_with(
+    adb: &dyn AdbDriver,
+    serial: &str,
+) -> Result<Vec<StorageVolume>, String> {
+    let out = adb
+        .shell(
+            serial,
+            &format!("sm list-volumes public 2>/dev/null || echo {NO_SM}"),
+        )
+        .await
+        .map_err(|e| format!("list volumes: {e}"))?;
+    if !out.stdout.contains(NO_SM) {
+        return Ok(with_fs_types(adb, serial, parse_sm_volumes(&out.stdout)).await);
+    }
+    let out = adb
+        .shell(serial, "ls -1 /storage 2>/dev/null; true")
+        .await
+        .map_err(|e| format!("list volumes: {e}"))?;
+    let mut volumes: Vec<StorageVolume> = Vec::new();
+    for name in out.stdout.lines().map(str::trim) {
+        if is_volume_name(name) && !volumes.iter().any(|v| v.uuid == name) {
+            volumes.push(StorageVolume {
+                path: format!("{VOLUME_PARENT}/{name}"),
+                uuid: name.to_string(),
+                read_only: false,
+                fs_type: None,
+            });
+        }
+    }
+    Ok(with_fs_types(adb, serial, volumes).await)
 }
 
 /// Normalise a device path for deleting: collapse repeated slashes and `.`
@@ -89,6 +305,11 @@ pub fn protected_delete_reason(path: &str) -> Option<String> {
             "Refusing to delete {trimmed} itself: it is the TV's shared storage."
         ));
     }
+    if user_storage_root(trimmed).as_deref() == Some(trimmed) {
+        return Some(format!(
+            "Refusing to delete {trimmed} itself: it is a whole drive. Delete the files on it instead."
+        ));
+    }
     const PROTECTED: &[&str] = &[
         "/", "/system", "/data", "/vendor", "/proc", "/sys", "/dev", "/boot", "/init", "/sbin",
         "/bin", "/etc",
@@ -101,10 +322,10 @@ pub fn protected_delete_reason(path: &str) -> Option<String> {
     None
 }
 
-/// Remove a file or directory (recursively). Confined to `/sdcard` unless
-/// `allow_system` (desktop power-user mode) is set; callers confirm with the
-/// user first, and `protected_delete_reason` still blocks catastrophic
-/// targets.
+/// Remove a file or directory (recursively). Confined to user storage
+/// (`/sdcard` and removable drives) unless `allow_system` (desktop power-user
+/// mode) is set; callers confirm with the user first, and
+/// `protected_delete_reason` still blocks catastrophic targets.
 pub async fn delete_path_with(
     adb: &dyn AdbDriver,
     serial: &str,
@@ -310,6 +531,177 @@ mod tests {
         assert!(protected_delete_reason("/sdcard/.hidden").is_none());
         assert!(protected_delete_reason("/sdcard//Download").is_none());
         assert!(protected_delete_reason("//data/local/tmp/x").is_none());
+    }
+
+    #[test]
+    fn removable_drives_are_user_storage() {
+        for (path, root) in [
+            ("/sdcard", "/sdcard"),
+            ("/sdcard/Movies/a.mp4", "/sdcard"),
+            ("/storage/1A2B-3C4D", "/storage/1A2B-3C4D"),
+            ("/storage/1A2B-3C4D/Movies/a b.mkv", "/storage/1A2B-3C4D"),
+            ("/storage/0123456789ABCDEF/x", "/storage/0123456789ABCDEF"),
+            (
+                "/storage/0a1b2c3d-4e5f-6789-abcd-ef0123456789/x",
+                "/storage/0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+            ),
+        ] {
+            assert_eq!(user_storage_root(path).as_deref(), Some(root), "{path}");
+            assert_eq!(validate_user_storage_path(path).unwrap(), path);
+        }
+        for path in [
+            "/storage",
+            "/storage/",
+            "/storage/emulated/0/x",
+            "/storage/self/primary",
+            "/storage/-ABCD",
+            "/storage/AB_CD",
+            "/storage/AB CD",
+            "/storage/null",
+            "/storage/sdcard0/x",
+            "/storage/usbdisk",
+            "/storage/1A2B-3C4G",
+            "/storage/1A2B3C4D",
+            "/storage/1A2B-3C4D/../../data",
+            "/data/local/tmp",
+            "/sdcardX",
+        ] {
+            assert!(validate_user_storage_path(path).is_err(), "{path}");
+        }
+        // The backup finder and device-to-device copy stay on internal storage.
+        assert!(validate_sdcard_path("/storage/1A2B-3C4D/x").is_err());
+    }
+
+    #[test]
+    fn the_fat32_hint_is_for_big_files_on_drives() {
+        let big = FAT32_MAX_FILE;
+        assert!(drive_size_hint("/storage/1A2B-3C4D/m.mkv", big).contains("FAT32"));
+        assert!(drive_size_hint("/storage/1A2B-3C4D/m.mkv", big - 1).is_empty());
+        assert!(drive_size_hint("/sdcard/m.mkv", big).is_empty());
+    }
+
+    #[test]
+    fn a_whole_drive_is_never_deletable() {
+        for p in [
+            "/storage/1A2B-3C4D",
+            "/storage/1A2B-3C4D/",
+            "/storage//1A2B-3C4D/.",
+        ] {
+            assert!(protected_delete_reason(p).is_some(), "{p} must be refused");
+        }
+        assert!(protected_delete_reason("/storage/1A2B-3C4D/Movies").is_none());
+    }
+
+    #[test]
+    fn sm_volume_lines_are_parsed() {
+        let out = "public:8,1 mounted 1A2B-3C4D\n\
+                   public:8,17 mounted_ro 0123456789ABCDEF\n\
+                   public:8,33 unmounted null\n\
+                   public:8,49 checking 5555-6666\n\
+                   public:8,1 mounted 1A2B-3C4D\n\
+                   private mounted null\n\
+                   public:8,65 mounted ../x\n\
+                   public:8,81 mounted null\n";
+        assert_eq!(
+            parse_sm_volumes(out),
+            vec![
+                StorageVolume {
+                    path: "/storage/1A2B-3C4D".into(),
+                    uuid: "1A2B-3C4D".into(),
+                    read_only: false,
+                    fs_type: None,
+                },
+                StorageVolume {
+                    path: "/storage/0123456789ABCDEF".into(),
+                    uuid: "0123456789ABCDEF".into(),
+                    read_only: true,
+                    fs_type: None,
+                },
+            ]
+        );
+        assert!(parse_sm_volumes("").is_empty());
+    }
+
+    const MOUNTS: &str = "/dev/block/vold/public:8,1 /mnt/media_rw/1A2B-3C4D vfat rw,dirsync 0 0\n\
+        /dev/fuse /storage/1A2B-3C4D fuse rw,nosuid 0 0\n\
+        /dev/block/vold/public:8,17 /mnt/media_rw/0123456789ABCDEF ntfs rw 0 0\n\
+        /dev/block/sda1 /storage/5555-6666 exfat rw 0 0\n\
+        /dev/fuse /storage/7777-8888 fuse rw 0 0\n";
+
+    #[test]
+    fn drive_filesystems_come_from_proc_mounts() {
+        assert_eq!(mount_fs_type(MOUNTS, "1A2B-3C4D").as_deref(), Some("vfat"));
+        assert_eq!(
+            mount_fs_type(MOUNTS, "0123456789ABCDEF").as_deref(),
+            Some("ntfs")
+        );
+        assert_eq!(mount_fs_type(MOUNTS, "5555-6666").as_deref(), Some("exfat"));
+        // Only the FUSE view is known: the real filesystem is unknown, not "fuse".
+        assert_eq!(mount_fs_type(MOUNTS, "7777-8888"), None);
+        assert_eq!(mount_fs_type(MOUNTS, "9999-AAAA"), None);
+    }
+
+    #[test]
+    fn fat32_refuses_only_what_it_cannot_hold() {
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, Some("vfat")).is_err());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE - 1, Some("vfat")).is_ok());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, Some("exfat")).is_ok());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_drive_filesystem_is_read_for_its_path() {
+        let mock = MockAdb::default().on_shell("cat /proc/mounts", MOUNTS);
+        assert_eq!(
+            drive_fs_type_with(&mock, "tv", "/storage/1A2B-3C4D/Movies")
+                .await
+                .as_deref(),
+            Some("vfat")
+        );
+        assert_eq!(
+            drive_fs_type_with(&mock, "tv", "/sdcard/Movies").await,
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn volumes_fall_back_to_the_storage_folder_without_sm() {
+        let mock = MockAdb::default()
+            .on_shell("sm list-volumes", &format!("{NO_SM}\n"))
+            .on_shell("ls -1 /storage", "emulated\nself\nsdcard0\n1A2B-3C4D\n")
+            .on_shell("cat /proc/mounts", MOUNTS);
+        let volumes = list_storage_volumes_with(&mock, "tv").await.unwrap();
+        assert_eq!(
+            volumes,
+            vec![StorageVolume {
+                path: "/storage/1A2B-3C4D".into(),
+                uuid: "1A2B-3C4D".into(),
+                read_only: false,
+                fs_type: Some("vfat".into()),
+            }]
+        );
+        let none = MockAdb::default().on_shell("sm list-volumes", "");
+        assert!(list_storage_volumes_with(&none, "tv")
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_on_a_drive_needs_no_power_user_mode() {
+        let mock = MockAdb::default();
+        let log = mock.shell_log();
+        let r = delete_path_with(&mock, "tv", "/storage/1A2B-3C4D/old.mkv", false)
+            .await
+            .unwrap();
+        assert!(r.ok, "{}", r.message);
+        assert!(delete_path_with(&mock, "tv", "/storage/1A2B-3C4D", false)
+            .await
+            .is_err());
+        assert_eq!(
+            log.lock().unwrap().as_slice(),
+            ["rm -rf '/storage/1A2B-3C4D/old.mkv'".to_string()]
+        );
     }
 
     #[tokio::test]

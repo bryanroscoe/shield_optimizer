@@ -136,7 +136,7 @@ See [`RELEASE.md`](RELEASE.md) for the full checklist. Open items:
   existing one-time $4.99 US Pro product. Finish Console setup and real Play purchase tests.
 - Privacy-policy serving and the in-app link/Support ID are implemented; verify the deployed
   policy and complete Data safety from the final artifact. Listing copy, feature graphic and
-  six Play-sized screenshots are reproducible with `npm run store-assets` (`store-listing/`).
+  eight captioned Play screenshots are reproducible with `npm run store-assets` (`store-listing/`).
 - Complete the accessibility and navigation review.
 - Many installed apps are uncatalogued. Classify existing review coverage per package, model and
   version from the shared `crates/core/data/app-lists/` before asking for new device reads; unknown

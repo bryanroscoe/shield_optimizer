@@ -4,7 +4,7 @@
   import { normalizeHardwareId } from "../lib/identity";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
-  import type { FileEntry, FindResult, ImportedFile, PulledFile, UploadConflict } from "../lib/types";
+  import type { FileEntry, FindResult, ImportedFile, PulledFile, StorageVolume, UploadConflict } from "../lib/types";
   import {
     NO_MATCHES_MESSAGE,
     appFilesCatalog,
@@ -13,6 +13,7 @@
     canUploadToTv,
     fileConnectionMatches,
     parentDir,
+    storageRootOf,
     summarizeFind,
     unsearchedMessage,
     type AppFilesEntry,
@@ -37,6 +38,11 @@
   let loading = $state(true);
   let error = $state("");
   let entries = $state<FileEntry[]>([]);
+  // USB drives and SD cards the TV has mounted as portable storage.
+  let volumes = $state<StorageVolume[]>([]);
+  let volumeGeneration = 0;
+  const currentRoot = $derived(storageRootOf(path));
+  const loadedVolume = $derived(volumes.find((v) => v.path === storageRootOf(loadedPath)));
   let loadGeneration = 0;
   let watchedSerial = session.serial;
   let watchedGeneration = session.generation;
@@ -127,7 +133,33 @@
     }
   }
 
-  onMount(() => load(ROOT));
+  async function loadVolumes() {
+    const serial = session.serial;
+    const connection = { serial, generation: session.generation };
+    const generation = ++volumeGeneration;
+    if (!serial || !session.isConnected) {
+      volumes = [];
+      return;
+    }
+    try {
+      const rows = await api.listStorageVolumes(serial);
+      if (generation !== volumeGeneration || !current(connection)) return;
+      volumes = Array.isArray(rows) ? rows : [];
+    } catch {
+      // No drive list just means no drive picker; /sdcard still works.
+      if (generation === volumeGeneration && current(connection)) volumes = [];
+    }
+  }
+
+  function volumeLabel(v: StorageVolume): string {
+    const name = volumes.length > 1 ? `USB drive ${v.uuid}` : "USB drive";
+    return v.read_only ? `${name} (read-only)` : name;
+  }
+
+  onMount(() => {
+    void load(ROOT);
+    void loadVolumes();
+  });
 
   // A TV switch invalidates everything on this screen: the listing, the
   // breadcrumb and the pulled-this-session markers all belonged to the old TV.
@@ -156,7 +188,9 @@
     uploadStatus = "";
     uploaded = [];
     uploadProblems = [];
+    volumes = [];
     void load(ROOT);
+    void loadVolumes();
   });
 
   function releaseImport(batch: string | null) {
@@ -531,6 +565,31 @@
     {/if}
   </div>
 
+  {#if volumes.length > 0}
+    <div class="storage-picker" role="group" aria-label="Storage">
+      <button
+        class="storage-chip"
+        class:active={currentRoot === ROOT}
+        aria-pressed={currentRoot === ROOT}
+        disabled={uploading}
+        onclick={() => goTo(ROOT)}
+      >
+        <span class="msr" aria-hidden="true">tv</span>TV storage
+      </button>
+      {#each volumes as v (v.path)}
+        <button
+          class="storage-chip"
+          class:active={currentRoot === v.path}
+          aria-pressed={currentRoot === v.path}
+          disabled={uploading}
+          onclick={() => goTo(v.path)}
+        >
+          <span class="msr" aria-hidden="true">usb</span>{volumeLabel(v)}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <!-- Breadcrumb -->
   <div class="crumbs mono">
     <button class="crumb" class:active={segments.length === 0} onclick={() => goTo("/")}>
@@ -544,7 +603,7 @@
     {/each}
   </div>
 
-  {#if canUploadToTv(loadedPath) && !error}
+  {#if canUploadToTv(loadedPath) && !loadedVolume?.read_only && !error}
     <div class="upload-bar">
       <button
         class="ghost small"
@@ -563,7 +622,12 @@
     </div>
   {:else if error}
     <p class="error">{error}</p>
-    <button class="primary" onclick={() => load(path)}>Retry</button>
+    <button
+      class="primary"
+      onclick={() => {
+        void load(path);
+        void loadVolumes();
+      }}>Retry</button>
     <div class="spacer"></div>
   {:else}
     {#if entries.length === 0}
@@ -636,8 +700,8 @@
     <HelpSheet title="About file transfers">
       <p>
         Tap a file to copy it. Files move over your local network and never go through the cloud.
-        Copied this session lists the copies made since you opened Files. Items under /sdcard can
-        be deleted from the TV with the trash icon.
+        Copied this session lists the copies made since you opened Files. Items on the TV's storage
+        or a USB drive can be deleted with the trash icon.
       </p>
       <p>
         To get a copy out of the app, use Save a copy or Share on its row in Copied this session.
@@ -646,8 +710,8 @@
         finished. Nothing leaves the phone unless you choose one of them.
       </p>
       <p>
-        Upload to this folder sends up to 32 files (2 GiB) at a time to the /sdcard folder you're
-        in. Picked files are copied into this app, sent to the TV, then deleted from the app, and
+        Upload to this folder sends up to 32 files (2 GiB) at a time to the folder you're in, on
+        the TV's storage or a USB drive plugged into it. Picked files are copied into this app, sent to the TV, then deleted from the app, and
         ATV Optimizer doesn't keep access to them. If a file with the same name is already there,
         you're asked before it's replaced; a folder is never replaced.
       </p>
@@ -821,6 +885,38 @@
     flex: none;
   }
 
+  .storage-picker {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .storage-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 0 14px;
+    border-radius: 999px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    color: var(--muted);
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    overflow-wrap: anywhere;
+    text-align: left;
+  }
+  .storage-chip .msr {
+    font-size: 18px;
+  }
+  .storage-chip.active {
+    background: var(--accent);
+    color: var(--accent-ink);
+    border-color: transparent;
+    font-weight: 600;
+  }
   .crumbs {
     display: flex;
     align-items: center;

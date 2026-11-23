@@ -676,3 +676,13 @@ export interface FindResult {
   hits: string[];
   unsearched: string[];
 }
+
+/// A USB drive or SD card mounted as portable storage (crates/core commands::files::StorageVolume).
+export interface StorageVolume {
+  /// `/storage/<uuid>`.
+  path: string;
+  uuid: string;
+  read_only: boolean;
+  /// The filesystem from the TV's /proc/mounts (`vfat` is FAT32), or null when unknown.
+  fs_type: string | null;
+}
