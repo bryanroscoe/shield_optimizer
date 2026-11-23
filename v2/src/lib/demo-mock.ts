@@ -323,7 +323,7 @@ let savedBoxConnected = false;
 
 /// The saved-devices list the demo starts with: the Shield (online), the
 /// sleeping Xiaomi box (didn't answer) and the Living Room Box, which was
-/// unsaved and so stays in "Found on this network". `noSavedDevices` starts
+/// unsaved and so stays under "Other devices". `noSavedDevices` starts
 /// empty, as does `noDevices`; an existing list (a test's own) is left alone.
 function seedSavedDevices() {
   try {
