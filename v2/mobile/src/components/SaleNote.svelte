@@ -5,9 +5,16 @@
   // come from Play. Nothing shows once the sale has ended or for no sale.
   let { offer, centered = false }: { offer: PlayOffer | null | undefined; centered?: boolean } = $props();
 
+  // Re-checked each minute so a sale that ends while the screen is open goes.
+  let now = $state(Date.now());
+  $effect(() => {
+    const timer = setInterval(() => (now = Date.now()), 60_000);
+    return () => clearInterval(timer);
+  });
+
   const sale = $derived.by(() => {
     const s = offer?.sale;
-    if (!s || (s.ends_at_ms != null && s.ends_at_ms <= Date.now())) return null;
+    if (!s || (s.ends_at_ms != null && s.ends_at_ms <= now)) return null;
     if (!s.full_formatted_price && s.percent_off == null) return null;
     return s;
   });
@@ -22,7 +29,7 @@
   <p class="sale-note" class:centered>
     <span class="sale-badge">Sale</span>
     {#if sale.full_formatted_price}
-      <s aria-label="Regular price {sale.full_formatted_price}">{sale.full_formatted_price}</s>
+      <s><span class="hidden-label">Regular price&nbsp;</span>{sale.full_formatted_price}</s>
     {/if}
     {#if sale.percent_off != null}<strong>{sale.percent_off}% off</strong>{/if}
     {#if ends}<span class="sale-ends">· ends {ends}</span>{/if}
@@ -47,6 +54,14 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, transparent);
     font-weight: 600;
+  }
+  .hidden-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
   .sale-note s {
     color: var(--muted);

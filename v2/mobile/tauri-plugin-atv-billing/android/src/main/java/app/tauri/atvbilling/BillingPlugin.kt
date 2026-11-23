@@ -166,7 +166,8 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
           return@launch
         }
         // Ask again so a sale that started or ended since the price was shown
-        // is the one charged; fall back to the last details if Play is slow.
+        // is the one charged; fall back to the last details only if Play
+        // returns none (an expired offer's token is then refused by Play).
         val details = queryDetails(args.productId).second ?: products[args.productId]
         if (details == null) {
           invoke.resolve(
@@ -179,6 +180,20 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
           )
           return@launch
         }
+        val offer = purchaseOffer(details)
+        val token = offer?.offerToken?.takeIf { it.isNotBlank() }
+        if (token == null && (details.oneTimePurchaseOfferDetailsList?.size ?: 0) > 1) {
+          // Without a token Play would charge its default offer, not the one shown.
+          invoke.resolve(
+            resultJson(
+              BillingResult.newBuilder()
+                .setResponseCode(BillingResponseCode.ITEM_UNAVAILABLE)
+                .setDebugMessage("Play returned no offer token for ${args.productId}")
+                .build()
+            )
+          )
+          return@launch
+        }
         // Rust serializes purchases, so a waiter still parked here belongs to a
         // flow whose caller already gave up (an activity recreated mid-sheet,
         // for instance). Release it rather than refusing every later purchase.
@@ -186,7 +201,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         pendingPurchase = invoke
         pendingProductId = args.productId
         val productParams = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details)
-        purchaseOffer(details)?.offerToken?.takeIf { it.isNotBlank() }?.let { productParams.setOfferToken(it) }
+        token?.let { productParams.setOfferToken(it) }
         val flow = BillingFlowParams.newBuilder()
           .setProductDetailsParamsList(listOf(productParams.build()))
           .build()
@@ -338,10 +353,15 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   // oneTimePurchaseOfferDetailsList, and the purchase must name one by token.
   // Play lists only offers this buyer can use right now, in no documented
   // order, so a running discount sits beside the full price: take the
-  // cheapest. The price shown is always the offer the purchase sheet charges.
-  private fun purchaseOffer(details: ProductDetails): ProductDetails.OneTimePurchaseOfferDetails? =
-    details.oneTimePurchaseOfferDetailsList?.takeIf { it.isNotEmpty() }?.minByOrNull { it.priceAmountMicros }
-      ?: details.oneTimePurchaseOfferDetails
+  // cheapest outright purchase. Rentals and pre-orders never unlock Pro for
+  // good, so they are never chosen. The price shown is always the offer the
+  // purchase sheet charges.
+  private fun purchaseOffer(details: ProductDetails): ProductDetails.OneTimePurchaseOfferDetails? {
+    val list = details.oneTimePurchaseOfferDetailsList
+    if (list.isNullOrEmpty()) return details.oneTimePurchaseOfferDetails
+    return list.filter { it.rentalDetails == null && it.preorderDetails == null }
+      .minByOrNull { it.priceAmountMicros }
+  }
 
   // Play's own discount display for a sale, or null when the offer isn't one.
   private fun saleJson(offer: ProductDetails.OneTimePurchaseOfferDetails): JSObject? {

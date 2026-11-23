@@ -87,7 +87,8 @@ pub struct Offer {
 }
 
 /// How Play describes a running discount: the full price it replaces, the
-/// percentage off and when it ends. Never computed or hard-coded here.
+/// percentage off and when it ends. Never computed or hard-coded here; only
+/// the full price's formatting is the phone's, as Play gives just its amount.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Sale {
     pub full_formatted_price: Option<String>,
