@@ -1,3 +1,5 @@
+import { inflateSync } from "node:zlib";
+
 // Google Play listing rules checked by scripts/store-assets.mjs before it
 // renders and by tests/store-listing.test.mjs against the committed assets.
 
@@ -5,6 +7,8 @@ export const SCREENSHOT_SIZE = { width: 1242, height: 2208 };
 export const FEATURE_GRAPHIC_SIZE = { width: 1024, height: 500 };
 export const ICON_SIZE = { width: 512, height: 512 };
 export const CAPTION_MAX_SHARE = 0.2;
+// The store icon's square background: Play masks the corners itself.
+export const ICON_BACKGROUND = [0xc9, 0xf2, 0x4e, 255];
 export const ICON_MAX_BYTES = 1024 * 1024;
 export const SCREENSHOT_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -104,6 +108,40 @@ export function pngInfo(buffer) {
   };
 }
 
+// Decodes an 8-bit, non-interlaced RGB or RGBA PNG into raw pixels.
+export function decodePng(buffer) {
+  const info = pngInfo(buffer);
+  const channels = { 2: 3, 6: 4 }[info.colorType];
+  if (!channels || info.bitDepth !== 8 || buffer[28] !== 0) throw new Error("only 8-bit non-interlaced RGB/RGBA PNGs are supported");
+  const chunks = [];
+  for (let at = 8; at < buffer.length;) {
+    const size = buffer.readUInt32BE(at);
+    if (buffer.toString("latin1", at + 4, at + 8) === "IDAT") chunks.push(buffer.subarray(at + 8, at + 8 + size));
+    at += 12 + size;
+  }
+  const raw = inflateSync(Buffer.concat(chunks));
+  const stride = info.width * channels;
+  const pixels = Buffer.alloc(stride * info.height);
+  for (let y = 0; y < info.height; y++) {
+    const filter = raw[y * (stride + 1)];
+    for (let x = 0; x < stride; x++) {
+      const value = raw[y * (stride + 1) + 1 + x];
+      const a = x >= channels ? pixels[y * stride + x - channels] : 0;
+      const b = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const c = x >= channels && y > 0 ? pixels[(y - 1) * stride + x - channels] : 0;
+      const p = a + b - c;
+      const pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c);
+      const predictor = [0, a, b, (a + b) >> 1, pa <= pb && pa <= pc ? a : pb <= pc ? b : c][filter];
+      pixels[y * stride + x] = (value + predictor) & 0xff;
+    }
+  }
+  const pixel = (x, y) => {
+    const at = (y * info.width + x) * channels;
+    return [pixels[at], pixels[at + 1], pixels[at + 2], channels === 4 ? pixels[at + 3] : 255];
+  };
+  return { ...info, channels, pixel };
+}
+
 // `kind` is "screenshot", "featureGraphic" or "icon".
 export function validateImage(name, buffer, kind) {
   const errors = [];
@@ -114,6 +152,17 @@ export function validateImage(name, buffer, kind) {
   }
   if (kind === "icon") {
     if (info.bytes > ICON_MAX_BYTES) errors.push(`${name} is ${info.bytes} bytes, over 1024 KB`);
+    if (info.colorType !== 6 || info.bitDepth !== 8) errors.push(`${name} must be a 32-bit RGBA PNG`);
+    else {
+      const png = decodePng(buffer);
+      const corners = [[0, 0], [png.width - 1, 0], [0, png.height - 1], [png.width - 1, png.height - 1]];
+      for (const [x, y] of corners) {
+        const px = png.pixel(x, y);
+        if (px.join() !== ICON_BACKGROUND.join()) {
+          errors.push(`${name} corner (${x},${y}) is rgba(${px.join(",")}), expected the opaque full-bleed background`);
+        }
+      }
+    }
     return errors;
   }
   if (info.hasAlpha || info.colorType !== 2 || info.bitDepth !== 8) {

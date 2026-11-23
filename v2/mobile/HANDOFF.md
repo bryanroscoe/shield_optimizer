@@ -52,6 +52,8 @@ Play listing's eight captioned portrait screenshots, icon, feature graphic and a
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
 
+2026-11-22: Bryan reports the app is in Play beta testing and has been exercised on a real phone and TV. Older 'not yet verified on hardware' notes in this file predate that.
+
 The [`mobile-v0.1.4` run](https://github.com/bryanroscoe/shield_optimizer/actions/runs/44964485346)
 verified and submitted versionCode `1004` from `e94ecc0` to Internal and Closed testing. The fixes
 listed above are later source changes and need their own candidate. Play `0.1.1` / `1001`

@@ -1,14 +1,15 @@
 # Google Play listing assets
 
 Run `npm run store-assets` from `v2/mobile/` (offline, about a minute). `listing.json` drives
-everything: the listing text, the screenshot order, each screenshot's caption and alt text, and the
-feature graphic's tagline. The command writes:
+everything and is the single source for the listing text: title, short and full description,
+screenshot order, each screenshot's caption and alt text, and the feature graphic's tagline. The
+command writes:
 
 | File | Size | What it is |
 | --- | --- | --- |
 | `screenshots/01-….png` … `08-….png` | 1242×2208 (9:16), 24-bit PNG, no alpha | A caption over the real app screen, shown as a rounded card that runs off the bottom edge |
-| `feature-graphic.png` | 1024×500, 24-bit PNG, no alpha | App name, small icon mark and tagline beside two real app screens |
-| `icon.png` | 512×512 RGBA, at most 1024 KB | Copied from `src-tauri/icons/icon.png` |
+| `feature-graphic.png` | 1024×500, 24-bit PNG, no alpha | App name, small icon mark and `featureGraphic.tagline` on brand green beside two real app screens (Dashboard and Optimize) |
+| `icon.png` | 512×512 32-bit RGBA, at most 1024 KB | The app icon's glyph from `src-tauri/icons/icon.svg` on a full-bleed square: every pixel opaque, no rounded corners. Play applies its own mask, so baked-in rounding shows as a white rim. The app's own icon files are not changed |
 | `preview.png` | review sheet | Feature graphic, title, short description, the eight screenshots and the first paragraphs of the full description, laid out roughly like the Play page. For review only; don't upload it |
 
 Each screenshot entry in `listing.json` is
@@ -20,9 +21,8 @@ optional.
 
 Screens are **simulated data rendered by the app's actual UI in Chromium**, not photographs or
 evidence from a phone or TV. The fixture is gated behind `VITE_DEMO=1`; never set that flag for a
-shipping build. These assets do not establish hardware compatibility or billing acceptance. The
-captured UI has no Android status bar, and none is faked. No image model, device frames or
-third-party logos are used; type is the bundled Geist font.
+shipping build. The captured UI has no Android status bar, and none is faked. No image model,
+device frames or third-party logos are used; type is the bundled Geist font.
 
 The command fails before writing if a rule breaks:
 
@@ -35,7 +35,8 @@ The command fails before writing if a rule breaks:
 - Limits: title ≤ 30 characters, short description ≤ 80 (letters, digits, spaces and `, . ' & -`
   only), full description ≤ 4000, alt text ≤ 140, 2-8 screenshots.
 - Images: exact pixel sizes, no alpha in screenshots or the feature graphic, screenshots ≤ 8 MB
-  with the long side at most 2.3× the short side, icon ≤ 1024 KB.
+  with the long side at most 2.3× the short side, icon ≤ 1024 KB with all four corners opaque and
+  equal to its background color.
 
 `tests/store-listing.test.mjs` (part of `npm test`) runs the same checks on the committed files.
 
@@ -44,8 +45,6 @@ Before uploading:
 - Confirm the final signed artifact matches these screens and the feature claims in `listing.json`.
 - Set the support email and check the publicly served privacy-policy URL. The Worker returns 503
   until its `PRIVACY_CONTACT_EMAIL` is configured; do not submit an unavailable policy.
-- Confirm actual listing behavior against the release's ABI and device evidence. Do not advertise
-  Google TV code pairing as verified until the physical pairing matrix has passed.
 - Keep the Console's $4.99 US one-time Pro product price separate from listing metadata; localized
   prices come from Play. No purchase or product activation is performed by the asset command.
 

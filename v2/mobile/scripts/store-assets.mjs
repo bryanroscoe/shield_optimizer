@@ -3,18 +3,19 @@
 // store-listing/listing.json drives everything. For each of its screenshots
 // this captures the real app screen (VITE_DEMO=1 fixtures, see
 // screenshots/screens.mjs) and composes it under its caption on a
-// 1242x2208 canvas. It also renders the 1024x500 feature graphic, copies the
-// 512x512 icon, and writes store-listing/preview.png, a review sheet laid out
+// 1242x2208 canvas. It also renders the 1024x500 feature graphic, the
+// full-bleed 512x512 store icon, and writes store-listing/preview.png, a review sheet laid out
 // roughly like the Play listing. Raw captures go to a temp dir and are removed.
 
-import { copyFile, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { crc32, deflateSync } from "node:zlib";
 import { chromium } from "playwright";
 import { SCREENS, captureScreen, screenByName, startDemoServer } from "../screenshots/screens.mjs";
 import {
-  CAPTION_MAX_SHARE, FEATURE_GRAPHIC_SIZE, SCREENSHOT_SIZE, validateImage, validateListing,
+  CAPTION_MAX_SHARE, FEATURE_GRAPHIC_SIZE, ICON_SIZE, SCREENSHOT_SIZE, decodePng, validateImage, validateListing,
 } from "./store-listing-checks.mjs";
 
 const ROOT = fileURLToPath(new URL("../", import.meta.url));
@@ -37,7 +38,18 @@ const CAPTURE_H = Math.ceil(((H - CARD_TOP + 16) * CAPTURE_W) / CARD_W);
 
 // Per-screen tweaks so the card shows the part of the screen that tells the
 // story rather than an empty lower half.
-const PREPARE = {};
+const PREPARE = {
+  // The caption names CEC, frame rate, animations and DNS; they start at
+  // Picture & sound, below the remote-button settings that open the screen.
+  tweaks: (page) => scrollToTop(page.locator(".section-label", { hasText: "Picture & sound" })),
+};
+
+async function scrollToTop(locator) {
+  await locator.evaluate((el) => {
+    el.style.scrollMarginTop = "6px";
+    el.scrollIntoView({ block: "start" });
+  });
+}
 
 const TOKENS = {
   brand: "#244b43",
@@ -54,6 +66,32 @@ function headlineHtml(headline, accent) {
   if (!accent) return esc(headline);
   const at = headline.indexOf(accent);
   return esc(headline.slice(0, at)) + `<span class="accent">${esc(accent)}</span>` + esc(headline.slice(at + accent.length));
+}
+
+// Chromium writes an opaque page as 24-bit RGB; Play asks for a 32-bit icon.
+function toRgbaPng(buffer) {
+  const png = decodePng(buffer);
+  const rows = [];
+  for (let y = 0; y < png.height; y++) {
+    const row = Buffer.alloc(1 + png.width * 4);
+    for (let x = 0; x < png.width; x++) Buffer.from(png.pixel(x, y)).copy(row, 1 + x * 4);
+    rows.push(row);
+  }
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8);
+    head.writeUInt32BE(data.length);
+    head.write(type, 4, "latin1");
+    const crc = Buffer.alloc(4);
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])));
+    return Buffer.concat([head, data, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(png.width, 0);
+  ihdr.writeUInt32BE(png.height, 4);
+  ihdr.set([8, 6, 0, 0, 0], 8);
+  return Buffer.concat([
+    buffer.subarray(0, 8), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(Buffer.concat(rows), { level: 9 })), chunk("IEND", Buffer.alloc(0)),
+  ]);
 }
 
 function fail(errors) {
@@ -85,13 +123,13 @@ function screenshotHtml(shot, frame, font) {
       from: TOKENS.brand, to: TOKENS.deep, angle: "180deg",
       gridFade: "linear-gradient(180deg,rgba(0,0,0,1) 0%,rgba(0,0,0,.35) 30%,rgba(0,0,0,0) 55%)",
     })}
-    .caption{position:absolute;left:0;top:0;width:${W}px;height:${CAPTION_H}px;padding:28px 96px 0;
+    .caption{position:absolute;left:0;top:0;width:${W}px;height:${CAPTION_H}px;padding:20px 40px 0;
       display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
     h1{margin:0;font-size:96px;line-height:1.04;font-weight:650;letter-spacing:-0.03em;color:${TOKENS.ink};
       text-wrap:balance;max-width:1010px}
     h1 .accent{color:${TOKENS.accent}}
-    p{margin:26px 0 0;font-size:40px;line-height:1.25;font-weight:450;letter-spacing:-0.01em;color:${TOKENS.soft};opacity:.8;
-      text-wrap:balance;max-width:960px}
+    p{margin:24px 0 0;font-size:48px;line-height:1.2;font-weight:500;letter-spacing:-0.015em;color:${TOKENS.soft};
+      text-wrap:balance;max-width:1162px}
     .card{position:absolute;left:${CARD_X}px;top:${CARD_TOP}px;width:${CARD_W}px;border-radius:56px 56px 0 0;overflow:hidden;
       background:#0b0d10;box-shadow:0 -2px 0 rgba(224,237,219,.02),0 30px 80px rgba(0,0,0,.45),0 60px 160px rgba(0,0,0,.55)}
     .card img{display:block;width:100%}
@@ -157,9 +195,6 @@ fail(validateListing(listing, { knownScreens: SCREENS.map((s) => s.name) }));
 
 const font = await readFile(join(ROOT, "src/fonts/Geist-Variable.woff2"));
 const iconSvg = await readFile(join(ROOT, "src-tauri/icons/icon.svg"), "utf8");
-await copyFile(join(ROOT, "src-tauri/icons/icon.png"), join(OUT, "icon.png"));
-const iconPng = await readFile(join(OUT, "icon.png"));
-fail(validateImage("icon.png", iconPng, "icon"));
 
 const keep = new Set(listing.screenshots.map((s) => s.file.replace(/^screenshots\//, "")));
 for (const f of await readdir(SHOTS).catch(() => [])) {
@@ -181,7 +216,18 @@ try {
     frames[shot.screen] = await readFile(path);
   }
 
-  const page = await browser.newPage({ viewport: { width: W, height: H }, deviceScaleFactor: 1 });
+  // Play applies its own corner mask, so the store icon is the app icon's
+  // glyph on a full-bleed square rather than the rounded app icon file.
+  const square = iconSvg.replace('<rect width="120" height="120" rx="28"', '<rect width="120" height="120"');
+  if (square === iconSvg) throw new Error("icon.svg no longer starts with the rounded background rect; update the store icon render");
+  const page = await browser.newPage({ viewport: ICON_SIZE, deviceScaleFactor: 1 });
+  await page.setContent(`<!doctype html><style>html,body{margin:0;background:#c9f24e}svg{display:block;width:${ICON_SIZE.width}px;height:${ICON_SIZE.height}px}</style>${square}`);
+  const iconPng = toRgbaPng(await page.screenshot());
+  await writeFile(join(OUT, "icon.png"), iconPng);
+  fail(validateImage("icon.png", iconPng, "icon"));
+  console.log("  icon.png");
+
+  await page.setViewportSize({ width: W, height: H });
   const composites = [];
   for (const shot of listing.screenshots) {
     await page.setContent(screenshotHtml(shot, frames[shot.screen], font), { waitUntil: "load" });
@@ -196,6 +242,7 @@ try {
         textBottom: (sub ?? h1).bottom,
         textTop: h1.top,
         lines: Math.round(h1.height / lh),
+        subLines: sub ? Math.round(sub.height / parseFloat(getComputedStyle(document.querySelector("p")).lineHeight)) : 0,
         card: box(".card").top,
       };
     });
@@ -204,13 +251,14 @@ try {
     if (m.textBottom > m.caption || m.textTop < 0) errors.push(`${shot.file}: caption text overflows its block`);
     if (m.card < m.textBottom) errors.push(`${shot.file}: headline collides with the screen card`);
     if (m.lines > 2) errors.push(`${shot.file}: headline wraps to ${m.lines} lines (max 2)`);
+    if (m.subLines > 2) errors.push(`${shot.file}: subline wraps to ${m.subLines} lines (max 2)`);
     fail(errors);
     const out = join(OUT, shot.file);
     await page.screenshot({ path: out });
     const buf = await readFile(out);
     fail(validateImage(shot.file, buf, "screenshot"));
     composites.push(buf);
-    console.log(`  ${shot.file}  ${m.lines} line${m.lines > 1 ? "s" : ""}, caption ${m.caption}px`);
+    console.log(`  ${shot.file}  headline ${m.lines}, subline ${m.subLines} line(s), text ${Math.round(m.textTop)}-${Math.round(m.textBottom)}px of a ${m.caption}px caption (${((m.caption / H) * 100).toFixed(1)}%)`);
   }
 
   const featureFrames = ["dashboard", "optimize"].map((name) => frames[name]);

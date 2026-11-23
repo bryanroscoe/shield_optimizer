@@ -234,7 +234,8 @@ Message to Ko-fi supporters (paste into Ko-fi messages or email; fill the placeh
 > Thanks,
 > `<<OWNER: name>>`
 
-Replace `<<REPORTS SENTENCE>>` here and in the store listing with this line, which matches the
+Replace `<<REPORTS SENTENCE>>` here with this line (the store listing's Privacy paragraph is in
+`store-listing/listing.json`), which matches the
 telemetry consent decision in 0.3 (on by default, opt-out):
 "It sends anonymous device and error reports by default (TV model, Android version, whether an
 action worked; never serial numbers, IP addresses, TV names or app lists). You can turn that off
@@ -468,59 +469,17 @@ Help: <https://support.google.com/googleplay/android-developer/answer/9859152>, 
 
 **App name** (30 maximum): `ATV Optimizer`
 
-**Short description** (80 maximum; this one is 77):
-
-```
-Manage apps and settings on your own Android TV or Google TV from your phone.
-```
-
-**Full description** (4,000 maximum; this one is about 2,200). No speed or "boost" claims, no
-rankings, and no implied endorsement:
-
-```
-ATV Optimizer manages your own Android TV or Google TV from your phone, over your home Wi-Fi, using the TV's built-in developer debugging connection. No computer is needed.
-
-See what is on your TV
-• Device details: model, Android version, storage and memory use
-• Every installed app, with its storage and memory footprint and what is safe to change
-• Screenshots of the TV screen and a basic remote control
-
-Free, always
-• Connect to TVs on your network and check whether yours is supported before you pay
-• Diagnostics and the full app list
-• Re-enable apps, and emergency recovery that turns disabled apps back on
-
-ATV Optimizer Pro, a one-time purchase
-• Curated clean-up: turn off or remove preinstalled apps you do not use, from a reviewed list that refuses to touch apps the TV needs
-• Optimize: review a plan before anything changes, then apply it
-• Launcher: set a different Home app and turn off the stock one
-• Tweaks: change system settings such as HDMI-CEC, frame-rate matching, display scaling and Private DNS
-• Snapshots: record your TV's configuration and re-apply it later
-Pro is a one-time purchase through Google Play. No subscription. Undoing settings, Home app or snapshot changes uses Pro features.
-
-What you need
-• An Android TV or Google TV device on the same Wi-Fi network as your phone
-• Developer options turned on, with network debugging (older TVs and SHIELD) or wireless debugging (Android 11 and newer). The app shows you where to find it.
-• Fire TV is not supported: Fire OS blocks the changes this app makes.
-
-Be careful
-Turning off system apps can change how your TV behaves. The app warns you before risky changes, and every disabled app can be turned back on for free.
-
-Privacy
-Your saved TVs, app lists and files stay on your phone. <<REPORTS SENTENCE>>
-
-ATV Optimizer is an independent app. It is not affiliated with, endorsed by or sponsored by Google or NVIDIA. Android TV and Google TV are trademarks of Google LLC. SHIELD is a trademark of NVIDIA Corporation.
-```
-
-`<<AGENT: before the owner pastes this, check every bullet against the build being shipped. Drop
-"wireless debugging (Android 11 and newer)" if code pairing hasn't passed the physical test
-(PAIRING-PLAN.md). Drop "basic remote control" if it is not in the release.>>`
+**Short description** (80 maximum) and **Full description** (4,000 maximum): copy them from
+`v2/mobile/store-listing/listing.json` (`shortDescription`, `fullDescription`), the single source
+for listing text. `npm run store-assets` and `npm test` check their lengths, and the short
+description's characters (letters, digits, spaces and `, . ' & -` only). No speed or "boost"
+claims, no rankings, and no implied endorsement.
 
 **Graphics**
 
 | Asset | Spec (Google) | Source in repo / status |
 | --- | --- | --- |
-| App icon | 512×512, 32-bit PNG with alpha, at most 1024 KB | `v2/mobile/src-tauri/icons/icon.png` is 512×512 RGBA. AGENT checks the size is at most 1024 KB. |
+| App icon | 512×512, 32-bit PNG with alpha, at most 1024 KB. Play applies its own rounded mask. | `v2/mobile/store-listing/icon.png`, rendered by `npm run store-assets` from `src-tauri/icons/icon.svg` as a full-bleed square (opaque to every corner, no baked-in rounding, so Play shows no white rim). The script checks size, corners and file size. The app's own icon files are unchanged. |
 | Feature graphic | 1024×500, JPEG or 24-bit PNG, no alpha. Avoid pure white, black or dark gray backgrounds, device images and branding that just repeats the icon. | `v2/mobile/store-listing/feature-graphic.png`, rendered by `cd v2/mobile && npm run store-assets`: name and `featureGraphic.tagline` from `listing.json` on brand green with a small icon mark, beside two real app screens as cards (no device frame, no Google or NVIDIA logos). OWNER approves it in `store-listing/preview.png`. |
 | Phone screenshots | 2-8; JPEG or 24-bit PNG; 320-3840 px; long side at most 2.3× the short side; up to 8 MB each. Use 4 or more at 1080×1920 or larger (9:16) for promotion eligibility. Captions no more than 20% of the image. No device frames or "Best"/"#1" text. | `v2/mobile/store-listing/screenshots/01-…08-….png`, rendered by `npm run store-assets` at **1242×2208** (9:16), 24-bit PNG. Each is a caption from `listing.json` over the real app screen on demo data; the script fails if a caption block passes 20% of the height or any size, alpha, length or wording rule breaks. Upload them in file order with the `alt` text from `listing.json`. |
 
