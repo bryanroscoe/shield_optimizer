@@ -201,7 +201,7 @@ test("the Files help explains upload limits, replacing and what the app keeps", 
   const page = await open(t, "files");
   await page.getByRole("button", { name: "About file transfers" }).click();
   const help = page.getByRole("dialog", { name: "About file transfers" });
-  await help.getByText(/up to 32 files \(2 GiB\) at a time/).waitFor();
+  await help.getByText(/up to 32 files \(64 GiB\) at a time/).waitFor();
   await help.getByText(/you're asked before it's replaced; a folder is never replaced/).waitFor();
   await help.getByText(/doesn't keep access to them/).waitFor();
   assert.equal((await called(page, "import_pick")).length, 0);

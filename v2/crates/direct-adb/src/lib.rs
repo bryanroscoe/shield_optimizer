@@ -121,8 +121,19 @@ const LIVENESS_PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long [`WirelessAdb::status`] waits for a command that owns the
 /// connection before reporting the TV by that command instead of its probe.
 const STATUS_BUSY_WAIT: Duration = Duration::from_secs(1);
-/// Total bound on an upload over its dedicated connection.
+/// Total bound on an upload over its dedicated connection, before the
+/// allowance for its size ([`push_deadline`]).
 const PUSH_DEADLINE: Duration = Duration::from_secs(15 * 60);
+/// The slowest transfer rate a large upload is still given time for. A stalled
+/// socket fails sooner on its read and write timeouts; this only stops a big video on
+/// slow Wi-Fi from running out of time partway.
+const PUSH_FLOOR_BYTES_PER_SEC: u64 = 1024 * 1024;
+
+/// The total bound on uploading `size` bytes: [`PUSH_DEADLINE`] plus one
+/// second per MiB, so a 2 GiB file gets 49 minutes and a 10 GiB one about 3 hours.
+fn push_deadline(size: u64) -> Duration {
+    PUSH_DEADLINE + Duration::from_secs(size / PUSH_FLOOR_BYTES_PER_SEC)
+}
 const POST_ERROR_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Every error that evicts the live connection starts with this so the
 /// frontend can flip its liveness state without parsing transport details.
@@ -946,11 +957,12 @@ impl WirelessAdb {
     /// free meanwhile, so the device list and other commands keep working,
     /// and a failed upload never evicts it.
     async fn push_impl(&self, serial: &str, local: &Path, remote: &str) -> AdbResult<()> {
-        let deadline = tokio::time::Instant::now() + PUSH_DEADLINE;
         // A local storage error must not reach a healthy TV connection, so
         // the file is opened before any TV work.
         let mut file = std::fs::File::open(local)
             .map_err(|e| AdbError::Transport(format!("open {}: {e}", local.display())))?;
+        let size = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+        let deadline = tokio::time::Instant::now() + push_deadline(size);
         let Some((active, host, port)) = self.info() else {
             return Err(AdbError::Transport("Not connected to a device.".into()));
         };
@@ -1755,6 +1767,15 @@ impl WirelessStatus {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn upload_time_grows_with_the_file() {
+        use super::{push_deadline, PUSH_DEADLINE};
+        use std::time::Duration;
+        assert_eq!(push_deadline(0), PUSH_DEADLINE);
+        assert_eq!(push_deadline(2 << 30), Duration::from_secs(49 * 60 + 8));
+        assert!(push_deadline(10 << 30) > Duration::from_secs(3 * 60 * 60));
+    }
+
     #[test]
     fn authorization_observation_tracks_only_the_current_live_handshake() {
         use super::{AuthorizationObservation, Leases, WirelessAdb};

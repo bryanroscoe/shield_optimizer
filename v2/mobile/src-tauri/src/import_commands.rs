@@ -3,7 +3,7 @@
 //!
 //! Android's open-document picker (Storage Access Framework, through the atv-adb Kotlin plugin)
 //! copies the documents the user picks into a fresh `<cache>/imports/import-<n>/` folder, under
-//! [`MAX_IMPORT_FILES`] / [`MAX_IMPORT_FILE_BYTES`] / [`MAX_IMPORT_TOTAL_BYTES`]. No storage
+//! [`MAX_IMPORT_FILES`] and [`ImportPurpose::caps`]. No storage
 //! permission and no persistable URI grant is involved, and no URI outlives its copy. The
 //! frontend gets an opaque batch id, never a path, and every later step looks the batch up here.
 //!
@@ -23,7 +23,10 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use atv_optimizer_core::commands::files::{user_storage_root, validate_user_storage_path};
+use atv_optimizer_core::commands::files::{
+    drive_fs_type_with, fat32_refusal, user_storage_root, validate_user_storage_path,
+    FAT32_MAX_FILE,
+};
 use atv_optimizer_core::commands::AppState;
 use atv_optimizer_core::engine::apk_abis;
 use atv_optimizer_core::engine::install_outcome::decode_install_error;
@@ -38,16 +41,30 @@ pub const IMPORTS_DIR: &str = "imports";
 const BATCH_PREFIX: &str = "import-";
 /// At most this many documents per pick (a split APK set fits easily).
 pub const MAX_IMPORT_FILES: u32 = 32;
-/// One picked document, and all of one pick together: the same 2 GiB as one pull from the TV.
-pub const MAX_IMPORT_FILE_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-pub const MAX_IMPORT_TOTAL_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+/// One picked document, and all of one pick together. Large enough for long videos; the phone's
+/// free space (checked before copying when the provider reports a size) is the real bound.
+pub const MAX_IMPORT_FILE_BYTES: u64 = 64 * 1024 * 1024 * 1024;
+pub const MAX_IMPORT_TOTAL_BYTES: u64 = MAX_IMPORT_FILE_BYTES;
+/// Install APK keeps 2 GiB: an APK can't reach 4 GiB (no zip64), and installs keep a flat
+/// deadline.
+pub const MAX_APK_IMPORT_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 /// A batch nobody used or discarded is dropped after this.
 pub const IMPORT_TTL: Duration = Duration::from_secs(60 * 60);
-/// The picker can stay open while the user browses, and the copy can be slow from a cloud
-/// provider; past this the pick is given up and its folder removed.
-const PICK_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+/// The picker can stay open while the user browses, and copying a large video can be slow from
+/// a cloud provider; past this the pick is given up and its folder removed.
+const PICK_TIMEOUT: Duration = Duration::from_secs(2 * 60 * 60);
 /// Longest staged name kept from a provider's display name, in bytes.
 const MAX_NAME_BYTES: usize = 180;
+
+impl ImportPurpose {
+    /// The byte caps for one file and for one pick.
+    pub fn caps(self) -> (u64, u64) {
+        match self {
+            ImportPurpose::Upload => (MAX_IMPORT_FILE_BYTES, MAX_IMPORT_TOTAL_BYTES),
+            ImportPurpose::Apk => (MAX_APK_IMPORT_BYTES, MAX_APK_IMPORT_BYTES),
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -225,6 +242,7 @@ pub fn stage_picked(
     let root = dir
         .canonicalize()
         .map_err(|e| format!("open import folder: {e}"))?;
+    let (max_file, max_total) = purpose.caps();
     let mut total: u64 = 0;
     let mut staged: Vec<StagedFile> = Vec::with_capacity(picked.len());
     for (index, document) in picked.iter().enumerate() {
@@ -251,16 +269,18 @@ pub fn stage_picked(
                 "The copy of {name} doesn't match what was picked. Nothing was imported."
             ));
         }
-        if meta.len() > MAX_IMPORT_FILE_BYTES {
+        if meta.len() > max_file {
             return Err(format!(
-                "{name} is over the 2 GiB limit. Nothing was imported."
+                "{name} is over the {} GiB limit. Nothing was imported.",
+                max_file >> 30
             ));
         }
         total = total.saturating_add(meta.len());
-        if total > MAX_IMPORT_TOTAL_BYTES {
-            return Err(
-                "These files are over the 2 GiB limit together. Nothing was imported.".into(),
-            );
+        if total > max_total {
+            return Err(format!(
+                "These files are over the {} GiB limit together. Nothing was imported.",
+                max_total >> 30
+            ));
         }
         if purpose == ImportPurpose::Apk && meta.len() == 0 {
             return Err(format!("{name} is empty. Nothing was imported."));
@@ -356,18 +376,14 @@ pub async fn import_pick(
     let guard = DirGuard(Some(dir.clone()));
     let handle = app.clone();
     let target = dir.to_string_lossy().into_owned();
+    let (max_file, max_total) = purpose.caps();
     let reply = blocking(
         PICK_TIMEOUT,
         "The file picker didn't finish in time. Nothing was imported.",
         move || {
             handle
                 .adb()
-                .pick_documents(
-                    &target,
-                    MAX_IMPORT_FILES,
-                    MAX_IMPORT_FILE_BYTES,
-                    MAX_IMPORT_TOTAL_BYTES,
-                )
+                .pick_documents(&target, MAX_IMPORT_FILES, max_file, max_total)
                 .map_err(|e| e.to_string())
         },
     )
@@ -593,6 +609,10 @@ pub async fn upload_imported_impl(
     let file = batch.files.get(index).ok_or(BATCH_GONE)?;
     let target = remote_target(remote_dir, &file.name)?;
     let adb = state.adb_snapshot().await;
+    if file.size_bytes >= FAT32_MAX_FILE {
+        let fs = drive_fs_type_with(adb.as_ref(), serial, &target).await;
+        fat32_refusal(&file.name, file.size_bytes, fs.as_deref())?;
+    }
     match adb
         .upload_file(
             serial,
@@ -787,6 +807,7 @@ mod tests {
         transfer: fn() -> AdbResult<AdbOutput>,
         abilist: String,
         mv_fails: bool,
+        mounts: String,
         calls: Mutex<Vec<String>>,
     }
 
@@ -798,6 +819,7 @@ mod tests {
                 transfer: || output(""),
                 abilist: "arm64-v8a,armeabi-v7a,armeabi\n".into(),
                 mv_fails: false,
+                mounts: String::new(),
                 calls: Mutex::default(),
             }
         }
@@ -885,6 +907,8 @@ mod tests {
                 output("atvopt-moved\n")
             } else if command == "getprop ro.product.cpu.abilist" {
                 output(&self.abilist)
+            } else if command == "cat /proc/mounts" {
+                output(&self.mounts)
             } else {
                 panic!("unexpected shell command: {command}")
             }
@@ -1246,6 +1270,79 @@ mod tests {
                 .unwrap_err();
         assert!(error.contains("A folder named a.txt"), "{error}");
         assert!(!folder.calls().iter().any(|c| c.contains(" push ")));
+    }
+
+    /// A batch whose one staged file claims `size` bytes, without writing that many.
+    fn claimed(root: &Path, size: u64) -> (ImportStore, String) {
+        let (store, id, dir) = staged(root, ImportPurpose::Upload, &[("movie.mkv", b"x")]);
+        let mut files = store.get(&id).unwrap().files.clone();
+        files[0].size_bytes = size;
+        store.insert(
+            id.clone(),
+            StagedBatch {
+                dir,
+                purpose: ImportPurpose::Upload,
+                files,
+                created: Instant::now(),
+            },
+        );
+        (store, id)
+    }
+
+    #[test]
+    fn uploads_take_large_videos_but_apks_keep_two_gib() {
+        assert_eq!(ImportPurpose::Upload.caps(), (64 << 30, 64 << 30));
+        assert_eq!(ImportPurpose::Apk.caps(), (2 << 30, 2 << 30));
+    }
+
+    #[tokio::test]
+    async fn a_big_upload_to_a_fat32_drive_is_refused_before_any_byte() {
+        let root = tempfile::tempdir().unwrap();
+        let (store, id) = claimed(root.path(), FAT32_MAX_FILE);
+        let mut tv = Tv::new();
+        tv.mounts = "/dev/block/vold/public:8,1 /mnt/media_rw/1A2B-3C4D vfat rw 0 0\n".into();
+        let tv = Arc::new(tv);
+        let state = state(tv.clone(), root.path());
+        let error = upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/storage/1A2B-3C4D/Movies",
+            false,
+        )
+        .await
+        .unwrap_err();
+        assert!(error.contains("formatted as FAT32"), "{error}");
+        assert!(!tv.calls().iter().any(|c| c.contains(" push ")));
+
+        // exFAT holds it, and internal storage never asks.
+        let mut tv = Tv::new();
+        tv.mounts = "/dev/block/vold/public:8,1 /mnt/media_rw/1A2B-3C4D exfat rw 0 0\n".into();
+        tv.stat = FAT32_MAX_FILE.to_string();
+        let tv = Arc::new(tv);
+        let state = super::tests::state(tv.clone(), root.path());
+        upload_imported_impl(
+            &state,
+            &store,
+            "TV",
+            "fixture-tv",
+            &id,
+            0,
+            "/storage/1A2B-3C4D/Movies",
+            false,
+        )
+        .await
+        .unwrap();
+        assert!(tv.calls().iter().any(|c| c.contains(" push ")));
+
+        let tv = Arc::new(Tv::new());
+        let state = super::tests::state(tv.clone(), root.path());
+        let _ = upload_imported_impl(&state, &store, "TV", "fixture-tv", &id, 0, "/sdcard", false)
+            .await;
+        assert!(!tv.calls().iter().any(|c| c == "cat /proc/mounts"));
     }
 
     #[tokio::test]
