@@ -24,7 +24,7 @@ pub const PURCHASES_UPDATED_EVENT: &str = "purchases-updated";
 pub use error::{Error, Result};
 pub use models::{
     response_code, BillingResultResponse, ProductInfo, ProductResponse, PurchasesResponse,
-    RawPurchase,
+    RawPurchase, SaleInfo,
 };
 
 #[cfg(not(mobile))]

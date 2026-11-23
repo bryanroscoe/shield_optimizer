@@ -33,7 +33,7 @@ use atv_optimizer_core::license::Entitlement;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_atv_billing::{
-    response_code, BillingExt, ProductInfo, RawPurchase, PURCHASES_UPDATED_EVENT,
+    response_code, BillingExt, ProductInfo, RawPurchase, SaleInfo, PURCHASES_UPDATED_EVENT,
 };
 
 use crate::play_billing::{
@@ -82,16 +82,49 @@ pub struct Offer {
     pub title: String,
     pub name: String,
     pub description: String,
+    /// Present while Play's offer is a discount (a Play Console sale).
+    pub sale: Option<Sale>,
+}
+
+/// How Play describes a running discount: the full price it replaces, the
+/// percentage off and when it ends. Never computed or hard-coded here.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Sale {
+    pub full_formatted_price: Option<String>,
+    pub percent_off: Option<u32>,
+    pub ends_at_ms: Option<i64>,
+}
+
+impl Sale {
+    fn from_play(s: SaleInfo, price_micros: i64) -> Option<Self> {
+        if s.full_price_micros <= price_micros {
+            return None;
+        }
+        let percent_off = s.percentage_discount.filter(|p| (1..100).contains(p));
+        let full_formatted_price = s.full_formatted_price.filter(|p| !p.trim().is_empty());
+        if full_formatted_price.is_none() && percent_off.is_none() {
+            return None;
+        }
+        Some(Sale {
+            full_formatted_price,
+            percent_off,
+            ends_at_ms: s.end_time_millis.filter(|t| *t > 0),
+        })
+    }
 }
 
 impl From<ProductInfo> for Offer {
     fn from(p: ProductInfo) -> Self {
+        let sale = p
+            .sale
+            .and_then(|s| Sale::from_play(s, p.price_amount_micros));
         Offer {
             product_id: p.product_id,
             formatted_price: p.formatted_price,
             title: p.title,
             name: p.name,
             description: p.description,
+            sale,
         }
     }
 }
@@ -333,12 +366,16 @@ impl BillingCore {
             .collect()
     }
 
-    /// The missing prices worth asking Play for now. A missing Pro price is
-    /// always asked for; missing tip prices at most every [`OFFER_RETRY_MS`],
-    /// on a clock that starts only when tips are first asked for, so Pro
-    /// unlocking shows the tip jar on the next refresh.
+    /// The prices worth asking Play for now. Pro's price is asked for on
+    /// every refresh until Pro is unlocked, so a sale starting or ending
+    /// shows up on the next launch or resume; missing tip prices at most
+    /// every [`OFFER_RETRY_MS`], on a clock that starts only when tips are
+    /// first asked for, so Pro unlocking shows the tip jar on the next refresh.
     pub fn offers_to_query(&self, now_ms: i64) -> Vec<&'static str> {
-        let missing = self.missing_offers();
+        let mut missing = self.missing_offers();
+        if self.effective() != Entitlement::Pro && !missing.contains(&PRO_PRODUCT_ID) {
+            missing.insert(0, PRO_PRODUCT_ID);
+        }
         let mut inner = self.lock();
         let tips_due = match inner.tip_offers_checked_ms {
             Some(last) => now_ms - last >= OFFER_RETRY_MS || now_ms < last,
@@ -1245,6 +1282,7 @@ mod tests {
             title: String::new(),
             name: String::new(),
             description: String::new(),
+            sale: None,
         }
     }
 
@@ -1301,12 +1339,83 @@ mod tests {
         assert_eq!(c.missing_offers(), vec!["atvopt_tip_5", "atvopt_tip_10"]);
     }
 
+    fn play_product(price: &str, micros: i64, sale: Option<SaleInfo>) -> ProductInfo {
+        ProductInfo {
+            product_id: PRO_PRODUCT_ID.into(),
+            name: String::new(),
+            title: String::new(),
+            description: String::new(),
+            formatted_price: price.into(),
+            price_amount_micros: micros,
+            price_currency_code: "USD".into(),
+            sale,
+        }
+    }
+
+    fn play_sale(full: i64, shown: Option<&str>, percent: Option<u32>) -> SaleInfo {
+        SaleInfo {
+            full_price_micros: full,
+            full_formatted_price: shown.map(Into::into),
+            percentage_discount: percent,
+            end_time_millis: Some(NOW + 1_000),
+        }
+    }
+
+    #[test]
+    fn a_play_sale_shows_the_full_price_and_discount_play_reported() {
+        let o = Offer::from(play_product(
+            "$1.00",
+            1_000_000,
+            Some(play_sale(4_990_000, Some("$4.99"), Some(80))),
+        ));
+        assert_eq!(o.formatted_price, "$1.00");
+        assert_eq!(
+            o.sale,
+            Some(Sale {
+                full_formatted_price: Some("$4.99".into()),
+                percent_off: Some(80),
+                ends_at_ms: Some(NOW + 1_000),
+            })
+        );
+        let json = serde_json::to_value(&o).unwrap();
+        assert_eq!(json["sale"]["full_formatted_price"], "$4.99");
+        assert_eq!(json["sale"]["percent_off"], 80);
+    }
+
+    #[test]
+    fn anything_that_isnt_a_real_discount_shows_no_sale() {
+        assert_eq!(
+            Offer::from(play_product("$4.99", 4_990_000, None)).sale,
+            None
+        );
+        // Full price not above the price charged.
+        let same = play_sale(4_990_000, Some("$4.99"), Some(80));
+        assert_eq!(
+            Offer::from(play_product("$4.99", 4_990_000, Some(same))).sale,
+            None
+        );
+        // Nothing Play gave us to show.
+        let bare = play_sale(4_990_000, None, None);
+        assert_eq!(
+            Offer::from(play_product("$1.00", 1_000_000, Some(bare))).sale,
+            None
+        );
+        // A nonsense percentage is dropped, the full price still shows.
+        let odd = play_sale(4_990_000, Some("$4.99"), Some(100));
+        let sale = Offer::from(play_product("$1.00", 1_000_000, Some(odd)))
+            .sale
+            .unwrap();
+        assert_eq!(sale.percent_off, None);
+        assert_eq!(sale.full_formatted_price.as_deref(), Some("$4.99"));
+    }
+
     #[test]
     fn tip_prices_are_asked_for_only_while_pro_is_unlocked_in_a_play_build() {
         let c = tip_core(Distribution::Play);
         assert_eq!(c.offers_to_query(NOW), vec![PRO_PRODUCT_ID]);
         c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
-        assert!(c.offers_to_query(NOW + 1).is_empty());
+        // Until Pro is unlocked its price is asked for again, for sales.
+        assert_eq!(c.offers_to_query(NOW + 1), vec![PRO_PRODUCT_ID]);
         owned_pro_with_tips(&c);
         // Pro's price lookup didn't start the tips' cooldown: newly unlocked
         // Pro asks for tip prices on its very next refresh.

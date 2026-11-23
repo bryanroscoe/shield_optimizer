@@ -31,6 +31,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
+import java.math.BigDecimal
+import java.text.NumberFormat
+import java.util.Currency
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.coroutines.resume
 
@@ -119,6 +122,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
             put("formattedPrice", offer.formattedPrice)
             put("priceAmountMicros", offer.priceAmountMicros)
             put("priceCurrencyCode", offer.priceCurrencyCode)
+            saleJson(offer)?.let { put("sale", it) }
           }
           out.put("product", product)
         }
@@ -161,7 +165,9 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
           invoke.resolve(resultJson(connection))
           return@launch
         }
-        val details = products[args.productId] ?: queryDetails(args.productId).second
+        // Ask again so a sale that started or ended since the price was shown
+        // is the one charged; fall back to the last details if Play is slow.
+        val details = queryDetails(args.productId).second ?: products[args.productId]
         if (details == null) {
           invoke.resolve(
             resultJson(
@@ -330,9 +336,31 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
 
   // Products with several purchase options or offers only list them in
   // oneTimePurchaseOfferDetailsList, and the purchase must name one by token.
-  // The price shown is always the offer that the purchase sheet will charge.
+  // Play lists only offers this buyer can use right now, in no documented
+  // order, so a running discount sits beside the full price: take the
+  // cheapest. The price shown is always the offer the purchase sheet charges.
   private fun purchaseOffer(details: ProductDetails): ProductDetails.OneTimePurchaseOfferDetails? =
-    details.oneTimePurchaseOfferDetailsList?.firstOrNull() ?: details.oneTimePurchaseOfferDetails
+    details.oneTimePurchaseOfferDetailsList?.takeIf { it.isNotEmpty() }?.minByOrNull { it.priceAmountMicros }
+      ?: details.oneTimePurchaseOfferDetails
+
+  // Play's own discount display for a sale, or null when the offer isn't one.
+  private fun saleJson(offer: ProductDetails.OneTimePurchaseOfferDetails): JSObject? {
+    val full = offer.fullPriceMicros ?: return null
+    if (full <= offer.priceAmountMicros) return null
+    return JSObject().apply {
+      put("fullPriceMicros", full)
+      formatMicros(full, offer.priceCurrencyCode)?.let { put("fullFormattedPrice", it) }
+      offer.discountDisplayInfo?.percentageDiscount?.let { put("percentageDiscount", it) }
+      offer.validTimeWindow?.endTimeMillis?.let { put("endTimeMillis", it) }
+    }
+  }
+
+  private fun formatMicros(micros: Long, currencyCode: String): String? = try {
+    NumberFormat.getCurrencyInstance().apply { currency = Currency.getInstance(currencyCode) }
+      .format(BigDecimal.valueOf(micros, 6))
+  } catch (e: Exception) {
+    null
+  }
 
   private fun okResult(): BillingResult =
     BillingResult.newBuilder().setResponseCode(BillingResponseCode.OK).build()
