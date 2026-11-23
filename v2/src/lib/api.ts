@@ -20,6 +20,7 @@ import type {
   BackupApkResult,
   CloneAppResult,
   ConnectResult,
+  DeviceMacAddress,
   ForgetResult,
   RepromptResult,
   ApprovalResult,
@@ -141,6 +142,9 @@ export const api = {
 
   connectDevice: (address: string) =>
     invoke<ConnectResult>("connect_device", { address }),
+  /// Never fails on the device side: an unreadable MAC comes back null.
+  deviceMacAddress: (serial: string, host: string | null) =>
+    invoke<DeviceMacAddress>("device_mac_address", { serial, host }),
   disconnectDevice: (serial: string) =>
     invoke<ConnectResult>("disconnect_device", { serial }),
   pairDevice: (pairAddress: string, pin: string) =>

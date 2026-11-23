@@ -96,6 +96,7 @@ export const ICONS = [
   "keyboard_command_key",
 
   // Actions
+  "bookmark",
   "save",
   "delete",
   "content_copy",

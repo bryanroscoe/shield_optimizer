@@ -12,8 +12,16 @@
     label,
     forId,
     inline = false,
+    headingId,
     children,
-  }: { label: string; forId?: string; inline?: boolean; children: Snippet } = $props();
+  }: {
+    label: string;
+    forId?: string;
+    inline?: boolean;
+    /// Render the label as a section heading (`h2`) with this id.
+    headingId?: string;
+    children: Snippet;
+  } = $props();
   const helpId = $props.id();
   let expanded = $state(false);
   let trigger: HTMLButtonElement;
@@ -92,6 +100,8 @@
 <div class="help-title" class:inline data-own-escape={expanded ? "" : undefined}>
   {#if forId}
     <label for={forId}>{label}</label>
+  {:else if headingId}
+    <h2 id={headingId} tabindex="-1">{label}</h2>
   {:else}
     <span>{label}</span>
   {/if}
@@ -134,6 +144,8 @@
   .help-title.inline > span { white-space: nowrap; }
   .help-title.inline .help-trigger { margin-block: -0.35rem; text-transform: none; letter-spacing: normal; }
   label { cursor: pointer; }
+  h2 { margin: 0; font: inherit; color: inherit; }
+  h2:focus { outline: none; }
   .help-trigger { flex: 0 0 1.65rem; width: 1.65rem; height: 1.65rem; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border-strong); border-radius: 50%; background: transparent; color: var(--fg-secondary); font-size: 0.9rem; font-weight: 600; cursor: pointer; }
   .help-trigger:hover,
   .help-trigger.open { color: var(--fg-primary); border-color: var(--accent); }
