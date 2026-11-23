@@ -28,6 +28,8 @@ pub fn allowed(command: &str) -> bool {
             | "local_network_access"
             | "open_local_network_settings"
             | "rename_device"
+            // One read-only shell batch against the simulator.
+            | "device_mac_address"
             | "health_report"
             | "media_report"
             | "resource_sample"

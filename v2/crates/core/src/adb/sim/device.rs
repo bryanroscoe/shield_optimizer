@@ -803,6 +803,101 @@ impl Device {
         })
     }
 
+    /// A MAC address derived from the serial, so every simulated TV has its
+    /// own and it never changes between runs.
+    fn sim_mac(&self) -> String {
+        let h = self
+            .serial
+            .bytes()
+            .fold(0u32, |h, b| h.wrapping_mul(31).wrapping_add(u32::from(b)));
+        format!(
+            "00:1a:11:{:02x}:{:02x}:{:02x}",
+            (h >> 16) & 0xff,
+            (h >> 8) & 0xff,
+            h & 0xff
+        )
+    }
+
+    /// Loopback, plus `wlan0` at the TV's LAN address when it has one.
+    fn sysfs_net(&self) -> Vec<(String, String)> {
+        let mut out = vec![(
+            "/sys/class/net/lo/address".to_string(),
+            "00:00:00:00:00:00".to_string(),
+        )];
+        if self.network.is_some() {
+            out.push(("/sys/class/net/wlan0/address".into(), self.sim_mac()));
+        }
+        out
+    }
+
+    /// `ip -o -4 addr show` and `ip -o link show`, in iproute2's one-line form.
+    fn ip(&self, args: &[String]) -> Option<Out> {
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let ip = self.network.as_ref().map(|n| n.ip.clone());
+        let out = match args.as_slice() {
+            ["-o", "-4", "addr", "show"] => {
+                let mut out = "1: lo    inet 127.0.0.1/8 scope host lo\\       valid_lft forever preferred_lft forever\n".to_string();
+                if let Some(ip) = ip {
+                    out.push_str(&format!(
+                        "3: wlan0    inet {ip}/24 scope global wlan0\\       valid_lft forever preferred_lft forever\n"
+                    ));
+                }
+                out
+            }
+            ["-o", "link", "show"] => {
+                let mut out = "1: lo: <LOOPBACK,UP,LOWER_UP> mtu 65536 qdisc noqueue state UNKNOWN mode DEFAULT\\    link/loopback 00:00:00:00:00:00 brd 00:00:00:00:00:00\n".to_string();
+                if ip.is_some() {
+                    out.push_str(&format!(
+                        "3: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DORMANT\\    link/ether {} brd ff:ff:ff:ff:ff:ff\n",
+                        self.sim_mac()
+                    ));
+                }
+                out
+            }
+            _ => return None,
+        };
+        Some(Out::ok(out))
+    }
+
+    /// `grep [-H] PATTERN FILE…` over device files: `path:line` for each
+    /// matching line. Only a literal pattern or `.` (any non-empty line).
+    fn grep_files(&self, args: &[String], globbed: &[bool]) -> Out {
+        let operands: Vec<(usize, &String)> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| !a.starts_with('-'))
+            .collect();
+        let pattern = operands[0].1.as_str();
+        let mut files: Vec<(String, String)> = self.sysfs_net();
+        files.extend(self.files.iter().map(|(p, b)| (p.clone(), b.clone())));
+        let mut out = Out::default();
+        let mut any = false;
+        for (i, path) in &operands[1..] {
+            let glob = globbed.get(i + 1).copied().unwrap_or(false);
+            for (p, body) in &files {
+                if !(if glob {
+                    glob_match(path, p)
+                } else {
+                    p == *path
+                }) {
+                    continue;
+                }
+                for line in body.lines() {
+                    if (pattern == "." && !line.is_empty())
+                        || (pattern != "." && line.contains(pattern))
+                    {
+                        out.stdout.push_str(&format!("{p}:{line}\n"));
+                        any = true;
+                    }
+                }
+            }
+        }
+        if !any {
+            out.code = 1;
+        }
+        out
+    }
+
     fn cat(&self, args: &[String], globbed: &[bool], clock: f64) -> Out {
         let mut out = Out::default();
         for (i, path) in args.iter().enumerate() {
@@ -1055,6 +1150,10 @@ impl DeviceShell<'_> {
                     lines.into_iter().skip(skip).collect()
                 };
                 Out::ok(pick.iter().map(|l| format!("{l}\n")).collect::<String>())
+            }
+            "ip" => return dev.ip(args),
+            "grep" if args.iter().filter(|a| !a.starts_with('-')).count() >= 2 => {
+                dev.grep_files(args, globbed)
             }
             "grep" => {
                 let needle = args.iter().rfind(|a| !a.starts_with('-'))?.clone();
