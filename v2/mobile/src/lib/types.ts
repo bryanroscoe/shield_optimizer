@@ -629,6 +629,14 @@ export interface PlayOffer {
   title: string;
   name: string;
   description: string;
+  /// A Play Console sale on this product, as Play describes it.
+  sale?: PlaySale | null;
+}
+
+export interface PlaySale {
+  full_formatted_price: string | null;
+  percent_off: number | null;
+  ends_at_ms: number | null;
 }
 
 /// `billing_status` / `billing_refresh` (mobile `billing_commands.rs`).

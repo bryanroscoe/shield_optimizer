@@ -141,6 +141,17 @@ on billing callbacks. Details and migration need separate review before implemen
 advertise universal undo until this gate is met. Scope does not promise to recover uninstalled
 third-party APKs or missing data.
 
+## Sales (Play discount offers)
+
+A temporary price cut on Pro is a discount offer on `atvopt_pro`'s purchase option `pro-unlock` in
+Play Console (Monetize › Products › One-time products), with a start and end time. No app release
+is needed to start or stop one. Play lists only the offers this buyer may use now, in no
+documented order, so the plugin charges and shows the cheapest outright purchase (never a rental
+or pre-order) and reports Play's full price (formatted on the phone), percentage and end time; More and the Pro sheet show them through `SaleNote`. Pro's price is
+asked for again on every refresh until Pro is unlocked, and product details are queried again
+just before the purchase sheet, so a sale that starts or ends is the one charged. The app never
+computes or hard-codes a sale price.
+
 ## Supporter promo redemption and later roadmap
 
 Plan Play one-time-product promo codes for owner-selected existing Ko-fi supporters. Eligibility,

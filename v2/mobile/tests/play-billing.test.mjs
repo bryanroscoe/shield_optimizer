@@ -126,6 +126,27 @@ test("Play build on Free shows Play's localized price, Restore and the free-reco
   assert.ok((await count(page, "billing_refresh")) >= 1, "purchases are checked on launch");
 });
 
+test("A Play sale shows the regular price, the discount and the end date until it ends", async (t) => {
+  const ends = Date.now() + 3 * 24 * 3600 * 1000;
+  const sale = { full_formatted_price: "€4,99", percent_off: 80, ends_at_ms: ends };
+  const page = await open(t, status({ offer: { ...OFFER, formatted_price: "€1,00", sale } }));
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Buy Pro · €1,00" }).waitFor();
+  const note = card.locator(".sale-note");
+  assert.ok((await note.locator(".hidden-label").boundingBox()).width <= 1, "the label is for screen readers only");
+  assert.match(await note.locator("s").textContent(), /^Regular price\s€4,99$/);
+  assert.match(await note.textContent(), /80% off/);
+  const day = await page.evaluate((ms) => new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" }), ends);
+  assert.match(await note.textContent(), new RegExp(`ends ${day}`));
+
+  const ended = await open(t, status({ offer: { ...OFFER, sale: { ...sale, ends_at_ms: Date.now() - 1000 } } }));
+  await licensing(ended).getByRole("button", { name: "Buy Pro · €3,49" }).waitFor();
+  assert.equal(await licensing(ended).locator(".sale-note").count(), 0, "an ended sale shows nothing");
+  const none = await open(t, status());
+  await licensing(none).getByRole("button", { name: "Buy Pro · €3,49" }).waitFor();
+  assert.equal(await licensing(none).locator(".sale-note").count(), 0, "no sale, no note");
+});
+
 // What an older backend sent; the UI must never offer the retired tiers.
 const TIERS = [
   { product_id: "atvopt_pro_support_1", formatted_price: "€9,99", title: "", name: "", description: "" },

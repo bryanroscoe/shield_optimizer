@@ -3,6 +3,7 @@
   import { billing, FREE_RECOVERY_PROMISE, RESTORE_HINT } from "../lib/billing.svelte";
   import { session } from "../lib/session.svelte";
   import ErrorNotice from "./ErrorNotice.svelte";
+  import SaleNote from "./SaleNote.svelte";
   // The one Pro upsell surface (design §6.3). Screens open this when a Pro
   // command throws `LOCKED:<feature>` instead of showing a raw error. Buying
   // goes through Google Play; the backend verifies the purchase before Pro
@@ -149,6 +150,7 @@
               Purchase pending. Pro unlocks as soon as Google Play confirms the payment.
             </p>
           {/if}
+          <SaleNote {offer} centered />
           <button
             class="primary"
             disabled={!offer || billing.purchasing || billing.restoring || billing.pending}

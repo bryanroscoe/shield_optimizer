@@ -154,6 +154,7 @@
   import BugReportSheet from "../components/BugReportSheet.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
+  import SaleNote from "../components/SaleNote.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import SupportReports from "../components/SupportReports.svelte";
   import TipJar from "../components/TipJar.svelte";
@@ -497,6 +498,7 @@
         {#if billing.pending}
           <p class="license-desc" role="status">Purchase pending. Pro unlocks as soon as Google Play confirms the payment.</p>
         {/if}
+        <SaleNote offer={billing.status?.offer} />
         <div class="billing-actions">
           <button
             class="primary small-btn"

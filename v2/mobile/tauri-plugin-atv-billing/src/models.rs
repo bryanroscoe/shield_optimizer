@@ -57,6 +57,22 @@ pub struct ProductInfo {
     pub price_amount_micros: i64,
     #[serde(default)]
     pub price_currency_code: String,
+    /// Set when Play's cheapest offer is a discount on the full price.
+    #[serde(default)]
+    pub sale: Option<SaleInfo>,
+}
+
+/// Play's discount display for a sale offer. Every field comes from Play.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaleInfo {
+    pub full_price_micros: i64,
+    #[serde(default)]
+    pub full_formatted_price: Option<String>,
+    #[serde(default)]
+    pub percentage_discount: Option<u32>,
+    #[serde(default)]
+    pub end_time_millis: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
