@@ -35,6 +35,30 @@ interface Upload {
   reports_on: boolean | null;
   bytes: number;
   note?: string | null;
+  // Absent from a Worker older than migration 0005.
+  integrity?: {
+    status: string;
+    reason: string | null;
+    app_recognition: string | null;
+    device_labels: string | null;
+    licensing: string | null;
+    play_protect: string | null;
+    app_access_risk: string | null;
+  } | null;
+}
+
+// The Play Integrity verdict on one line. Record-only signal: it never
+// decided anything, so it reads as a fact, not a judgement.
+function integrityLine(v: NonNullable<Upload["integrity"]>): string {
+  if (v.status !== "ok") return `${v.status}${v.reason ? ` (${v.reason})` : ""}`;
+  const parts = [
+    `app ${v.app_recognition ?? "unevaluated"}`,
+    `device ${v.device_labels === null ? "unevaluated" : v.device_labels || "no labels"}`,
+    `licence ${v.licensing ?? "unevaluated"}`,
+    `Play Protect ${v.play_protect ?? "unevaluated"}`,
+  ];
+  if (v.app_access_risk) parts.push(`app access risk ${v.app_access_risk}`);
+  return parts.join(", ");
 }
 
 interface Install {
@@ -101,6 +125,7 @@ export function formatSupportReport(r: Report): string {
       const app = u.app ? `${u.app} ` : "";
       out.push(`  ${what} #${u.id}  ${when(u.received_at)}  ${kb(u.bytes)}  ${app}${u.app_version} on ${u.os}${reports}`);
       if (u.note) for (const line of u.note.split("\n")) out.push(`              > ${line}`);
+      if (u.integrity) out.push(`              Play Integrity: ${integrityLine(u.integrity)}`);
       out.push(`              read it: scripts/support-lookup.sh --upload ${u.id}`);
     }
     if (i.recent.length) out.push("", "  Recent events, newest first:");

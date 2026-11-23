@@ -54,6 +54,7 @@ resolved Gradle dependency report.
 | ADB plugin | androidx.activity:activity:1.10.1 (added 2026-11-08 for the Save a copy picker callback; Apache-2.0, already resolved at 1.10.1 through the app's activity-ktx, so the resolved runtime set is unchanged) |
 | Billing plugin | com.android.billingclient:billing:9.1.0 (Android Software Development Kit License, not Apache-2.0) |
 | Billing plugin | androidx.core:core-ktx:1.13.1; org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2 |
+| Billing plugin | com.google.android.play:integrity:1.6.0 (added 2026-11-22 for record-only Play Integrity; Play Integrity API Terms of Service, not Apache-2.0). It depends on play-services-basement 18.9.0 and play-services-tasks 18.2.0, already resolved through Billing, and adds com.google.android.play:core-common 2.0.4 |
 | Tauri Android | androidx.core:core-ktx:1.7.0; androidx.appcompat:appcompat:1.6.0 |
 | Tauri Android | com.fasterxml.jackson.core:jackson-databind:2.15.3 |
 | Opener | androidx.browser:browser:1.8.0; androidx.core:core-ktx:1.9.0; Jackson Databind:2.15.3 |
@@ -61,7 +62,9 @@ resolved Gradle dependency report.
 The app excludes Tauri Android's transitive Material Components dependency. The native
 activity uses an AppCompat theme and the WebView supplies the UI.
 
-All listed libraries except the Play Billing Library declare Apache-2.0 licensing. The Play
+All listed libraries except the Play Billing Library and the Play Integrity library declare
+Apache-2.0 licensing. The Play Integrity library's POM names the Play Integrity API Terms of
+Service (<https://developer.android.com/google/play/integrity/terms>). The Play
 Billing Library is distributed under the Android Software Development Kit License Agreement;
 record its terms and any transitive Google artifacts it pulls in when the resolved graph is
 captured. Official project sources:

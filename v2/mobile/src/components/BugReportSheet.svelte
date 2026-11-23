@@ -204,6 +204,11 @@
           description are removed too. Reports are kept for 30 days and sent even if automatic
           reports are off.
         </p>
+        <p>
+          The Google Play version also attaches a Google Play Integrity check, Google's verdict on
+          whether this app and phone are genuine. It is only recorded and never changes what the app
+          does.
+        </p>
       </HelpSheet>
       <button class="preview-toggle" onclick={togglePreview} aria-expanded={previewOpen}>
         {previewOpen ? "Hide" : "Show"} exactly what's sent

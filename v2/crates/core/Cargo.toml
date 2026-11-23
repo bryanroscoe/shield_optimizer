@@ -30,6 +30,9 @@ async-trait = "0.1"
 # instead of bundling webpki-roots (CDLA licensed, outside mobile/about.toml).
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-manual-roots"] }
 uuid = { version = "1", features = ["v4"] }
+# The Play Integrity request hash (hex SHA-256 of a report body). Already
+# linked through ed25519-dalek, so this adds no crate to either app.
+sha2 = "0.10"
 
 [dev-dependencies]
 pretty_assertions = "1"

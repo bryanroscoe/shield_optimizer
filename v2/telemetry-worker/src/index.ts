@@ -16,6 +16,7 @@ import { readTiers, replaceTiers, validateTierRules } from "./tiers";
 import { admitUpload, releaseUpload, storeUpload, UPLOAD_MAX_BODY, uploadBytes, validateUpload } from "./uploads";
 import { MAX_BODY_BYTES, validateBatch } from "./validate";
 import { privacyPolicy } from "./privacy";
+import { integrityToken, recordIntegrity, sha256Hex } from "./integrity";
 
 export type { Env } from "./env";
 
@@ -31,7 +32,10 @@ function secondsUntilUtcMidnight(now: Date): number {
   return Math.max(1, Math.ceil((next - now.getTime()) / 1000));
 }
 
-async function readJson(request: Request, limit: number): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
+async function readJson(
+  request: Request,
+  limit: number,
+): Promise<{ ok: true; value: unknown; bytes: Uint8Array } | { ok: false; response: Response }> {
   const type = request.headers.get("content-type") ?? "";
   if (!/^application\/json\b/i.test(type)) {
     return { ok: false, response: error(415, "content_type_must_be_application_json") };
@@ -39,7 +43,7 @@ async function readJson(request: Request, limit: number): Promise<{ ok: true; va
   const bytes = await readBodyLimited(request, limit);
   if (bytes === null) return { ok: false, response: error(413, "body_too_large", { max_bytes: limit }) };
   try {
-    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)) };
+    return { ok: true, value: JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)), bytes };
   } catch {
     return { ok: false, response: error(400, "invalid_json") };
   }
@@ -73,6 +77,21 @@ async function postEvents(request: Request, env: Env): Promise<Response> {
     await releaseQuota(env, quota.rows, now).catch(() => undefined);
     return error(503, "storage_unavailable");
   }
+  // The phone app's once-a-day Play Integrity token, recorded after the batch
+  // is stored. A batch from one install only, as the app sends.
+  const token = integrityToken(request);
+  const first = events[0];
+  if (token && first && events.every((e) => e.app === "mobile" && e.install_id === first.install_id)) {
+    await recordIntegrity(env, {
+      token,
+      bodyHash: await sha256Hex(body.bytes),
+      source: "events",
+      installId: first.install_id,
+      appVersion: first.app_version,
+      uploadId: null,
+      now,
+    });
+  }
   return new Response(null, {
     status: 204,
     headers: {
@@ -101,6 +120,18 @@ async function postDiagnostics(request: Request, env: Env): Promise<Response> {
   }
   try {
     const id = await storeUpload(env, upload.value, now);
+    const token = upload.value.app === "mobile" ? integrityToken(request) : null;
+    if (token) {
+      await recordIntegrity(env, {
+        token,
+        bodyHash: await sha256Hex(body.bytes),
+        source: "bug",
+        installId: upload.value.install_id,
+        appVersion: upload.value.app_version,
+        uploadId: id,
+        now,
+      });
+    }
     return json({ ok: true, id, bytes: upload.value.body.length }, 201, { "cache-control": "no-store" });
   } catch {
     await releaseUpload(env, upload.value.install_id, uploadBytes(upload.value), now).catch(() => undefined);

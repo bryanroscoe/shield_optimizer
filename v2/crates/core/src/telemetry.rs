@@ -10,7 +10,9 @@
 //! without it never touches the network from here, whatever the setting says.
 
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -57,6 +59,28 @@ pub const EXCERPTS_PER_DAY: u32 = 20;
 /// shows once more to everyone who dismissed an older one. 2: connection
 /// diagnostics, desktop log excerpts and the support id.
 pub const NOTICE_VERSION: u32 = 2;
+
+/// The header a Play Integrity token travels in. Its request hash is
+/// [`request_hash`] of the body it rides with.
+pub const INTEGRITY_HEADER: &str = "x-play-integrity";
+
+/// Asks Google Play for a Standard Play Integrity token bound to a request
+/// hash. Installed by the Android app's Play release builds only, and
+/// resolves to `None` whenever no token can be had (no Play Store, an
+/// emulator, a timeout). Record-only: the server stores Google's verdict and
+/// nothing in either app ever reads it back.
+pub type IntegritySource =
+    Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync>;
+
+/// The Play Integrity request hash for a body: lowercase hex SHA-256 of the
+/// exact bytes posted, which the server recomputes from what it received.
+pub fn request_hash(body: &str) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(body.as_bytes())
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
 
 /// The build-time variable that marks a test build. Only the native test
 /// package jobs in `v2-tests.yml` set it, to `<built>-pr-<head>`: the commit
@@ -146,6 +170,10 @@ struct StoredSettings {
     excerpt_day: String,
     #[serde(default)]
     excerpts_today: u32,
+    /// UTC day the automatic reports last asked for a Play Integrity token:
+    /// at most one batch a day carries one.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    integrity_day: String,
 }
 
 impl StoredSettings {
@@ -329,6 +357,7 @@ pub struct Telemetry {
     started: AtomicBool,
     client: OnceLock<Option<reqwest::Client>>,
     excerpt_source: OnceLock<ExcerptSource>,
+    integrity_source: OnceLock<IntegritySource>,
     /// Serializes writes of `telemetry.json`; see [`Telemetry::persist`].
     persist_lock: Mutex<()>,
 }
@@ -402,6 +431,7 @@ impl Telemetry {
             started: AtomicBool::new(false),
             client: OnceLock::new(),
             excerpt_source: OnceLock::new(),
+            integrity_source: OnceLock::new(),
             persist_lock: Mutex::new(()),
         }
     }
@@ -514,6 +544,19 @@ impl Telemetry {
         if self.config.app == AppKind::Desktop {
             let _ = self.excerpt_source.set(source);
         }
+    }
+
+    /// Install the Play Integrity token source. Ignored outside the phone app
+    /// and after the first call.
+    pub fn set_integrity_source(&self, source: IntegritySource) {
+        if self.config.app == AppKind::Mobile {
+            let _ = self.integrity_source.set(source);
+        }
+    }
+
+    #[cfg(test)]
+    fn has_integrity_source(&self) -> bool {
+        self.integrity_source.get().is_some()
     }
 
     /// Remember where adb came from, for diagnostics that can't see it.
@@ -765,6 +808,22 @@ impl Telemetry {
         true
     }
 
+    /// Whether this batch may carry today's Play Integrity token. Spent on
+    /// the attempt, whatever it returns, so a phone without Play asks once a
+    /// day rather than on every batch. Persisted like the excerpt budget.
+    fn take_integrity_budget(&self) -> bool {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        {
+            let mut inner = self.lock();
+            if inner.settings.integrity_day == today {
+                return false;
+            }
+            inner.settings.integrity_day = today;
+        }
+        let _ = self.persist();
+        true
+    }
+
     /// Attach one excerpt to the newest event in the batch that wants one.
     /// The log is read here, at send time, so it includes the lines written
     /// after the failure was recorded.
@@ -825,6 +884,7 @@ impl Telemetry {
             let mut events = events;
             self.attach_excerpt(&mut events);
             let events: Vec<TelemetryEvent> = events.into_iter().map(|q| q.event).collect();
+            let mut integrity = self.integrity_source.get().cloned();
             for body in encode_batches(&events) {
                 // Register for cancellation before the last check, so an
                 // opt-out landing in between still wakes this waiter.
@@ -834,8 +894,20 @@ impl Telemetry {
                 if !self.still_sending(generation) {
                     return;
                 }
+                // Only while reports are on (checked just above), and only
+                // for the first batch of the day.
+                let token = match integrity.take() {
+                    Some(source) if self.take_integrity_budget() => tokio::select! {
+                        token = source(request_hash(&body)) => token,
+                        _ = &mut cancelled => return,
+                    },
+                    _ => None,
+                };
+                if !self.still_sending(generation) {
+                    return;
+                }
                 tokio::select! {
-                    _ = self.post_events(body) => {}
+                    _ = self.post_events(body, token.as_deref()) => {}
                     _ = &mut cancelled => return,
                 }
             }
@@ -851,16 +923,17 @@ impl Telemetry {
         self.client.get_or_init(build_client).as_ref()
     }
 
-    async fn post_events(&self, body: String) {
+    async fn post_events(&self, body: String, integrity: Option<&str>) {
         let (Some(base), Some(client)) = (self.config.base_url.as_deref(), self.client()) else {
             return;
         };
-        let result = client
+        let mut request = client
             .post(format!("{base}/v1/events"))
-            .header("content-type", "application/json")
-            .body(body)
-            .send()
-            .await;
+            .header("content-type", "application/json");
+        if let Some(token) = integrity {
+            request = request.header(INTEGRITY_HEADER, token);
+        }
+        let result = request.body(body).send().await;
         match result {
             Ok(resp) if resp.status().is_success() => {}
             Ok(resp) => tracing::debug!(status = %resp.status(), "telemetry upload refused"),
@@ -1138,12 +1211,28 @@ pub async fn post_upload(
     kind: crate::engine::bug_report::UploadKind,
     body: String,
 ) -> Result<UploadReceipt, String> {
+    post_upload_with_integrity(client, url, kind, body, None).await
+}
+
+/// [`post_upload`] carrying a Play Integrity token bound to `body` (see
+/// [`request_hash`]). The server's answer is the same with or without it.
+pub async fn post_upload_with_integrity(
+    client: &reqwest::Client,
+    url: &str,
+    kind: crate::engine::bug_report::UploadKind,
+    body: String,
+    integrity: Option<&str>,
+) -> Result<UploadReceipt, String> {
     use crate::engine::bug_report::{receipt_id, refusal_message};
     let noun = kind.noun();
-    let response = client
+    let mut request = client
         .post(url)
         .timeout(UPLOAD_TIMEOUT)
-        .header("content-type", "application/json")
+        .header("content-type", "application/json");
+    if let Some(token) = integrity {
+        request = request.header(INTEGRITY_HEADER, token);
+    }
+    let response = request
         .body(body)
         .send()
         .await
@@ -1692,6 +1781,15 @@ mod tests {
         listener: tokio::net::TcpListener,
         response: String,
     ) -> (String, String) {
+        let (head, body) = answer_one_post_head(listener, response).await;
+        (head.lines().next().unwrap().to_string(), body)
+    }
+
+    /// [`answer_one_post`], returning the whole request head as sent.
+    async fn answer_one_post_head(
+        listener: tokio::net::TcpListener,
+        response: String,
+    ) -> (String, String) {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let (mut sock, _) = listener.accept().await.unwrap();
         let mut buf = Vec::new();
@@ -1709,8 +1807,7 @@ mod tests {
                     .unwrap_or(0);
                 if buf.len() >= split + 4 + len {
                     sock.write_all(response.as_bytes()).await.unwrap();
-                    let request_line = text.lines().next().unwrap().to_string();
-                    return (request_line, text[split + 4..].to_string());
+                    return (text[..split].to_string(), text[split + 4..].to_string());
                 }
             }
             if n == 0 {
@@ -1757,6 +1854,142 @@ mod tests {
         server.await.unwrap();
         assert!(err.starts_with("Bug report limit reached"), "{err}");
         assert!(!err.contains("127.0.0.1"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn a_bug_report_can_carry_an_integrity_token_bound_to_its_body() {
+        use crate::engine::bug_report::UploadKind;
+        let client = reqwest::Client::new();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/v1/diagnostics", listener.local_addr().unwrap());
+        let server = tokio::spawn(answer_one_post_head(
+            listener,
+            json_response("201 Created", r#"{"ok":true,"id":3,"bytes":5}"#),
+        ));
+        let body = r#"{"schema":2,"kind":"bug"}"#.to_string();
+        let receipt = post_upload_with_integrity(
+            &client,
+            &url,
+            UploadKind::Bug,
+            body.clone(),
+            Some("tok.en"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(receipt.id, Some(3));
+        let (head, sent) = server.await.unwrap();
+        assert_eq!(sent, body);
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("\r\nx-play-integrity: tok.en"),
+            "{head}"
+        );
+    }
+
+    #[test]
+    fn the_request_hash_is_the_hex_sha256_of_the_body() {
+        assert_eq!(
+            request_hash("abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+    }
+
+    /// A source that answers `token` and records each hash it was asked for.
+    fn recording_source(token: Option<&str>) -> (IntegritySource, Arc<Mutex<Vec<String>>>) {
+        let asked = Arc::new(Mutex::new(Vec::new()));
+        let seen = asked.clone();
+        let token = token.map(str::to_string);
+        let source: IntegritySource = Arc::new(move |hash: String| {
+            seen.lock().unwrap().push(hash);
+            let token = token.clone();
+            Box::pin(async move { token })
+        });
+        (source, asked)
+    }
+
+    #[tokio::test]
+    async fn the_first_report_batch_of_the_day_carries_an_integrity_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hub = Telemetry::new(config(Some(&base)), dir.path());
+        let (source, asked) = recording_source(Some("first.token"));
+        hub.set_integrity_source(source);
+        hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        let server = tokio::spawn(answer_one_post_head(
+            listener,
+            "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n".to_string(),
+        ));
+        hub.flush().await;
+        let (head, body) = server.await.unwrap();
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("\r\nx-play-integrity: first.token"),
+            "{head}"
+        );
+        assert_eq!(*asked.lock().unwrap(), vec![request_hash(&body)]);
+
+        // Later batches that day go without, and the day survives a restart.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hub = Telemetry::new(config(Some(&base)), dir.path());
+        let (source, asked) = recording_source(Some("second.token"));
+        hub.set_integrity_source(source);
+        hub.device_profiled(&shield("10.0.0.3:5555", "1324619053515"));
+        let server = tokio::spawn(answer_one_post_head(
+            listener,
+            "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n".to_string(),
+        ));
+        hub.flush().await;
+        let (head, _) = server.await.unwrap();
+        assert!(
+            !head.to_ascii_lowercase().contains("x-play-integrity"),
+            "{head}"
+        );
+        assert!(asked.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn no_token_means_the_batch_goes_without_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let hub = Telemetry::new(config(Some(&base)), dir.path());
+        let (source, asked) = recording_source(None);
+        hub.set_integrity_source(source);
+        hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        let server = tokio::spawn(answer_one_post_head(
+            listener,
+            "HTTP/1.1 204 No Content\r\ncontent-length: 0\r\n\r\n".to_string(),
+        ));
+        hub.flush().await;
+        let (head, body) = server.await.unwrap();
+        assert!(
+            !head.to_ascii_lowercase().contains("x-play-integrity"),
+            "{head}"
+        );
+        assert!(body.contains("device_seen"));
+        assert_eq!(asked.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reports_off_never_ask_for_a_token_and_desktop_never_installs_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        let (source, asked) = recording_source(Some("t"));
+        hub.set_integrity_source(source);
+        hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        hub.set_enabled(false).unwrap();
+        hub.flush().await;
+        assert!(asked.lock().unwrap().is_empty());
+
+        let desktop = Telemetry::new(
+            desktop(Some("https://t.example")),
+            tempfile::tempdir().unwrap().path(),
+        );
+        let (source, _) = recording_source(Some("t"));
+        desktop.set_integrity_source(source);
+        assert!(!desktop.has_integrity_source());
     }
 
     #[test]

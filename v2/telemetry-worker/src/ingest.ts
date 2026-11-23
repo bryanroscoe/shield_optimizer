@@ -235,12 +235,14 @@ export interface PurgeResult {
   rate: number;
   excerpts: number;
   uploads: number;
+  integrity: number;
   storage: StorageTrim;
 }
 
 // Raw events go after RAW_RETENTION_DAYS (30). Log text never outlives them:
 // excerpts are cleared from their events, and uploads (Send logs and bug
-// reports, notes included) deleted, after LOG_RETENTION_DAYS (30). Then the
+// reports, notes included) deleted, after LOG_RETENTION_DAYS (30). Play
+// Integrity verdicts go with the raw events. Then the
 // storage budget is enforced with whatever is left of the run's row-write
 // allowance.
 export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
@@ -257,16 +259,24 @@ export async function purgeExpired(env: Env, now: Date): Promise<PurgeResult> {
     ),
     env.DB.prepare("DELETE FROM diag_uploads WHERE received_at < ?1").bind(logCutoff),
   ]);
+  // Its own statement, so a Worker deployed before migration 0005 still
+  // purges everything else.
+  const integrity = await env.DB.prepare("DELETE FROM integrity_verdicts WHERE received_at < ?1")
+    .bind(cutoff)
+    .run()
+    .catch(() => null);
   const result = {
     events: ev?.meta.changes ?? 0,
     rate: rate?.meta.changes ?? 0,
     excerpts: excerpts?.meta.changes ?? 0,
     uploads: uploads?.meta.changes ?? 0,
+    integrity: integrity?.meta.changes ?? 0,
   };
   // The same per-row costs as the trim's tiers: a raw event or an upload is
   // the row and its two index entries; a rate_daily row (WITHOUT ROWID, no
-  // other index) or a cleared excerpt is one.
-  const spent = result.events * 3 + result.rate + result.excerpts + result.uploads * 3;
+  // other index) or a cleared excerpt is one. A verdict is the row and up to
+  // two index entries.
+  const spent = result.events * 3 + result.rate + result.excerpts + result.uploads * 3 + result.integrity * 3;
   return { ...result, storage: await enforceStorageBudget(env, spent) };
 }
 
@@ -303,6 +313,13 @@ const EVENT_SIZE_SQL = `${EVENT_ROW_OVERHEAD} + ${textBytes([
 const AGG_ROW_OVERHEAD = 128;
 const AGG_DIMS = ["manufacturer", "model", "device", "profile", "app", "app_version"];
 const UPLOAD_SIZE_SQL = `bytes + ${EVENT_ROW_OVERHEAD}`;
+// Play Integrity verdicts: short labels only, at most GLOBAL_DAILY_INTEGRITY
+// (1,000) a day for RAW_RETENTION_DAYS, so a few MB at worst. Counted, never
+// trimmed: the daily purge bounds them.
+const INTEGRITY_SIZE_SQL = `${EVENT_ROW_OVERHEAD} + ${textBytes([
+  "received_at", "source", "app_version", "status", "reason", "app_recognition", "device_labels", "device_activity",
+  "licensing", "play_protect", "app_access_risk",
+])}`;
 
 interface Tier {
   name: string;
@@ -380,6 +397,7 @@ export async function estimateStorageBytes(env: Env): Promise<number> {
     sum(EVENT_SIZE_SQL, "events"),
     ...TIERS.filter((t) => t.table.startsWith("agg_")).map((t) => sum(t.size, t.table)),
     sum(`64 + ${textBytes(["day", "key"])}`, "rate_daily"),
+    sum(INTEGRITY_SIZE_SQL, "integrity_verdicts"),
   ];
   const row = await env.DB.prepare(`SELECT ${parts.join(" + ")} AS total`).first<{ total: number }>();
   return row?.total ?? 0;

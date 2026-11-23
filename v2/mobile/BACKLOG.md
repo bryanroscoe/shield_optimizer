@@ -137,6 +137,11 @@ See [`RELEASE.md`](RELEASE.md) for the full checklist. Open items:
 - Privacy-policy serving and the in-app link/Support ID are implemented; verify the deployed
   policy and complete Data safety from the final artifact. Listing copy, feature graphic and
   six Play-sized screenshots are reproducible with `npm run store-assets` (`store-listing/`).
+- Play Integrity (record-only) is in the source. Owner steps before it counts: set the Worker
+  secret `PLAY_INTEGRITY_SA_JSON`, apply migration `0005_play_integrity.sql` and deploy the Worker
+  (telemetry-worker README, Production), update Data safety (PLAY-CONSOLE-WALKTHROUGH 2.2a), then
+  confirm a Play-installed build's bug report shows `Play Integrity: app PLAY_RECOGNIZED, ...` in
+  `scripts/support-lookup.sh`. Never gate a feature on a verdict.
 - Complete the accessibility and navigation review.
 - Many installed apps are uncatalogued. Classify existing review coverage per package, model and
   version from the shared `crates/core/data/app-lists/` before asking for new device reads; unknown

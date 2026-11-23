@@ -1,6 +1,6 @@
 # ATV Optimizer telemetry Worker
 
-A Cloudflare Worker with one D1 database. It does two jobs:
+A Cloudflare Worker with one D1 database. It does these jobs:
 
 1. Takes anonymous telemetry from the desktop and Android apps (`POST /v1/events`), so we can see
    which TVs people actually use and where actions fail. This is how the supported-device list
@@ -10,6 +10,8 @@ A Cloudflare Worker with one D1 database. It does two jobs:
 3. Takes the logs a desktop user chooses to send and the bug reports desktop and phone users send
    (`POST /v1/diagnostics`), and lets the owner list new bug reports and find everything stored for
    one install by the support ID the user quotes (`scripts/support-lookup.sh`).
+4. Records the Play Integrity verdict the phone app's Play builds attach to those requests
+   ([Play Integrity](#play-integrity-record-only)). Record-only: nothing is gated on it.
 
 Telemetry is on by default in the apps with an opt-out. The app side lives in the desktop and mobile
 code; this directory is only the backend. It runs on the Cloudflare free plan.
@@ -70,6 +72,15 @@ IPv6 addresses, `host:port` and serial-shaped tokens removed (`redactNote` in `s
 human's "and/or" survives. Notes are stored, purged, trimmed and deleted with their row, and the
 upload's `bytes` (what the byte cap and storage budget count) includes them.
 
+### Play Integrity verdicts
+
+A Play release build of the phone app attaches a Standard Play Integrity token to the first
+automatic report batch of each UTC day (only while reports are on) and to a bug report the user
+sends. The Worker asks Google to decode it and keeps one row in `integrity_verdicts`: when, which
+request (`events` or `bug`, and a bug report's upload id), the app version, whether the token
+matched the request, and Google's coarse labels. No install id, no token, no certificate digest.
+See [Play Integrity](#play-integrity-record-only).
+
 ## What is never collected or stored
 
 - TV serial numbers, `ro.serialno`, adb transport ids or adb mDNS service names (they embed the serial).
@@ -82,6 +93,9 @@ upload's `bytes` (what the byte cap and storage budget count) includes them.
   `0002_drop_country.sql` deleted those values and dropped the column (owner decision, so the
   apps' Play Data safety form has no location to declare).
 - TV names or labels, the user's package list, file paths, emails, licence or licensee data.
+- A Play Integrity token, the app's signing-certificate digest or anything else from a decoded
+  token beyond the labels listed under [Play Integrity](#play-integrity-record-only). Verdict rows
+  carry no install id.
 - Logs from the phone app, except in a bug report its user sends. `log_excerpt` from
   `app: "mobile"` is dropped, and a mobile `POST /v1/diagnostics` is refused unless it is upload
   schema 2 (Report a bug), whose text is capped at 64 KiB. The Android privacy policy
@@ -140,6 +154,8 @@ How that is enforced server-side, so a client bug cannot break it:
 - Aggregates are kept: per-day counts per device/app version (`agg_device_daily`), per-day error
   code counts (`agg_error_daily`) and the install ids seen per device group
   (`agg_device_installs`, used to count distinct installs). These hold no free text.
+- Play Integrity verdicts (`integrity_verdicts`) are deleted after `RAW_RETENTION_DAYS` (30) by the
+  same cron.
 - Rate-limit counters are deleted after two days.
 - If stored data ever nears the database's size limit, the same cron frees space early, oldest
   first: uploads (Send logs and bug reports), then log excerpts, then raw events, and only then the oldest aggregate
@@ -148,7 +164,10 @@ How that is enforced server-side, so a client bug cannot break it:
   `scripts/support-lookup.sh` to get the full id); delete it with
   `DELETE FROM events WHERE install_id = ?` and the same on `diag_uploads` (bug reports and their
   notes included),
-  `agg_device_installs` and `rate_daily` (`key = <install id>` and `key = 'upload:' || <install id>`).
+  `agg_device_installs` and `rate_daily` (`key = <install id>`, `key = 'upload:' || <install id>`
+  and `key = 'integrity:' || <install id>`). Delete the verdicts of that install's bug reports
+  first, while the uploads still name them:
+  `DELETE FROM integrity_verdicts WHERE upload_id IN (SELECT id FROM diag_uploads WHERE install_id = ?)`.
   The per-day counts cannot be attributed to an install.
 
 ## API
@@ -195,6 +214,64 @@ the event rules.
 `OPTIONS` returns `204` but never sends `Access-Control-Allow-Origin`. Both apps post from native
 code (Rust on desktop, the native layer on Android), where CORS does not apply; keeping it closed
 means a web page cannot make a visitor's browser post here.
+
+### Play Integrity (record-only)
+
+`POST /v1/events` and `POST /v1/diagnostics` accept an optional `x-play-integrity` header: a
+[Standard Play Integrity](https://developer.android.com/google/play/integrity/standard) token whose
+`requestHash` is the lowercase hex SHA-256 of the exact request body. The phone app's Play release
+builds send it on the first automatic report batch of each UTC day (none while reports are off)
+and on a bug report, whose summary says it is attached. Sideloaded, debug and test builds, the
+desktop app, and phones without the Play Store or Play services never send one.
+
+**It never changes the answer.** The batch or upload is validated, admitted and stored exactly as
+without it, and only then is the token looked at. Every failure below leaves the response
+unchanged. Neither app reads a verdict back, and no feature, Pro entitlement or safety gate
+depends on one. This exists so the app is a real Integrity API user (Play Console's "Protected with
+Play" rating) and to give the owner signal; unknown claims nothing.
+
+What happens to a token:
+
+1. Ignored unless the request was stored, is from `app: "mobile"` (a batch from one install only)
+   and the header looks like a token (base64url, at most 16 KiB).
+2. Admitted against `PER_INSTALL_DAILY_INTEGRITY` (3) per install and `GLOBAL_DAILY_INTEGRITY`
+   (1,000) across everyone per UTC day (`rate_daily` keys `integrity:<install id>` and
+   `integrity:*`). Over either cap the token is ignored: nothing is decoded or stored. Google's
+   default quota is 10,000 decodes a day.
+3. Decoded with `POST https://playintegrity.googleapis.com/v1/com.atvoptimizer.mobile:decodeIntegrityToken`,
+   authorized by an OAuth token minted from the `PLAY_INTEGRITY_SA_JSON` service-account key (JWT
+   RS256 through WebCrypto, scope `https://www.googleapis.com/auth/playintegrity`, cached per
+   isolate until five minutes before it expires). Each Google call times out after 5 s.
+4. Checked: `requestDetails.requestPackageName` (and `appIntegrity.packageName` when present) must
+   be `com.atvoptimizer.mobile`, `requestHash` must equal the body's hash, and the token must be at
+   most 10 minutes old (2 minutes of clock skew allowed).
+5. Stored as one `integrity_verdicts` row (`src/integrity.ts`, migration
+   `0005_play_integrity.sql`):
+
+| Column | From | Values |
+| --- | --- | --- |
+| `status`, `reason` | the checks | `ok`; `mismatch` with `package`, `request_hash` or `stale` (no verdict kept: the token says nothing about this request); `unevaluated` with `no_credentials` (secret absent or unparsable), `google_error` (Google refused, failed or timed out) or `malformed` |
+| `app_recognition` | `appIntegrity.appRecognitionVerdict` | `PLAY_RECOGNIZED`, `UNRECOGNIZED_VERSION`, `UNEVALUATED` |
+| `app_version_code` | `appIntegrity.versionCode` | our own Play versionCode |
+| `device_labels` | `deviceIntegrity.deviceRecognitionVerdict` | sorted, comma-joined `MEETS_BASIC_INTEGRITY`, `MEETS_DEVICE_INTEGRITY`, `MEETS_STRONG_INTEGRITY`, `MEETS_VIRTUAL_INTEGRITY`; `""` for none |
+| `device_activity` | `recentDeviceActivity.deviceActivityLevel` | `LEVEL_1`-`LEVEL_4`, `UNEVALUATED` |
+| `device_sdk` | `deviceAttributes.sdkVersion` | Android SDK level |
+| `licensing` | `accountDetails.appLicensingVerdict` | `LICENSED`, `UNLICENSED`, `UNEVALUATED` |
+| `play_protect` | `environmentDetails.playProtectVerdict` | `NO_ISSUES`, `NO_DATA`, `POSSIBLE_RISK`, `MEDIUM_RISK`, `HIGH_RISK`, `UNEVALUATED` |
+| `app_access_risk` | `appAccessRiskVerdict.appsDetected` | sorted, comma-joined `KNOWN_*` / `UNKNOWN_*` categories (`INSTALLED`, `CAPTURING`, `OVERLAYS`, `CONTROLLING`); `""` for none |
+
+Every verdict is optional: a field Google didn't return is `NULL` (unevaluated), and a value this
+Worker doesn't know yet is stored as `OTHER`. Nothing else from the decoded token is kept, notably
+not the certificate digest, the nonce or hash, or the timestamp.
+
+Reading them: the support lookup shows a bug report's verdict beside it (`integrity` on each
+upload, and a `Play Integrity:` line in `scripts/support-lookup.sh`), and
+`npx wrangler d1 execute telemetry --remote --file sql/integrity-report.sql` counts the last 30
+days by day, version and outcome.
+
+Cost: each stored verdict is two quota rows, the row and up to two index entries (about five row
+writes), so the global cap bounds it near 5,000 writes and well under 1 MB a day. Verdicts count
+towards the storage estimate but are never trimmed early; the daily purge bounds them.
 
 ### `GET /v1/support-tiers`
 
@@ -301,6 +378,7 @@ it does not substitute for a native app or physical TV test.
 | Cron | `17 3 * * *` (03:17 UTC daily): purge raw events, log excerpts and uploads past 30 days, and old rate counters; then enforce the [storage budget](#storage-budget) with what the purge left of the run's row-write allowance |
 | Repo variable | `ATVOPT_TELEMETRY_URL` = the URL above. Release builds embed it, and so do the PR's native test packages (`v2-tests.yml`), which also set `ATVOPT_TEST_BUILD` to the merge commit they build and the PR head; the sync and report workflows call it. |
 | Repo secret | `TELEMETRY_ADMIN_TOKEN` = the Worker's `ADMIN_TOKEN`. Used by the sync and report workflows. |
+| Worker secret | `PLAY_INTEGRITY_SA_JSON` = a Google service-account key (the whole JSON file) from the Cloud project linked to the app in Play Console, `atv-optimizer-play` (project number 694361256028), with the Play Integrity API enabled there. Optional: without it, tokens are recorded as `unevaluated` / `no_credentials`. |
 
 Secrets live in the owner's personal 1Password (`my.1password.com`, vault **Bryan Code**), never
 in the repo, a shell history or a log:
@@ -310,7 +388,33 @@ in the repo, a shell history or a log:
 - **cloudflare -admin api token** (field `credential`): a Cloudflare API token for `wrangler`, used
   as `CLOUDFLARE_API_TOKEN` instead of `wrangler login`.
 
+- **The Play service-account key** (`atv-optimizer-play`): the same key as the `google-play`
+  environment's `PLAY_SERVICE_ACCOUNT_JSON` secret, kept locally as
+  `~/.config/atv-optimizer/play-service-account.json` (mode 600; see `v2/mobile/RELEASE.md`,
+  One-time setup). It is the Worker secret `PLAY_INTEGRITY_SA_JSON`. `<<OWNER: record its
+  1Password item name here>>`.
+
 Read them with `op read` into an environment variable or a pipe. Never echo them.
+
+### Setting PLAY_INTEGRITY_SA_JSON
+
+An owner-authorized operation, like any production secret. Only a Worker deployed with
+`src/integrity.ts` reads it (after migration `0005_play_integrity.sql`; see [Redeploy](#redeploy)),
+so setting it before that deploy is harmless.
+
+```sh
+cd v2/telemetry-worker
+export CLOUDFLARE_API_TOKEN="$(op read 'op://Bryan Code/cloudflare -admin api token/credential' --account my.1password.com)"
+npx wrangler secret put PLAY_INTEGRITY_SA_JSON < ~/.config/atv-optimizer/play-service-account.json
+npx wrangler secret list    # names only; PLAY_INTEGRITY_SA_JSON should be listed
+```
+
+Google only decodes for a caller in the Cloud project linked to the app (Play Console → Test and
+release → App integrity → Play Integrity API). If verdicts arrive as `google_error`, check that link
+and that `playintegrity.googleapis.com` is enabled in that project; no IAM role is needed. Rotating
+the key means putting the new JSON the same way, updating 1Password and the local copy. To turn
+decoding off, `npx wrangler secret delete PLAY_INTEGRITY_SA_JSON`: tokens are then stored as
+`unevaluated` and nothing else changes.
 
 What runs against production on its own:
 
@@ -397,6 +501,10 @@ fabricated production telemetry just to test a deploy. Admin access is proven by
 
 Migration `0004_bug_reports.sql` (bug reports) must be applied before deploying the Worker that
 writes `kind` and `note`; it is additive, so the Worker already live keeps working against it.
+
+Migration `0005_play_integrity.sql` (the `integrity_verdicts` table) is additive too. Apply it
+before deploying the Worker that writes verdicts: without it every verdict insert fails, which that
+Worker treats as a lost verdict, never a failed upload, but the verdicts are lost.
 
 ### Rotating ADMIN_TOKEN
 

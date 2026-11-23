@@ -12,6 +12,11 @@ export interface Env {
   GLOBAL_DAILY_UPLOADS?: string;
   GLOBAL_DAILY_UPLOAD_BYTES?: string;
   PRIVACY_CONTACT_EMAIL?: string;
+  // Google service-account key JSON (Worker secret) for decoding Play
+  // Integrity tokens. Absent: tokens are recorded as unevaluated.
+  PLAY_INTEGRITY_SA_JSON?: string;
+  PER_INSTALL_DAILY_INTEGRITY?: string;
+  GLOBAL_DAILY_INTEGRITY?: string;
 }
 
 export function intVar(v: string | undefined, fallback: number): number {

@@ -59,6 +59,19 @@ Do not put private information in the description.</p>
 <p>A bug report is sent over HTTPS to the same service as reports, which does not store your request
 IP address or location. It is stored with your installation's Support ID so the developer can match
 it to your request. Bug reports are deleted after ${logDays} days, or sooner on request (below).</p>
+<h2>Google Play Integrity checks</h2>
+<p>The version of the app installed from Google Play asks Google Play's Integrity API to check the
+app and your phone at most once a day with automatic reports (only while they are on) and with each
+bug report you send. Google Play returns an encrypted verdict, which the app forwards unread; the
+developer's service asks Google to decode it and keeps only Google's summary labels: whether Google
+Play recognizes this copy of the app, whether the app is licensed through Google Play, whether the
+phone passes Google's device integrity checks, how many such checks the app recently requested on
+it, its Android SDK level, its Google Play Protect status and Google's categories of other apps that could
+capture the screen or control the app. It keeps no installation ID or other identifier with them,
+and deletes them after ${days} days. A bug report's verdict is stored with that report.
+These checks are processed by Google under its terms and privacy policy. The result is used only
+to understand how the app is distributed and run: it never blocks, limits or changes any feature or
+purchase.</p>
 <h2>Purchases</h2>
 <p>Google Play processes the optional one-time Pro purchase under Google's terms and privacy
 policy. The app does not receive your card or bank details. It verifies and stores the signed

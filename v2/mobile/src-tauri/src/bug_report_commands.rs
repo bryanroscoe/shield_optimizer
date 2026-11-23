@@ -8,7 +8,9 @@
 //! and [`send_bug_report`] uploads that same summary with the description
 //! redacted the same way, so what the preview showed is what goes. The
 //! frontend never hands text back to be sent. No log, package list, TV
-//! name, address or serial.
+//! name, address or serial. A Play release build also attaches a Play
+//! Integrity token bound to the body (the summary says so); the server
+//! records Google's verdict and nothing acts on it.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -18,9 +20,11 @@ use atv_optimizer_core::engine::bug_report::{
     self, device_identifiers, MobileSummary, MobileTv, UploadKind, UploadMeta,
 };
 use atv_optimizer_core::engine::log_redact::Scrub;
-use atv_optimizer_core::telemetry::{host_device_model, post_upload};
+use atv_optimizer_core::telemetry::{host_device_model, post_upload_with_integrity, request_hash};
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
+
+use crate::play_integrity;
 
 /// One connection step the frontend recorded: the command and whether it
 /// worked. Anything else it holds stays on the phone.
@@ -122,6 +126,7 @@ async fn build_summary(
             phone_model: phone_model.as_deref(),
             reports_enabled: telemetry.settings().enabled,
             test_build: target.test_build.as_deref(),
+            play_integrity: play_integrity::available(),
             tv,
             history: &history,
         },
@@ -137,12 +142,15 @@ async fn build_summary(
 /// profiles the connected TV. Replaces any earlier one. Nothing is sent.
 #[tauri::command]
 pub async fn prepare_bug_report(
+    app: AppHandle,
     state: State<'_, AppState>,
     prepared: State<'_, PreparedBugReport>,
     serial: Option<String>,
     history: Vec<ConnectionStep>,
 ) -> Result<BugReportSummary, String> {
     let (text, known) = build_summary(state.inner(), serial.as_deref(), &history).await?;
+    // While the user writes, so Send doesn't wait on Play's first setup.
+    play_integrity::warm(&app);
     let id = prepared.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     let summary = BugReportSummary {
         id,
@@ -174,6 +182,7 @@ pub fn redact_bug_note(
 /// A refused report keeps its summary, so trying again sends the same one.
 #[tauri::command]
 pub async fn send_bug_report(
+    app: AppHandle,
     state: State<'_, AppState>,
     prepared: State<'_, PreparedBugReport>,
     id: u64,
@@ -198,7 +207,16 @@ pub async fn send_bug_report(
     };
     let body = bug_report::bug_body(&meta, note.as_deref(), &text)?;
     let body = serde_json::to_string(&body).map_err(|e| format!("Bug report failed: {e}"))?;
-    let receipt = post_upload(&client, &target.url, UploadKind::Bug, body).await?;
+    let integrity =
+        play_integrity::token(&app, request_hash(&body), play_integrity::BUG_REPORT_WAIT).await;
+    let receipt = post_upload_with_integrity(
+        &client,
+        &target.url,
+        UploadKind::Bug,
+        body,
+        integrity.as_deref(),
+    )
+    .await?;
     let bytes = text.len() + note.as_deref().map_or(0, str::len);
     tracing::info!(bytes, "bug report sent to the developer");
     if let Ok(mut current) = prepared.current.lock() {

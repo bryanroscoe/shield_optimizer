@@ -434,6 +434,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "tauri",
  "tempfile",
  "thiserror 1.0.69",

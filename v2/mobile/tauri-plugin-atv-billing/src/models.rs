@@ -77,6 +77,27 @@ pub struct BillingResultResponse {
     pub debug_message: String,
 }
 
+/// What Play Integrity answered: a Standard integrity token, or why there is
+/// none (`error`: Play's `StandardIntegrityErrorCode`, `timeout`, or the
+/// exception's class). Never interpreted on the phone: the token is opaque
+/// here and only the developer's server asks Google what it says.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IntegrityTokenResponse {
+    #[serde(default)]
+    pub token: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[cfg(mobile)]
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct IntegrityArgs<'a> {
+    pub cloud_project_number: i64,
+    pub request_hash: Option<&'a str>,
+}
+
 #[cfg(mobile)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

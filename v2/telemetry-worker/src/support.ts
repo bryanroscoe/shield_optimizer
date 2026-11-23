@@ -57,6 +57,18 @@ export interface SupportUpload {
   reports_on: boolean | null;
   bytes: number;
   note: string | null;
+  // The Play Integrity verdict sent with it, when there was one. Record-only.
+  integrity: UploadIntegrity | null;
+}
+
+export interface UploadIntegrity {
+  status: string;
+  reason: string | null;
+  app_recognition: string | null;
+  device_labels: string | null;
+  licensing: string | null;
+  play_protect: string | null;
+  app_access_risk: string | null;
 }
 
 export interface SupportInstall {
@@ -142,8 +154,12 @@ async function installReport(env: Env, id: string, eventLimit: number): Promise<
        FROM events WHERE install_id = ?1 ORDER BY received_at DESC, id DESC LIMIT ?2`,
     ).bind(id, eventLimit),
     env.DB.prepare(
-      `SELECT id, received_at, client_ts, kind, app, app_version, os, reports_on, bytes, note FROM diag_uploads
-       WHERE install_id = ?1 ORDER BY received_at DESC, id DESC LIMIT ?2`,
+      `SELECT u.id, u.received_at, u.client_ts, u.kind, u.app, u.app_version, u.os, u.reports_on, u.bytes, u.note,
+              v.status AS v_status, v.reason AS v_reason, v.app_recognition AS v_app, v.device_labels AS v_device,
+              v.licensing AS v_licensing, v.play_protect AS v_protect, v.app_access_risk AS v_risk
+       FROM diag_uploads AS u
+       LEFT JOIN integrity_verdicts AS v ON v.id = (SELECT MAX(id) FROM integrity_verdicts WHERE upload_id = u.id)
+       WHERE u.install_id = ?1 ORDER BY u.received_at DESC, u.id DESC LIMIT ?2`,
     ).bind(id, UPLOAD_LIMIT),
   ]);
   const s = (summary?.results?.[0] ?? {}) as Row;
@@ -161,6 +177,18 @@ async function installReport(env: Env, id: string, eventLimit: number): Promise<
       reports_on: r.reports_on === null || r.reports_on === undefined ? null : r.reports_on === 1,
       bytes: Number(r.bytes),
       note: (r.note as string | null) ?? null,
+      integrity:
+        typeof r.v_status === "string"
+          ? {
+              status: r.v_status,
+              reason: (r.v_reason as string | null) ?? null,
+              app_recognition: (r.v_app as string | null) ?? null,
+              device_labels: (r.v_device as string | null) ?? null,
+              licensing: (r.v_licensing as string | null) ?? null,
+              play_protect: (r.v_protect as string | null) ?? null,
+              app_access_risk: (r.v_risk as string | null) ?? null,
+            }
+          : null,
     }),
   );
   return {

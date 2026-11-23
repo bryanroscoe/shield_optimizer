@@ -88,6 +88,14 @@ async function openMore(t, { telemetry } = {}) {
 const calls = (page, command) =>
   page.evaluate((c) => window.calls.filter((call) => call.command === c).map((call) => call.args), command);
 
+test("What's sent discloses the Play Integrity check as record-only", async (t) => {
+  const { page, sheet } = await openMore(t);
+  await sheet.getByRole("button", { name: "What's sent", exact: true }).click();
+  const help = page.getByRole("dialog", { name: "What's sent" });
+  await help.getByText("Google Play Integrity check", { exact: false }).waitFor();
+  assert.match(await help.innerText(), /only recorded and never changes what the app\s+does/);
+});
+
 test("Send needs a description, previews the backend's text, and names the report it became", async (t) => {
   const { page, sheet } = await openMore(t);
   const send = sheet.getByRole("button", { name: "Send", exact: true });

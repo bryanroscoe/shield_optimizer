@@ -86,3 +86,11 @@ STORAGE_BUDGET_BYTES = "300000000"
 # deletes take ~7k, leaving the trim ~23k: a day's uploads plus ~7.4k raw
 # events, more than a day adds. A bigger overshoot is worked off over days.
 STORAGE_TRIM_MAX_ROW_WRITES = "30000"
+# Play Integrity decodes (record-only verdicts; see "Play Integrity" in
+# README.md). Per install and across everyone, per UTC day. Over either cap a
+# token is ignored: nothing is decoded or stored. Google's default quota is
+# 10,000 decodes a day. Each stored verdict costs about five row writes (two
+# quota rows, the row and up to two index entries), so 1,000 a day is ~5k.
+# The service-account key is the secret PLAY_INTEGRITY_SA_JSON, never here.
+PER_INSTALL_DAILY_INTEGRITY = "3"
+GLOBAL_DAILY_INTEGRITY = "1000"
