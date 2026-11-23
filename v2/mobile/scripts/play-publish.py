@@ -4,6 +4,7 @@
 Subcommands:
   version   Read tauri.conf.json, check a mobile-v* tag against it, print the versionCode.
   highest   Print the highest versionCode Play already holds (every bundle, APK and track).
+  next-code Choose the versionCode a release uploads with, read against Play (see choose_version_code).
   upload    Upload a verified AAB once and release it on one or more tracks (comma-separated),
             as a draft unless told otherwise, in a single edit. Refuses a track whose country
             list leaves out an EU state.
@@ -41,6 +42,7 @@ UPLOAD_API = 'https://androidpublisher.googleapis.com/upload/androidpublisher/v3
 TOKEN_URL = 'https://oauth2.googleapis.com/token'
 SCOPE = 'https://www.googleapis.com/auth/androidpublisher'
 MAX_VERSION_CODE = 2100000000
+DERIVED = 'derived from version'
 MOBILE_DIR = Path(__file__).resolve().parents[1]
 EU_COUNTRIES = frozenset('AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IT LT LU LV MT NL PL PT RO SE SI SK'.split())
 
@@ -76,7 +78,7 @@ def resolve_version(config_path, tag=None, override=None):
     else:
         major, minor, patch = (int(x) for x in match.groups()[:3])
         code = major * 1000000 + minor * 1000 + patch
-        source = 'derived from version'
+        source = DERIVED
     if not 0 < code <= MAX_VERSION_CODE:
         raise PlayError(f'versionCode {code} is outside 1..{MAX_VERSION_CODE}')
     return {'version': version, 'version_code': code, 'version_code_source': source}
@@ -183,6 +185,11 @@ class Play:
                 codes += [int(code) for code in release.get('versionCodes', [])]
         return max(codes)
 
+    def release_names(self, edit):
+        return [(track['track'], release['name'])
+                for track in self.call('GET', f'edits/{edit}/tracks').get('tracks', [])
+                for release in track.get('releases', []) if release.get('name')]
+
     def eu_gaps(self, edit, track):
         """EU states missing from a track's countries, or None if the track has no country list.
 
@@ -225,6 +232,55 @@ def highest(play):
         return play.highest(edit)
     finally:
         play.discard_edit(edit)
+
+
+def semver_key(version):
+    """Sort key for a semver string (build metadata ignored), or None when it isn't one."""
+    match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?', version)
+    if not match:
+        return None
+    major, minor, patch, pre = match.groups()
+    core = (int(major), int(minor), int(patch))
+    if pre is None:
+        return core + ((1,),)
+    return core + ((0,) + tuple((0, int(p), '') if p.isdigit() else (1, 0, p) for p in pre.split('.')),)
+
+
+def choose_version_code(play, version, code, source, newer_than_testers=False, movable=False):
+    """Return the versionCode to build with, checked against Play in a throwaway edit.
+
+    Builds pushed to the mobile-internal branch take versionCodes between releases, so a code
+    derived from the version can already be taken; it then moves to the next free code. A code
+    someone set (bundle.android.versionCode or a dispatch override) never moves and must already
+    be above Play, unless movable (internal builds, where only the newest code matters).
+
+    Moving codes means the code no longer stops an old version from going out, so a release for
+    testers (newer_than_testers) must carry a version above every release active on a track
+    other than Internal testing: re-running a tag, or tagging an older commit, is refused.
+    """
+    edit = play.open_edit()
+    try:
+        current = play.highest(edit)
+        if newer_than_testers:
+            key = semver_key(version)
+            for track, name in play.release_names(edit):
+                match = re.fullmatch(r'(\S+) \(\d+\)', name)
+                released = semver_key(match.group(1)) if match else None
+                if track != 'internal' and released is not None and key <= released:
+                    raise PlayError(f'Track {track} already has release {name!r}, which is not older than '
+                                    f'{version}. Bump the version (mobile/scripts/bump-version.sh) for a new release')
+    finally:
+        play.discard_edit(edit)
+    if code > current:
+        chosen = code
+    elif source == DERIVED or movable:
+        chosen, source = current + 1, 'next free code on Play'
+    else:
+        raise PlayError(f'versionCode {code} ({source}) is not above {current}, the highest on Play. '
+                        'Raise it, or unset it to take the next free code')
+    if chosen > MAX_VERSION_CODE:
+        raise PlayError(f'versionCode {chosen} is above {MAX_VERSION_CODE}')
+    return {'highest': current, 'version_code': chosen, 'version_code_source': source}
 
 
 def parse_tracks(track):
@@ -513,10 +569,18 @@ def main(argv=None):
     version.add_argument('--config', type=Path, default=MOBILE_DIR / 'src-tauri/tauri.conf.json')
     version.add_argument('--tag')
     version.add_argument('--version-code')
-    for name in ['highest', 'upload', 'geo-check']:
+    for name in ['highest', 'next-code', 'upload', 'geo-check']:
         sub = commands.add_parser(name)
         sub.add_argument('--service-account', type=Path, required=True)
         sub.add_argument('--package', default=PACKAGE)
+    nxt = commands.choices['next-code']
+    nxt.add_argument('--version', required=True)
+    nxt.add_argument('--version-code', type=int, required=True)
+    nxt.add_argument('--version-code-source', required=True)
+    nxt.add_argument('--newer-than-testers', action='store_true',
+                     help='Fail unless --version is above every release on a track other than internal')
+    nxt.add_argument('--movable', action='store_true',
+                     help='Let a set code move to the next free one too (internal builds)')
     up = commands.choices['upload']
     up.add_argument('--aab', type=Path, required=True)
     up.add_argument('--track', required=True)
@@ -554,6 +618,10 @@ def main(argv=None):
             print(json.dumps(resolve_version(args.config, args.tag, args.version_code)))
         elif args.command == 'highest':
             print(highest(Play.from_file(args.service_account, package=args.package)))
+        elif args.command == 'next-code':
+            print(json.dumps(choose_version_code(Play.from_file(args.service_account, package=args.package),
+                                                 args.version, args.version_code, args.version_code_source,
+                                                 args.newer_than_testers, args.movable)))
         elif args.command == 'geo-check':
             lines, problems = geo_check(Play.from_file(args.service_account, package=args.package))
             print('\n'.join(lines))

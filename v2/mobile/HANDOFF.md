@@ -114,7 +114,7 @@ atv-adb Kotlin plugin runs the system UI. The FileProvider now maps only `cache/
 run on a phone (`EXPORT-DISCOVERABILITY.md`).
 Import (2026-11-09) is the other direction: Files › Upload to this folder and More › Install APK
 open Android's open-document picker (`AdbPlugin.pickDocuments`), which copies the picked files into
-`cache/imports/import-<n>/` (32 files, 2 GiB). `src-tauri/src/import_commands.rs` names and checks
+`cache/imports/import-<n>/` (32 files, 64 GiB; 2 GiB for APKs). `src-tauri/src/import_commands.rs` names and checks
 the copies, hands the screen an opaque batch id, pushes one file at a time into the `/sdcard` folder
 being browsed (asks before replacing a file, never replaces a folder, checks the size on the TV),
 and installs an APK set with `install -r` / `install-multiple -r` through the helper Backups restore
@@ -358,7 +358,10 @@ deferred.
 - Design source of truth: `~/Downloads/Shield Optimizer mobile design (1)/ATV Optimizer Mobile.dc.html`
   (20 screen sections; lime `#C9F24E`, Geist/Geist Mono). The `claude_design` MCP is not available
   here; work from the downloaded folder.
-- Launcher icon and in-app BrandMark are the designer's exact glyph (`src-tauri/icons/icon.svg`).
+- Launcher icon and in-app BrandMark share one artwork, `src-tauri/icons/icon.svg`: an ink TV outline on
+  flat-bottomed feet with three solid fader tracks and pill knobs, on a lime gradient (`#DCFF6E` to
+  `#B9E640`). It replaced the filled-TV glyph on 2026-11-23. The gradient is the icon's only; the UI
+  accent stays `#C9F24E`.
 
 ## 6. Validation
 

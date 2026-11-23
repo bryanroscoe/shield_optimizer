@@ -6,6 +6,11 @@
 # What runs:
 #   - push of a `mobile-v*` tag    -> release job, publish mode: one upload released (completed)
 #                                     on Internal testing and the Closed testing track `alpha`
+#   - push to `mobile-internal`    -> release job, publish mode: Internal testing only (completed),
+#                                     the owner's own phone, never the closed-test group; a newer
+#                                     push waits for the running build and replaces one still waiting.
+#                                     Run workflow on that branch (mode publish) rebuilds it on demand,
+#                                     also Internal testing only and completed
 #   - workflow_dispatch            -> mode `build` (signed + verified, no upload), `publish`
 #                                     (choose track and draft/completed) or `smoke`
 #   - pull_request or main push    -> smoke job for mobile inputs: the full build and
@@ -15,11 +20,15 @@
 # and the closed-test Google Group gets it as soon as Google approves the review, because managed
 # publishing is off. Merging to main is therefore not a release; pushing the tag is. To stop a
 # closed release that is still in review, Play Console > Publishing overview > Remove changes.
-# The release job refuses revisions that are not on main, a tag that
-# disagrees with tauri.conf.json, a keystore whose certificate is not the recorded upload
-# certificate, a versionCode that is not above every bundle, APK and track release on Play, and the
-# production track. Credentials are written only after the toolchain and npm dependencies are
-# installed, and each step gets only the secrets it uses.
+# The release job refuses revisions that are not on main (mobile-internal included: advance it to
+# a main commit, `git push origin origin/main:mobile-internal`), a tag that disagrees with
+# tauri.conf.json, a publish to a tester track whose version is not above every release active on
+# one, a keystore whose certificate is not the recorded upload certificate, and the production
+# track. A versionCode derived from the version moves up to the next free code when Play already
+# holds it (internal builds take codes between releases); a code someone set must already be above
+# every upload on Play, except on mobile-internal. Credentials
+# are written only after the toolchain and npm dependencies are installed, and each step gets only
+# the secrets it uses.
 #
 # One-time setup (environment `google-play`, its secrets and variables, the Play service
 # account): v2/mobile/RELEASE.md "Automated release (CI)" and v2/mobile/scripts/setup-play-ci.sh.
@@ -28,7 +37,7 @@ name: Mobile Play release
 
 on:
   push:
-    branches: [main]
+    branches: [main, mobile-internal]
     tags:
       - 'mobile-v*'
     paths:
@@ -74,21 +83,24 @@ on:
         options: [draft, completed]
         default: draft
       version_code:
-        description: 'Override the versionCode (blank = tauri.conf.json bundle.android.versionCode, else derived from the version)'
+        description: 'Override the versionCode (blank = tauri.conf.json bundle.android.versionCode, else derived from the version or the next free code on Play)'
         type: string
         default: ''
 
 permissions:
   contents: read
 
-# Releases queue rather than cancel each other. PR smoke runs cancel superseded ones; unrelated
-# label events neither start nor cancel a run.
+# Releases queue rather than cancel each other, and mobile-internal builds queue in their own group
+# (a running build finishes; the newest push replaces one still waiting). PR smoke runs cancel
+# superseded ones; unrelated label events neither start nor cancel a run. An internal build racing
+# a tag release fails at the upload's versionCode check rather than overwriting anything.
 concurrency:
   group: >-
     ${{ github.workflow }}-${{ github.event_name == 'pull_request'
     && format('pr-{0}-{1}', github.event.pull_request.number,
        ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci') && github.run_id || 'ci')
-    || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-smoke') || 'release' }}
+    || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-smoke')
+    || (github.ref == 'refs/heads/mobile-internal' && 'mobile-internal') || 'release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
@@ -140,7 +152,10 @@ jobs:
         run: |
           python3 v2/mobile/scripts/play-publish.py version > "$RUNNER_TEMP/version.json"
           cat "$RUNNER_TEMP/version.json"
-          echo "code=$(jq -r .version_code "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
+          code="$(jq -r .version_code "$RUNNER_TEMP/version.json")"
+          # Build metadata in the name, as mobile-internal builds carry it, so PRs prove it builds.
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          echo "name=$(jq -r .version "$RUNNER_TEMP/version.json")+smoke.$code" >> "$GITHUB_OUTPUT"
 
       - name: Build
         working-directory: v2/mobile
@@ -149,6 +164,7 @@ jobs:
             --signing-config "$SIGNING_DIR/play-upload.json" \
             --license-key-file "$SIGNING_DIR/license-key" \
             --version-code "${{ steps.version.outputs.code }}" \
+            --version-name "${{ steps.version.outputs.name }}" \
             --previous-version-code 0 --previous-version-source smoke \
             --min-free-gib 15 --build-jobs 4
 
@@ -177,6 +193,7 @@ jobs:
             --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
             --apk "$OUTPUTS/apk/universal/release/app-universal-release.apk" \
             --version-code "${{ steps.version.outputs.code }}" \
+            --version-name "${{ steps.version.outputs.name }}" \
             --expected-cert-sha256 "$UPLOAD_CERT_SHA256" \
             --bundletool "${{ steps.toolchain.outputs.bundletool }}" \
             --keystore "$SIGNING_DIR/smoke.jks" --key-alias smoke \
@@ -208,6 +225,7 @@ jobs:
   release:
     if: >-
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/mobile-v')) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/mobile-internal') ||
       (github.event_name == 'workflow_dispatch' && inputs.mode != 'smoke')
     name: Release (build, verify, upload when publishing)
     runs-on: ubuntu-latest
@@ -215,8 +233,9 @@ jobs:
     environment: google-play
     env:
       MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
-      TRACK: ${{ github.event_name == 'push' && 'internal,alpha' || inputs.track }}
-      STATUS: ${{ github.event_name == 'push' && 'completed' || inputs.status }}
+      TRACK: ${{ github.ref == 'refs/heads/mobile-internal' && 'internal' || (github.event_name == 'push' && 'internal,alpha' || inputs.track) }}
+      STATUS: ${{ (github.event_name == 'push' || github.ref == 'refs/heads/mobile-internal') && 'completed' || inputs.status }}
+      INTERNAL_BUILD: ${{ github.ref == 'refs/heads/mobile-internal' }}
       VERSION_CODE_OVERRIDE: ${{ inputs.version_code }}
     steps:
       - uses: actions/checkout@v5
@@ -227,7 +246,7 @@ jobs:
         run: |
           git fetch --no-tags origin main
           if ! git merge-base --is-ancestor HEAD FETCH_HEAD; then
-            echo "::error::$GITHUB_SHA is not on main. Release only revisions merged into main; verify their CI separately."
+            echo "::error::$GITHUB_SHA is not on main. Release only revisions merged into main; verify their CI separately. For mobile-internal, push a main commit to it: git push origin origin/main:mobile-internal"
             exit 1
           fi
           if [[ ! "$TRACK" =~ ^[a-z0-9:_-]+(,[a-z0-9:_-]+)*$ ]]; then
@@ -254,8 +273,11 @@ jobs:
           if [[ -n "$VERSION_CODE_OVERRIDE" ]]; then args+=(--version-code "$VERSION_CODE_OVERRIDE"); fi
           python3 v2/mobile/scripts/play-publish.py version "${args[@]}" > "$RUNNER_TEMP/version.json"
           cat "$RUNNER_TEMP/version.json"
-          echo "version=$(jq -r .version "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
-          echo "code=$(jq -r .version_code "$RUNNER_TEMP/version.json")" >> "$GITHUB_OUTPUT"
+          {
+            echo "version=$(jq -r .version "$RUNNER_TEMP/version.json")"
+            echo "code=$(jq -r .version_code "$RUNNER_TEMP/version.json")"
+            echo "source=$(jq -r .version_code_source "$RUNNER_TEMP/version.json")"
+          } >> "$GITHUB_OUTPUT"
 
       # Only whether each input is set; no credential value reaches this step.
       - name: Check the release inputs are set
@@ -308,23 +330,38 @@ jobs:
             echo "UPLOAD_CERT_SHA256=$expected"
           } >> "$GITHUB_ENV"
 
-      - name: Check Play's highest versionCode
+      # Internal builds are named tauri.conf.json's version plus their code (0.1.5+internal.1006),
+      # so the phone and Play Console tell them apart from that release.
+      - name: Choose the versionCode against Play
         id: play
         env:
           SERVICE_ACCOUNT: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          VERSION: ${{ steps.version.outputs.version }}
+          CODE: ${{ steps.version.outputs.code }}
+          SOURCE: ${{ steps.version.outputs.source }}
         run: |
           umask 077
           account="$PLAY_DIR/service-account.json"
           trap 'rm -f "$account"' EXIT
           printf '%s' "$SERVICE_ACCOUNT" > "$account"
-          highest="$(python3 v2/mobile/scripts/play-publish.py highest --service-account "$account")"
-          echo "Highest versionCode on Play: $highest"
-          code="${{ steps.version.outputs.code }}"
-          if (( code <= highest )); then
-            echo "::error::versionCode $code is not above $highest, the highest on Play. Bump the version (mobile/scripts/bump-version.sh) or set bundle.android.versionCode."
-            exit 1
-          fi
-          echo "highest=$highest" >> "$GITHUB_OUTPUT"
+          args=()
+          IFS=',' read -ra tracks <<< "$TRACK"
+          for track in "${tracks[@]}"; do
+            if [[ "$MODE" == publish && "$track" != internal ]]; then args+=(--newer-than-testers); break; fi
+          done
+          if [[ "$INTERNAL_BUILD" == true && -z "$VERSION_CODE_OVERRIDE" ]]; then args+=(--movable); fi
+          python3 v2/mobile/scripts/play-publish.py next-code --service-account "$account" \
+            --version "$VERSION" --version-code "$CODE" --version-code-source "$SOURCE" "${args[@]}" \
+            > "$RUNNER_TEMP/next-code.json"
+          cat "$RUNNER_TEMP/next-code.json"
+          code="$(jq -r .version_code "$RUNNER_TEMP/next-code.json")"
+          name="$VERSION"
+          if [[ "$INTERNAL_BUILD" == true ]]; then name="$VERSION+internal.$code"; fi
+          {
+            echo "highest=$(jq -r .highest "$RUNNER_TEMP/next-code.json")"
+            echo "code=$code"
+            echo "name=$name"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build
         working-directory: v2/mobile
@@ -344,7 +381,8 @@ jobs:
           python3 scripts/build-play-release.py \
             --signing-config "$signing" \
             --license-key-file "$PLAY_DIR/play-license-key" \
-            --version-code "${{ steps.version.outputs.code }}" \
+            --version-code "${{ steps.play.outputs.code }}" \
+            --version-name "${{ steps.play.outputs.name }}" \
             --previous-version-code "${{ steps.play.outputs.highest }}" --previous-version-source play-api \
             --min-free-gib 15 --build-jobs 4
 
@@ -375,7 +413,8 @@ jobs:
           python3 v2/mobile/scripts/verify-play-bundle.py \
             --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
             --apk "$OUTPUTS/apk/universal/release/app-universal-release.apk" \
-            --version-code "${{ steps.version.outputs.code }}" \
+            --version-code "${{ steps.play.outputs.code }}" \
+            --version-name "${{ steps.play.outputs.name }}" \
             --expected-cert-sha256 "$UPLOAD_CERT_SHA256" \
             --bundletool "${{ steps.toolchain.outputs.bundletool }}" \
             --keystore "$PLAY_DIR/upload.jks" --key-alias "$KEY_ALIAS" \
@@ -388,7 +427,7 @@ jobs:
       - name: Keep the verified artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: atv-optimizer-android-${{ steps.version.outputs.version }}-${{ steps.version.outputs.code }}
+          name: atv-optimizer-android-${{ steps.play.outputs.name }}-${{ steps.play.outputs.code }}
           path: |
             ${{ env.OUTPUTS }}/bundle/universalRelease/app-universal-release.aab
             ${{ env.OUTPUTS }}/apk/universal/release/app-universal-release.apk
@@ -414,8 +453,8 @@ jobs:
             --service-account "$account" \
             --aab "$OUTPUTS/bundle/universalRelease/app-universal-release.aab" \
             --track "$TRACK" --status "$STATUS" \
-            --version-code "${{ steps.version.outputs.code }}" \
-            --release-name "${{ steps.version.outputs.version }} (${{ steps.version.outputs.code }})" \
+            --version-code "${{ steps.play.outputs.code }}" \
+            --release-name "${{ steps.play.outputs.name }} (${{ steps.play.outputs.code }})" \
             | tee "$RUNNER_TEMP/publish.json"
 
       - name: Summary
@@ -424,7 +463,7 @@ jobs:
           UPLOAD_OUTCOME: ${{ steps.upload.outcome }}
         run: |
           {
-            echo "## ATV Optimizer for Android ${{ steps.version.outputs.version }} (versionCode ${{ steps.version.outputs.code }})"
+            echo "## ATV Optimizer for Android ${{ steps.play.outputs.name || steps.version.outputs.version }} (versionCode ${{ steps.play.outputs.code || steps.version.outputs.code }})"
             echo
             echo "- Mode: \`$MODE\`, source \`$GITHUB_SHA\`"
             echo "- Highest versionCode on Play before this run: ${{ steps.play.outputs.highest || 'not checked' }}"
@@ -434,7 +473,7 @@ jobs:
             fi
             python3 v2/mobile/scripts/release-evidence.py publish \
               --outcome "$UPLOAD_OUTCOME" --receipt "$RUNNER_TEMP/publish.json" \
-              --track "$TRACK" --status "$STATUS" --version-code "${{ steps.version.outputs.code }}"
+              --track "$TRACK" --status "$STATUS" --version-code "${{ steps.play.outputs.code || steps.version.outputs.code }}"
             echo
             echo "Still manual: Play pre-launch report, actual 16 KB page-size runtime, the phone/TV and purchase matrices (v2/mobile/RELEASE.md)."
           } >> "$GITHUB_STEP_SUMMARY"

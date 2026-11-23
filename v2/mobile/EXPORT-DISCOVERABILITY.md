@@ -123,12 +123,12 @@ The other direction, for the documents the user picks and only for the selected 
 - **Bridge.** `AdbPlugin.pickDocuments` (Kotlin, called only from Rust) opens
   `ACTION_OPEN_DOCUMENT` (`*/*`, `EXTRA_ALLOW_MULTIPLE`) and copies each picked document into the
   staging folder Rust created, `<cache>/imports/import-<n>/<index>.part`, under the caps Rust sends:
-  32 documents, 2 GiB each and 2 GiB together, checked against the provider's `SIZE` before
+  32 documents, 64 GiB each and 64 GiB together (2 GiB for Install APK), checked against the provider's `SIZE` before
   copying and enforced by a bounded copy (`ImportCopy.copyBounded`) for providers that don't
   report one; free space is checked first when the size is known. A failed or over-limit copy
   deletes what it wrote and reports why; a dismissed picker is `canceled`. No persistable grant is
   taken and no URI is kept after its copy. A stale request is rejected by the next pick, as with
-  Save a copy. One pick at a time; it gives up after 30 minutes.
+  Save a copy. One pick at a time; it gives up after 2 hours.
 - **Staging** (`src-tauri/src/import_commands.rs`). Only `<index>.part` regular files directly
   in that folder, with the reported size, are accepted (symlinks refused). Each is renamed
   `<NNN>-<safe name>`: the display name with separators and control characters replaced, no
@@ -153,8 +153,11 @@ The other direction, for the documents the user picks and only for the selected 
   acknowledgement explicitly reports uncertainty. User-approved replacements use `mv -fT`, so
   a directory appearing at commit is refused rather than receiving a hidden file. Temporary-copy
   cleanup is best effort and any unconfirmed residue is disclosed. The whole transaction has the
-  transport's 15-minute deadline, which a 2 GiB file on slow Wi-Fi can exceed. No step reconnects
-  by address after a failure. Targets use the same `/sdcard` bound as delete. Two
+  transport's deadline: 15 minutes plus one second per MiB (49 minutes for 2 GiB),
+  two per MiB for a new file, whose commit copies it again on the TV, with the
+  socket's read and write timeouts catching a stall sooner. A file of 4 GiB or more bound for a
+  FAT32 drive is refused before the transfer. No step reconnects
+  by address after a failure. Targets use the same bound as delete: `/sdcard` or a USB drive. Two
   picked files with one name (compared without case) get ` (2)`, ` (3)` suffixes. Uploaded files
   are listed for the session with their TV path, and the folder can't be left or deleted from
   while an upload runs.

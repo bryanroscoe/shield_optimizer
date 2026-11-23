@@ -24,7 +24,7 @@ class BundleGate(unittest.TestCase):
         self.aab = self.dir / 'app.aab'
         self.write_bundle()
         self.values = {'jar': 'jar verified.', 'cert': f'Certificate fingerprints:\n\t SHA256: {CERT}\n',
-                       'package': 'com.atvoptimizer.mobile', 'code': '1002',
+                       'package': 'com.atvoptimizer.mobile', 'code': '1002', 'name': '0.1.5+internal.1002',
                        'apk_cert': f'Signer #1 certificate SHA-256 digest: {HEX}\n'}
         self.calls = []
         self.apk_results = []
@@ -56,6 +56,8 @@ class BundleGate(unittest.TestCase):
             out = self.values['package'] + '\n'
         elif 'versionCode' in joined:
             out = self.values['code'] + '\n'
+        elif 'versionName' in joined:
+            out = self.values['name'] + '\n'
         elif 'build-apks' in joined:
             ks_pass = next(a for a in args if a.startswith('--ks-pass=file:')).split(':', 1)[1]
             self.assertEqual(Path(ks_pass).read_text(), 'store-secret')
@@ -108,6 +110,15 @@ class BundleGate(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, pattern):
                     gate.verify(self.args(), run=self.fake_run)
                 self.values[key] = saved
+
+    def test_version_name_is_checked_only_when_given(self):
+        result = gate.verify(self.args(version_name='0.1.5+internal.1002'), run=self.fake_run)
+        self.assertIn('manifest-versionName', result['verified'])
+        with self.assertRaisesRegex(ValueError, 'versionName is not 0.1.5'):
+            gate.verify(self.args(version_name='0.1.5'), run=self.fake_run)
+        self.calls.clear()
+        self.assertNotIn('manifest-versionName', gate.verify(self.args(), run=self.fake_run)['verified'])
+        self.assertFalse(any('versionName' in ' '.join(map(str, call)) for call in self.calls))
 
     def test_gradle_apk_version_mismatch(self):
         self.apk_results = [1002, 1001]
