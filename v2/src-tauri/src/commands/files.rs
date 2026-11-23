@@ -1,6 +1,7 @@
 //! File manager — browse / download / upload / delete on the device's user
-//! storage. Confined to `/sdcard`: system paths stay out of reach, which is
-//! the same foot-gun avoidance v1 practiced (and aTV Tools doesn't).
+//! storage. Confined to `/sdcard` and removable drives under `/storage/<uuid>`:
+//! system paths stay out of reach, which is the same foot-gun avoidance v1
+//! practiced (and aTV Tools doesn't).
 
 use std::path::{Path, PathBuf};
 
@@ -8,7 +9,8 @@ use serde::Serialize;
 use tauri::State;
 
 use atv_optimizer_core::commands::files::{
-    delete_path_with, find_files_with, validate_device_path, validate_sdcard_path, FindResult,
+    delete_path_with, find_files_with, list_storage_volumes_with, validate_device_path,
+    validate_sdcard_path, FindResult, StorageVolume,
 };
 
 use crate::adb::{parse_ls_output, FileEntry};
@@ -20,7 +22,18 @@ fn quote_path(p: &str) -> String {
     format!("'{}'", p.replace('\'', r"'\''"))
 }
 
-/// `list_dir` — entries of a directory under `/sdcard`, folders first.
+/// `list_storage_volumes` — USB drives and SD cards the TV has mounted as
+/// portable storage, so the Files tab can offer them next to `/sdcard`.
+#[tauri::command]
+pub async fn list_storage_volumes(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<StorageVolume>, String> {
+    let adb = state.adb_snapshot().await;
+    list_storage_volumes_with(adb.as_ref(), &serial).await
+}
+
+/// `list_dir` — entries of a directory in user storage, folders first.
 #[tauri::command]
 pub async fn list_dir(
     state: State<'_, AppState>,
@@ -231,7 +244,7 @@ fn sanitize_temp(name: &str) -> String {
 }
 
 /// `delete_path` — remove a file or directory (recursively). Confined to
-/// `/sdcard` unless `allow_system` (power-user) is set; the UI confirms before
+/// user storage unless `allow_system` (power-user) is set; the UI confirms before
 /// calling, and core's `protected_delete_reason` still blocks catastrophic
 /// targets.
 #[tauri::command]

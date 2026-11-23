@@ -676,3 +676,11 @@ export interface FindResult {
   hits: string[];
   unsearched: string[];
 }
+
+/// A USB drive or SD card mounted as portable storage (crates/core commands::files::StorageVolume).
+export interface StorageVolume {
+  /// `/storage/<uuid>`.
+  path: string;
+  uuid: string;
+  read_only: boolean;
+}

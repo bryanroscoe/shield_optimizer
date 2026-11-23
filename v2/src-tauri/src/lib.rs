@@ -319,6 +319,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         backup::backup_apk,
         backup::clone_app,
         files::list_dir,
+        files::list_storage_volumes,
         files::pull_file,
         files::push_file,
         files::delete_path,

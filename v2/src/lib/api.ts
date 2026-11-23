@@ -38,6 +38,7 @@ import type {
   DisplayScalePreset,
   DisplayScaleResult,
   FileEntry,
+  StorageVolume,
   FileTransferResult,
   FindResult,
   HealthReport,
@@ -283,6 +284,9 @@ export const api = {
     invoke<FileTransferResult>("pull_file", { serial, remotePath, localDir, allowSystem }),
   pushFile: (serial: string, localPath: string, remoteDir: string, allowSystem = false) =>
     invoke<FileTransferResult>("push_file", { serial, localPath, remoteDir, allowSystem }),
+  /// USB drives and SD cards mounted as portable storage, at `/storage/<uuid>`.
+  listStorageVolumes: (serial: string) =>
+    invoke<StorageVolume[]>("list_storage_volumes", { serial }),
   deletePath: (serial: string, path: string, allowSystem = false) =>
     invoke<FileTransferResult>("delete_path", { serial, path, allowSystem }),
   findFiles: (serial: string, dirs: string[], pattern: string) =>
