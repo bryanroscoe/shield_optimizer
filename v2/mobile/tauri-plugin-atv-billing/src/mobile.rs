@@ -63,6 +63,14 @@ impl<R: Runtime> Billing<R> {
     pub fn acknowledge(&self, purchase_token: &str) -> Result<BillingResultResponse> {
         Ok(self
             .0
-            .run_mobile_plugin("acknowledge", AcknowledgeArgs { purchase_token })?)
+            .run_mobile_plugin("acknowledge", TokenArgs { purchase_token })?)
+    }
+
+    /// Consume a purchase (which also acknowledges it). The app calls this
+    /// only for verified tip purchases, never for Pro.
+    pub fn consume(&self, purchase_token: &str) -> Result<BillingResultResponse> {
+        Ok(self
+            .0
+            .run_mobile_plugin("consume", TokenArgs { purchase_token })?)
     }
 }

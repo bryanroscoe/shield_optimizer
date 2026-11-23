@@ -16,6 +16,7 @@ import com.android.billingclient.api.BillingClient.ProductType
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
@@ -42,7 +43,7 @@ internal class ProductArgs {
 }
 
 @InvokeArg
-internal class AcknowledgeArgs {
+internal class TokenArgs {
   var purchaseToken: String = ""
 }
 
@@ -55,8 +56,9 @@ internal class WatchPurchasesArgs {
  * Thin adapter over the Play Billing Library. It decides nothing: every
  * response carries Play's response code, and purchases go back to Rust as the
  * signed `originalJson` plus `signature`, which Rust verifies against the
- * app's Play license key before any entitlement changes. Consumption is never
- * called; Pro is a non-consumable one-time product.
+ * app's Play license key before any entitlement changes. `consume` runs only
+ * when Rust asks for it, which it does only for a verified tip purchase (a
+ * consumable that unlocks nothing). Pro is non-consumable and never consumed.
  */
 @TauriPlugin
 class BillingPlugin(private val activity: Activity) : Plugin(activity), PurchasesUpdatedListener {
@@ -195,7 +197,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   fun acknowledge(invoke: Invoke) {
     scope.launch {
       try {
-        val args = invoke.parseArgs(AcknowledgeArgs::class.java)
+        val args = invoke.parseArgs(TokenArgs::class.java)
         val connection = connect()
         if (connection.responseCode != BillingResponseCode.OK) {
           invoke.resolve(resultJson(connection))
@@ -204,6 +206,27 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         val params = AcknowledgePurchaseParams.newBuilder().setPurchaseToken(args.purchaseToken).build()
         val result = suspendCancellableCoroutine { cont ->
           client.acknowledgePurchase(params) { result -> if (cont.isActive) cont.resume(result) }
+        }
+        invoke.resolve(resultJson(result))
+      } catch (error: Throwable) {
+        invoke.reject(error.message ?: error.javaClass.simpleName)
+      }
+    }
+  }
+
+  @Command
+  fun consume(invoke: Invoke) {
+    scope.launch {
+      try {
+        val args = invoke.parseArgs(TokenArgs::class.java)
+        val connection = connect()
+        if (connection.responseCode != BillingResponseCode.OK) {
+          invoke.resolve(resultJson(connection))
+          return@launch
+        }
+        val params = ConsumeParams.newBuilder().setPurchaseToken(args.purchaseToken).build()
+        val result = suspendCancellableCoroutine { cont ->
+          client.consumeAsync(params) { result, _ -> if (cont.isActive) cont.resume(result) }
         }
         invoke.resolve(resultJson(result))
       } catch (error: Throwable) {

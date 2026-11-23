@@ -6,7 +6,7 @@
 import { api, sendTelemetry } from "./api";
 import { recordAction } from "../../../shared/telemetry";
 import { session } from "./session.svelte";
-import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind } from "./types";
+import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind, TipOutcome } from "./types";
 
 export const FREE_RECOVERY_PROMISE = "Re-enabling apps and emergency recovery are always free.";
 
@@ -49,6 +49,10 @@ class BillingStore {
   purchasing = $state(false);
   /// The product whose purchase sheet is open, so only its button says so.
   purchasingId = $state<string | null>(null);
+  /// The tip whose purchase sheet is open. Tips never change the entitlement.
+  tippingId = $state<string | null>(null);
+  tipMessage = $state("");
+  tipTone = $state<Tone>("info");
   restoring = $state(false);
   message = $state("");
   tone = $state<Tone>("info");
@@ -73,8 +77,17 @@ class BillingStore {
     return this.status?.sources.includes("play") ?? false;
   }
 
-  get supportOffers(): PlayOffer[] {
-    return this.status?.support_offers ?? [];
+  /// Tips Play returned a price for. Offered only to Pro owners in Google
+  /// Play builds; empty everywhere else, so nothing shows.
+  get tipOffers(): PlayOffer[] {
+    const s = this.status;
+    if (!s || s.distribution !== "play" || !s.available || !s.tips_available) return [];
+    if (s.entitlement !== "pro") return [];
+    return s.tip_offers ?? [];
+  }
+
+  get tipPending(): boolean {
+    return this.status?.tip_pending ?? false;
   }
 
   get pending(): boolean {
@@ -173,15 +186,15 @@ class BillingStore {
     }
   }
 
-  /// Buy Pro. A support tier's product id buys the same Pro at its higher price.
-  async purchase(productId?: string): Promise<PurchaseOutcome | null> {
-    if (this.purchasing || this.restoring) return null;
+  /// Buy Pro (the standard product; the only one the app sells for Pro).
+  async purchase(): Promise<PurchaseOutcome | null> {
+    if (this.purchasing || this.restoring || this.tippingId) return null;
     this.userChecks++;
     this.purchasing = true;
-    this.purchasingId = productId ?? this.status?.offer?.product_id ?? null;
+    this.purchasingId = this.status?.offer?.product_id ?? null;
     this.say("", "info");
     try {
-      const outcome = await api.billingPurchase(productId);
+      const outcome = await api.billingPurchase();
       this.apply(outcome?.status);
       reportPurchaseOutcome(outcome?.outcome);
       switch (outcome?.outcome) {
@@ -205,6 +218,41 @@ class BillingStore {
     } finally {
       this.purchasing = false;
       this.purchasingId = null;
+    }
+  }
+
+  /// Leave a tip. The backend verifies and finishes it with Google Play; it
+  /// unlocks nothing, so the entitlement is never touched here. Not reported
+  /// to telemetry.
+  async tip(productId: string): Promise<TipOutcome | null> {
+    if (this.tippingId || this.purchasing || this.restoring) return null;
+    this.tippingId = productId;
+    this.tipMessage = "";
+    try {
+      const outcome = await api.billingTip(productId);
+      this.apply(outcome?.status);
+      switch (outcome?.outcome) {
+        case "thanked":
+          this.tipMessage = outcome.message;
+          this.tipTone = "success";
+          break;
+        case "pending":
+          this.tipMessage = outcome.message;
+          this.tipTone = "info";
+          break;
+        case "canceled":
+          break;
+        default:
+          this.tipMessage = outcome?.message || "Google Play reported an error. Try again.";
+          this.tipTone = "error";
+      }
+      return outcome ?? null;
+    } catch (e) {
+      this.tipMessage = String(e).replace(/^.*Error:\s*/, "") || "Google Play reported an error. Try again.";
+      this.tipTone = "error";
+      return null;
+    } finally {
+      this.tippingId = null;
     }
   }
 }

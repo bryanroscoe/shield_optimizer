@@ -2,8 +2,10 @@
 
 This is a click-by-click guide for the owner to publish the Android app `com.atvoptimizer.mobile`
 on Google Play as a free download with a one-time in-app purchase, **ATV Optimizer Pro**
-(`atvopt_pro`, US $4.99), plus two optional "Support me" tiers that unlock the same Pro
-(`atvopt_pro_support_1` at $9.99, `atvopt_pro_support_2` at $19.99). It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
+(`atvopt_pro`, US $4.99), plus four optional consumable tips that unlock nothing
+(`atvopt_tip_2`, `atvopt_tip_5`, `atvopt_tip_10`, `atvopt_tip_20`). The two earlier "Support me"
+tiers (`atvopt_pro_support_1`, `atvopt_pro_support_2`) are retired: inactive in Play, still Pro
+for anyone who bought one. It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
 and signing. The build inputs it refers to (`ATVOPT_DISTRIBUTION=play`, `ATVOPT_PLAY_LICENSE_KEY`,
 `ATVOPT_TELEMETRY_URL`) are described in RELEASE.md §5.
 
@@ -44,8 +46,9 @@ consecutive days**. Both run on Google's clock, so start them first.
 **Phase 3: first build and product (agent builds, owner uploads, about 1 hour)**
 - [ ] 3.1 Agent builds the signed Play AAB with a fresh `versionCode` and verifies the signature
 - [ ] 3.2 AAB uploaded to **Internal testing** and rolled out; Play App Signing fingerprints copied to 1Password
-- [ ] 3.3 One-time products `atvopt_pro` (US $4.99), `atvopt_pro_support_1` (US $9.99) and
-  `atvopt_pro_support_2` (US $19.99) created, one Buy option each, **Activated**
+- [ ] 3.3 One-time product `atvopt_pro` (US $4.99) and tips `atvopt_tip_2`, `_5`, `_10`, `_20`
+  (US $2, $5, $10, $20) created, one Buy option each, **Activated**; the retired
+  `atvopt_pro_support_1` and `atvopt_pro_support_2` **inactive**, never deleted
 - [ ] 3.4 License testers added (owner and non-supporter testers who will try purchases)
 
 **Phase 4: closed test, which starts the 14-day clock (owner)**
@@ -565,17 +568,26 @@ Unlocked only after 3.2 (<https://developer.android.com/google/play/billing/gett
 
 Help: <https://support.google.com/googleplay/android-developer/answer/16430488>
 
-7. Repeat steps 1-6 for the two optional **Support me** tiers. They unlock exactly the same Pro;
-   the higher price is support, so the descriptions must not promise anything extra:
-   - **Product ID** `atvopt_pro_support_1`, **Name** `ATV Optimizer Pro (supporter)`, USD **9.99**.
-   - **Product ID** `atvopt_pro_support_2`, **Name** `ATV Optimizer Pro (big supporter)`, USD **19.99**.
-   - **Description** for both: `The same Pro unlock as ATV Optimizer Pro, at a higher price to support development. One-time purchase.`
-   The ids must match `SUPPORT_PRODUCT_IDS` in `src-tauri/src/play_billing.rs`; prices can change
-   later in Play Console without an app update. The app shows only the tiers Play returns, so a tier
-   left inactive simply doesn't appear.
+7. Repeat steps 1-6 for the four **tips**. A tip unlocks nothing, so names and descriptions must
+   not promise anything. Play has no consumable setting: a tip is consumable because the app
+   consumes it after verifying it, which also acknowledges it and lets the same tip be bought
+   again. Leave multi-quantity off.
+   - **Product ID** `atvopt_tip_2`, **Name** `Tip $2`, USD **2.00**.
+   - **Product ID** `atvopt_tip_5`, **Name** `Tip $5`, USD **5.00**.
+   - **Product ID** `atvopt_tip_10`, **Name** `Tip $10`, USD **10.00**.
+   - **Product ID** `atvopt_tip_20`, **Name** `Tip $20`, USD **20.00**.
+   - **Description** for all: `A tip to say thanks for ATV Optimizer. It doesn't unlock anything.`
+   The ids must match `TIP_PRODUCT_IDS` in `src-tauri/src/play_billing.rs`; prices can change
+   later in Play Console without an app update. The app shows only the tips Play returns a price
+   for, so a tip left inactive simply doesn't appear.
+8. **Retired Support me tiers.** `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2`
+   ($19.99) were sold 2026-11-08 to 2026-11-23 and unlock the same Pro. The app no longer offers
+   them. Set both **Inactive**; never delete them, because past buyers' Pro and restores depend on
+   the ids (`SUPPORT_PRODUCT_IDS`).
 
-**Done when:** all three products show Active, and the app (installed from Play) shows the local
-price on Buy Pro plus a **Support me** row with both tiers in More and on the paywall.
+**Done when:** `atvopt_pro` and the four tips show Active and the two support tiers Inactive, and
+the app (installed from Play) shows the local price on Buy Pro; once Pro is owned, More's
+Licensing card shows a **Leave a tip** link listing the four tips in local currency.
 
 ### 3.4 License testers. OWNER
 
@@ -633,7 +645,8 @@ plus a promo-code redemption (Phase 5). Two rules make it executable and meaning
 (<https://developer.android.com/google/play/billing/test>):
 
 - **Run the cases in the script's order.** `atvopt_pro` is a non-consumable, so an account that
-  owns it gets "already owned" instead of a new payment sheet. The script is ordered so each case
+  owns it gets "already owned" instead of a new payment sheet. Tips are consumed, so the same tip
+  can be bought again. The script is ordered so each case
   starts in the state it needs: the Free cases first, then the slow-card purchase, the owned cases
   (acknowledgment, restore, offline), the refund back to Free, a second purchase, and promo
   redemption on an account that doesn't own Pro. To rerun a case that needs Free, first refund

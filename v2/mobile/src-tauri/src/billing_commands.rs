@@ -13,6 +13,12 @@
 //! plugin's `purchases-updated` event, which the frontend answers with a forced
 //! `billing_refresh`) and after every purchase flow. It is what restores Pro on a new install and what notices refunds and
 //! revocations.
+//!
+//! The same query also finishes tips (Play builds only): every verified,
+//! PURCHASED tip it lists is consumed, which acknowledges it before Play's
+//! three-day refund deadline. Tips are kept apart from Pro end to end: they
+//! never change `PlayState`, the cache or the entitlement, and a tip query or
+//! consume failure is only logged and retried.
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -25,16 +31,17 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_atv_billing::{response_code, BillingExt, ProductInfo, RawPurchase};
 
 use crate::play_billing::{
-    cached_owned_state, effective_entitlement, is_pro_product, reconcile, reconcile_flow,
-    response_message, CacheAction, CachedPurchase, Distribution, PlayState, PlayVerifier,
-    QueryOutcome, PLAY_LICENSE_KEY, PRO_PRODUCT_ID, PRO_PRODUCT_IDS, SUPPORT_PRODUCT_IDS,
+    cached_owned_state, effective_entitlement, is_tip_product, reconcile, reconcile_flow,
+    reconcile_tips, response_message, CacheAction, CachedPurchase, ConsumableTip, Distribution,
+    PlayState, PlayVerifier, QueryOutcome, TipsReconciled, PLAY_LICENSE_KEY, PRO_PRODUCT_ID,
+    TIP_PRODUCT_IDS,
 };
 
 /// Automatic refreshes (launch, resume) closer together than this reuse the
 /// last answer. Restore purchases and purchase flows always ask Play.
 const AUTO_REFRESH_MIN_INTERVAL_MS: i64 = 30_000;
-/// A support tier Play didn't return (inactive in Play Console, say) is asked
-/// for again at most this often. A missing standard Pro price is always retried.
+/// A tip price Play didn't return (inactive in Play Console, say) is asked for
+/// again at most this often. A missing standard Pro price is always retried.
 const OFFER_RETRY_MS: i64 = 10 * 60 * 1000;
 const QUERY_TIMEOUT: Duration = Duration::from_secs(30);
 /// The purchase sheet stays open while the user decides; this only bounds an
@@ -50,7 +57,11 @@ const OWNED_RESTORED: &str = "Pro restored from Google Play. Nothing was charged
 /// phone doesn't have the first yet (a code redeemed on the website, say).
 const OWNED_NOT_SENT: &str = "Google Play has this purchase on your account but hasn't sent it to this phone yet, so nothing was charged. Wait a minute, then tap Restore purchases.";
 
-/// Play's localized offer for one Pro product, for display only.
+const TIP_THANKS: &str = "Thank you for the tip!";
+const TIPS_PLAY_ONLY: &str = "Tips are only available in the Google Play version of the app.";
+const TIPS_NEED_PRO: &str = "Tips are available once Pro is unlocked.";
+
+/// Play's localized offer for one product (Pro or a tip), for display only.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Offer {
     pub product_id: String,
@@ -83,11 +94,15 @@ pub struct BillingStatus {
     /// Whether Buy / Restore purchases can work in this build on this device.
     pub available: bool,
     pub play: PlayState,
-    /// The standard Pro product.
+    /// The standard Pro product, the only one the app sells for Pro.
     pub offer: Option<Offer>,
-    /// Pay-more tiers Play returned, in display order. Each unlocks the same
-    /// Pro as `offer`.
-    pub support_offers: Vec<Offer>,
+    /// Whether this build may offer tips: a Play build where billing works.
+    pub tips_available: bool,
+    /// Tips Play returned a price for, in display order. Asked for only while
+    /// Pro is unlocked, the only time the app shows them. A tip unlocks nothing.
+    pub tip_offers: Vec<Offer>,
+    /// A tip is waiting on payment. It is finished once Play confirms it.
+    pub tip_pending: bool,
     /// A granted purchase Play has not yet confirmed as acknowledged; retried
     /// on the next refresh.
     pub ack_pending: bool,
@@ -118,11 +133,12 @@ struct Inner {
     license_pro: bool,
     play: PlayState,
     cache: Option<CachedPurchase>,
-    /// Offers Play returned, keyed by their Pro product id.
+    /// Offers Play returned: the standard Pro product and tips.
     offers: Vec<Offer>,
     offers_checked_ms: Option<i64>,
     last_query_ms: Option<i64>,
     ack_pending: bool,
+    tip_pending: bool,
 }
 
 /// Billing state for one app run. Pure apart from its locks, so the state
@@ -141,6 +157,8 @@ pub struct BillingCore {
 pub struct Applied {
     pub cache: CacheAction,
     pub acknowledge: Vec<String>,
+    /// Verified tips to consume. Never a Pro purchase (see [`ConsumableTip`]).
+    pub consume: Vec<ConsumableTip>,
 }
 
 impl BillingCore {
@@ -189,6 +207,7 @@ impl BillingCore {
                 offers_checked_ms: None,
                 last_query_ms: None,
                 ack_pending: false,
+                tip_pending: false,
             }),
             op: tokio::sync::Mutex::new(()),
         }
@@ -224,6 +243,11 @@ impl BillingCore {
         self.distribution
     }
 
+    /// Tips are a Google Play build feature, and need working billing.
+    pub fn tips_enabled(&self) -> bool {
+        self.verifier.is_some() && self.distribution == Distribution::Play
+    }
+
     pub fn effective(&self) -> Entitlement {
         let inner = self.lock();
         effective_entitlement(inner.license_pro, &inner.play)
@@ -237,11 +261,13 @@ impl BillingCore {
         self.lock().license_pro = pro && self.distribution.allows_license_keys();
     }
 
-    /// Pro products whose price Play hasn't returned yet this run.
+    /// Products whose price Play hasn't returned yet this run: the standard
+    /// Pro product, and the tips while Pro is unlocked in a build with tips.
     pub fn missing_offers(&self) -> Vec<&'static str> {
+        let tips = self.tips_enabled() && self.effective() == Entitlement::Pro;
         let inner = self.lock();
-        PRO_PRODUCT_IDS
-            .into_iter()
+        std::iter::once(PRO_PRODUCT_ID)
+            .chain(TIP_PRODUCT_IDS.into_iter().filter(|_| tips))
             .filter(|id| !inner.offers.iter().any(|o| o.product_id == *id))
             .collect()
     }
@@ -261,9 +287,10 @@ impl BillingCore {
         missing
     }
 
-    /// Record Play's offer for a Pro product. Anything else is dropped.
+    /// Record Play's offer for the Pro product or a tip. Anything else
+    /// (including the retired support tiers) is dropped.
     pub fn set_offer(&self, offer: Offer) {
-        if !is_pro_product(&offer.product_id) {
+        if offer.product_id != PRO_PRODUCT_ID && !is_tip_product(&offer.product_id) {
             return;
         }
         let mut inner = self.lock();
@@ -283,9 +310,16 @@ impl BillingCore {
             return Applied {
                 cache: CacheAction::Keep,
                 acknowledge: Vec::new(),
+                consume: Vec::new(),
             };
         };
         let succeeded = matches!(outcome, QueryOutcome::Owned(_));
+        let tips = match &outcome {
+            QueryOutcome::Owned(purchases) if self.tips_enabled() => {
+                Some(reconcile_tips(verifier, purchases))
+            }
+            _ => None,
+        };
         let mut inner = self.lock();
         let r = reconcile(verifier, inner.cache.as_ref(), outcome, now_ms);
         if r.rejected > 0 {
@@ -299,10 +333,15 @@ impl BillingCore {
             inner.last_query_ms = Some(now_ms);
             inner.ack_pending = !r.acknowledge.is_empty();
         }
+        // A complete owned list is the whole truth about pending tips too.
+        if let Some(t) = &tips {
+            inner.tip_pending = t.pending;
+        }
         Self::apply_cache(&mut inner, &r.cache);
         Applied {
             cache: r.cache,
             acknowledge: r.acknowledge,
+            consume: tips.map(|t| t.consume).unwrap_or_default(),
         }
     }
 
@@ -318,7 +357,21 @@ impl BillingCore {
         Some(Applied {
             cache: r.cache,
             acknowledge: r.acknowledge,
+            consume: Vec::new(),
         })
+    }
+
+    /// Apply a tip purchase flow's result. It never touches Pro: the Play
+    /// state, the cache and the entitlement stay exactly as they were.
+    pub fn apply_tip_flow(&self, purchases: &[RawPurchase]) -> TipsReconciled {
+        let Some(verifier) = self.verifier.as_ref().filter(|_| self.tips_enabled()) else {
+            return TipsReconciled::default();
+        };
+        let tips = reconcile_tips(verifier, purchases);
+        if tips.pending {
+            self.lock().tip_pending = true;
+        }
+        tips
     }
 
     fn apply_cache(inner: &mut Inner, action: &CacheAction) {
@@ -360,10 +413,13 @@ impl BillingCore {
                 .iter()
                 .find(|o| o.product_id == PRO_PRODUCT_ID)
                 .cloned(),
-            support_offers: SUPPORT_PRODUCT_IDS
+            tips_available: self.tips_enabled(),
+            tip_offers: TIP_PRODUCT_IDS
                 .iter()
+                .filter(|_| self.tips_enabled())
                 .filter_map(|id| inner.offers.iter().find(|o| o.product_id == *id).cloned())
                 .collect(),
+            tip_pending: inner.tip_pending,
             ack_pending: inner.ack_pending,
             product_id: PRO_PRODUCT_ID,
         }
@@ -454,6 +510,23 @@ async fn acknowledge(app: &AppHandle, core: &BillingCore, tokens: Vec<String>) {
     core.acknowledged(all_ok);
 }
 
+/// Consume verified tips (Play's consume also acknowledges). Only a
+/// [`ConsumableTip`] can reach the native consume call, so a Pro purchase never
+/// does. A failure is logged and retried by the next refresh; it never touches
+/// Pro. Returns whether every tip was consumed.
+async fn consume_tips(app: &AppHandle, tips: Vec<ConsumableTip>) -> bool {
+    let mut all_ok = true;
+    for tip in tips {
+        let token = tip.token().to_string();
+        let result = plugin_call(app, QUERY_TIMEOUT, move |b| b.consume(&token)).await;
+        if !matches!(&result, Ok(r) if r.response_code == response_code::OK) {
+            tracing::warn!(?result, "tip consume failed; will retry on next refresh");
+            all_ok = false;
+        }
+    }
+    all_ok
+}
+
 fn finish(app: &AppHandle, core: &BillingCore, cache: &CacheAction) {
     if let Ok(dir) = app.path().app_data_dir() {
         persist_cache(&dir, cache);
@@ -479,6 +552,7 @@ async fn refresh_locked(app: &AppHandle, core: &BillingCore) {
     };
     finish(app, core, &applied.cache);
     acknowledge(app, core, applied.acknowledge).await;
+    consume_tips(app, applied.consume).await;
     for id in core.offers_to_query(now_ms()) {
         match plugin_call(app, QUERY_TIMEOUT, move |b| b.query_product(id)).await {
             Ok(r) if r.response_code == response_code::OK => {
@@ -544,21 +618,25 @@ pub fn purchase_gate(play: &PlayState) -> Option<(PurchaseResult, String)> {
     }
 }
 
-/// `billing_purchase` — open Play's purchase sheet for Pro, or for one of the
-/// pay-more tiers when `product_id` names one, and verify the result. Pro is
-/// granted only from a verified PURCHASED purchase.
+/// The product `billing_purchase` may sell: only the standard Pro product.
+/// The retired support tiers still unlock Pro when owned but are no longer
+/// sold, and a tip is never bought through the Pro flow.
+pub fn pro_purchase_product(product_id: Option<&str>) -> Result<&'static str, String> {
+    match product_id {
+        None => Ok(PRO_PRODUCT_ID),
+        Some(id) if id == PRO_PRODUCT_ID => Ok(PRO_PRODUCT_ID),
+        Some(id) => Err(format!("Unknown product: {id}")),
+    }
+}
+
+/// `billing_purchase` — open Play's purchase sheet for Pro and verify the
+/// result. Pro is granted only from a verified PURCHASED purchase.
 #[tauri::command]
 pub async fn billing_purchase(
     app: AppHandle,
     product_id: Option<String>,
 ) -> Result<PurchaseOutcome, String> {
-    let product = match product_id.as_deref() {
-        None => PRO_PRODUCT_ID,
-        Some(id) => match PRO_PRODUCT_IDS.into_iter().find(|p| *p == id) {
-            Some(p) => p,
-            None => return Err(format!("Unknown product: {id}")),
-        },
-    };
+    let product = pro_purchase_product(product_id.as_deref())?;
     let core = app.state::<BillingCore>();
     let reply = |outcome, message: &str, core: &BillingCore| PurchaseOutcome {
         outcome,
@@ -629,6 +707,134 @@ pub async fn billing_purchase(
         }
         code => Ok(reply(
             PurchaseResult::Failed,
+            &response_message(code, &response.debug_message),
+            &core,
+        )),
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TipResult {
+    Thanked,
+    Pending,
+    Canceled,
+    Unavailable,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TipOutcome {
+    pub outcome: TipResult,
+    pub message: String,
+    pub status: BillingStatus,
+}
+
+/// The tip product `billing_tip` may sell: one of [`TIP_PRODUCT_IDS`], never
+/// a Pro product.
+pub fn tip_product(product_id: &str) -> Result<&'static str, String> {
+    TIP_PRODUCT_IDS
+        .into_iter()
+        .find(|id| *id == product_id)
+        .ok_or_else(|| format!("Unknown tip: {product_id}"))
+}
+
+/// Whether a tip may start. Tips are for Play builds with working billing,
+/// and only once Pro is unlocked, so a tip can never be mistaken for buying Pro.
+pub fn tip_gate(core: &BillingCore) -> Option<String> {
+    if !core.available() {
+        return Some(match core.play() {
+            PlayState::Unavailable { reason } => reason,
+            _ => NO_KEY_REASON.to_string(),
+        });
+    }
+    if !core.tips_enabled() {
+        return Some(TIPS_PLAY_ONLY.into());
+    }
+    if core.effective() != Entitlement::Pro {
+        return Some(TIPS_NEED_PRO.into());
+    }
+    None
+}
+
+/// What a finished tip flow tells the user. `consumed` is whether Play
+/// confirmed consuming every verified tip in the flow.
+pub fn tip_flow_result(tips: &TipsReconciled, consumed: bool) -> Option<(TipResult, &'static str)> {
+    if !tips.consume.is_empty() {
+        return Some(if consumed {
+            (TipResult::Thanked, TIP_THANKS)
+        } else {
+            (
+                TipResult::Thanked,
+                "Thank you for the tip! Google Play is still finishing it. This retries automatically.",
+            )
+        });
+    }
+    if tips.pending {
+        return Some((
+            TipResult::Pending,
+            "Your tip is pending. Google Play finishes it once the payment clears.",
+        ));
+    }
+    None
+}
+
+/// `billing_tip` — open Play's purchase sheet for one tip, verify the result
+/// and consume it. A tip unlocks nothing and never changes Pro.
+#[tauri::command]
+pub async fn billing_tip(app: AppHandle, product_id: String) -> Result<TipOutcome, String> {
+    let product = tip_product(&product_id)?;
+    let core = app.state::<BillingCore>();
+    let reply = |outcome, message: &str, core: &BillingCore| TipOutcome {
+        outcome,
+        message: message.to_string(),
+        status: core.status(),
+    };
+    if let Some(reason) = tip_gate(&core) {
+        return Ok(reply(TipResult::Unavailable, &reason, &core));
+    }
+    let _op = core.op.lock().await;
+    let response = match plugin_call(&app, PURCHASE_TIMEOUT, |b| b.launch_purchase(product)).await {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!(error = %e, "tip flow failed");
+            return Ok(reply(TipResult::Failed, UNREACHABLE, &core));
+        }
+    };
+    match response.response_code {
+        response_code::OK => {
+            let tips = core.apply_tip_flow(&response.purchases);
+            let consumed = consume_tips(&app, tips.consume.clone()).await;
+            if let Some((outcome, message)) = tip_flow_result(&tips, consumed) {
+                return Ok(reply(outcome, message, &core));
+            }
+            // The flow didn't hand back the tip; the owned list finishes any
+            // verified one.
+            refresh_locked(&app, &core).await;
+            Ok(reply(
+                TipResult::Failed,
+                "Google Play didn't confirm the tip. If you were charged, the app finishes it automatically.",
+                &core,
+            ))
+        }
+        response_code::USER_CANCELED => Ok(reply(TipResult::Canceled, "", &core)),
+        response_code::ITEM_ALREADY_OWNED => {
+            // An earlier tip of the same amount wasn't consumed yet. The owned
+            // list consumes it, after which the same tip can be bought again.
+            refresh_locked(&app, &core).await;
+            Ok(reply(
+                TipResult::Failed,
+                "Google Play was still finishing an earlier tip. Try again in a moment.",
+                &core,
+            ))
+        }
+        response_code::ITEM_UNAVAILABLE => Ok(reply(
+            TipResult::Failed,
+            "That tip isn't available right now.",
+            &core,
+        )),
+        code => Ok(reply(
+            TipResult::Failed,
             &response_message(code, &response.debug_message),
             &core,
         )),
@@ -798,29 +1004,242 @@ mod tests {
         }
     }
 
+    fn tip_vectors() -> Vectors {
+        let all: serde_json::Value =
+            serde_json::from_str(include_str!("../test-fixtures/play-billing-vectors.json"))
+                .unwrap();
+        serde_json::from_value(all["tips"].clone()).unwrap()
+    }
+
+    fn tip(name: &str) -> RawPurchase {
+        let v = &tip_vectors().purchases[name];
+        RawPurchase {
+            original_json: v.original_json.clone(),
+            signature: v.signature.clone(),
+        }
+    }
+
+    fn tip_core(distribution: Distribution) -> BillingCore {
+        BillingCore::new(
+            Some(&tip_vectors().play_public_key),
+            PACKAGE,
+            distribution,
+            true,
+            None,
+            false,
+            NOW,
+        )
+    }
+
+    fn owned_pro_with_tips(c: &BillingCore) {
+        c.apply_query(QueryOutcome::Owned(&[tip("pro_purchased")]), NOW);
+        assert_eq!(c.effective(), Entitlement::Pro);
+    }
+
     #[test]
-    fn offers_split_into_pro_and_ordered_support_tiers() {
-        let c = core(Distribution::Play, false);
-        assert_eq!(c.missing_offers(), PRO_PRODUCT_IDS.to_vec());
-        c.set_offer(offer(SUPPORT_PRODUCT_IDS[1], "$19.99"));
+    fn offers_keep_pro_and_ordered_tips_and_drop_the_retired_tiers() {
+        let c = tip_core(Distribution::Play);
+        assert_eq!(c.missing_offers(), vec![PRO_PRODUCT_ID]);
+        c.set_offer(offer(crate::play_billing::SUPPORT_PRODUCT_IDS[0], "$9.99"));
         c.set_offer(offer("someone_elses_item", "$1.00"));
         c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
+        c.set_offer(offer("atvopt_tip_20", "$20.00"));
+        c.set_offer(offer("atvopt_tip_2", "$2.00"));
         let s = c.status();
         assert_eq!(s.offer.unwrap().formatted_price, "$4.99");
-        assert_eq!(s.support_offers.len(), 1);
-        assert_eq!(c.missing_offers(), vec![SUPPORT_PRODUCT_IDS[0]]);
+        let tips: Vec<_> = s.tip_offers.iter().map(|o| o.product_id.as_str()).collect();
+        assert_eq!(tips, vec!["atvopt_tip_2", "atvopt_tip_20"]);
+        let json = serde_json::to_value(c.status()).unwrap();
+        assert!(json.get("support_offers").is_none());
+        assert!(!json.to_string().contains("atvopt_pro_support"));
 
-        c.set_offer(offer(SUPPORT_PRODUCT_IDS[0], "$9.99"));
-        c.set_offer(offer(PRO_PRODUCT_ID, "$5.49"));
-        let s = c.status();
-        assert_eq!(s.offer.unwrap().formatted_price, "$5.49");
-        let tiers: Vec<_> = s
-            .support_offers
-            .iter()
-            .map(|o| o.product_id.as_str())
-            .collect();
-        assert_eq!(tiers, SUPPORT_PRODUCT_IDS.to_vec());
-        assert!(c.missing_offers().is_empty());
+        owned_pro_with_tips(&c);
+        assert_eq!(c.missing_offers(), vec!["atvopt_tip_5", "atvopt_tip_10"]);
+    }
+
+    #[test]
+    fn tip_prices_are_asked_for_only_while_pro_is_unlocked_in_a_play_build() {
+        let c = tip_core(Distribution::Play);
+        assert_eq!(c.offers_to_query(NOW), vec![PRO_PRODUCT_ID]);
+        c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
+        assert!(c.offers_to_query(NOW + 1).is_empty());
+        owned_pro_with_tips(&c);
+        assert_eq!(
+            c.offers_to_query(NOW + OFFER_RETRY_MS),
+            TIP_PRODUCT_IDS.to_vec()
+        );
+        // Play returned none of them: they are asked for again only sparingly.
+        assert!(c.offers_to_query(NOW + OFFER_RETRY_MS + 1).is_empty());
+        for id in TIP_PRODUCT_IDS {
+            c.set_offer(offer(id, "$1"));
+        }
+        assert!(c.offers_to_query(NOW + 10 * OFFER_RETRY_MS).is_empty());
+        assert_eq!(c.status().tip_offers.len(), 4);
+
+        let sideload = BillingCore::new(
+            Some(&tip_vectors().play_public_key),
+            PACKAGE,
+            Distribution::Sideload,
+            true,
+            None,
+            false,
+            NOW,
+        );
+        owned_pro_with_tips(&sideload);
+        assert_eq!(sideload.missing_offers(), vec![PRO_PRODUCT_ID]);
+        sideload.set_offer(offer("atvopt_tip_5", "$5.00"));
+        let s = sideload.status();
+        assert!(!s.tips_available);
+        assert!(s.tip_offers.is_empty(), "sideload builds never show tips");
+    }
+
+    #[test]
+    fn a_tip_never_grants_pro_or_counts_as_owning_it() {
+        let c = tip_core(Distribution::Play);
+        let a = c.apply_query(
+            QueryOutcome::Owned(&[tip("tip_purchased"), tip("tip_listed")]),
+            NOW,
+        );
+        assert_eq!(c.status().play, PlayState::NotOwned);
+        assert_eq!(c.effective(), Entitlement::Free);
+        assert!(a.acknowledge.is_empty());
+        assert_eq!(a.cache, CacheAction::Clear, "a tip is never cached as Pro");
+        let tokens: Vec<_> = a.consume.iter().map(ConsumableTip::token).collect();
+        assert_eq!(tokens, vec!["tok-tip-5", "tok-tip-20"]);
+        // Buy Pro is still offered: the gate sees no Pro purchase.
+        assert_eq!(purchase_gate(&c.play()), None);
+
+        let flow = c.apply_tip_flow(&[tip("tip_purchased")]);
+        assert_eq!(flow.consume.len(), 1);
+        assert!(c.apply_flow(&[tip("tip_purchased")], NOW).is_none());
+        assert_eq!(c.effective(), Entitlement::Free);
+        assert_eq!(purchase_gate(&c.play()), None);
+    }
+
+    #[test]
+    fn a_pending_tip_is_shown_pending_and_never_consumed() {
+        let c = tip_core(Distribution::Play);
+        owned_pro_with_tips(&c);
+        let flow = c.apply_tip_flow(&[tip("tip_pending")]);
+        assert!(flow.consume.is_empty());
+        assert!(c.status().tip_pending);
+        assert_eq!(tip_flow_result(&flow, true).unwrap().0, TipResult::Pending);
+        let a = c.apply_query(
+            QueryOutcome::Owned(&[tip("pro_purchased"), tip("tip_pending")]),
+            NOW + 1,
+        );
+        assert!(a.consume.is_empty());
+        assert!(c.status().tip_pending);
+        // Once Play no longer lists it pending, the flag clears.
+        c.apply_query(QueryOutcome::Owned(&[tip("pro_purchased")]), NOW + 2);
+        assert!(!c.status().tip_pending);
+        assert_eq!(c.effective(), Entitlement::Pro);
+    }
+
+    #[test]
+    fn pro_purchases_are_never_consumed_and_tips_leave_pro_alone() {
+        let c = tip_core(Distribution::Play);
+        let a = c.apply_query(
+            QueryOutcome::Owned(&[
+                tip("pro_and_tip"),
+                tip("support_1_unacked"),
+                tip("pro_purchased"),
+                tip("tip_purchased"),
+            ]),
+            NOW,
+        );
+        let tokens: Vec<_> = a.consume.iter().map(ConsumableTip::token).collect();
+        assert_eq!(tokens, vec!["tok-tip-5"], "only the tip is consumed");
+        assert_eq!(
+            a.acknowledge,
+            vec!["tok-pro-and-tip", "tok-support-with-tips"]
+        );
+        assert_eq!(c.effective(), Entitlement::Pro);
+        for name in ["pro_and_tip", "support_1_unacked", "pro_purchased"] {
+            assert!(c.apply_tip_flow(&[tip(name)]).consume.is_empty());
+        }
+        assert_eq!(c.effective(), Entitlement::Pro);
+    }
+
+    #[test]
+    fn a_failed_query_keeps_pro_and_consumes_nothing() {
+        let c = tip_core(Distribution::Play);
+        owned_pro_with_tips(&c);
+        let a = c.apply_query(QueryOutcome::Failed("offline".into()), NOW + 1000);
+        assert!(a.consume.is_empty());
+        assert_eq!(c.effective(), Entitlement::Pro);
+    }
+
+    #[test]
+    fn sideload_builds_neither_sell_nor_consume_tips() {
+        let c = BillingCore::new(
+            Some(&tip_vectors().play_public_key),
+            PACKAGE,
+            Distribution::Sideload,
+            true,
+            None,
+            false,
+            NOW,
+        );
+        let a = c.apply_query(QueryOutcome::Owned(&[tip("tip_purchased")]), NOW);
+        assert!(a.consume.is_empty());
+        assert!(c.apply_tip_flow(&[tip("tip_purchased")]).consume.is_empty());
+        owned_pro_with_tips(&c);
+        assert_eq!(tip_gate(&c).as_deref(), Some(TIPS_PLAY_ONLY));
+    }
+
+    #[test]
+    fn tips_start_only_for_pro_owners_in_play_builds() {
+        let c = tip_core(Distribution::Play);
+        assert_eq!(tip_gate(&c).as_deref(), Some(TIPS_NEED_PRO));
+        owned_pro_with_tips(&c);
+        assert_eq!(tip_gate(&c), None);
+        let host = BillingCore::new(
+            Some(&tip_vectors().play_public_key),
+            PACKAGE,
+            Distribution::Play,
+            false,
+            None,
+            false,
+            NOW,
+        );
+        assert_eq!(tip_gate(&host).as_deref(), Some(NOT_ANDROID_REASON));
+    }
+
+    #[test]
+    fn product_ids_are_kept_to_their_own_flow() {
+        assert_eq!(pro_purchase_product(None), Ok(PRO_PRODUCT_ID));
+        assert_eq!(
+            pro_purchase_product(Some(PRO_PRODUCT_ID)),
+            Ok(PRO_PRODUCT_ID)
+        );
+        for retired in crate::play_billing::SUPPORT_PRODUCT_IDS {
+            assert!(
+                pro_purchase_product(Some(retired)).is_err(),
+                "{retired} is no longer sold"
+            );
+        }
+        for id in TIP_PRODUCT_IDS {
+            assert!(pro_purchase_product(Some(id)).is_err());
+            assert_eq!(tip_product(id), Ok(id));
+        }
+        assert!(tip_product(PRO_PRODUCT_ID).is_err());
+        assert!(tip_product("atvopt_pro_support_1").is_err());
+        assert!(tip_product("atvopt_tip_3").is_err());
+    }
+
+    #[test]
+    fn a_tip_says_thanks_once_play_finishes_it() {
+        let c = tip_core(Distribution::Play);
+        let tips = c.apply_tip_flow(&[tip("tip_purchased")]);
+        assert_eq!(
+            tip_flow_result(&tips, true),
+            Some((TipResult::Thanked, TIP_THANKS))
+        );
+        let (outcome, message) = tip_flow_result(&tips, false).unwrap();
+        assert_eq!(outcome, TipResult::Thanked);
+        assert!(message.contains("retries automatically"));
+        assert_eq!(tip_flow_result(&TipsReconciled::default(), true), None);
     }
 
     #[test]
@@ -848,23 +1267,6 @@ mod tests {
         ] {
             assert_eq!(purchase_gate(&unsure).unwrap().0, PurchaseResult::Failed);
         }
-    }
-
-    #[test]
-    fn a_missing_tier_price_is_retried_sparingly_but_pro_always() {
-        let c = core(Distribution::Play, false);
-        assert_eq!(c.offers_to_query(NOW), PRO_PRODUCT_IDS.to_vec());
-        // Play returned nothing: the standard price is still always retried.
-        assert_eq!(c.offers_to_query(NOW + 1), PRO_PRODUCT_IDS.to_vec());
-        c.set_offer(offer(PRO_PRODUCT_ID, "$4.99"));
-        assert!(c.offers_to_query(NOW + 2).is_empty());
-        assert_eq!(
-            c.offers_to_query(NOW + 2 + OFFER_RETRY_MS),
-            SUPPORT_PRODUCT_IDS.to_vec()
-        );
-        c.set_offer(offer(SUPPORT_PRODUCT_IDS[0], "$9.99"));
-        c.set_offer(offer(SUPPORT_PRODUCT_IDS[1], "$19.99"));
-        assert!(c.offers_to_query(NOW + 10 * OFFER_RETRY_MS).is_empty());
     }
 
     #[test]

@@ -310,8 +310,11 @@ deferred.
   against public keys compiled in; `crates/core/src/license.rs`, `tools/atvopt-license`). The dev
   key `ATVOPT-PRO-2025` works in **debug builds only**. Private signing keys live in `~/.atvopt/`
   outside the repo; back up `~/.atvopt/license-signing-key.prod`. See `LICENSING.md`.
-- Play submission (2026-11-01): Pro is $4.99, with $9.99 and $19.99 "Support me" tiers for the
-  same Pro (2026-11-08). Ko-fi stays out of the Play app; the README offers a Pro promo code to
+- Play submission (2026-11-01): Pro is $4.99. The $9.99 and $19.99 "Support me" tiers for the
+  same Pro (2026-11-08) were retired on 2026-11-23 for a tip jar: consumable `atvopt_tip_2`,
+  `_5`, `_10` and `_20` that grant nothing, shown only to Pro owners in Play builds as a quiet
+  "Leave a tip" link on More's Licensing card. The tier ids still count as Pro for anyone who
+  bought one. Ko-fi stays out of the Play app; the README offers a Pro promo code to
   Ko-fi donors. Past Ko-fi supporters get Play promo codes, and the
   new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
   `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
@@ -321,8 +324,9 @@ deferred.
   `alpha` lists 177 countries including all 27 EU states. Uploads refuse a track missing an EU
   state, and the weekly `play-geo-check.yml` workflow checks every track and active product. Steps:
   `PLAY-CONSOLE-WALKTHROUGH.md` (requirements table, §3.3, §6.2).
-- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro` or a
-  support tier in `SUPPORT_PRODUCT_IDS`) through
+- Implemented, not yet run against a real Play account: one-time Play Pro (`atvopt_pro`, or a
+  retired support tier in `SUPPORT_PRODUCT_IDS`, which still counts) and consumable tips
+  (`TIP_PRODUCT_IDS`, consumed only after verification, never Pro) through
   `tauri-plugin-atv-billing` (Kotlin, Play Billing Library 9.1.0) with on-device SHA1withRSA
   verification in `src-tauri/src/play_billing.rs` and the two-source entitlement in
   `billing_commands.rs`. Play builds (`ATVOPT_DISTRIBUTION=play`) hide offline key entry and the

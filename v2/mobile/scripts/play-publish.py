@@ -12,8 +12,8 @@ Subcommands:
             or apply only what differs and commit it (`listing publish --confirm PACKAGE`).
 
 EU Geo-blocking Regulation (EU) 2018/302: Play asks that an app distributed in the EU be
-accessible EU-wide, so every track with a country list and every active Pro product must
-cover all 27 member states (v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md, requirements table).
+accessible EU-wide, so every track with a country list and every active one-time product (Pro
+and the tips) must cover all 27 member states (v2/mobile/PLAY-CONSOLE-WALKTHROUGH.md, requirements table).
 
 Standard library plus the `openssl` binary only, so the release path has no third-party Python
 dependency. Credentials are read from files and never printed; API errors print Google's

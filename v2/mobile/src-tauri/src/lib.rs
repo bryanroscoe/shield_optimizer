@@ -338,6 +338,7 @@ pub fn run() {
             billing_commands::billing_status,
             billing_commands::billing_refresh,
             billing_commands::billing_purchase,
+            billing_commands::billing_tip,
             license::license_info,
             read_debug_log,
             collect_diagnostics,

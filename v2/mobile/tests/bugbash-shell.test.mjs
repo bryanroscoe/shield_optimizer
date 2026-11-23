@@ -299,7 +299,7 @@ for (const [width, height] of [[384, 812], [320, 640], [275, 610]]) {
     await paywall.evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
     const card = await paywall.boundingBox();
     assert.ok(card.y >= 0 && card.y + card.height <= height, "the card fits the viewport");
-    for (const name of [/Buy Pro/, "Support me with $9.99", "Support me with $19.99", "Restore purchases", "Not now", "Close"]) {
+    for (const name of [/Buy Pro/, "Restore purchases", "Not now", "Close"]) {
       const box = await paywall.getByRole("button", { name, exact: typeof name === "string" }).boundingBox();
       assert.ok(box.y >= 0 && box.y + box.height <= height && box.x >= 0 && box.x + box.width <= width, `${name} is on screen`);
       assert.ok(box.height >= 44, `${name} keeps a 44px target`);
@@ -314,11 +314,10 @@ for (const [width, height] of [[384, 812], [320, 640], [275, 610]]) {
       await page.keyboard.press("Tab");
       order.push(await page.evaluate(() => { const el = document.activeElement; return el.getAttribute("role") === "region" ? "region" : (el.getAttribute("aria-label") || el.textContent).trim(); }));
     }
-    const tiers = ["? Why pay more?", "Support me with $9.99", "Support me with $19.99"];
-    assert.deepEqual(order, overflows
-      ? [...tiers, "Restore purchases", "Not now", "Close", "region", order[7]]
-      : [...tiers, "Restore purchases", "Not now", "Close", order[6], order[7]]);
-    assert.match(overflows ? order[7] : order[6], /Buy Pro/);
+    assert.deepEqual(order.slice(0, overflows ? 5 : 4), overflows
+      ? ["Restore purchases", "Not now", "Close", "region", order[4]]
+      : ["Restore purchases", "Not now", "Close", order[3]]);
+    assert.match(overflows ? order[4] : order[3], /Buy Pro/);
     if (overflows) {
       await body.evaluate((el) => (el.scrollTop = 0));
       await body.focus();
