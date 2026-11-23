@@ -194,6 +194,14 @@ impl PlayVerifier {
         read_purchase(&json)
     }
 
+    /// Whether a genuine purchase for this app names `product_id`. A purchase
+    /// flow uses it to tell its own result from an unrelated update Play
+    /// delivered at the same time (an earlier pending tip clearing, say).
+    pub fn names_product(&self, raw: &RawPurchase, product_id: &str) -> bool {
+        self.signed_json(raw)
+            .is_ok_and(|json| product_ids(&json).any(|id| id == product_id))
+    }
+
     /// Check Play's signature and the package, and only then parse the JSON.
     fn signed_json(&self, raw: &RawPurchase) -> Result<serde_json::Value, VerifyError> {
         let signature: String = raw
@@ -878,6 +886,19 @@ mod tests {
         let tips = reconcile_tips(&v, &with_tips);
         assert_eq!(tokens(&tips), vec!["tok-tip-5"]);
         assert!(tips.pending);
+    }
+
+    #[test]
+    fn names_product_matches_only_genuine_purchases_of_that_product() {
+        let v = tip_verifier();
+        assert!(v.names_product(&tip("tip_purchased"), "atvopt_tip_5"));
+        assert!(v.names_product(&tip("tip_listed"), "atvopt_tip_20"));
+        assert!(!v.names_product(&tip("tip_purchased"), "atvopt_tip_2"));
+        assert!(v.names_product(&tip("pro_and_tip"), "atvopt_tip_2"));
+        assert!(!v.names_product(&tip("tip_otherpkg"), "atvopt_tip_10"));
+        let mut forged = tip("tip_purchased");
+        forged.original_json = forged.original_json.replace("tok-tip-5", "tok-forged");
+        assert!(!v.names_product(&forged, "atvopt_tip_5"));
     }
 
     #[test]

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { billing } from "../lib/billing.svelte";
+  import { billing, TIP_PENDING_NOTE } from "../lib/billing.svelte";
   // A quiet, optional tip for Pro owners in Google Play builds. It opens only
   // when tapped, lists only the tips Play returned a price for, and unlocks
   // nothing. The backend verifies and finishes every tip with Google Play.
@@ -43,7 +43,7 @@
         {billing.tipMessage}
       </p>
     {:else if billing.tipPending}
-      <p class="tip-status" role="status">A tip is pending. Google Play finishes it once the payment clears.</p>
+      <p class="tip-status" role="status">{TIP_PENDING_NOTE}</p>
     {/if}
   </div>
 {/if}

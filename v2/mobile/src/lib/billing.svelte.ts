@@ -38,11 +38,15 @@ export function reportPurchaseOutcome(kind: PurchaseResultKind | undefined): voi
   recordAction(sendTelemetry, "other", null, ok ? { ok } : { ok, code: `billing_${kind ?? "failed"}` });
 }
 
-/// While a purchase is pending, re-check this often (the backend rate-limits to
-/// the same interval). Play delivers a completed pending payment to the app
-/// only as an unsolicited update the adapter doesn't forward, so without this a
-/// user who keeps the app open would stay Free until they leave and return.
+/// While a purchase or tip is pending, re-check this often (the backend
+/// rate-limits to the same interval). Play's update for a cleared payment can
+/// be missed while the app is open, so without this a user who keeps it open
+/// would stay Free (or a tip unfinished) until they leave and return.
 const PENDING_POLL_MS = 30_000;
+
+/// Shown while Google Play still has a tip waiting on payment. It follows the
+/// backend's `tip_pending`, so it goes away once Play settles the tip.
+export const TIP_PENDING_NOTE = "Your tip is pending. Google Play finishes it once the payment clears.";
 
 class BillingStore {
   status = $state<BillingStatus | null>(null);
@@ -106,7 +110,7 @@ class BillingStore {
     if (!isStatus(status)) return false;
     this.status = status;
     session.entitlement = status.entitlement;
-    this.watchPending(status.play.state === "pending");
+    this.watchPending(status.play.state === "pending" || status.tip_pending === true);
     return true;
   }
 
@@ -237,8 +241,7 @@ class BillingStore {
           this.tipTone = "success";
           break;
         case "pending":
-          this.tipMessage = outcome.message;
-          this.tipTone = "info";
+          // Shown from `tip_pending` instead, so it clears when Play settles it.
           break;
         case "canceled":
           break;

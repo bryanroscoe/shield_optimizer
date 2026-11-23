@@ -198,8 +198,10 @@ test("no tip jar on Free, in sideload builds, without Play prices or without bil
   }
 });
 
-test("a pending tip says so and grants nothing", async (t) => {
-  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS }));
+const TIP_PENDING = "Your tip is pending. Google Play finishes it once the payment clears.";
+
+test("a pending tip says so, grants nothing, and the note clears once Play settles it", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS }), "more", { events: true });
   await page.evaluate(() => {
     window.handlers.billing_tip = () => {
       window.billingStatus = { ...window.billingStatus, tip_pending: true };
@@ -209,13 +211,37 @@ test("a pending tip says so and grants nothing", async (t) => {
   const card = licensing(page);
   await card.getByRole("button", { name: "Leave a tip" }).click();
   await card.getByRole("button", { name: "Tip €2,00" }).click();
-  await card.getByText("Your tip is pending. Google Play finishes it once the payment clears.").waitFor();
+  await card.getByText(TIP_PENDING).waitFor();
   assert.equal(await card.locator(".license-badge").textContent(), "Pro");
+  // Play finishes the tip; the next owned-purchase check no longer reports it pending.
+  await page.evaluate(() => {
+    window.billingStatus = { ...window.billingStatus, tip_pending: false };
+    window.emitTauriEvent("purchases-updated");
+  });
+  await card.getByText(TIP_PENDING).waitFor({ state: "detached" });
+  assert.equal(await card.locator(".tip-status").count(), 0, "no stale pending note");
+  assert.equal(await card.locator(".license-badge").textContent(), "Pro");
+});
+
+test("a pending tip is re-checked while the app stays open", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS, tip_pending: true }), "more", { clock: true });
+  const card = licensing(page);
+  await card.getByText(TIP_PENDING).waitFor();
+  await page.evaluate(() => {
+    window.billingStatus = { ...window.billingStatus, tip_pending: false };
+  });
+  const before = await count(page, "billing_refresh");
+  await page.clock.runFor(31_000);
+  await card.getByText(TIP_PENDING).waitFor({ state: "detached" });
+  assert.ok((await count(page, "billing_refresh")) > before);
+  const after = await count(page, "billing_refresh");
+  await page.clock.runFor(61_000);
+  assert.equal(await count(page, "billing_refresh"), after, "polling stops once no tip is pending");
 });
 
 test("a tip still being finished shows as pending on launch", async (t) => {
   const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS, tip_pending: true }));
-  await licensing(page).getByText("A tip is pending. Google Play finishes it once the payment clears.").waitFor();
+  await licensing(page).getByText(TIP_PENDING).waitFor();
 });
 
 test("a failed tip shows Play's reason, and a cancelled one is quiet", async (t) => {

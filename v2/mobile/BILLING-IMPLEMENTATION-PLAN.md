@@ -65,11 +65,32 @@ What exists, and how it deviates from the server design below:
     Play reports them PURCHASED. Every owned-purchase query (launch, resume, Restore purchases,
     `purchases-updated`) consumes any verified, unconsumed PURCHASED tip, before Play's three-day
     refund of unacknowledged purchases. `ITEM_ALREADY_OWNED` on a tip means an earlier one of the
-    same amount was never consumed; the app runs the query, which consumes it, and asks the user
-    to try again.
-  - Tips never change `PlayState`, `play_purchase.json` or the entitlement, and a tip query or
-    consume failure is only logged and retried at the next query. Tips are not reported to
-    telemetry. Sideload and dev builds show nothing and never query or consume tips.
+    same amount was never consumed; the app runs a tip-only owned-purchase query
+    (`apply_tip_query`), which consumes it, and asks the user to try again. The same tip-only query
+    runs when a tip flow returns OK without the tip. It never touches Pro's state, cache,
+    acknowledgment or refresh clock, so a tip can't change the entitlement even when Play's list
+    is missing Pro or the query fails past offline grace.
+  - A consume Play doesn't confirm is retried in the background while the app runs: after 30 s,
+    doubling to at most 30 min, for 8 scheduled tries (about 1.5 hours), under the same Play
+    operation lock as every other call. Every later owned-purchase query tries again too, and a
+    retried tip the owned list no longer shows is dropped. At most one native consume runs per
+    purchase token: a call Rust stopped waiting for (30 s timeout) keeps its in-flight mark until
+    it actually returns, and `ITEM_NOT_OWNED` counts as already consumed. While a tip is pending
+    the frontend re-checks every 30 s, as it does for a pending Pro purchase, and the pending note
+    follows the backend's `tip_pending`, so it clears once Play settles the tip.
+  - A purchase-flow callback answers the open sheet only with purchases of the product it was
+    opened for. Play also sends unrelated updates through the same listener (an earlier pending
+    tip clearing while another tip's sheet is open); the Kotlin adapter routes those to the
+    `purchases-updated` watch, whose full owned-purchase refresh consumes verified tips and grants
+    Pro as usual. Rust checks the same thing on the verified JSON: only purchases naming the
+    requested tip decide what the user is told, other verified tips in the callback are consumed,
+    and anything else re-emits `purchases-updated`.
+  - `billing_tip` checks the tip gate (Play build, billing available, Pro unlocked) before and
+    again after taking the Play operation lock, so a refresh that removed Pro meanwhile stops a
+    queued tip before its sheet opens. Tip prices have their own 10-minute retry clock, separate
+    from Pro's price lookup, so a newly unlocked Pro shows the tip jar on its next refresh.
+  - Tips never change `PlayState`, `play_purchase.json` or the entitlement. Tips are not reported
+    to telemetry. Sideload and dev builds show nothing and never query or consume tips.
   - Play has no buyer-entered price, so "pay what you want" is these fixed amounts.
 - **Ko-fi stays out of the Play app.** Offering Pro codes for an outside donation inside the app
   would steer purchases of a digital unlock away from Play billing. The Ko-fi link and the
