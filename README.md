@@ -75,7 +75,7 @@ click **Request approval**, then on the TV check **Always allow from this comput
 
 ## Using it
 
-1. Launch the app. It scans your network and lists the Android TV devices it finds.
+1. Launch the app. It reconnects to your saved TVs and scans your network for the rest.
 2. For a TV marked **Not allowed yet**, click **Request approval** and choose **Allow** on the TV.
 3. Click your device. Each tab is a feature:
 
@@ -97,6 +97,13 @@ click **Request approval**, then on the TV check **Always allow from this comput
 ### Can't find your TV?
 
 Use **Scan LAN**, **Add by IP** or **Pair PIN**.
+
+**Saved TVs.** A network TV is saved the first time it connects, and the app dials it directly at
+every launch, so a box that sleeps through a scan still shows up. A saved TV that **Didn't answer**
+is probably asleep: wake it and click **Connect**. The bookmark on a row saves or unsaves it, and an
+unsaved TV stays unsaved. A saved TV only counts as connected when the device at its address
+reports the same hardware ID; if another device answers there, the saved row says **Different
+device**.
 
 **A TV that has never allowed this computer** is listed as **Not allowed yet**. Scanning never
 shows anything on the TV. Click **Request approval** on its row: the TV asks "Allow debugging?"
