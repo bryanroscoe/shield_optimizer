@@ -1,4 +1,7 @@
 import { parseShellBookmarks, type ShellBookmark } from "../../shared/shell";
+import { idKey } from "./hardware-id";
+
+export { idKey };
 
 const KEY = "shieldopt.autoUpdate";
 
@@ -137,11 +140,6 @@ function readKeepMap(): KeepMap {
   }
 }
 
-/// Placeholder serials identify nothing, so they are never a storage key.
-export function idKey(hardwareId: string | null | undefined): string | null {
-  const id = hardwareId?.trim() ?? "";
-  return id && id.toLowerCase() !== "unknown" ? id : null;
-}
 
 export function getKeptPackages(raw: string | null | undefined): Set<string> {
   const hardwareId = idKey(raw);

@@ -48,6 +48,13 @@ export interface Device {
   support?: SupportInfo;
 }
 
+/// `device_mac_address`: the MAC of the interface a device is reached on,
+/// with the hardware id read in the same call. Either is null when unknown.
+export interface DeviceMacAddress {
+  hardware_id: string | null;
+  mac: string | null;
+}
+
 export interface AppEntry {
   package: string;
   name: string;
