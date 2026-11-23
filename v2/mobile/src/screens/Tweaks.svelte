@@ -365,8 +365,6 @@
   const longPress = $derived(
     tweaks?.long_press_timeout != null ? parseInt(tweaks.long_press_timeout, 10) : null,
   );
-  const bgLimit = $derived(tweaks?.background_process_limit ?? null);
-  const cachedLimit = $derived(tweaks?.cached_process_limit ?? null);
   const dnsMode = $derived(dns?.mode ?? null);
 
   const ssComponent = $derived(tweaks?.screensaver_components ?? null);
@@ -524,13 +522,6 @@
       "lp-reset",
       writeAll("secure", ["long_press_timeout"], ""),
       "Long-press timeout reset to the device default.",
-    );
-  }
-  function removeBgLimit() {
-    apply(
-      "bg-remove",
-      (target) => api.writeSetting(target, "global", "background_process_limit", ""),
-      "Old setting removed.",
     );
   }
 
@@ -1080,39 +1071,6 @@
                 >
               {/each}
             </div>
-          </div>
-
-          <div class="tweak-row column" data-tweak="cached-processes">
-            <div class="t-row-head">
-              <span class="msr t-icon" aria-hidden="true">memory</span>
-              <div class="t-info">
-                <span class="t-title">Cached background processes</span>
-                <span class="t-desc">
-                  <span class="state">{cachedLimit != null ? `Reported cached-process limit: ${cachedLimit}` : "Not reported by this TV"}</span>
-                </span>
-              </div>
-            </div>
-            <HelpSheet title="About cached processes">
-              <p class="t-note">
-                Android's reported limit on cached processes, not a count of running apps; one app
-                can use several. ATV Optimizer doesn't change this limit. Developer options on the
-                TV can, and that varies by Android version. The legacy
-                global.background_process_limit setting had no effect on the tested Shield TV
-                running Android 11; other TVs may differ.
-              </p>
-            </HelpSheet>
-            {#if bgLimit != null}
-              <p class="t-desc">Legacy stored value: global.background_process_limit = {bgLimit}. Removing it deletes only this stored value and doesn't change Android's reported limit.</p>
-                <button
-                  class="reset-btn"
-                  class:busy={busy === "bg-remove"}
-                  disabled={busy !== ""}
-                  onclick={removeBgLimit}
-                >
-                  <span class="msr">delete</span>Remove legacy value
-                </button>
-
-            {/if}
           </div>
         {/if}
       </div>
