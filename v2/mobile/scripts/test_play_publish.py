@@ -111,6 +111,71 @@ class Version(unittest.TestCase):
             play.resolve_version(self.config({'version': '1.0.0'}), override='0')
 
 
+class NextCode(unittest.TestCase):
+    def released(self, *tracks):
+        return FakePlay(bundles=[1007], tracks=[{'track': t, 'releases': [{'name': n, 'versionCodes': [c]}]}
+                                                for t, n, c in tracks])
+
+    def test_derived_code_moves_past_internal_builds(self):
+        fake = self.released(('internal', '0.1.5+internal.1007 (1007)', '1007'))
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, newer_than_testers=True)
+        self.assertEqual(result, {'highest': 1007, 'version_code': 1008, 'version_code_source': 'next free code on Play'})
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+
+    def test_derived_code_above_play_is_kept(self):
+        result = play.choose_version_code(client(self.released()), '0.2.0', 2000, play.DERIVED)
+        self.assertEqual(result, {'highest': 1007, 'version_code': 2000, 'version_code_source': play.DERIVED})
+
+    def test_a_set_code_never_moves(self):
+        for source in ['override', 'tauri.conf.json bundle.android.versionCode']:
+            with self.assertRaisesRegex(play.PlayError, 'not above 1007'):
+                play.choose_version_code(client(self.released()), '0.1.6', 1007, source)
+        result = play.choose_version_code(client(self.released()), '0.1.6', 1010, 'override')
+        self.assertEqual(result['version_code'], 1010)
+
+    def test_tester_release_refuses_a_version_a_tester_track_has_or_passed(self):
+        for version in ['0.1.6', '0.1.5', '0.1.6-beta.3']:
+            fake = self.released(('alpha', '0.1.6 (1006)', '1006'))
+            with self.subTest(version=version), self.assertRaisesRegex(
+                    play.PlayError, "alpha already has release '0.1.6 \\(1006\\)', which is not older than"):
+                play.choose_version_code(client(fake), version, 1006, play.DERIVED, newer_than_testers=True)
+            self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+        fake = self.released(('alpha', '0.1.6 (1006)', '1006'))
+        self.assertEqual(play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED)['version_code'], 1008)
+
+    def test_internal_builds_and_odd_names_do_not_block_a_newer_version(self):
+        fake = self.released(('internal', '0.1.9+internal.1007 (1007)', '1007'), ('alpha', '0.1.5 (1005)', '1005'),
+                             ('beta', None, '1004'), ('qa', 'hand upload', '1003'))
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, newer_than_testers=True)
+        self.assertEqual(result['version_code'], 1008)
+
+    def test_semver_order(self):
+        ordered = ['0.1.5', '0.1.10', '0.2.0-alpha', '0.2.0-alpha.2', '0.2.0-alpha.10', '0.2.0-beta',
+                   '0.2.0-beta.1', '0.2.0', '0.2.1+internal.9', '1.0.0']
+        keys = [play.semver_key(v) for v in ordered]
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(len(set(keys)), len(keys))
+        self.assertEqual(play.semver_key('0.2.0+internal.5'), play.semver_key('0.2.0'))
+        self.assertIsNone(play.semver_key('hand upload'))
+
+    def test_movable_lets_a_pinned_code_take_the_next_free_one(self):
+        result = play.choose_version_code(client(self.released()), '0.1.6', 1003,
+                                          'tauri.conf.json bundle.android.versionCode', movable=True)
+        self.assertEqual(result['version_code'], 1008)
+
+    def test_command_prints_the_choice(self):
+        fake = self.released()
+        original = play.Play.from_file
+        play.Play.from_file = classmethod(lambda cls, path, **kw: client(fake))
+        self.addCleanup(setattr, play.Play, 'from_file', original)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = play.main(['next-code', '--service-account', 'unused.json', '--version', '0.1.5',
+                              '--version-code', '1005', '--version-code-source', play.DERIVED])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())['version_code'], 1008)
+
+
 class Publish(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
