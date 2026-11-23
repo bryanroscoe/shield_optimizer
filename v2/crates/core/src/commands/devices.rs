@@ -1589,7 +1589,7 @@ pub async fn rename_device(
 
     let quoted = match quote_device_name(&name) {
         Ok(q) => q,
-        Err(message) => return Ok(ActionResult { ok: false, message }),
+        Err(message) => return Ok(ActionResult { ok: false, message, partial: false }),
     };
 
     let adb = state.adb_snapshot().await;
@@ -1603,7 +1603,7 @@ pub async fn rename_device(
     if out.shell_reported_failure() {
         return Ok(ActionResult {
             ok: false,
-            message: out.combined().trim().to_string(),
+            message: out.combined().trim().to_string(), partial: false
         });
     }
 
@@ -1620,12 +1620,12 @@ pub async fn rename_device(
             message: format!(
                 "Renamed to \"{current}\". Cast / Google Home may take a while (or a reboot) \
                  to show the new name."
-            ),
+            ), partial: false
         })
     } else {
         Ok(ActionResult {
             ok: false,
-            message: format!("Device still reports device_name = {current:?} after the write."),
+            message: format!("Device still reports device_name = {current:?} after the write."), partial: false
         })
     }
 }

@@ -127,7 +127,7 @@ pub async fn disable_launcher_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
+    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message, partial: false });
     let adb = state.adb_snapshot().await;
     let Some(enabled_handlers) = read_enabled_home_handlers(&*adb, serial).await else {
         return refuse(format!(
@@ -1308,25 +1308,9 @@ async fn disable_paired_holders(
     let mut held: Vec<HeldHelper> = Vec::new();
     let mut failure = None;
     for holder in holders {
-        if matches!(
-            crate::engine::classify_safety(&holder),
-            crate::engine::Safety::NeverDisable { .. }
-        ) {
-            diagnostics.push(format!("{holder} skipped: on the do-not-disable list"));
-            held.push(HeldHelper {
-                package: holder,
-                reason: "It's on the do-not-disable list.".to_string(),
-                protected: true,
-            });
-            continue;
-        }
-        if let Some(reason) = active_role_reason(&holder, roles) {
-            diagnostics.push(format!("{holder} skipped: {reason}"));
-            held.push(HeldHelper {
-                package: holder,
-                reason: reason.to_string(),
-                protected: true,
-            });
+        if let Some(helper) = protected_helper(&holder, roles) {
+            diagnostics.push(format!("{holder} skipped: {}", helper.reason));
+            held.push(helper);
             continue;
         }
         let remaining: Vec<String> = enabled
@@ -1425,6 +1409,48 @@ pub(crate) struct HeldHelper {
     pub protected: bool,
 }
 
+/// A paired helper that must stay on whatever holds Home: on the
+/// do-not-disable list, or the keyboard or WebView the TV reports in use.
+fn protected_helper(holder: &str, roles: &ActiveRoles) -> Option<HeldHelper> {
+    let reason = if matches!(
+        crate::engine::classify_safety(holder),
+        crate::engine::Safety::NeverDisable { .. }
+    ) {
+        "It's on the do-not-disable list."
+    } else {
+        active_role_reason(holder, roles)?
+    };
+    Some(HeldHelper {
+        package: holder.to_string(),
+        reason: reason.to_string(),
+        protected: true,
+    })
+}
+
+/// The follow-up note for a helper left on because no other launcher holds
+/// Home. A protected helper also names why it stays on, and Disable Setup
+/// Wraith isn't offered while it would be refused.
+pub(crate) fn left_on_note(protected: &[HeldHelper]) -> String {
+    if protected.is_empty() {
+        return "Google TV's setup helper (Setup Wraith) is still enabled and can take the Home \
+                button. Set another launcher as Home, then use Disable Setup Wraith in Launcher."
+            .to_string();
+    }
+    let helpers = protected
+        .iter()
+        .map(|h| {
+            format!(
+                "Google TV's setup helper (Setup Wraith, {}) is still enabled and can take the \
+                 Home button. It stays on because no other launcher holds Home, and because it \
+                 can't be disabled: {}",
+                h.package, h.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{helpers} Set another launcher as Home.")
+}
+
 /// The follow-up note for helpers left on: with stock off, each can take the
 /// Home button back (#157).
 pub(crate) fn held_helpers_note(held: &[HeldHelper]) -> String {
@@ -1457,8 +1483,9 @@ pub(crate) enum PairedHelperOutcome {
     /// Turning the helper off failed, so stock was turned back on.
     RolledBack { reason: String },
     /// No other launcher holds Home yet, so the helper was left on; the
-    /// Launcher tab warns about it and offers the fix.
-    LeftOn,
+    /// Launcher tab warns about it and offers the fix. `protected` lists
+    /// helpers that would stay on even then, with why.
+    LeftOn { protected: Vec<HeldHelper> },
 }
 
 pub(crate) async fn settle_paired_helpers_after_stock_disable(
@@ -1485,7 +1512,11 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
         .filter(|p| p != stock && !catalog.is_stock(p) && !catalog.is_transient_home_holder(p));
     let Some(target) = target else {
         diagnostics.push("setup helper left on: no other launcher holds Home".to_string());
-        return PairedHelperOutcome::LeftOn;
+        let protected = paired
+            .iter()
+            .filter_map(|holder| protected_helper(holder, roles))
+            .collect();
+        return PairedHelperOutcome::LeftOn { protected };
     };
     match disable_paired_holders(
         adb,
@@ -1586,7 +1617,7 @@ pub async fn disable_setup_helper_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
+    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message, partial: false });
     if !is_valid_package_name(package) || !launchers().is_transient_home_holder(package) {
         return refuse(format!("{package} is not a setup helper this app knows."));
     }
@@ -1640,7 +1671,7 @@ pub async fn disable_setup_helper_impl(
     if home_ok {
         return Ok(crate::commands::apps::ActionResult {
             ok: true,
-            message: "Setup Wraith is disabled.".to_string(),
+            message: "Setup Wraith is disabled.".to_string(), partial: false
         });
     }
     let restore = adb.shell(serial, &format!("pm enable {package}")).await;
@@ -3754,6 +3785,7 @@ mod tests {
                 .unwrap();
 
             assert!(!res.ok, "{}", res.message);
+            assert!(res.partial, "stock landed, so this is partial");
             assert!(res.message.contains("was left on"), "{}", res.message);
             assert!(res.message.contains("keyboard in use"), "{}", res.message);
             assert!(!res.message.contains("disabled too"), "{}", res.message);
@@ -3820,10 +3852,51 @@ mod tests {
                 "helper disabled with no launcher to take Home: {calls:?}"
             );
             assert!(
-                !res.ok && res.message.contains("still enabled"),
+                !res.ok && res.partial && res.message.contains("still enabled"),
                 "{}",
                 res.message
             );
+            assert!(
+                res.message.contains("Disable Setup Wraith"),
+                "{}",
+                res.message
+            );
+        }
+
+        /// Setup Wraith takes Home after stock goes off and also holds the
+        /// keyboard: both reasons are named, and Disable Setup Wraith, which
+        /// would refuse it, isn't offered.
+        #[tokio::test]
+        async fn a_keyboard_helper_holding_home_names_both_reasons_it_stayed_on() {
+            let mock = MockAdb::default()
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "")
+                .on_shell("resolve-activity", &format!("{WRAITH}/.SetupActivity"))
+                .on_shell("default_input_method", &keyboard_is(WRAITH));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let res = crate::commands::apps::disable_package_impl(&state, "serial", GTV_STOCK)
+                .await
+                .unwrap();
+
+            assert!(!res.ok && res.partial, "{}", res.message);
+            assert!(
+                res.message.contains("no other launcher holds Home"),
+                "{}",
+                res.message
+            );
+            assert!(res.message.contains("keyboard in use"), "{}", res.message);
+            assert!(
+                !res.message.contains("Disable Setup Wraith"),
+                "{}",
+                res.message
+            );
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")));
         }
 
         /// #158: "Enable & set default" on a disabled stock launcher brings

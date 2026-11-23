@@ -347,17 +347,17 @@ pub async fn delete_path_with(
     if noise.is_empty() && exited_cleanly {
         Ok(ActionResult {
             ok: true,
-            message: format!("Deleted {path}."),
+            message: format!("Deleted {path}."), partial: false
         })
     } else if noise.is_empty() {
         Ok(ActionResult {
             ok: false,
-            message: format!("The TV did not confirm that {path} was deleted."),
+            message: format!("The TV did not confirm that {path} was deleted."), partial: false
         })
     } else {
         Ok(ActionResult {
             ok: false,
-            message: noise,
+            message: noise, partial: false
         })
     }
 }

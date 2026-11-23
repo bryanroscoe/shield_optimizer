@@ -297,6 +297,8 @@ export interface SnapshotSaveOutcome {
 export interface ActionResult {
   ok: boolean;
   message: string;
+  /// Not ok, yet part of the change landed (stock off, its setup helper on).
+  partial?: boolean;
 }
 
 export interface OtherPackage {

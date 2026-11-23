@@ -35,7 +35,7 @@ fn reject_invalid_package(package: &str) -> Option<ActionResult> {
     }
     Some(ActionResult {
         ok: false,
-        message: format!("Refusing to act on invalid package name: {package:?}"),
+        message: format!("Refusing to act on invalid package name: {package:?}"), partial: false
     })
 }
 
@@ -494,6 +494,10 @@ pub struct ActionResult {
     /// `pm` stdout/stderr — surfaced to the UI so the user can see the actual
     /// error message when something fails (e.g. "Failure [DELETE_FAILED_…]").
     pub message: String,
+    /// `ok` is false, yet part of the change landed (stock off, its setup
+    /// helper left on). The UI words it as a warning, not a failure.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub partial: bool,
 }
 
 /// `disable_package` — `pm disable-user --user 0 <pkg>`. Reversible.
@@ -522,7 +526,7 @@ pub(crate) async fn disable_package_impl(
     if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing to disable {package}: {reason}"),
+            message: format!("Refusing to disable {package}: {reason}"), partial: false
         });
     }
     // The launcher screen refuses to disable the last enabled HOME handler,
@@ -571,11 +575,11 @@ pub(crate) async fn disable_package_impl(
         Ok(r) if r.ok => r,
         Ok(r) if landed => ActionResult {
             ok: true,
-            message: r.message,
+            message: r.message, partial: false
         },
         Err(_) if landed => ActionResult {
             ok: true,
-            message: format!("{package} was disabled (the device's reply was lost)."),
+            message: format!("{package} was disabled (the device's reply was lost)."), partial: false
         },
         other => return other,
     };
@@ -601,6 +605,7 @@ pub(crate) async fn disable_package_impl(
             // helper left on can take the Home button back.
             Outcome::Held { held } => {
                 result.ok = false;
+                result.partial = true;
                 result.message = format!(
                     "{package} was disabled, but {}",
                     crate::commands::launcher::held_helpers_note(&held)
@@ -614,12 +619,12 @@ pub(crate) async fn disable_package_impl(
             }
             // Reported as not-ok so every caller shows it: a success toast
             // would hide that the helper can still take the Home button.
-            Outcome::LeftOn => {
+            Outcome::LeftOn { protected } => {
                 result.ok = false;
+                result.partial = true;
                 result.message = format!(
-                    "{package} was disabled, but Google TV's setup helper (Setup Wraith) is still \
-                     enabled and can take the Home button. Set another launcher as Home, then use \
-                     Disable Setup Wraith in Launcher."
+                    "{package} was disabled, but {}",
+                    crate::commands::launcher::left_on_note(&protected)
                 );
             }
         }
@@ -676,7 +681,7 @@ async fn guard_active_roles(
     match active_role_reason(package, &roles) {
         Some(reason) => Err(ActionResult {
             ok: false,
-            message: format!("Refusing to {verb} {package}: {reason}"),
+            message: format!("Refusing to {verb} {package}: {reason}"), partial: false
         }),
         None => Ok(roles),
     }
@@ -706,7 +711,7 @@ async fn guard_last_home_handler(
                 message: format!(
                     "Refusing to {verb} {package}: it's the only enabled launcher left on this \
                      device. Enable another launcher first."
-                ),
+                ), partial: false
             });
         }
         return Ok(Some(handlers));
@@ -724,7 +729,7 @@ async fn guard_last_home_handler(
             message: format!(
                 "Refusing to {verb} {package}: this TV's Home apps couldn't be read, so it can't \
                  be proven another launcher stays enabled. Nothing was changed."
-            ),
+            ), partial: false
         });
     }
     Ok(None)
@@ -872,7 +877,7 @@ pub async fn set_app_permission_impl(
     if !is_valid_package_name(package) || !is_valid_permission(permission) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"),
+            message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"), partial: false
         });
     }
     state.require_pro(Feature::AppPermissionWrite)?;
@@ -904,13 +909,13 @@ pub async fn set_app_op_impl(
     if !is_valid_package_name(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid package ({package:?})"),
+            message: format!("Refusing: invalid package ({package:?})"), partial: false
         });
     }
     if !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || op.is_empty() {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid op ({op:?})"),
+            message: format!("Refusing: invalid op ({op:?})"), partial: false
         });
     }
     state.require_pro(Feature::AppPermissionWrite)?;
@@ -1014,7 +1019,7 @@ pub(crate) async fn uninstall_package_impl(
     if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing to uninstall {package}: {reason}"),
+            message: format!("Refusing to uninstall {package}: {reason}"), partial: false
         });
     }
     // Uninstalling the only enabled launcher strands the TV without a Home
@@ -1105,7 +1110,7 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
             super::verification::failure_text(&out)
         )
     };
-    Ok(ActionResult { ok, message })
+    Ok(ActionResult { ok, message, partial: false })
 }
 
 #[cfg(test)]

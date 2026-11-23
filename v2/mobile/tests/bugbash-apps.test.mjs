@@ -213,6 +213,23 @@ test("a removal whose reply lands after a silent redial still drops the shared c
   await page.waitForFunction(() => session.bloatLoaded === false && session.healthLoaded === false);
 });
 
+test("a disable that landed with a warning is titled as done, not as a failure", async (t) => {
+  const page = await openApps(t);
+  const message = "SmartTube was disabled, but Google TV's setup helper (Setup Wraith) is still enabled and can take the Home button.";
+  await page.evaluate((message) => { handlers.disable_package = () => ({ ok: false, partial: true, message }); }, message);
+  await page.getByRole("button", { name: "More actions for SmartTube", exact: true }).click();
+  await page.getByRole("menu").getByRole("menuitem", { name: /Disable/ }).click();
+  await page.locator(".dialog-card").getByRole("button", { name: "Disable", exact: true }).click();
+  const warning = page.locator(".action-warning");
+  await warning.waitFor();
+  assert.equal(await warning.locator(".aw-title").innerText(), "Disabled SmartTube, with a warning");
+  assert.match(await warning.innerText(), /still enabled and can take the Home button/);
+  assert.equal(await page.locator(".error-notice").count(), 0, "no failure notice");
+  assert.equal(await page.getByText("Couldn't disable SmartTube").count(), 0);
+  await warning.getByRole("button", { name: "Dismiss" }).click();
+  await warning.waitFor({ state: "detached" });
+});
+
 test("sideloaded apps survive the unknown-package log's 100-record trim on a TV with many system packages", async (t) => {
   // list_other_packages puts third-party packages first, so oldest-first
   // trimming alone would drop exactly these.

@@ -400,6 +400,9 @@
   let appActionMessage = $state("");
   /// The last failed app action, shown through ErrorNotice.
   let appActionError = $state<{ action: string; error: string } | null>(null);
+  /// A change that landed only in part (stock disabled, its setup helper left
+  /// on): shown as a warning, not a failure, while its message is current.
+  let appActionWarning = $state<{ heading: string; message: string } | null>(null);
 
   function showAppActionError(action: string, error: unknown, note = "") {
     appActionMessage = note;
@@ -793,7 +796,7 @@
     appMeasures = idleMeasurements();
     if (appMutationInFlight) appActionBusy = null;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const list = await api.appListForDevice(deviceType);
       if (!pageContextIsCurrent(context) || request !== appsRequest) return;
@@ -881,7 +884,7 @@
     otherInventoryVersion++;
     if (appMutationInFlight) appActionBusy = null;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     othersLoading = true;
     othersLoaded = false;
     othersErr = null;
@@ -952,7 +955,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const r = await api.enablePackage(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !otherStateIsCurrent(pkg, false, inventoryVersion)) return;
@@ -1096,7 +1099,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const before = await readRemovalEvidence(context, pkg);
       if (!pageContextIsCurrent(context)
@@ -1159,7 +1162,15 @@
       // A not-ok result can still have landed (stock disabled but its setup
       // helper left on), so re-read the device rather than guess.
       if (!result.ok) {
-        showAppActionError(`${action === "disable" ? "Disable" : "Uninstall"} ${name}`, result.message.trim() || "failed");
+        if (result.partial) {
+          appActionMessage = result.message.trim();
+          appActionWarning = {
+            heading: `${action === "disable" ? "Disabled" : "Uninstalled"} ${name}, with a warning`,
+            message: appActionMessage,
+          };
+        } else {
+          showAppActionError(`${action === "disable" ? "Disable" : "Uninstall"} ${name}`, result.message.trim() || "failed");
+        }
         invalidateDeviceCaches();
         void resyncAfterBulkChange();
         return;
@@ -1212,7 +1223,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const r = await api.enablePackage(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "disabled", inventoryVersion)) return;
@@ -1258,7 +1269,7 @@
     appMutationInFlight = true;
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const r = await api.reinstallExisting(context.serial, pkg);
       if (!pageContextIsCurrent(context) || request !== mutationRequest || !catalogStateIsCurrent(pkg, "missing", inventoryVersion)) return;
@@ -1333,7 +1344,7 @@
     if (!folder) return;
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const r = await api.backupApk(serial, pkg, folder as string);
       appActionMessage = r.message;
@@ -1346,7 +1357,7 @@
 
   async function startClone(pkg: string) {
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const all = await api.listDevices();
       cloneTargets = all.filter((d) => d.status === "device" && d.serial !== serial);
@@ -1391,7 +1402,7 @@
   async function openInPlayStore(pkg: string) {
     appActionBusy = pkg;
     appActionMessage = "";
-    appActionError = null;
+    appActionError = null; appActionWarning = null;
     try {
       const r = await api.openPlayStore(serial, pkg);
       appActionMessage = r.ok
@@ -2218,7 +2229,7 @@
     homePickerPackages = []; homePickerLoading = false; homePickerBusy = null; homePickerErr = null; homePickerChoice = ""; homePickerActivity = "";
     homePickerMessage = ""; homePickerOk = false; stockConfirmOpen = false; stockHoldsHomeFor = null;
     appStatesResync++; appStatesResyncing = false; statesUnreadAfterRun = false; othersStaleAfterRun = false; optimizeRunActive = false;
-    apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null;
+    apps = []; appsLoaded = false; appsErr = null; appStates = {}; packageSafety = {}; appActionBusy = null; appActionMessage = ""; appActionError = null; appActionWarning = null;
     otherPackages = []; othersLoaded = false; othersErr = null; appMemory = {}; appUsage = {}; appStorage = {}; appMeasures = idleMeasurements(); appSearch = ""; packageStateFilter = "all"; hideNotInstalled = true; showSystemOthers = false;
     clonePkg = null; cloneTargets = [];
     snapshots = []; snapshotsLoaded = false; snapshotsErr = null; preview = null; previewPath = null; previewErr = null; saveResult = "";
@@ -2856,7 +2867,12 @@
               device={device?.properties?.model ?? device?.model ?? ""}
             />
           {/if}
-          {#if appActionMessage && !appActionError}
+          {#if appActionWarning && appActionWarning.message === appActionMessage}
+            <div class="warning action-warning" role="alert">
+              <strong>{appActionWarning.heading}.</strong> {appActionMessage}
+              <button class="dismiss" onclick={() => { appActionMessage = ""; appActionWarning = null; }} title="Dismiss" aria-label="Dismiss"><Icon name="close" size={16} /></button>
+            </div>
+          {:else if appActionMessage && !appActionError}
             <p class="muted small mono">
               {appActionMessage}
               <button class="dismiss" onclick={() => (appActionMessage = "")} title="Dismiss" aria-label="Dismiss"><Icon name="close" size={16} /></button>
@@ -3281,7 +3297,12 @@
       {#if appsLoading && apps.length === 0}
         <div class="muted">Loading…</div>
       {:else}
-        {#if appActionMessage}
+        {#if appActionWarning && appActionWarning.message === appActionMessage}
+          <div class="warning action-warning" role="alert">
+            <strong>{appActionWarning.heading}.</strong> {appActionMessage}
+            <button class="dismiss" onclick={() => { appActionMessage = ""; appActionWarning = null; }} data-tip="Dismiss" data-tip-align="end" aria-label="Dismiss"><Icon name="close" size={16} /></button>
+          </div>
+        {:else if appActionMessage}
           <p class="muted small mono action-message">
             {appActionMessage}
             <button class="dismiss" onclick={() => (appActionMessage = "")} data-tip="Dismiss" data-tip-align="end" aria-label="Dismiss"><Icon name="close" size={16} /></button>

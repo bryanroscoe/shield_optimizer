@@ -596,6 +596,32 @@ async fn disable_from_plan(
     out
 }
 
+/// Name each paired helper that stayed on in the result. Older snapshots
+/// list stock alone, so the helper may not be in the plan: name it here
+/// rather than imply it went off with stock.
+fn report_held_helpers(
+    held: &[crate::commands::launcher::HeldHelper],
+    packages_failed: &mut Vec<String>,
+    kept: &mut Vec<String>,
+) {
+    for helper in held {
+        let prefix = format!("{} (", helper.package);
+        if packages_failed.iter().any(|f| f.starts_with(&prefix)) {
+            continue;
+        }
+        if helper.protected {
+            packages_failed.push(format!("{} (protected: {})", helper.package, helper.reason));
+        } else {
+            packages_failed.push(format!(
+                "{} (kept: {})",
+                helper.package,
+                crate::engine::HomeKeepReason::OnlyHomeApp.label()
+            ));
+            kept.push(helper.package.clone());
+        }
+    }
+}
+
 /// A later, more specific result for an unconfirmed disable replaces its
 /// "could not be read back" entry rather than listing the package twice.
 fn drop_unconfirmed_entry(failed: &mut Vec<String>, unconfirmed: &[String], pkg: &str) {
@@ -722,6 +748,13 @@ async fn apply_snapshot_impl(
     let mut helper_notes: Vec<String> = Vec::new();
     for (stock, inventory) in &outcome.inventories {
         let mut diagnostics = Vec::new();
+        // An unverified stock disable stays unverified in the helper note:
+        // another launcher can hold Home with stock still on.
+        let stock_state = if outcome.unconfirmed.contains(stock) {
+            format!("{stock} may be disabled (it couldn't be read back)")
+        } else {
+            format!("{stock} is disabled")
+        };
         use crate::commands::launcher::PairedHelperOutcome as Outcome;
         match crate::commands::launcher::settle_paired_helpers_after_stock_disable(
             adb.as_ref(),
@@ -737,25 +770,9 @@ async fn apply_snapshot_impl(
             // Older snapshots list stock alone, so the helper may not be in
             // the plan: name it here rather than imply it went off with stock.
             Outcome::Held { held } => {
-                for helper in &held {
-                    let prefix = format!("{} (", helper.package);
-                    if packages_failed.iter().any(|f| f.starts_with(&prefix)) {
-                        continue;
-                    }
-                    if helper.protected {
-                        packages_failed
-                            .push(format!("{} (protected: {})", helper.package, helper.reason));
-                    } else {
-                        packages_failed.push(format!(
-                            "{} (kept: {})",
-                            helper.package,
-                            crate::engine::HomeKeepReason::OnlyHomeApp.label()
-                        ));
-                        kept.push(helper.package.clone());
-                    }
-                }
+                report_held_helpers(&held, &mut packages_failed, &mut kept);
                 helper_notes.push(format!(
-                    "{stock} is disabled, but {}",
+                    "{stock_state}, but {}",
                     crate::commands::launcher::held_helpers_note(&held)
                 ));
             }
@@ -764,7 +781,7 @@ async fn apply_snapshot_impl(
                 drop_unconfirmed_entry(&mut packages_failed, &outcome.unconfirmed, stock);
                 packages_failed.push(format!("{stock} (setup helper: {reason})"));
             }
-            Outcome::LeftOn => {
+            Outcome::LeftOn { protected } => {
                 let helper_also_off = catalog
                     .disable_with_for(stock)
                     .iter()
@@ -783,10 +800,10 @@ async fn apply_snapshot_impl(
                         format!("{stock} (no other launcher took Home and re-enabling it failed; use Emergency recovery)")
                     });
                 } else {
+                    report_held_helpers(&protected, &mut packages_failed, &mut kept);
                     helper_notes.push(format!(
-                        "{stock} is disabled, but Google TV's setup helper (Setup Wraith) is still enabled \
-                         and can take the Home button. Set another launcher as Home, then use \
-                         Disable Setup Wraith in Launcher."
+                        "{stock_state}, but {}",
+                        crate::commands::launcher::left_on_note(&protected)
                     ));
                 }
             }
@@ -1864,6 +1881,92 @@ mod tests {
         assert!(res.summary.contains("(0 failed)"), "{}", res.summary);
         assert!(res.summary.contains("was left on"), "{}", res.summary);
         assert!(res.summary.contains("Setup Wraith"), "{}", res.summary);
+    }
+
+    /// The held-helper note keeps an unverified stock disable unverified:
+    /// Projectivy can hold Home with stock still on.
+    #[tokio::test]
+    async fn a_held_helper_note_never_claims_an_unread_stock_disable() {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        const GTV: &str = "com.google.android.apps.tv.launcherx";
+        const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+        let home = [GTV, WRAITH, PROJECTIVY, SETTINGS];
+        let mock = restore_tv_with_readback(
+            &home,
+            &[],
+            &home,
+            &home_list(&home),
+            &format!("package:{GTV}\n"),
+        )
+        .on_shell("resolve-activity", &format!("{PROJECTIVY}/.Main"))
+        .on_shell(
+            "default_input_method",
+            &format!("{WRAITH}/.Ime\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\n{BATCH_STATUS}0\n"),
+        );
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(None, &[GTV]))
+            .await
+            .unwrap();
+        assert!(res.packages_disabled.is_empty());
+        assert!(
+            res.packages_failed
+                .iter()
+                .any(|f| f.starts_with(GTV) && f.contains("could not be read back")),
+            "{:?}",
+            res.packages_failed
+        );
+        assert!(res.summary.contains("was left on"), "{}", res.summary);
+        assert!(
+            res.summary
+                .contains(&format!("{GTV} may be disabled (it couldn't be read back)")),
+            "{}",
+            res.summary
+        );
+        assert!(
+            !res.summary.contains(&format!("{GTV} is disabled")),
+            "{}",
+            res.summary
+        );
+    }
+
+    /// Setup Wraith takes Home once stock is off and also holds the
+    /// keyboard: the result names it and both reasons it stayed on, and
+    /// doesn't offer Disable Setup Wraith, which would refuse it.
+    #[tokio::test]
+    async fn a_protected_helper_holding_home_is_named_with_both_reasons() {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        const GTV: &str = "com.google.android.apps.tv.launcherx";
+        const WRAITH: &str = "com.google.android.tungsten.setupwraith";
+        let home = [GTV, WRAITH, PROJECTIVY, SETTINGS];
+        let mock = restore_tv(&home, &[], &home, &home_list(&home))
+            .on_shell("resolve-activity", &format!("{WRAITH}/.SetupActivity"))
+            .on_shell(
+                "default_input_method",
+                &format!("{WRAITH}/.Ime\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\n{BATCH_STATUS}0\n"),
+            );
+        let log = mock.shell_log();
+        let res = apply_snapshot_impl(&state_with(mock), "serial", &snapshot(None, &[GTV]))
+            .await
+            .unwrap();
+        assert_eq!(res.packages_disabled, [GTV]);
+        assert!(!disabled_any(&log, WRAITH));
+        assert!(
+            res.packages_failed
+                .iter()
+                .any(|f| f.starts_with(&format!("{WRAITH} (protected: "))),
+            "{:?}",
+            res.packages_failed
+        );
+        assert!(
+            res.summary.contains("no other launcher holds Home"),
+            "{}",
+            res.summary
+        );
+        assert!(res.summary.contains("keyboard in use"), "{}", res.summary);
+        assert!(
+            !res.summary.contains("Disable Setup Wraith"),
+            "{}",
+            res.summary
+        );
     }
 
     #[tokio::test]
