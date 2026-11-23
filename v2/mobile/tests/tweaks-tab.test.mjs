@@ -399,11 +399,11 @@ if (process.env.MOBILE_POLISH_EVIDENCE === "1") test("capture simulated settings
   await mkdir(dir, { recursive: true });
   const page = await open(t, "tweaks", { pro: true, evidence: true });
   await page.evaluate(() => {
-    Object.assign(tweaks, { cached_process_limit: 32, background_process_limit: "2", window_animation_scale: "1.0", transition_animation_scale: "1", animator_duration_scale: "1.00" });
+    Object.assign(tweaks, { window_animation_scale: "1.0", transition_animation_scale: "1", animator_duration_scale: "1.00" });
     handlers.get_display_scaling = () => ({ size: "Physical size: 3840x2160\nOverride size: 1920x1080", density: "Physical density: 640\nOverride density: 320" });
   });
   await page.getByRole('button', { name: 'Re-read settings' }).click();
-  await page.getByText('Reported cached-process limit: 32', { exact: true }).waitFor();
+  await page.getByText('Animation speed', { exact: true }).waitFor();
   await page.screenshot({ path: `${dir}/settings-simulated.png`, fullPage: true });
   await page.waitForTimeout(700);
   const dns = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
@@ -752,7 +752,7 @@ test("manual audio formats are themed checkbox rows with the box leading", async
   assert.equal(write.value, "5,7,8");
 });
 
-test("display scaling, screensaver and cached-process help match desktop's visible/help split", async (t) => {
+test("display scaling and screensaver help match desktop's visible/help split", async (t) => {
   const page = await open(t, "tweaks", { pro: true });
   await page.evaluate(() => Object.assign(tweaks, { cached_process_limit: 32, background_process_limit: "2" }));
   await page.getByRole("button", { name: "Re-read settings" }).click();
@@ -761,7 +761,6 @@ test("display scaling, screensaver and cached-process help match desktop's visib
   assert.equal(await reset.evaluate((el) => !!el.closest("details")), false);
   for (const [summary, routine] of [
     ["About display scaling", /The resolution Android draws its menus at/],
-    ["About cached processes", /not a count of running apps/],
     ["About screensavers", /Restore previous also\s+brings back a custom screensaver/],
     ["About screensavers", /Previous is what was set when Tweaks first read this TV\./],
     ["About audio passthrough", /Actual playback depends on your receiver and app/],
@@ -775,6 +774,5 @@ test("display scaling, screensaver and cached-process help match desktop's visib
     await page.getByRole("button", { name: "Done", exact: true }).click();
     await page.getByRole("dialog").waitFor({ state: "detached" });
   }
-  const legacy = page.getByText(/Removing it deletes only this stored value and doesn't change Android's reported limit\./);
-  assert.equal(await legacy.evaluate((el) => !!el.closest("details")), false);
+  assert.equal(await page.getByText("Cached background processes").count(), 0);
 });
