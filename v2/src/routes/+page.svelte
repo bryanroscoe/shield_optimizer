@@ -1345,7 +1345,9 @@
     macRead.add(saved.hardwareId);
     try {
       const read = await api.deviceMacAddress(live.serial, hostOfAddress(savedAddressOf(live) ?? saved.address));
+      // Once this screen has closed, the next one reads the list from storage.
       if (!disposed) storeSaved(recordMac(savedStore, saved.hardwareId, read));
+      else writeSaved(recordMac(loadSaved(), saved.hardwareId, read));
     } catch {
       /* no MAC this time */
     }
@@ -1360,12 +1362,14 @@
     dialsInFlight.add(id);
     savedDial[id] = "connecting";
     const attempt = api.connectDevice(saved.address).catch(() => null);
+    let waited = false;
     // A slow answer that lands after the wait still shows up in the list.
     void attempt.then((r) => {
-      if (r?.ok && !disposed) return refresh();
+      if (waited && r?.ok && !disposed) return refresh();
     });
     try {
       const r = await Promise.race([attempt, sleep(SAVED_DIAL_MS).then(() => null)]);
+      waited = true;
       if (r?.ok && !disposed) await refresh();
     } finally {
       dialsInFlight.delete(id);
