@@ -1785,7 +1785,7 @@ mod tests {
         (head.lines().next().unwrap().to_string(), body)
     }
 
-    /// [`answer_one_post`], returning the whole request head (lower-cased).
+    /// [`answer_one_post`], returning the whole request head as sent.
     async fn answer_one_post_head(
         listener: tokio::net::TcpListener,
         response: String,
@@ -1807,7 +1807,7 @@ mod tests {
                     .unwrap_or(0);
                 if buf.len() >= split + 4 + len {
                     sock.write_all(response.as_bytes()).await.unwrap();
-                    return (head, text[split + 4..].to_string());
+                    return (text[..split].to_string(), text[split + 4..].to_string());
                 }
             }
             if n == 0 {
@@ -1879,7 +1879,11 @@ mod tests {
         assert_eq!(receipt.id, Some(3));
         let (head, sent) = server.await.unwrap();
         assert_eq!(sent, body);
-        assert!(head.contains("\r\nx-play-integrity: tok.en"), "{head}");
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("\r\nx-play-integrity: tok.en"),
+            "{head}"
+        );
     }
 
     #[test]
@@ -1918,7 +1922,11 @@ mod tests {
         ));
         hub.flush().await;
         let (head, body) = server.await.unwrap();
-        assert!(head.contains("\r\nx-play-integrity: first.token"), "{head}");
+        assert!(
+            head.to_ascii_lowercase()
+                .contains("\r\nx-play-integrity: first.token"),
+            "{head}"
+        );
         assert_eq!(*asked.lock().unwrap(), vec![request_hash(&body)]);
 
         // Later batches that day go without, and the day survives a restart.
@@ -1934,7 +1942,10 @@ mod tests {
         ));
         hub.flush().await;
         let (head, _) = server.await.unwrap();
-        assert!(!head.contains("x-play-integrity"), "{head}");
+        assert!(
+            !head.to_ascii_lowercase().contains("x-play-integrity"),
+            "{head}"
+        );
         assert!(asked.lock().unwrap().is_empty());
     }
 
@@ -1953,7 +1964,10 @@ mod tests {
         ));
         hub.flush().await;
         let (head, body) = server.await.unwrap();
-        assert!(!head.contains("x-play-integrity"), "{head}");
+        assert!(
+            !head.to_ascii_lowercase().contains("x-play-integrity"),
+            "{head}"
+        );
         assert!(body.contains("device_seen"));
         assert_eq!(asked.lock().unwrap().len(), 1);
     }
