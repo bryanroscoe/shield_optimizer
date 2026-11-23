@@ -403,7 +403,7 @@ if (process.env.MOBILE_POLISH_EVIDENCE === "1") test("capture simulated settings
     handlers.get_display_scaling = () => ({ size: "Physical size: 3840x2160\nOverride size: 1920x1080", density: "Physical density: 640\nOverride density: 320" });
   });
   await page.getByRole('button', { name: 'Re-read settings' }).click();
-  await page.getByText('Animation speed', { exact: true }).waitFor();
+  await page.waitForFunction(() => [...document.querySelectorAll('button')].some(b => b.textContent.trim() === '1×' && b.classList.contains('active')));
   await page.screenshot({ path: `${dir}/settings-simulated.png`, fullPage: true });
   await page.waitForTimeout(700);
   const dns = page.locator('.tweak-row').filter({ has: page.getByText('Private DNS', { exact: true }) });
