@@ -531,3 +531,32 @@ async fn a_simulated_tv_has_no_usb_drive() {
     assert!(volumes.is_empty(), "{volumes:?}");
     assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
 }
+
+#[tokio::test]
+async fn the_simulated_shield_reports_the_mac_of_its_lan_interface() {
+    let sim = SimulatedAdb::empty();
+    {
+        let mut w = sim.world();
+        let mut d = profile("shield-tv-pro");
+        d.network = Some(Network {
+            ip: "192.0.2.1".into(),
+            legacy_port: Some(5555),
+            wireless: None,
+            advertise_legacy: false,
+        });
+        let serial = d.serial.clone();
+        w.add_device(d);
+        w.attach("192.0.2.1:5555", &serial, TransportState::Device);
+    }
+    let st = state(&sim);
+    let read = crate::commands::mac_address::device_mac_address_impl(
+        &st,
+        "192.0.2.1:5555",
+        Some("192.0.2.1"),
+    )
+    .await;
+    assert_eq!(read.hardware_id.as_deref(), Some("1324619053514"));
+    let mac = read.mac.expect("wlan0 carries the TV's address");
+    assert!(mac.starts_with("00:1a:11:"), "{mac}");
+    assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}

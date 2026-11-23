@@ -14,6 +14,7 @@ pub mod launcher;
 pub mod license;
 pub mod loader;
 pub mod logcat;
+pub mod mac_address;
 pub mod optimize;
 pub mod reboot;
 pub mod recovery;

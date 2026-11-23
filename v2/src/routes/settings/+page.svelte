@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { savedDialSession } from "$lib/saved-dial.svelte";
   import { onMount, tick } from "svelte";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Icon from "$lib/components/Icon.svelte";
@@ -136,6 +137,8 @@
     try {
       const r = await api.restartAdb();
       restartMessage = r.message;
+      // The restart dropped every connection: Devices dials saved TVs again.
+      if (r.server_ready) savedDialSession.redialDue = true;
       await loadAdb();
     } catch (e) {
       restartMessage = String(e);
@@ -184,6 +187,7 @@
     try {
       engine = await api.setAdbEngine(next);
       if (engine.active !== before && engine.active) {
+        savedDialSession.redialDue = true;
         engineMessage = `Now using ${engineLabel(engine.active)}. Connect TVs again from Devices if they don't appear.`;
       }
     } catch (e) {

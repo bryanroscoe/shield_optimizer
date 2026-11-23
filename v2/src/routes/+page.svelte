@@ -1,8 +1,9 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
+  import HelpTip from "$lib/components/HelpTip.svelte";
   import ApprovalDialog, { type ApprovalPhase } from "$lib/components/ApprovalDialog.svelte";
   import { goto } from "$app/navigation";
-  import { onMount, tick } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import { tip } from "$lib/tip";
   import { onSupportTiersUpdated } from "$lib/support-updates";
   import { api } from "$lib/api";
@@ -39,6 +40,27 @@
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import SupportBadge from "$lib/components/SupportBadge.svelte";
   import SupportBanner from "$lib/components/SupportBanner.svelte";
+  import {
+    hostOfAddress,
+    lastConnectedLabel,
+    dialSavedAddress,
+    liveDeviceFor,
+    loadSaved,
+    mergeStoredMacs,
+    normalizeAddress,
+    observeConnected,
+    recordMac,
+    saveDevice,
+    savedAddressOf,
+    savedStatus,
+    sortedSaved,
+    unsaveDevice,
+    writeSaved,
+    type SavedDevice,
+    type SavedStatus,
+    type SavedStore,
+  } from "$lib/saved-devices";
+  import { savedDialSession, savedDialWork } from "$lib/saved-dial.svelte";
 
   let devices = $state<Device[]>([]);
   let nativeConnections = $state<ScanConnectionProgress>({ pending: [], failed: [] });
@@ -75,6 +97,28 @@
   const listedEndpoints = $derived(visibleDevices.filter(d => d.status === "device" || d.status === "unauthorized").map(d => d.serial));
   let loading = $state(true);
   let error = $state<string | null>(null);
+
+  /// Saved devices (#411): rendered from storage at once, then dialled.
+  /// Before the launch dial every saved row starts out "connecting", since
+  /// launch dials them all.
+  const initialSaved = loadSaved();
+  let savedStore = $state<SavedStore>(initialSaved);
+  const savedDial = savedDialSession.dial;
+  if (!savedDialSession.launched) {
+    for (const d of initialSaved.devices) savedDial[d.hardwareId] = "connecting";
+  }
+  const savedRows = $derived(sortedSaved(savedStore).map((saved) => ({
+    saved,
+    live: liveDeviceFor(saved, visibleDevices),
+    status: savedStatus(saved, visibleDevices, savedDial[saved.hardwareId]),
+  })));
+  const savedIds = $derived(new Set(savedStore.devices.map((d) => d.hardwareId)));
+  /// Connected saved devices are shown in the Saved section, not again below.
+  const foundDevices = $derived(visibleDevices.filter((d) => !savedRows.some((r) => r.live?.serial === d.serial)));
+  /// How long launch (or Connect) waits for a saved address to answer.
+  const SAVED_DIAL_MS = 8000;
+  /// Hardware ids whose MAC has been asked for this session.
+  const macRead = savedDialWork.macRead;
 
   let connectAddress = $state("");
   let connectBusy = $state(false);
@@ -278,6 +322,9 @@
     connectMessage = adbBackend === "direct" ? "Connecting…" : "";
     connectDetail = "";
     connectError = null;
+    // Typed by the user: no longer just an answer to a saved-device dial.
+    const key = normalizeAddress(connectKey(address));
+    if (key) savedDialWork.dialledFor.delete(key);
     try {
       const r = await api.connectDevice(address);
       if (r.ok) {
@@ -836,6 +883,8 @@
       await freshLocalNetworkStatus(r.message);
       await refresh();
       restartBusy = false;
+      // A restart drops every connection: dial the saved TVs again.
+      if (r.server_ready) void dialSavedDevices();
       if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
@@ -1232,6 +1281,8 @@
       // Forget ends a request for this TV too.
       if (approvals[d.serial]) await endApproval(d.serial);
       const r = await api.forgetDevice(d.serial);
+      const forgottenId = idKey(d.properties?.serial_number);
+      if (forgottenId) delete savedDial[forgottenId];
       await refresh();
       if (!r.ok || r.still_advertised) connectMessage = r.message;
       if (r.ok && r.still_advertised) void watchReattach(d);
@@ -1270,14 +1321,139 @@
     }
   }
 
-  // Best-effort discovery on boot: if no ready device shows up after the
-  // initial refresh and adb is available, kick off a scan so users with
-  // already-paired devices don't have to click anything.
+  /// Persist a change. A MAC that a closed Devices screen wrote meanwhile is
+  /// merged in first, so this write never drops it.
+  function storeSaved(next: SavedStore) {
+    if (next === savedStore) return;
+    next = mergeStoredMacs(next, loadSaved());
+    savedStore = next;
+    writeSaved(next);
+  }
+
+  /// Every connected network device with a verified hardware id is saved
+  /// (unless the user unsaved it, or it answered only a dial for another
+  /// saved device), and a saved one's record follows it to a new address.
+  /// Runs whenever the list is re-read.
+  $effect(() => {
+    const list = devices;
+    untrack(() => {
+      let next = mergeStoredMacs(savedStore, loadSaved());
+      for (const d of list) next = observeConnected(next, d, new Date(), savedDialWork.dialledFor);
+      storeSaved(next);
+      for (const saved of savedStore.devices) {
+        const live = liveDeviceFor(saved, list);
+        if (!live) continue;
+        if (savedDial[saved.hardwareId] && !savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
+        if (!saved.mac) void readMac(saved, live);
+      }
+    });
+  });
+
+  /// A saved dial that succeeded after the screen that started it closed:
+  /// this screen re-reads the list so the TV shows up.
+  let landedSeen = savedDialSession.landed;
+  $effect(() => {
+    const landed = savedDialSession.landed;
+    untrack(() => {
+      if (landed === landedSeen) return;
+      landedSeen = landed;
+      if (!disposed) void refresh();
+    });
+  });
+
+  /// The MAC address of the interface a saved device is reached on, for a
+  /// later Wake-on-LAN. Once per session; a failed read is simply no MAC.
+  /// Written to storage straight away, so it survives this screen closing.
+  async function readMac(saved: SavedDevice, live: Device) {
+    if (macRead.has(saved.hardwareId)) return;
+    macRead.add(saved.hardwareId);
+    try {
+      const read = await api.deviceMacAddress(live.serial, hostOfAddress(savedAddressOf(live) ?? saved.address));
+      writeSaved(recordMac(loadSaved(), saved.hardwareId, read));
+      if (!disposed) storeSaved(recordMac(savedStore, saved.hardwareId, read));
+    } catch {
+      /* no MAC this time */
+    }
+  }
+
+  /// Dial a saved device's last address. The row goes Online only once a
+  /// device reporting its hardware id is listed; anything else ends as
+  /// "Didn't answer" or, when another device answers there, says so. The
+  /// dial's state lives in the session, so it lands correctly even if this
+  /// screen closes first.
+  function dialSaved(saved: SavedDevice): Promise<void> {
+    if (directUnavailable || adbMissing) return Promise.resolve();
+    savedDialWork.dialledFor.set(saved.address, saved.hardwareId);
+    return dialSavedAddress(savedDialSession, saved, api.connectDevice, SAVED_DIAL_MS);
+  }
+
+  async function dialSavedDevices() {
+    const waiting = savedStore.devices.filter((saved) => !liveDeviceFor(saved, devices));
+    for (const saved of savedStore.devices) {
+      if (!waiting.includes(saved) && !savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
+    }
+    await Promise.all(waiting.map(dialSaved));
+  }
+
+  function canSave(d: Device): boolean {
+    return d.status === "device" && !!idKey(d.properties?.serial_number) && !!savedAddressOf(d);
+  }
+
+  /// After a bookmark: the row's bookmark wherever it moved, else the first
+  /// saved row's, else the first row, else the Devices heading.
+  async function focusBookmark(id: string) {
+    await tick();
+    const target =
+      document.querySelector<HTMLElement>(`[data-bookmark="${CSS.escape(id)}"]`) ??
+      document.querySelector<HTMLElement>(".device-section [data-bookmark]") ??
+      document.querySelector<HTMLElement>("ul.device-list a.device-row, ul.device-list button") ??
+      document.getElementById("devices-heading");
+    target?.focus();
+  }
+
+  /// The bookmark on a connected row.
+  function toggleSaved(d: Device) {
+    const id = idKey(d.properties?.serial_number);
+    if (!id) return;
+    if (savedIds.has(id)) {
+      storeSaved(unsaveDevice(savedStore, id));
+    } else {
+      const next = saveDevice(savedStore, d);
+      if (!next) return;
+      storeSaved(next);
+    }
+    void focusBookmark(id);
+  }
+
+  /// The bookmark on a saved row that isn't connected: the row goes away.
+  function unsaveRecord(saved: SavedDevice) {
+    storeSaved(unsaveDevice(savedStore, saved.hardwareId));
+    if (!savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
+    void focusBookmark(saved.hardwareId);
+  }
+
+  // Best-effort discovery on boot: saved devices are dialled at their last
+  // address and, if no ready device shows up after the initial refresh and
+  // adb is available, a scan runs alongside so users with already-paired
+  // devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    if (disposed || adbMissing || directUnavailable) return;
-    if (devices.some((d) => d.status === "device")) return;
-    await scan();
+    const redial = !savedDialSession.launched || savedDialSession.redialDue;
+    if (disposed) return;
+    savedDialSession.launched = true;
+    if (adbMissing || directUnavailable || error) {
+      for (const id of Object.keys(savedDial)) if (!savedDialSession.pending[id]) delete savedDial[id];
+      return;
+    }
+    savedDialSession.redialDue = false;
+    // Launch (or a restarted ADB) dials every saved address once; coming
+    // back to this screen later leaves them to Connect.
+    const dialing = redial ? dialSavedDevices() : Promise.resolve();
+    if (devices.some((d) => d.status === "device")) {
+      await dialing;
+      return;
+    }
+    await Promise.all([dialing, scan()]);
   }
 
   onMount(() => {
@@ -1302,7 +1478,7 @@
 
 <section class="header-row">
   <div class="header-title">
-    <h1>Devices</h1>
+    <h1 id="devices-heading" tabindex="-1">Devices</h1>
     <p class="muted small mono header-sub">
       {#if adbMissing}
         adb not found
@@ -1608,270 +1784,381 @@
   </div>
 {:else if error}
   <div class="error" role="alert">{directUnavailable ? "Built-in ADB unavailable" : "Failed to list devices"}: {error}</div>
-{:else if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && visibleDevices.length === 0}
-  <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
-{:else if visibleDevices.length === 0}
-  <div class="empty">
-    <h2>No devices connected.</h2>
-  </div>
 {:else}
-  <ul class="device-list">
-    {#each visibleDevices as d (d.serial)}
-      {@const href = deviceHref(d)}
-      {@const tvNote = openedAnyway(d)
-        ? "Reported it is not an Android TV; you chose to open it anyway"
-        : isUnconfirmedTv(d)
-          ? "Didn't report itself as an Android TV; tools may not apply"
-          : null}
-      {@const tvNoteId = `tv-note-${d.serial}`}
-      <li>
-        {#if href}
-          <a
-            class="device-row clickable"
-            class:flash={flashSerial === d.serial}
-            href={href}
-            data-serial={d.serial}
-            aria-describedby={tvNote ? tvNoteId : undefined}
-            oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
-          >
-            {#if tvNote}<span id={tvNoteId} hidden>{tvNote}</span>{/if}
-            <span class="device-icon" aria-hidden="true">
-              <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
-            </span>
-            <div class="device-main">
-              <div class="device-name">
-                <span>{d.name}</span>
-                <!-- Whether it is reachable belongs with the name, not at the
-                     far edge: it qualifies the device. -->
-                <span class="device-status online">
-                  <span class="status-dot" aria-hidden="true"></span> Online
-                </span>
-                <!-- Inside the row's link, so not a control of its own: the
-                     explanation opens with the link's keyboard focus and is
-                     the link's accessible description. -->
-                {#if openedAnyway(d)}
-                  <span class="status-tag not-a-tv" data-tip={tvNote}>NOT A TV</span>
-                {:else if isUnconfirmedTv(d)}
-                  <span class="status-tag unconfirmed" data-tip={tvNote}>UNCONFIRMED TV</span>
-                {/if}
-                {#if d.properties && d.support?.tier !== "fully_supported"}
-                  <SupportBadge support={d.support} />
-                {/if}
-              </div>
-              <div class="device-meta muted mono">
-                {d.serial} · {deviceTypeLabel(d.device_type)}
-                {#if d.model}· {d.model}{/if}
-                · {d.connection === "network" ? "network" : "usb"}
-              </div>
-              {#if d.properties && d.support?.tier !== "fully_supported"}
-                {#if d.support?.tier === "not_supported"}
-                  <SupportBanner support={d.support} />
-                {:else}
-                  <SupportBadge support={d.support} mode="line" />
-                {/if}
-              {/if}
-            </div>
-            <!-- Row actions. They live inside the link, so each one has to
-                 stop the click reaching it — otherwise Forget would navigate
-                 to the device it just disconnected. -->
-            <span class="row-actions">
-              {#if justConnected === d.serial}
-                <button class="row-action primary" onclick={(e) => rowAction(e, () => goto(toolsHref(d)))}>
-                  Open
-                </button>
-              {/if}
-              {#if isUnconfirmedTv(d)}
-                <button
-                  class="row-action"
-                  onclick={(e) => rowAction(e, () => copyDiagnostics(d))}
-                  disabled={diagnosticsBusy === d.serial}
-                  data-tip="Copy what this device reported, for a bug report"
-                >
-                  {diagnosticsBusy === d.serial
-                    ? "Copying…"
-                    : diagnosticsCopied === d.serial
-                      ? "Copied"
-                      : "Copy diagnostics"}
-                </button>
-              {/if}
-              {#if d.connection === "network"}
-                <button
-                  class="row-action forget-btn"
-                  onclick={(e) => rowAction(e, () => forgetDevice(d))}
-                  disabled={forgetBusy === d.serial}
-                  data-tip="Disconnects every connection to this device · the device is untouched"
-                  data-tip-align="end"
-                >
-                  {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
-                </button>
-              {/if}
-            </span>
-            <!-- A chevron says "this opens" without pretending to be
-                 separately clickable. -->
-            <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={28} /></span>
-          </a>
-        {:else}
-          <!-- The right-click menu only repeats this row's own buttons, which
-               are the keyboard route to the same actions. -->
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class="device-row not-clickable"
-            class:discovered={!!d.discoveryState}
-            class:unapproved={isUnapproved(d)}
-            class:flash={flashSerial === d.serial}
-            data-serial={d.serial}
-            oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
-          >
-            <span class="device-icon" aria-hidden="true">
-              <Icon name={d.status === "offline" && !d.discoveryState ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
-            </span>
-            <div class="device-main">
-              <div class="device-name">
-                <span>{d.name}</span>
-                {#if isUnapproved(d)}
-                  <span class="status-tag unauthorized">{isAwaitingApproval(d) ? "WAITING FOR ALLOW" : "NOT ALLOWED YET"}</span>
-                {:else if d.discoveryState === "connecting"}
-                  <span class="status-tag">CONNECTING…</span>
-                {:else if d.discoveryState === "failed"}
-                  <span class="status-tag offline">CONNECTION FAILED</span>
-                {:else if d.status === "offline"}
-                  <span class="status-tag offline">OFFLINE</span>
-                {/if}
-                {#if isNotATv(d)}
-                  <span class="status-tag not-a-tv">NOT AN ANDROID TV</span>
-                {:else if isUnconfirmedTv(d)}
-                  <span
-                    class="status-tag unconfirmed"
-                    use:tip={"Didn't report itself as an Android TV; tools may not apply"}
-                  >UNCONFIRMED TV</span>
-                {/if}
-              </div>
-              {#if !isUnapproved(d)}
-              <div class="device-meta muted mono">
-                {deviceTypeLabel(d.device_type)}
-                {#if d.model}· {d.model}{/if}
-                · {d.serial}
-              </div>
-              {:else if d.name !== d.serial}
-              <div class="device-meta muted mono">{d.serial}</div>
-              {/if}
-              {#if isUnapproved(d)}
-                <span class="sr-only" role="status">
-                  {isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : unseenResult(d) ? `${d.name}: ${unseenResult(d)}` : ""}
-                </span>
-                <p class="approval-line" class:approval-result={!!unseenResult(d) && approvals[d.serial]?.phase === "error"} data-approval-line>
-                  {#if isAwaitingApproval(d)}
-                    Waiting for you to choose Allow on it.
-                  {:else if unseenResult(d)}
-                    {unseenResult(d)}
-                  {:else if adbBackend !== "direct" && freshPrompt[d.serial]}
-                    Hasn't allowed this computer yet; it's probably asking now.
-                  {:else}
-                    Hasn't allowed this computer yet.
-                  {/if}
-                </p>
-              {/if}
-              {#if d.discoveryState === "connecting"}
-                <p class="muted small">Found on the network. Connecting…</p>
-              {:else if d.discoveryState === "failed"}
-                <p class="small">{d.discoveryError}</p>
-              {/if}
-              {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
-                <p class="small just-connected-note">
-                  Connected, but this device reported it isn't an Android TV, so it doesn't open
-                  by default. Use Open anyway if you still want to try the tools.
-                </p>
-              {/if}
-              {#if confirmOpenSerial === d.serial}
-                <div class="open-anyway-confirm" role="group" aria-label="Open anyway">
-                  <p class="small">
-                    This device reported that it is not an Android TV. The tools are built for
-                    Android TV, so some of them may not apply here.
-                  </p>
-                  <div class="open-anyway-actions">
-                    <button class="primary" onclick={() => confirmOpenAnyway(d)}>Open tools</button>
-                    <button onclick={() => (confirmOpenSerial = null)}>Cancel</button>
-                  </div>
-                </div>
-              {/if}
-            </div>
-            <!-- A row the app will not open is exactly the row someone needs
-                 to report, so the bundle is one click away from it. "Forget"
-                 is `adb disconnect`: only for network transports, because
-                 there is nothing to disconnect on USB. It removes the row,
-                 not the device — adding the address back brings it straight
-                 home. -->
-            <span class="row-actions">
-              {#if isNotATv(d) && d.status === "device"}
-                <button
-                  class="row-action"
-                  class:primary={justConnected === d.serial}
-                  onclick={() => (confirmOpenSerial = d.serial)}
-                  disabled={confirmOpenSerial === d.serial}
-                  data-tip="Open the tools on this device even though it is not an Android TV"
-                >
-                  Open anyway
-                </button>
-              {/if}
-              {#if requestOpen(d)}
-                <button
-                  class="row-action"
-                  onclick={() => showApproval(d)}
-                  aria-label={`Show the approval request for ${d.name}`}
-                  data-approval-action
-                >
-                  Show request
-                </button>
-              {:else if isUnapproved(d)}
-                <button
-                  class="row-action primary"
-                  onclick={() => startApproval(d)}
-                  aria-label={`Request approval from ${d.name}`}
-                  data-approval-action
-                >
-                  Request approval
-                </button>
-              {/if}
-              {#if canRetryConnection(d)}
-                <button
-                  class="row-action primary"
-                  onclick={() => repromptDevice(d)}
-                  disabled={repromptBusy === d.serial}
-                  data-tip="Reconnects only this address and retries authorization. Check the device for a debugging prompt."
-                >
-                  {repromptBusy === d.serial ? "Connecting…" : "Try again"}
-                </button>
-              {/if}
-              <button
-                class="row-action"
-                onclick={() => copyDiagnostics(d)}
-                disabled={diagnosticsBusy === d.serial}
-                data-tip="Copy what this device reported, for a bug report"
-              >
-                {diagnosticsBusy === d.serial
-                  ? "Copying…"
-                  : diagnosticsCopied === d.serial
-                    ? "Copied"
-                    : "Copy diagnostics"}
-              </button>
-              {#if d.connection === "network"}
-                <button
-                  class="row-action forget-btn"
-                  onclick={() => forgetDevice(d)}
-                  disabled={forgetBusy === d.serial}
-                  data-tip="Disconnects every connection to this device · the device is untouched"
-                  data-tip-align="end"
-                >
-                  {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
-                </button>
-              {/if}
-            </span>
-          </div>
-        {/if}
-      </li>
-    {/each}
-  </ul>
+  {#if savedRows.length > 0}
+    <section class="device-section" aria-labelledby="saved-devices-heading">
+      <div class="section-head">
+        <HelpTip label="Saved" headingId="saved-devices-heading">
+          <p>Network devices that connect and report their hardware ID are saved here automatically. The bookmark unsaves one, and it stays unsaved until you save it again.</p>
+          <p>At launch the app connects to each saved address directly, so a device that a network scan misses still appears.</p>
+          <p><strong>Didn't answer</strong>: it's asleep, off, or at a new address. Wake it, then choose Connect.</p>
+          <p><strong>Different device</strong>: another device answers at that address now. It's listed under Other devices, never under this saved name, and isn't saved unless you save it.</p>
+          <p><strong>Can't confirm</strong>: something answers at that address but hasn't allowed this computer, so it can't say which device it is.</p>
+          <p>Forget disconnects a saved device; it stays saved.</p>
+        </HelpTip>
+      </div>
+      <ul class="device-list">
+        {#each savedRows as row (row.saved.hardwareId)}
+          {#if row.live}
+            {@render liveRow(row.live)}
+          {:else}
+            {@render savedRow(row.saved, row.status)}
+          {/if}
+        {/each}
+      </ul>
+    </section>
+    <h2 class="found-heading" id="found-devices-heading" tabindex="-1">Other devices</h2>
+  {/if}
+  {#if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && foundDevices.length === 0}
+    <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
+  {:else if foundDevices.length === 0}
+    {#if savedRows.some((r) => r.live)}
+      <p class="muted found-empty">No other devices found.</p>
+    {:else}
+      <div class="empty">
+        <h2>No devices connected.</h2>
+      </div>
+    {/if}
+  {:else}
+    <ul class="device-list">
+      {#each foundDevices as d (d.serial)}
+        {@render liveRow(d)}
+      {/each}
+    </ul>
+  {/if}
 {/if}
+
+{#snippet bookmark(d: DeviceRow, inLink: boolean)}
+  {@const id = idKey(d.properties?.serial_number)}
+  {@const isSaved = !!id && savedIds.has(id)}
+  {#if id && (isSaved || canSave(d))}
+    <button
+      class="row-action bookmark-btn"
+      class:saved={isSaved}
+      data-bookmark={id}
+      aria-label={isSaved ? `Unsave ${d.name}` : `Save ${d.name}`}
+      data-tip={isSaved ? "Saved · reconnects at launch" : "Save, to reconnect at launch"}
+      data-tip-align="end"
+      onclick={(e) => (inLink ? rowAction(e, () => toggleSaved(d)) : toggleSaved(d))}
+    >
+      <Icon name="bookmark" size={18} fill={isSaved} />
+    </button>
+  {/if}
+{/snippet}
+
+{#snippet savedRow(saved: SavedDevice, status: SavedStatus)}
+  <li>
+    <div
+      class="device-row not-clickable saved-offline"
+      class:waiting={status !== "connecting"}
+      data-saved-id={saved.hardwareId}
+    >
+      <span class="device-icon" aria-hidden="true">
+        <Icon name={status === "connecting" ? "cast" : "tv_off"} size={20} />
+      </span>
+      <div class="device-main">
+        <div class="device-name">
+          <span>{saved.name}</span>
+          <span class="saved-status" role="status">
+          {#if status === "connecting"}
+            <span class="device-status connecting"><span class="spinner" aria-hidden="true"></span> Connecting…</span>
+          {:else if status === "no_answer"}
+            <span class="device-status"><span class="status-dot" aria-hidden="true"></span> Didn't answer</span>
+          {:else if status === "different_device"}
+            <span class="device-status different"><Icon name="warning" size={14} /> Different device</span>
+          {:else if status === "unverified"}
+            <span class="device-status"><span class="status-dot" aria-hidden="true"></span> Can't confirm</span>
+          {:else}
+            <span class="device-status"><span class="status-dot" aria-hidden="true"></span> Not connected</span>
+          {/if}
+          </span>
+        </div>
+        <div class="device-meta muted mono">
+          {saved.address} · {deviceTypeLabel(saved.deviceType)}
+          {#if saved.model}· {saved.model}{/if}
+          {#if lastConnectedLabel(saved.lastConnected)}· last connected {lastConnectedLabel(saved.lastConnected)}{/if}
+        </div>
+      </div>
+      <span class="row-actions">
+        <button
+          class="row-action bookmark-btn saved"
+          data-bookmark={saved.hardwareId}
+          aria-label={`Unsave ${saved.name}`}
+          data-tip="Saved · reconnects at launch"
+          data-tip-align="end"
+          onclick={() => unsaveRecord(saved)}
+        >
+          <Icon name="bookmark" size={18} fill />
+        </button>
+        <button
+          class="row-action primary"
+          onclick={() => dialSaved(saved)}
+          disabled={status === "connecting" || !!savedDialSession.pending[saved.hardwareId] || directUnavailable || adbMissing}
+          aria-label={status === "connecting" ? `Connecting to ${saved.name}` : `Connect to ${saved.name}`}
+        >
+          {status === "connecting" ? "Connecting…" : "Connect"}
+        </button>
+      </span>
+    </div>
+  </li>
+{/snippet}
+
+{#snippet liveRow(d: DeviceRow)}
+  {@const href = deviceHref(d)}
+  {@const tvNote = openedAnyway(d)
+    ? "Reported it is not an Android TV; you chose to open it anyway"
+    : isUnconfirmedTv(d)
+      ? "Didn't report itself as an Android TV; tools may not apply"
+      : null}
+  {@const tvNoteId = `tv-note-${d.serial}`}
+  <li>
+    {#if href}
+      <a
+        class="device-row clickable"
+        class:flash={flashSerial === d.serial}
+        href={href}
+        data-serial={d.serial}
+        aria-describedby={tvNote ? tvNoteId : undefined}
+        oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
+      >
+        {#if tvNote}<span id={tvNoteId} hidden>{tvNote}</span>{/if}
+        <span class="device-icon" aria-hidden="true">
+          <Icon name={d.connection === "network" ? "cast_connected" : "tv"} size={20} />
+        </span>
+        <div class="device-main">
+          <div class="device-name">
+            <span>{d.name}</span>
+            <!-- Whether it is reachable belongs with the name, not at the
+                 far edge: it qualifies the device. -->
+            <span class="device-status online">
+              <span class="status-dot" aria-hidden="true"></span> Online
+            </span>
+            <!-- Inside the row's link, so not a control of its own: the
+                 explanation opens with the link's keyboard focus and is
+                 the link's accessible description. -->
+            {#if openedAnyway(d)}
+              <span class="status-tag not-a-tv" data-tip={tvNote}>NOT A TV</span>
+            {:else if isUnconfirmedTv(d)}
+              <span class="status-tag unconfirmed" data-tip={tvNote}>UNCONFIRMED TV</span>
+            {/if}
+            {#if d.properties && d.support?.tier !== "fully_supported"}
+              <SupportBadge support={d.support} />
+            {/if}
+          </div>
+          <div class="device-meta muted mono">
+            {d.serial} · {deviceTypeLabel(d.device_type)}
+            {#if d.model}· {d.model}{/if}
+            · {d.connection === "network" ? "network" : "usb"}
+          </div>
+          {#if d.properties && d.support?.tier !== "fully_supported"}
+            {#if d.support?.tier === "not_supported"}
+              <SupportBanner support={d.support} />
+            {:else}
+              <SupportBadge support={d.support} mode="line" />
+            {/if}
+          {/if}
+        </div>
+        <!-- Row actions. They live inside the link, so each one has to
+             stop the click reaching it — otherwise Forget would navigate
+             to the device it just disconnected. -->
+        <span class="row-actions">
+          {@render bookmark(d, true)}
+          {#if justConnected === d.serial}
+            <button class="row-action primary" onclick={(e) => rowAction(e, () => goto(toolsHref(d)))}>
+              Open
+            </button>
+          {/if}
+          {#if isUnconfirmedTv(d)}
+            <button
+              class="row-action"
+              onclick={(e) => rowAction(e, () => copyDiagnostics(d))}
+              disabled={diagnosticsBusy === d.serial}
+              data-tip="Copy what this device reported, for a bug report"
+            >
+              {diagnosticsBusy === d.serial
+                ? "Copying…"
+                : diagnosticsCopied === d.serial
+                  ? "Copied"
+                  : "Copy diagnostics"}
+            </button>
+          {/if}
+          {#if d.connection === "network"}
+            <button
+              class="row-action forget-btn"
+              onclick={(e) => rowAction(e, () => forgetDevice(d))}
+              disabled={forgetBusy === d.serial}
+              data-tip="Disconnects every connection to this device · the device is untouched"
+              data-tip-align="end"
+            >
+              {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
+            </button>
+          {/if}
+        </span>
+        <!-- A chevron says "this opens" without pretending to be
+             separately clickable. -->
+        <span class="device-go" aria-hidden="true"><Icon name="chevron_right" size={28} /></span>
+      </a>
+    {:else}
+      <!-- The right-click menu only repeats this row's own buttons, which
+           are the keyboard route to the same actions. -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="device-row not-clickable"
+        class:discovered={!!d.discoveryState}
+        class:unapproved={isUnapproved(d)}
+        class:flash={flashSerial === d.serial}
+        data-serial={d.serial}
+        oncontextmenu={(e) => openContextMenu(e, deviceMenu(d))}
+      >
+        <span class="device-icon" aria-hidden="true">
+          <Icon name={d.status === "offline" && !d.discoveryState ? "tv_off" : d.connection === "network" ? "cast" : "tv"} size={20} />
+        </span>
+        <div class="device-main">
+          <div class="device-name">
+            <span>{d.name}</span>
+            {#if isUnapproved(d)}
+              <span class="status-tag unauthorized">{isAwaitingApproval(d) ? "WAITING FOR ALLOW" : "NOT ALLOWED YET"}</span>
+            {:else if d.discoveryState === "connecting"}
+              <span class="status-tag">CONNECTING…</span>
+            {:else if d.discoveryState === "failed"}
+              <span class="status-tag offline">CONNECTION FAILED</span>
+            {:else if d.status === "offline"}
+              <span class="status-tag offline">OFFLINE</span>
+            {/if}
+            {#if isNotATv(d)}
+              <span class="status-tag not-a-tv">NOT AN ANDROID TV</span>
+            {:else if isUnconfirmedTv(d)}
+              <span
+                class="status-tag unconfirmed"
+                use:tip={"Didn't report itself as an Android TV; tools may not apply"}
+              >UNCONFIRMED TV</span>
+            {/if}
+          </div>
+          {#if !isUnapproved(d)}
+          <div class="device-meta muted mono">
+            {deviceTypeLabel(d.device_type)}
+            {#if d.model}· {d.model}{/if}
+            · {d.serial}
+          </div>
+          {:else if d.name !== d.serial}
+          <div class="device-meta muted mono">{d.serial}</div>
+          {/if}
+          {#if isUnapproved(d)}
+            <span class="sr-only" role="status">
+              {isAwaitingApproval(d) ? `${d.name}: waiting for Allow.` : unseenResult(d) ? `${d.name}: ${unseenResult(d)}` : ""}
+            </span>
+            <p class="approval-line" class:approval-result={!!unseenResult(d) && approvals[d.serial]?.phase === "error"} data-approval-line>
+              {#if isAwaitingApproval(d)}
+                Waiting for you to choose Allow on it.
+              {:else if unseenResult(d)}
+                {unseenResult(d)}
+              {:else if adbBackend !== "direct" && freshPrompt[d.serial]}
+                Hasn't allowed this computer yet; it's probably asking now.
+              {:else}
+                Hasn't allowed this computer yet.
+              {/if}
+            </p>
+          {/if}
+          {#if d.discoveryState === "connecting"}
+            <p class="muted small">Found on the network. Connecting…</p>
+          {:else if d.discoveryState === "failed"}
+            <p class="small">{d.discoveryError}</p>
+          {/if}
+          {#if justConnected === d.serial && isNotATv(d) && d.status === "device"}
+            <p class="small just-connected-note">
+              Connected, but this device reported it isn't an Android TV, so it doesn't open
+              by default. Use Open anyway if you still want to try the tools.
+            </p>
+          {/if}
+          {#if confirmOpenSerial === d.serial}
+            <div class="open-anyway-confirm" role="group" aria-label="Open anyway">
+              <p class="small">
+                This device reported that it is not an Android TV. The tools are built for
+                Android TV, so some of them may not apply here.
+              </p>
+              <div class="open-anyway-actions">
+                <button class="primary" onclick={() => confirmOpenAnyway(d)}>Open tools</button>
+                <button onclick={() => (confirmOpenSerial = null)}>Cancel</button>
+              </div>
+            </div>
+          {/if}
+        </div>
+        <!-- A row the app will not open is exactly the row someone needs
+             to report, so the bundle is one click away from it. "Forget"
+             is `adb disconnect`: only for network transports, because
+             there is nothing to disconnect on USB. It removes the row,
+             not the device — adding the address back brings it straight
+             home. -->
+        <span class="row-actions">
+          {@render bookmark(d, false)}
+          {#if isNotATv(d) && d.status === "device"}
+            <button
+              class="row-action"
+              class:primary={justConnected === d.serial}
+              onclick={() => (confirmOpenSerial = d.serial)}
+              disabled={confirmOpenSerial === d.serial}
+              data-tip="Open the tools on this device even though it is not an Android TV"
+            >
+              Open anyway
+            </button>
+          {/if}
+          {#if requestOpen(d)}
+            <button
+              class="row-action"
+              onclick={() => showApproval(d)}
+              aria-label={`Show the approval request for ${d.name}`}
+              data-approval-action
+            >
+              Show request
+            </button>
+          {:else if isUnapproved(d)}
+            <button
+              class="row-action primary"
+              onclick={() => startApproval(d)}
+              aria-label={`Request approval from ${d.name}`}
+              data-approval-action
+            >
+              Request approval
+            </button>
+          {/if}
+          {#if canRetryConnection(d)}
+            <button
+              class="row-action primary"
+              onclick={() => repromptDevice(d)}
+              disabled={repromptBusy === d.serial}
+              data-tip="Reconnects only this address and retries authorization. Check the device for a debugging prompt."
+            >
+              {repromptBusy === d.serial ? "Connecting…" : "Try again"}
+            </button>
+          {/if}
+          <button
+            class="row-action"
+            onclick={() => copyDiagnostics(d)}
+            disabled={diagnosticsBusy === d.serial}
+            data-tip="Copy what this device reported, for a bug report"
+          >
+            {diagnosticsBusy === d.serial
+              ? "Copying…"
+              : diagnosticsCopied === d.serial
+                ? "Copied"
+                : "Copy diagnostics"}
+          </button>
+          {#if d.connection === "network"}
+            <button
+              class="row-action forget-btn"
+              onclick={() => forgetDevice(d)}
+              disabled={forgetBusy === d.serial}
+              data-tip="Disconnects every connection to this device · the device is untouched"
+              data-tip-align="end"
+            >
+              {forgetBusy === d.serial ? "Forgetting…" : "Forget"}
+            </button>
+          {/if}
+        </span>
+      </div>
+    {/if}
+  </li>
+{/snippet}
 
 {#if dialogState}
   <ApprovalDialog
@@ -1995,6 +2282,58 @@
     list-style: none;
     padding: 0;
     margin: 0;
+  }
+  .section-head {
+    margin: 0 0 0.6rem;
+  }
+  .found-heading {
+    margin: 1.2rem 0 0.6rem;
+    font-size: 0.92rem;
+    font-weight: 550;
+  }
+  .found-heading:focus,
+  #devices-heading:focus {
+    outline: none;
+  }
+  .saved-status {
+    display: inline-flex;
+    align-items: center;
+  }
+  .found-empty {
+    margin: 0;
+    font-size: 0.85rem;
+  }
+  /* A saved device that isn't connected: present, but plainly not live. */
+  .device-row.saved-offline {
+    flex-wrap: wrap;
+    background: transparent;
+  }
+  .device-row.saved-offline.waiting {
+    border-style: dashed;
+  }
+  .saved-offline.waiting .device-icon,
+  .saved-offline.waiting .device-name > span:first-child {
+    opacity: 0.7;
+  }
+  .saved-offline .device-main {
+    flex: 1 1 18rem;
+  }
+  .device-status.connecting .spinner {
+    width: 0.7rem;
+    height: 0.7rem;
+  }
+  .device-status.different {
+    color: var(--warn);
+  }
+  .bookmark-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem 0.45rem;
+    color: var(--fg-muted);
+  }
+  .bookmark-btn.saved {
+    color: var(--accent);
   }
   .device-row.unapproved {
     flex-wrap: wrap;

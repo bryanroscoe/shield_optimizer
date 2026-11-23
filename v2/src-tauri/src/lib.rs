@@ -20,8 +20,8 @@ use std::sync::Arc;
 use adb::SubprocessAdb;
 use atv_optimizer_core::adb::{AdbDriver, AdbError, AdbOutput, AdbResult, Leases};
 use atv_optimizer_core::commands::{
-    apps, devices, health, input, launcher, loader, logcat, optimize, reboot, recovery, screenshot,
-    shell, snapshot, telemetry, tuning,
+    apps, devices, health, input, launcher, loader, logcat, mac_address, optimize, reboot,
+    recovery, screenshot, shell, snapshot, telemetry, tuning,
 };
 use atv_optimizer_core::engine::telemetry::AppKind;
 use atv_optimizer_core::license::Entitlement;
@@ -262,6 +262,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         devices::connect_paired,
         scan::local_address_for,
         devices::rename_device,
+        mac_address::device_mac_address,
         health::health_report,
         health::media_report,
         health::resource_sample,

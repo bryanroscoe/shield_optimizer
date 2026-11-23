@@ -414,6 +414,12 @@ jobs:
         working-directory: v2
         run: npm run test:device-list-rows
 
+      # Saved devices (#411): matched on hardware id alone, unsave sticks, and
+      # a different device at a saved address never inherits its name.
+      - name: Saved devices
+        working-directory: v2
+        run: npm run test:saved-devices
+
       # Stopping adb on quit disconnects every tool on the computer, so the
       # checkbox may only show what the native side confirmed.
       - name: Stop ADB when quitting

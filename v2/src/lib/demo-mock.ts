@@ -288,9 +288,87 @@ function demoDelay<T>(ms: number, run: () => T): Promise<T> {
   }, ms));
 }
 
+/// A saved TV that sleeps (#411): the Xiaomi box in that report drops off the
+/// network while asleep, so a scan never finds it. It is saved, the launch
+/// dial gets no answer, and it answers a Connect only once the
+/// `savedBoxAwake` flag says it has been woken.
+const SAVED_BOX_ADDRESS = "192.168.1.64:5555";
+const savedBoxDevice: Device = {
+  id: 6,
+  serial: SAVED_BOX_ADDRESS,
+  name: "Bedroom Xiaomi Box",
+  model: "MiTV-AFKR0",
+  device_type: "google_tv",
+  tv_evidence: "tv",
+  status: "device",
+  connection: "network",
+  properties: {
+    friendly_name: "Bedroom Xiaomi Box",
+    brand: "Xiaomi",
+    model: "MiTV-AFKR0",
+    device_codename: "patrick",
+    manufacturer: "Xiaomi",
+    android_release: "12",
+    sdk_level: "31",
+    build_id: "STT2.230410.001",
+    board_platform: "amlogic",
+    characteristics: "tv",
+    serial_number: "XMS3B0042A",
+    leanback: true,
+    product: "patrick",
+  },
+  support: { tier: "unknown", note: null },
+};
+let savedBoxConnected = false;
+
+/// The saved-devices list the demo starts with: the Shield (online), the
+/// sleeping Xiaomi box (didn't answer) and the Living Room Box, which was
+/// unsaved and so stays under "Other devices". `noSavedDevices` starts
+/// empty, as does `noDevices`; an existing list (a test's own) is left alone.
+function seedSavedDevices() {
+  try {
+    const key = "shieldopt.savedDevices.v1";
+    if (demoFlag("noSavedDevices") || demoFlag("noDevices") || localStorage.getItem(key) !== null) return;
+    const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+    localStorage.setItem(key, JSON.stringify({
+      devices: [
+        {
+          hardwareId: "0323220012345",
+          address: SERIAL,
+          name: device.name,
+          model: device.model,
+          manufacturer: "NVIDIA",
+          deviceType: "shield",
+          mac: "00:04:4b:8c:21:5e",
+          lastConnected: ago(20),
+        },
+        {
+          hardwareId: "XMS3B0042A",
+          address: SAVED_BOX_ADDRESS,
+          name: savedBoxDevice.name,
+          model: savedBoxDevice.model,
+          manufacturer: "Xiaomi",
+          deviceType: "google_tv",
+          lastConnected: ago(50),
+        },
+      ],
+      unsaved: ["9AB4C21D7E03"],
+    }));
+  } catch {
+    /* storage blocked: the demo simply starts with nothing saved */
+  }
+}
+
+const DEMO_MACS: Record<string, string> = {
+  "0323220012345": "00:04:4b:8c:21:5e",
+  XMS3B0042A: "a4:5e:60:1d:42:0a",
+  "9AB4C21D7E03": "a4:5e:60:9a:b4:c2",
+};
+
 function demoDevices(): Device[] {
   if (demoFlag("noDevices")) return [];
   const list = [device, unconfirmedDevice, usbDevice];
+  if (savedBoxConnected) list.push(savedBoxDevice);
   if (approvalTvListed()) list.push(approvalTvRow());
   if (demoFlag("notTv")) list.push(phoneDevice);
   if (demoFlag("fireTv")) list.push(fireTvDevice);
@@ -1299,11 +1377,27 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "pair_device":
       return { ok: true, message: "Paired.", instance: "adb-DEMO0001-a1B2c3" };
     case "connect_device":
+      if (String(args.address) === SAVED_BOX_ADDRESS) {
+        return demoDelay(1500, () => {
+          if (!demoFlag("savedBoxAwake")) {
+            return { ok: false, message: `failed to connect to '${SAVED_BOX_ADDRESS}': Operation timed out` };
+          }
+          savedBoxConnected = true;
+          return { ok: true, message: `connected to ${SAVED_BOX_ADDRESS}` };
+        });
+      }
       return { ok: true, message: `connected to ${String(args.address)}` };
+    case "device_mac_address": {
+      const row = demoDevices().find((d) => d.serial === String(args.serial));
+      const id = row?.properties?.serial_number ?? null;
+      return { hardware_id: id, mac: id ? DEMO_MACS[id] ?? null : null };
+    }
     // Nothing advertised: the gallery's pairing frame shows the waiting state.
     // tests/pairing-flow.mjs overrides this for the success and timeout paths.
     case "probe_paired_connect":
       return { state: "waiting" };
+    case "restart_adb":
+      return { ok: true, server_ready: true, message: "ADB server restarted." };
     case "local_address_for":
       return "192.168.1.10";
     case "reprompt_device":
@@ -1341,6 +1435,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "forget_device":
       // Forget ends a request's wait, as the built-in engine's disconnect does.
       if (String(args.serial) === APPROVAL_TV) endApprovalWait();
+      if (String(args.serial) === SAVED_BOX_ADDRESS) savedBoxConnected = false;
       return {
         ok: true,
         disconnected: [String(args.serial)],
@@ -1368,6 +1463,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
 }
 
 export function installDemoMock(): void {
+  seedSavedDevices();
   const w = window as unknown as { __TAURI_INTERNALS__?: unknown; __demoHeldReplies?: unknown };
   w.__TAURI_INTERNALS__ = {
     invoke: (cmd: string, args: Record<string, unknown> = {}) => {
