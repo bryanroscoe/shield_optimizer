@@ -12,7 +12,7 @@
     "subset-icons": "python3 scripts/subset-material-symbols.py",
     "tauri": "tauri",
     "screenshots": "node screenshots/capture.mjs && bash screenshots/build-gif.sh",
-    "store-assets": "node screenshots/capture.mjs --play-store && node scripts/store-graphic.mjs"
+    "store-assets": "node scripts/store-assets.mjs"
   },
   "license": "UNLICENSED",
   "dependencies": {

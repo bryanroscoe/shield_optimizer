@@ -7,12 +7,59 @@
   "containsAds": false,
   "supportEmail": "bryanroscoe+atv@gmail.com",
   "privacyPolicyUrl": "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy",
+  "featureGraphic": {
+    "tagline": "Your Android TV, tuned from your phone."
+  },
   "screenshots": [
-    { "file": "screenshots/02-dashboard.png", "alt": "Dashboard with TV connection, memory and storage diagnostics, and shortcuts to management tools." },
-    { "file": "screenshots/03-apps.png", "alt": "Installed TV apps with search and reviewed safety labels." },
-    { "file": "screenshots/08-optimize.png", "alt": "Optimize plan listing proposed app changes for review before applying." },
-    { "file": "screenshots/11-launcher.png", "alt": "Launcher management with Home-app choices and separate guarded stock-launcher controls." },
-    { "file": "screenshots/05-tweaks.png", "alt": "TV settings grouped into picture, sound and system controls." },
-    { "file": "screenshots/07-more.png", "alt": "More screen with Pro licensing, diagnostics, privacy and support controls." }
+    {
+      "file": "screenshots/01-hero.png",
+      "screen": "dashboard",
+      "headline": "Tune your Android TV",
+      "subline": "From your phone, over Wi-Fi",
+      "alt": "Dashboard for a connected TV with memory, storage and temperature readings and shortcuts to the management tools."
+    },
+    {
+      "file": "screenshots/02-optimize.png",
+      "screen": "optimize",
+      "headline": "Debloat with safety labels",
+      "subline": "Re-enable apps any time",
+      "alt": "Optimize plan listing proposed app changes with risk labels, to review before applying."
+    },
+    {
+      "file": "screenshots/03-launcher.png",
+      "screen": "launcher",
+      "headline": "Swap out the stock launcher",
+      "alt": "Launcher screen with Home-app choices and separate, guarded stock-launcher controls."
+    },
+    {
+      "file": "screenshots/04-tweaks.png",
+      "screen": "tweaks",
+      "headline": "Animations, CEC, frame rate & DNS",
+      "alt": "TV settings grouped into picture, sound and system controls."
+    },
+    {
+      "file": "screenshots/05-sideload.png",
+      "screen": "sideload-ready",
+      "headline": "Sideload APKs & move files",
+      "alt": "Install APK screen with an app package picked on the phone and ready to install on the TV."
+    },
+    {
+      "file": "screenshots/06-diagnostics.png",
+      "screen": "diagnostics",
+      "headline": "Live temps, RAM & storage",
+      "alt": "Diagnostics screen with live temperature, memory and storage readings from the TV."
+    },
+    {
+      "file": "screenshots/07-snapshots.png",
+      "screen": "snapshots",
+      "headline": "Save a setup, re-apply it",
+      "alt": "Snapshots screen, marked Beta, listing saved TV setups with a preview before re-applying one."
+    },
+    {
+      "file": "screenshots/08-app-detail.png",
+      "screen": "app-detail",
+      "headline": "Know what's safe to remove",
+      "alt": "App details sheet with the app's safety label, what removing it affects and its actions."
+    }
   ]
 }
