@@ -104,7 +104,14 @@ impl WirelessAdb {
                     )
                 })?
                 .to_owned();
-        let deadline = tokio::time::Instant::now() + PUSH_DEADLINE;
+        // A new file is copied into place on the TV after the transfer, so it gets the
+        // size allowance twice.
+        let budgeted = if overwrite {
+            expected_size
+        } else {
+            expected_size.saturating_mul(2)
+        };
+        let deadline = tokio::time::Instant::now() + push_deadline(budgeted);
         // Capture the generation at admission, before waiting for the selected socket.
         // The same address can now refer to a different connection (and hardware).
         let (active, host, port, generation) = lock_recovering(&self.identity)

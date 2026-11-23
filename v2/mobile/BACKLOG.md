@@ -69,7 +69,7 @@ go-ahead; don't infer permission from a phone being powered on.
    a cancel, a Drive/Downloads destination and a share to a real receiver are the device gates.
    Phase 2 done 2026-11-09: SAF import, which powers Files › Upload to this folder and item 2. Not
    yet run on a phone: picking one and several files, from Downloads and Drive; a dismissed
-   picker; a file over 2 GiB; activity recreation while the picker is open; a replace prompt and a
+   picker; a file over 4 GiB to a FAT32 and an exFAT drive; a file over 64 GiB; activity recreation while the picker is open; a replace prompt and a
    same-named folder on the TV; an upload to a TV folder that refuses writes. Next: snapshot and
    APK-bundle export once their privacy and format decisions are made; then consider Google Drive
    for complete APK bundles.
@@ -105,10 +105,8 @@ go-ahead; don't infer permission from a phone being powered on.
      count.
    - `Feature::FileManager` / `Feature::BackupClone` exist in core but gate nothing; wire them or
      delete them.
-   - The launcher icon reads slightly top-heavy. A 1.8 px downward optical shift was mocked in
-     `icon-optical-comparison.png` (archived;
-     `git show e4a9300:v2/mobile/evidence/settings-polish-2026-10-17/icon-optical-comparison.png`);
-     the assets are unchanged pending a preference.
+   - ~~The launcher icon reads slightly top-heavy.~~ Superseded 2026-11-23: the 11-09 shift
+     centred the TV body, and the outlined-TV icon then replaced the glyph outright.
 10. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification; the two same-Pro
    support tiers are retired but still count as Pro) and the consumable tip jar for Pro owners
    (2026-11-23) are **built; tips not yet tested with a real Play account**; see

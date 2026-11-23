@@ -114,7 +114,7 @@ atv-adb Kotlin plugin runs the system UI. The FileProvider now maps only `cache/
 run on a phone (`EXPORT-DISCOVERABILITY.md`).
 Import (2026-11-09) is the other direction: Files › Upload to this folder and More › Install APK
 open Android's open-document picker (`AdbPlugin.pickDocuments`), which copies the picked files into
-`cache/imports/import-<n>/` (32 files, 2 GiB). `src-tauri/src/import_commands.rs` names and checks
+`cache/imports/import-<n>/` (32 files, 64 GiB; 2 GiB for APKs). `src-tauri/src/import_commands.rs` names and checks
 the copies, hands the screen an opaque batch id, pushes one file at a time into the `/sdcard` folder
 being browsed (asks before replacing a file, never replaces a folder, checks the size on the TV),
 and installs an APK set with `install -r` / `install-multiple -r` through the helper Backups restore
@@ -313,8 +313,8 @@ deferred.
 - Play submission (2026-11-01): Pro is $4.99. The $9.99 and $19.99 "Support me" tiers for the
   same Pro (2026-11-08) were retired on 2026-11-23 for a tip jar: consumable `atvopt_tip_2`,
   `_5`, `_10` and `_20` that grant nothing, shown only to Pro owners in Play builds as a quiet
-  "Leave a tip" link on More's Licensing card. The tier ids still count as Pro for anyone who
-  bought one. Ko-fi stays out of the Play app; the README offers a Pro promo code to
+  "Leave a tip" link on More's Licensing card. The tiers were never created in Play Console,
+  so nobody bought one; the ids still count as Pro and stay reserved. Ko-fi stays out of the Play app; the README offers a Pro promo code to
   Ko-fi donors. Past Ko-fi supporters get Play promo codes, and the
   new personal developer account needs a 12-tester, 14-day closed test before production. Steps:
   `RELEASE.md` and `PLAY-CONSOLE-WALKTHROUGH.md`.
@@ -362,7 +362,10 @@ deferred.
 - Design source of truth: `~/Downloads/Shield Optimizer mobile design (1)/ATV Optimizer Mobile.dc.html`
   (20 screen sections; lime `#C9F24E`, Geist/Geist Mono). The `claude_design` MCP is not available
   here; work from the downloaded folder.
-- Launcher icon and in-app BrandMark are the designer's exact glyph (`src-tauri/icons/icon.svg`).
+- Launcher icon and in-app BrandMark share one artwork, `src-tauri/icons/icon.svg`: an ink TV outline on
+  flat-bottomed feet with three solid fader tracks and pill knobs, on a lime gradient (`#DCFF6E` to
+  `#B9E640`). It replaced the filled-TV glyph on 2026-11-23. The gradient is the icon's only; the UI
+  accent stays `#C9F24E`.
 
 ## 6. Validation
 

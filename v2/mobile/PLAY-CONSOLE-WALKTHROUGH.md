@@ -4,8 +4,8 @@ This is a click-by-click guide for the owner to publish the Android app `com.atv
 on Google Play as a free download with a one-time in-app purchase, **ATV Optimizer Pro**
 (`atvopt_pro`, US $4.99), plus four optional consumable tips that unlock nothing
 (`atvopt_tip_2`, `atvopt_tip_5`, `atvopt_tip_10`, `atvopt_tip_20`). The two earlier "Support me"
-tiers (`atvopt_pro_support_1`, `atvopt_pro_support_2`) are retired: inactive in Play, still Pro
-for anyone who bought one. It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
+tiers (`atvopt_pro_support_1`, `atvopt_pro_support_2`) are retired: they were never created in
+Play, and the app still counts the ids as Pro. It is a companion to [`RELEASE.md`](RELEASE.md), which covers building
 and signing. The build inputs it refers to (`ATVOPT_DISTRIBUTION=play`, `ATVOPT_PLAY_LICENSE_KEY`,
 `ATVOPT_TELEMETRY_URL`) are described in RELEASE.md §5.
 
@@ -48,7 +48,7 @@ consecutive days**. Both run on Google's clock, so start them first.
 - [ ] 3.2 AAB uploaded to **Internal testing** and rolled out; Play App Signing fingerprints copied to 1Password
 - [ ] 3.3 One-time product `atvopt_pro` (US $4.99) and tips `atvopt_tip_2`, `_5`, `_10`, `_20`
   (US $2, $5, $10, $20) created, one Buy option each, **Activated**; the retired
-  `atvopt_pro_support_1` and `atvopt_pro_support_2` **inactive**, never deleted
+  `atvopt_pro_support_1` and `atvopt_pro_support_2` never created
 - [ ] 3.4 License testers added (owner and non-supporter testers who will try purchases)
 
 **Phase 4: closed test, which starts the 14-day clock (owner)**
@@ -482,7 +482,7 @@ claims, no rankings, and no implied endorsement.
 
 | Asset | Spec (Google) | Source in repo / status |
 | --- | --- | --- |
-| App icon | 512×512, 32-bit PNG with alpha, at most 1024 KB. Play applies its own rounded mask. | `v2/mobile/store-listing/icon.png`, rendered by `npm run store-assets` from `src-tauri/icons/icon.svg` as a full-bleed square (opaque to every corner, no baked-in rounding, so Play shows no white rim). The script checks size, corners and file size. The app's own icon files are unchanged. |
+| App icon | 512×512, 32-bit PNG with alpha, at most 1024 KB. Play applies its own rounded mask. | `v2/mobile/store-listing/icon.png`, rendered by `npm run store-assets` from `src-tauri/icons/icon.svg` as a full-bleed square (opaque to every corner, no baked-in rounding, so Play shows no white rim). The script checks size, corners and file size. It is the same artwork as the launcher icon, with the corners squared off for Play's mask. |
 | Feature graphic | 1024×500, JPEG or 24-bit PNG, no alpha. Avoid pure white, black or dark gray backgrounds, device images and branding that just repeats the icon. | `v2/mobile/store-listing/feature-graphic.png`, rendered by `cd v2/mobile && npm run store-assets`: name and `featureGraphic.tagline` from `listing.json` on brand green with a small icon mark, beside two real app screens as cards (no device frame, no Google or NVIDIA logos). OWNER approves it in `store-listing/preview.png`. |
 | Phone screenshots | 2-8; JPEG or 24-bit PNG; 320-3840 px; long side at most 2.3× the short side; up to 8 MB each. Use 4 or more at 1080×1920 or larger (9:16) for promotion eligibility. Captions no more than 20% of the image. No device frames or "Best"/"#1" text. | `v2/mobile/store-listing/screenshots/01-…08-….png`, rendered by `npm run store-assets` at **1242×2208** (9:16), 24-bit PNG. Each is a caption from `listing.json` over the real app screen on demo data; the script fails if a caption block passes 20% of the height or any size, alpha, length or wording rule breaks. Upload them in file order with the `alt` text from `listing.json`. |
 
@@ -581,11 +581,11 @@ Help: <https://support.google.com/googleplay/android-developer/answer/16430488>
    later in Play Console without an app update. The app shows only the tips Play returns a price
    for, so a tip left inactive simply doesn't appear.
 8. **Retired Support me tiers.** `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2`
-   ($19.99) were sold 2026-11-08 to 2026-11-23 and unlock the same Pro. The app no longer offers
-   them. Set both **Inactive**; never delete them, because past buyers' Pro and restores depend on
-   the ids (`SUPPORT_PRODUCT_IDS`).
+   ($19.99) were offered by the app 2026-11-08 to 2026-11-23 but never created here, so nobody
+   bought one. The app no longer offers them. Don't create them, and never reuse the ids: the app
+   still counts them as Pro (`SUPPORT_PRODUCT_IDS`).
 
-**Done when:** `atvopt_pro` and the four tips show Active and the two support tiers Inactive, and
+**Done when:** `atvopt_pro` and the four tips show Active (and no support tiers exist), and
 the app (installed from Play) shows the local price on Buy Pro; once Pro is owned, More's
 Licensing card shows a **Leave a tip** link listing the four tips in local currency.
 

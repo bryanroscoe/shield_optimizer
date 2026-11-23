@@ -3,20 +3,18 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- ATV Optimizer glyph: dark TV/monitor on two splayed stand legs; the screen is
-         cut back to lime and holds three VERTICAL faders (thin dark tracks with knob
-         caps at staggered heights). Designer art (120 viewBox) scaled 0.62 with the complete glyph
-         optically centered in the 108 canvas and kept inside the 66dp safe zone. -->
-    <group android:scaleX="0.62" android:scaleY="0.62" android:translateX="16.8" android:translateY="21.14">
-        <path android:fillColor="#0B0D10" android:pathData="M32,22 L88,22 A14,14 0 0 1 102,36 L102,66 A14,14 0 0 1 88,80 L32,80 A14,14 0 0 1 18,66 L18,36 A14,14 0 0 1 32,22 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M34,80 L26,91 L33,91 L41,80 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M86,80 L94,91 L87,91 L79,80 Z" />
-        <path android:fillColor="#C9F24E" android:pathData="M35,30 L85,30 A8,8 0 0 1 93,38 L93,64 A8,8 0 0 1 85,72 L35,72 A8,8 0 0 1 27,64 L27,38 A8,8 0 0 1 35,30 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M44.0,34 L44.0,34 A1.25,1.25 0 0 1 45.25,35.25 L45.25,66.75 A1.25,1.25 0 0 1 44.0,68 L44.0,68 A1.25,1.25 0 0 1 42.75,66.75 L42.75,35.25 A1.25,1.25 0 0 1 44.0,34 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M60.0,34 L60.0,34 A1.25,1.25 0 0 1 61.25,35.25 L61.25,66.75 A1.25,1.25 0 0 1 60.0,68 L60.0,68 A1.25,1.25 0 0 1 58.75,66.75 L58.75,35.25 A1.25,1.25 0 0 1 60.0,34 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M76.0,34 L76.0,34 A1.25,1.25 0 0 1 77.25,35.25 L77.25,66.75 A1.25,1.25 0 0 1 76.0,68 L76.0,68 A1.25,1.25 0 0 1 74.75,66.75 L74.75,35.25 A1.25,1.25 0 0 1 76.0,34 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M41.5,48 L46.5,48 A4.5,4.5 0 0 1 51,52.5 L51,52.5 A4.5,4.5 0 0 1 46.5,57 L41.5,57 A4.5,4.5 0 0 1 37,52.5 L37,52.5 A4.5,4.5 0 0 1 41.5,48 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M57.5,37 L62.5,37 A4.5,4.5 0 0 1 67,41.5 L67,41.5 A4.5,4.5 0 0 1 62.5,46 L57.5,46 A4.5,4.5 0 0 1 53,41.5 L53,41.5 A4.5,4.5 0 0 1 57.5,37 Z" />
-        <path android:fillColor="#0B0D10" android:pathData="M73.5,55 L78.5,55 A4.5,4.5 0 0 1 83,59.5 L83,59.5 A4.5,4.5 0 0 1 78.5,64 L73.5,64 A4.5,4.5 0 0 1 69,59.5 L69,59.5 A4.5,4.5 0 0 1 73.5,55 Z" />
+    <!-- ATV Optimizer glyph: an ink TV outline on two flat-bottomed feet, holding three
+         solid vertical fader tracks with pill knobs at staggered heights. The 120-unit
+         artwork of src-tauri/icons/icon.svg is scaled 0.62 about the canvas centre, so the
+         glyph keeps its place in the icon and stays inside the 66dp safe zone (farthest
+         point 30.7dp from centre against the 33dp radius). -->
+    <group android:scaleX="0.62" android:scaleY="0.62" android:translateX="16.8" android:translateY="16.8">
+        <path android:fillColor="#0E1512" android:pathData="M34,83 L26,96 L33,96 L41,83 Z" />
+        <path android:fillColor="#0E1512" android:pathData="M86,83 L94,96 L87,96 L79,83 Z" />
+        <path android:strokeColor="#0E1512" android:strokeWidth="7" android:pathData="M32,30.5 L88,30.5 A10.5,10.5 0 0 1 98.5,41 L98.5,71 A10.5,10.5 0 0 1 88,81.5 L32,81.5 A10.5,10.5 0 0 1 21.5,71 L21.5,41 A10.5,10.5 0 0 1 32,30.5 Z" />
+        <path android:strokeColor="#0E1512" android:strokeWidth="3" android:strokeLineCap="round" android:pathData="M43,40 L43,72 M60,40 L60,72 M77,40 L77,72" />
+        <path android:fillColor="#0E1512" android:pathData="M41.5,59 L44.5,59 A5,5 0 0 1 49.5,64 L49.5,64 A5,5 0 0 1 44.5,69 L41.5,69 A5,5 0 0 1 36.5,64 L36.5,64 A5,5 0 0 1 41.5,59 Z" />
+        <path android:fillColor="#0E1512" android:pathData="M58.5,42 L61.5,42 A5,5 0 0 1 66.5,47 L66.5,47 A5,5 0 0 1 61.5,52 L58.5,52 A5,5 0 0 1 53.5,47 L53.5,47 A5,5 0 0 1 58.5,42 Z" />
+        <path android:fillColor="#0E1512" android:pathData="M75.5,51 L78.5,51 A5,5 0 0 1 83.5,56 L83.5,56 A5,5 0 0 1 78.5,61 L75.5,61 A5,5 0 0 1 70.5,56 L70.5,56 A5,5 0 0 1 75.5,51 Z" />
     </group>
 </vector>

@@ -10,7 +10,8 @@
 # Usage: v2/mobile/scripts/setup-play-ci.sh [--dry-run]
 #
 # Secret values go to `gh` on stdin, never on a command line, and are never
-# printed. The environment only deploys from `main` and `mobile-v*` tags.
+# printed. The environment only deploys from `main`, the `mobile-internal` branch (Internal
+# testing builds, see mobile/RELEASE.md) and `mobile-v*` tags.
 set -euo pipefail
 
 REPO="${ATVOPT_REPO:-bryanroscoe/shield_optimizer}"
@@ -52,7 +53,7 @@ LICENSE_KEY="$(tr -d '[:space:]' < "$LICENSE")"
 SERVICE_EMAIL="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["client_email"])' "$ACCOUNT")"
 
 echo "repository       $REPO"
-echo "environment      $ENVIRONMENT (deploys from main and mobile-v* tags)"
+echo "environment      $ENVIRONMENT (deploys from main, mobile-internal and mobile-v* tags)"
 echo "upload cert      $CERT_SHA256"
 echo "key alias        $KEY_ALIAS"
 echo "service account  $SERVICE_EMAIL"
@@ -70,7 +71,7 @@ if grep -qxF "$ENVIRONMENT" <<<"$environments"; then
 fi
 jq -c "$ENVIRONMENT_PAYLOAD" <<<"$current" | gh api --silent -X PUT "repos/$REPO/environments/$ENVIRONMENT" --input -
 existing="$(gh api "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" --jq '.branch_policies[] | "\(.type):\(.name)"')"
-for policy in branch:main 'tag:mobile-v*'; do
+for policy in branch:main branch:mobile-internal 'tag:mobile-v*'; do
   if ! grep -qxF "$policy" <<<"$existing"; then
     gh api --silent -X POST "repos/$REPO/environments/$ENVIRONMENT/deployment-branch-policies" \
       -f type="${policy%%:*}" -f name="${policy#*:}"

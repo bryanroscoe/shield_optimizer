@@ -5,7 +5,7 @@ Two products live in this tree:
 - **v1** — PowerShell debloater (`Shield-Optimizer.ps1` at the root). Released by running `release.sh` at the repo root, which tags the commit and calls `gh release create` directly. No release workflow — only `tests.yml` (CI tests). **Legacy**: serious bug fixes only, no new features. User docs live in `docs/LEGACY-V1.md`, not the README.
 - **v2** — Tauri 2 + Rust + Svelte 5 desktop app (`v2/`), the official product, shipped as **ATV Optimizer**. Released on `v2-*` tags via `.github/workflows/v2-release.yml`. The root `README.md` is the user-facing page for it; `v2/README.md` is the developer guide.
 
-- **Android app** — `v2/mobile/`, shipped on Google Play. Released on `mobile-v*` tags via `.github/workflows/mobile-play-release.yml`, which releases each tag as completed on Internal testing and on the Closed testing track `alpha` (testers get it once Google approves); see `v2/mobile/RELEASE.md`.
+- **Android app** — `v2/mobile/`, shipped on Google Play. Released on `mobile-v*` tags via `.github/workflows/mobile-play-release.yml`, which releases each tag as completed on Internal testing and on the Closed testing track `alpha` (testers get it once Google approves); see `v2/mobile/RELEASE.md`. Pushing a `main` commit to the `mobile-internal` branch (`git push origin origin/main:mobile-internal`) publishes it to Internal testing only, which reaches Bryan's phone and not the testers. After merging a change to the Android app or the shared code it builds from, advance `mobile-internal` to that merge so Bryan can try it before a tag ships it.
 
 The release tracks are intentionally separate. Don't mix tag namespaces and don't edit one track's workflow when shipping another.
 
@@ -56,8 +56,8 @@ Shipped in 2.5.0 or live on the server side:
   [`docs/DEVICE-SUPPORT.md`](docs/DEVICE-SUPPORT.md).
 - **Play billing v1** on Android (#267): one-time Pro `atvopt_pro` at $4.99, with the purchase
   signature checked on the phone (no server). The "Support me" tiers `atvopt_pro_support_1` ($9.99)
-  and `atvopt_pro_support_2` ($19.99) are retired (2026-11-23): no longer sold, still Pro forever for
-  their buyers. In their place, Pro owners in Play builds get a quiet tip jar of consumable
+  and `atvopt_pro_support_2` ($19.99) are retired (2026-11-23). They were in the app but never created in Play
+  Console, so nobody bought one; the ids still count as Pro and stay reserved. In their place, Pro owners in Play builds get a quiet tip jar of consumable
   `atvopt_tip_2/_5/_10/_20` that grant nothing; only verified tips are ever consumed, never Pro
   (`v2/mobile/BILLING-IMPLEMENTATION-PLAN.md`).
   Past Ko-fi supporters get Pro through Play promo codes. **Keep Ko-fi out of the Play app**:

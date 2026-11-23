@@ -38,12 +38,13 @@ What exists, and how it deviates from the server design below:
 - **Policy**: Play builds (`ATVOPT_DISTRIBUTION=play`) hide key entry in the UI and the backend
   refuses `activate_license`. Ko-fi supporters get Pro through Play promo codes; redemption arrives
   as a normal purchase (verified tests cover a promo-shaped purchase with no `orderId`).
-- **Retired support tiers** (sold 2026-11-08 to 2026-11-23): `atvopt_pro_support_1` ($9.99) and
-  `atvopt_pro_support_2` ($19.99) were non-consumable products that unlocked exactly the same Pro.
+- **Retired support tiers** (in the app 2026-11-08 to 2026-11-23, never created in Play Console,
+  so never sold): `atvopt_pro_support_1` ($9.99) and `atvopt_pro_support_2` ($19.99) were
+  non-consumable products that unlocked exactly the same Pro.
   The tip jar replaced them (owner decision 2026-11-23): the purchase UI now sells only
   `atvopt_pro`, and `billing_purchase` refuses any other id. Both ids stay in `PRO_PRODUCT_IDS`
-  forever, so verification, restore and `purchase_gate` still treat them as Pro and their buyers
-  keep it. Set them inactive in Play Console; never delete them. Play refuses a second copy of
+  forever, so verification, restore and `purchase_gate` still treat them as Pro. Don't create them
+  in Play Console, and never reuse the ids. Play refuses a second copy of
   one product but not a different Pro product, so `billing_purchase` still queries owned
   purchases first and starts a purchase only when Play confirms the account owns no Pro product
   (`purchase_gate`). Every unacknowledged Pro purchase is acknowledged, not just the first.

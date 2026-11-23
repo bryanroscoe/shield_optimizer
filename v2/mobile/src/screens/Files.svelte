@@ -710,10 +710,15 @@
         finished. Nothing leaves the phone unless you choose one of them.
       </p>
       <p>
-        Upload to this folder sends up to 32 files (2 GiB) at a time to the folder you're in, on
+        Upload to this folder sends up to 32 files (64 GiB) at a time to the folder you're in, on
         the TV's storage or a USB drive plugged into it. Picked files are copied into this app, sent to the TV, then deleted from the app, and
         ATV Optimizer doesn't keep access to them. If a file with the same name is already there,
         you're asked before it's replaced; a folder is never replaced.
+      </p>
+      <p>
+        Keep this screen open until a large upload finishes. A large video needs that much free
+        space on this phone while it's copied, and about twice its size free on the TV or drive
+        while the upload finishes. FAT32 drives can't hold files of 4 GB or more.
       </p>
     </HelpSheet>
 

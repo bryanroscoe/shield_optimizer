@@ -421,12 +421,13 @@ if (process.env.MOBILE_POLISH_EVIDENCE === "1") test("capture simulated settings
   const icons = await browser.newPage({ viewport: { width: 840, height: 420 }, deviceScaleFactor: 2 });
   t.after(() => icons.close());
   const svg = await readFile('src-tauri/icons/icon.svg', 'utf8');
-  const transparent = svg.replace(/<rect width="120" height="120" rx="28" fill="#C9F24E"\/>/, '');
+  const transparent = svg.replace(/<rect width="120" height="120" rx="28"[^>]*\/>/, '');
+  assert.notEqual(transparent, svg, 'icon.svg no longer starts with the rounded background rect');
   const art = transparent.replace(/<svg[^>]*>/, '').replace('</svg>', '');
-  const adaptive = y => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><g transform="translate(14.4 ${y}) scale(.66)">${art}</g></svg>`;
-  const current = adaptive(14.4);
-  const shifted = adaptive(17.4);
-  await icons.setContent(`<style>body{background:#16191e;color:#f2f5f8;font:16px system-ui;padding:20px} .row{display:flex;gap:42px;margin:22px} .icon{width:64px;height:64px;background:#c9f24e;overflow:hidden}.icon svg{width:64px;height:64px}.circle{border-radius:50%}.square{border-radius:18px}.squircle{border-radius:28%}span{width:180px}small{color:#bbb}</style><h2>Launcher optical alignment · simulated masks</h2><small>64 CSS px; candidate moves artwork down 1.8 px. No launcher/device test.</small>${['circle','square','squircle'].map(mask => `<div class="row"><span>${mask}</span><div class="icon ${mask}">${current}</div><div class="icon ${mask}">${shifted}</div></div>`).join('')}<p>Current ← → proposed optical shift (source assets unchanged)</p>`);
+  const adaptive = y => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><g transform="translate(16.8 ${y}) scale(.62)">${art}</g></svg>`;
+  const current = adaptive(16.8);
+  const shifted = adaptive(19.8);
+  await icons.setContent(`<style>body{background:#16191e;color:#f2f5f8;font:16px system-ui;padding:20px} .row{display:flex;gap:42px;margin:22px} .icon{width:64px;height:64px;background:linear-gradient(#dcff6e,#b9e640);overflow:hidden}.icon svg{width:64px;height:64px}.circle{border-radius:50%}.square{border-radius:18px}.squircle{border-radius:28%}span{width:180px}small{color:#bbb}</style><h2>Launcher optical alignment · simulated masks</h2><small>64 CSS px; candidate moves artwork down 1.8 px. No launcher/device test.</small>${['circle','square','squircle'].map(mask => `<div class="row"><span>${mask}</span><div class="icon ${mask}">${current}</div><div class="icon ${mask}">${shifted}</div></div>`).join('')}<p>Current ← → proposed optical shift (source assets unchanged)</p>`);
   await icons.screenshot({ path: `${dir}/icon-optical-comparison.png` });
 });
 

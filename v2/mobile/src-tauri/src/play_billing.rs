@@ -33,10 +33,11 @@ use tauri_plugin_atv_billing::{response_code, RawPurchase};
 /// creates it in Play Console with exactly this id.
 pub const PRO_PRODUCT_ID: &str = "atvopt_pro";
 
-/// Retired pay-more tiers ($9.99 and $19.99 "Support me", sold 2026-11-08 to
-/// 2026-11-23). The app no longer offers them, but each still unlocks exactly
-/// the same Pro as [`PRO_PRODUCT_ID`] forever, so people who bought one keep
-/// Pro on every restore. Never remove them from [`PRO_PRODUCT_IDS`].
+/// Retired pay-more tiers ($9.99 and $19.99 "Support me", offered by the app
+/// 2026-11-08 to 2026-11-23 but never created in Play Console, so never sold).
+/// The app no longer offers them. They still unlock exactly the same Pro as
+/// [`PRO_PRODUCT_ID`], so if one is ever created by mistake its buyer keeps
+/// Pro. Never remove them from [`PRO_PRODUCT_IDS`] or reuse the ids.
 pub const SUPPORT_PRODUCT_IDS: [&str; 2] = ["atvopt_pro_support_1", "atvopt_pro_support_2"];
 
 /// Every product that unlocks Pro: the standard one first, then the retired tiers.
