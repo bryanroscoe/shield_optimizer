@@ -114,7 +114,7 @@ atv-adb Kotlin plugin runs the system UI. The FileProvider now maps only `cache/
 run on a phone (`EXPORT-DISCOVERABILITY.md`).
 Import (2026-11-09) is the other direction: Files › Upload to this folder and More › Install APK
 open Android's open-document picker (`AdbPlugin.pickDocuments`), which copies the picked files into
-`cache/imports/import-<n>/` (32 files, 2 GiB). `src-tauri/src/import_commands.rs` names and checks
+`cache/imports/import-<n>/` (32 files, 64 GiB; 2 GiB for APKs). `src-tauri/src/import_commands.rs` names and checks
 the copies, hands the screen an opaque batch id, pushes one file at a time into the `/sdcard` folder
 being browsed (asks before replacing a file, never replaces a folder, checks the size on the TV),
 and installs an APK set with `install -r` / `install-multiple -r` through the helper Backups restore

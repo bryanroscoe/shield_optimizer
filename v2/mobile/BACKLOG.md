@@ -69,7 +69,7 @@ go-ahead; don't infer permission from a phone being powered on.
    a cancel, a Drive/Downloads destination and a share to a real receiver are the device gates.
    Phase 2 done 2026-11-09: SAF import, which powers Files › Upload to this folder and item 2. Not
    yet run on a phone: picking one and several files, from Downloads and Drive; a dismissed
-   picker; a file over 2 GiB; activity recreation while the picker is open; a replace prompt and a
+   picker; a file over 4 GiB to a FAT32 and an exFAT drive; a file over 64 GiB; activity recreation while the picker is open; a replace prompt and a
    same-named folder on the TV; an upload to a TV folder that refuses writes. Next: snapshot and
    APK-bundle export once their privacy and format decisions are made; then consider Google Drive
    for complete APK bundles.
