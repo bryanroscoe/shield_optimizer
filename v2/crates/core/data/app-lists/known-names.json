@@ -298,7 +298,7 @@
     "name": "Overscan Compensation",
     "description": "Adjusts the picture to fit TVs that crop the edges."
   },
-  "com.nvidia.shield.remotelocator": {
+  "com.nvidia.remotelocator": {
     "name": "Remote Locator",
     "description": "Makes a Shield remote beep so you can find it."
   },

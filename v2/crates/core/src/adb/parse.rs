@@ -1046,10 +1046,91 @@ pub fn parse_permission_granted(dumpsys_package: &str, permission: &str) -> Opti
     })
 }
 
+/// The package of the selected keyboard, from
+/// `settings get secure default_input_method`, which prints a component
+/// (`com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME`)
+/// or `null`. Anything that isn't a component of a well-formed package is
+/// `None`: unknown, not "no keyboard".
+pub fn parse_default_input_method(settings_output: &str) -> Option<String> {
+    let line = settings_output
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())?;
+    let (package, class) = line.split_once('/')?;
+    (!class.is_empty() && crate::engine::is_valid_package_name(package))
+        .then(|| package.to_string())
+}
+
+/// The package Android uses as WebView now, from `dumpsys webviewupdate`'s
+/// `Current WebView package (name, version): (<package>, <version>)` line.
+/// `None` when the line is missing ("Current WebView package is null", an
+/// error, an unfamiliar build).
+pub fn parse_current_webview_package(dumpsys: &str) -> Option<String> {
+    dumpsys.lines().find_map(|line| {
+        let rest = line
+            .trim()
+            .strip_prefix("Current WebView package (name, version):")?
+            .trim()
+            .strip_prefix('(')?;
+        let package = rest.split(',').next()?.trim();
+        crate::engine::is_valid_package_name(package).then(|| package.to_string())
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn reads_the_selected_keyboard_package() {
+        let secure = include_str!("../../tests/fixtures/devices/shield-tv-pro/settings-secure.txt");
+        let value = secure
+            .lines()
+            .find_map(|l| l.strip_prefix("default_input_method="))
+            .unwrap();
+        assert_eq!(
+            parse_default_input_method(&format!("{value}\n")).as_deref(),
+            Some("com.google.android.inputmethod.latin")
+        );
+        assert_eq!(
+            parse_default_input_method("com.example.ime/.Service\n").as_deref(),
+            Some("com.example.ime")
+        );
+        for unknown in [
+            "null\n",
+            "",
+            "\n",
+            "garbage",
+            "bad name/.Svc",
+            "com.example.ime/",
+        ] {
+            assert_eq!(parse_default_input_method(unknown), None, "{unknown:?}");
+        }
+    }
+
+    #[test]
+    fn reads_the_current_webview_package() {
+        // The shape AOSP's WebViewUpdateService prints. No device capture of
+        // it is in the fixtures yet.
+        let dumpsys = "Current WebView Update Service state\n  \
+            Fallback logic enabled: false\n  \
+            Multiprocess enabled: true\n  \
+            Current WebView package (name, version): (com.google.android.webview, 83.0.4103.106)\n  \
+            Minimum targetSdkVersion: 30\n";
+        assert_eq!(
+            parse_current_webview_package(dumpsys).as_deref(),
+            Some("com.google.android.webview")
+        );
+        for unknown in [
+            "Current WebView Update Service state\n  Current WebView package is null\n",
+            "",
+            "Can't find service: webviewupdate\n",
+            "  Current WebView package (name, version): (, )\n",
+        ] {
+            assert_eq!(parse_current_webview_package(unknown), None, "{unknown:?}");
+        }
+    }
 
     #[test]
     fn parses_permission_grant_state() {

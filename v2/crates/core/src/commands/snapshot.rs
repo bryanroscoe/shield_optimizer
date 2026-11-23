@@ -508,6 +508,7 @@ async fn disable_from_plan(
     serial: &str,
     packages_to_disable: &[String],
     home: HomeGuard<'_>,
+    roles: &crate::engine::ActiveRoles,
 ) -> DisableOutcome {
     let catalog = launchers();
     let mut kept_names = home.kept;
@@ -520,6 +521,11 @@ async fn disable_from_plan(
         }
         if is_never_disable(pkg) {
             out.failed.push(format!("{pkg} (refused: brick risk)"));
+            continue;
+        }
+        if crate::engine::active_role_reason(pkg, roles).is_some() {
+            out.failed
+                .push(format!("{pkg} (refused: the keyboard or WebView in use)"));
             continue;
         }
         let mut inventory = None;
@@ -650,6 +656,9 @@ async fn apply_snapshot_impl(
         .iter()
         .map(|k| k.package.clone())
         .collect();
+    // Read once: nothing this loop disables can be the keyboard or WebView,
+    // so the roles it reads stay put.
+    let roles = super::apps::read_active_roles(adb.as_ref(), serial).await;
     let outcome = disable_from_plan(
         adb.as_ref(),
         serial,
@@ -659,6 +668,7 @@ async fn apply_snapshot_impl(
             current_home: plan.current_launcher.as_deref(),
             kept: kept.clone(),
         },
+        &roles,
     )
     .await;
     let mut packages_disabled = outcome.disabled;
@@ -1854,6 +1864,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn disable_from_plan_refuses_the_keyboard_and_webview_in_use() {
+        let mock = MockAdb::default().on_shell(
+            "(pm list packages -d --user 0 ",
+            &batched(&[&package_list(&["com.valid.package"])]),
+        );
+        let log = mock.shell_log();
+        let roles = crate::engine::ActiveRoles {
+            keyboard: Some("com.example.keyboard".into()),
+            webview: Some("com.android.chrome".into()),
+        };
+        let pkgs = vec![
+            "com.example.keyboard".to_string(),
+            "com.android.chrome".to_string(),
+            "com.valid.package".to_string(),
+        ];
+        let out = disable_from_plan(&mock, "serial", &pkgs, no_home(), &roles).await;
+        assert_eq!(out.disabled, ["com.valid.package"]);
+        assert_eq!(out.failed.len(), 2, "{:?}", out.failed);
+        assert!(out
+            .failed
+            .iter()
+            .all(|f| f.contains("keyboard or WebView in use")));
+        let issued = log.lock().unwrap().clone();
+        assert!(
+            !issued
+                .iter()
+                .any(|c| c.contains("com.example.keyboard") || c.contains("com.android.chrome")),
+            "{issued:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn disable_from_plan_records_invalid_name_without_aborting() {
         // A snapshot file might contain a malformed or injected package name.
         // The invalid entry must go to packages_failed; valid ones still run.
@@ -1867,7 +1909,7 @@ mod tests {
             "evil; reboot".to_string(),
             "com.another.valid".to_string(),
         ];
-        let out = disable_from_plan(&mock, "serial", &pkgs, no_home()).await;
+        let out = disable_from_plan(&mock, "serial", &pkgs, no_home(), &Default::default()).await;
         assert_eq!(out.disabled, ["com.valid.package", "com.another.valid"]);
         assert_eq!(out.failed.len(), 1, "exactly the invalid entry should fail");
         assert!(
@@ -1896,7 +1938,7 @@ mod tests {
             "com.fails.pkg".to_string(),
             "com.ok.two".to_string(),
         ];
-        let out = disable_from_plan(&mock, "serial", &pkgs, no_home()).await;
+        let out = disable_from_plan(&mock, "serial", &pkgs, no_home(), &Default::default()).await;
         assert_eq!(out.disabled, ["com.ok.one", "com.ok.two"]);
         assert_eq!(out.failed, ["com.fails.pkg"]);
     }
@@ -1913,7 +1955,14 @@ mod tests {
                 "package:com.example.app\n",
             ),
         ] {
-            let out = disable_from_plan(&mock, "TV", &["com.example.app".into()], no_home()).await;
+            let out = disable_from_plan(
+                &mock,
+                "TV",
+                &["com.example.app".into()],
+                no_home(),
+                &Default::default(),
+            )
+            .await;
             assert!(out.disabled.is_empty());
             assert_eq!(out.failed.len(), 1, "{:?}", out.failed);
         }

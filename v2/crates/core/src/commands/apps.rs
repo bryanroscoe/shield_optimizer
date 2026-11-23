@@ -11,14 +11,14 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::adb::{
-    checked_batch_command, parse_checked_batch, parse_disabled_packages_output,
-    parse_diskstats_package_sizes, parse_installed_packages_output, parse_permission_granted,
-    parse_pm_path_apks, parse_stat_sizes_total, parse_total_pss_by_process, parse_usage_stats,
-    AppStorage, AppUsage,
+    checked_batch_command, parse_checked_batch, parse_current_webview_package,
+    parse_default_input_method, parse_disabled_packages_output, parse_diskstats_package_sizes,
+    parse_installed_packages_output, parse_permission_granted, parse_pm_path_apks,
+    parse_stat_sizes_total, parse_total_pss_by_process, parse_usage_stats, AppStorage, AppUsage,
 };
 use crate::engine::{
-    classify_safety, classify_with_sources, is_last_enabled_home_handler, is_valid_package_name,
-    CatalogVerdict, DeviceType, Safety,
+    active_role_reason, classify_safety, classify_with_sources, is_last_enabled_home_handler,
+    is_valid_package_name, ActiveRoles, CatalogVerdict, DeviceType, Safety,
 };
 use crate::license::Feature;
 
@@ -530,6 +530,9 @@ pub(crate) async fn disable_package_impl(
     // same guard applies here. A third-party launcher is only Caution to the
     // safety rules, so nothing else stops it.
     state.require_pro(Feature::CuratedDebloat)?;
+    if let Err(refusal) = guard_active_roles(state, serial, package, "disable").await {
+        return Ok(refusal);
+    }
     let handlers = match guard_last_home_handler(state, serial, package, "disable").await {
         Ok(handlers) => handlers,
         Err(refusal) => return Ok(refusal),
@@ -612,6 +615,50 @@ pub(crate) async fn disable_package_impl(
         tracing::info!(serial, package, diagnostics = ?diagnostics, "stock disable: paired helper");
     }
     Ok(result)
+}
+
+/// Who holds the keyboard and WebView roles now, in one round trip. A read
+/// that fails leaves its role unknown, which refuses nothing (see
+/// [`ActiveRoles`]).
+pub(crate) async fn read_active_roles(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> ActiveRoles {
+    let cmd = checked_batch_command(&[
+        "settings --user 0 get secure default_input_method",
+        "dumpsys webviewupdate",
+    ]);
+    let sections = match adb.shell(serial, &cmd).await {
+        Ok(out) => parse_checked_batch(&out.stdout, 2, &[]).ok(),
+        Err(_) => None,
+    };
+    let Some(sections) = sections else {
+        return ActiveRoles::default();
+    };
+    ActiveRoles {
+        keyboard: parse_default_input_method(&sections[0]),
+        webview: parse_current_webview_package(&sections[1]),
+    }
+}
+
+/// `Err(refusal)` when `package` is the keyboard or WebView the device uses
+/// right now. Read at the moment of the change: the role can move between
+/// the list being shown and the button being pressed.
+async fn guard_active_roles(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    verb: &str,
+) -> Result<(), ActionResult> {
+    let adb = state.adb_snapshot().await;
+    let roles = read_active_roles(&*adb, serial).await;
+    match active_role_reason(package, &roles) {
+        Some(reason) => Err(ActionResult {
+            ok: false,
+            message: format!("Refusing to {verb} {package}: {reason}"),
+        }),
+        None => Ok(()),
+    }
 }
 
 /// `Err(refusal)` when disabling or uninstalling `package` would leave the
@@ -952,6 +999,9 @@ pub(crate) async fn uninstall_package_impl(
     // Uninstalling the only enabled launcher strands the TV without a Home
     // screen exactly as disabling it does.
     state.require_pro(Feature::CuratedDebloat)?;
+    if let Err(refusal) = guard_active_roles(state, serial, package, "uninstall").await {
+        return Ok(refusal);
+    }
     if let Err(refusal) = guard_last_home_handler(state, serial, package, "uninstall").await {
         return Ok(refusal);
     }
@@ -1336,6 +1386,110 @@ mod tests {
             .unwrap();
 
         assert!(result.ok, "{}", result.message);
+    }
+
+    fn roles_reply(keyboard: &str, webview: &str) -> String {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        format!("{keyboard}\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n{webview}\n{BATCH_STATUS}0\n")
+    }
+
+    const WEBVIEW_DUMP: &str =
+        "Current WebView Update Service state\n  Current WebView package (name, version): (com.android.chrome, 120.0)\n";
+
+    #[tokio::test]
+    async fn the_selected_keyboard_and_webview_are_refused_at_mutation_time() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        for (package, needle) in [
+            ("com.example.keyboard", "keyboard this TV uses now"),
+            ("com.android.chrome", "WebView this TV uses now"),
+        ] {
+            let mock = MockAdb::default().on_shell(
+                "default_input_method",
+                &roles_reply("com.example.keyboard/.KeyboardService", WEBVIEW_DUMP),
+            );
+            let log = mock.shell_log();
+            let state = state_with(mock);
+            let disabled = disable_package_impl(&state, "serial", package)
+                .await
+                .unwrap();
+            let removed = uninstall_package_impl(&state, "serial", package)
+                .await
+                .unwrap();
+            assert!(
+                !disabled.ok && disabled.message.contains(needle),
+                "{}",
+                disabled.message
+            );
+            assert!(disabled.message.starts_with("Refusing to disable"));
+            assert!(
+                !removed.ok && removed.message.contains(needle),
+                "{}",
+                removed.message
+            );
+            assert!(removed.message.starts_with("Refusing to uninstall"));
+            let issued = log.lock().unwrap().clone();
+            assert!(
+                !issued
+                    .iter()
+                    .any(|c| c.contains("pm disable") || c.contains("pm uninstall")),
+                "{package} must not reach the device: {issued:?}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn active_roles_leave_other_packages_alone() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default().on_shell(
+            "default_input_method",
+            &roles_reply("com.example.keyboard/.KeyboardService", WEBVIEW_DUMP),
+        );
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        let result = disable_package_impl(&state, "serial", "com.example.app")
+            .await
+            .unwrap();
+        assert!(result.ok, "{}", result.message);
+        assert!(log
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c == "pm disable-user --user 0 com.example.app"));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_role_read_does_not_block_an_unlisted_package() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        // A failed read is unknown, like the Home guard's unreadable list for
+        // an unrelated app: the static lists still hold the stock keyboards
+        // and WebView packages.
+        let state = state_with(MockAdb::default().on_shell_err("default_input_method", "offline"));
+        let result = disable_package_impl(&state, "serial", "com.example.keyboard")
+            .await
+            .unwrap();
+        assert!(result.ok, "{}", result.message);
+        let state = state_with(MockAdb::default().on_shell_err("default_input_method", "offline"));
+        let result = disable_package_impl(&state, "serial", "com.google.android.webview")
+            .await
+            .unwrap();
+        assert!(
+            !result.ok,
+            "the static list still protects the stock WebView"
+        );
+    }
+
+    #[tokio::test]
+    async fn read_active_roles_parses_one_batched_read() {
+        use crate::commands::test_support::MockAdb;
+        let mock = MockAdb::default().on_shell(
+            "default_input_method",
+            &roles_reply("com.example.keyboard/.KeyboardService", WEBVIEW_DUMP),
+        );
+        let log = mock.shell_log();
+        let roles = read_active_roles(&mock, "serial").await;
+        assert_eq!(roles.keyboard.as_deref(), Some("com.example.keyboard"));
+        assert_eq!(roles.webview.as_deref(), Some("com.android.chrome"));
+        assert_eq!(log.lock().unwrap().len(), 1, "one round trip");
     }
 
     #[tokio::test]

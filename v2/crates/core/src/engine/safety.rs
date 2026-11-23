@@ -188,6 +188,38 @@ pub fn is_never_disable(package: &str) -> bool {
     never_disable_reason(package).is_some()
 }
 
+/// Which packages hold the keyboard and WebView roles right now, read from the
+/// device just before a disable or uninstall. The read happens in the command
+/// layer; this module only decides.
+///
+/// `None` is unknown: the read failed or the device named nobody. Unknown
+/// refuses nothing. The lists below already hold the stock keyboards and
+/// WebView packages, and the last-Home guard sets the precedent that an
+/// unrelated app is never blocked on a read that failed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActiveRoles {
+    /// The package of the selected keyboard (`default_input_method`).
+    pub keyboard: Option<String>,
+    /// The package Android uses as WebView now.
+    pub webview: Option<String>,
+}
+
+const ACTIVE_KEYBOARD_REASON: &str = "It's the keyboard this TV uses now. Removing it can leave you no way to type. Choose another keyboard in Settings first.";
+
+const ACTIVE_WEBVIEW_REASON: &str = "It's the WebView this TV uses now, so apps that show web pages or sign-in screens would break. Choose another WebView implementation in Developer options first.";
+
+/// Why `package` must stay because of a role it holds right now, or `None`.
+/// Checked after the protected list, so it only ever adds a refusal.
+pub fn active_role_reason(package: &str, roles: &ActiveRoles) -> Option<&'static str> {
+    if roles.keyboard.as_deref() == Some(package) {
+        return Some(ACTIVE_KEYBOARD_REASON);
+    }
+    if roles.webview.as_deref() == Some(package) {
+        return Some(ACTIVE_WEBVIEW_REASON);
+    }
+    None
+}
+
 /// Destructive package verbs. Each one takes a package away from the user in a
 /// way the never-disable list exists to prevent — `hide` and `suspend` are
 /// included because they reach the same end state as `disable` by another
@@ -352,6 +384,24 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
         "com.android.inputdevices",
         "Input subsystem. Disabling breaks the remote.",
     ),
+    // --- Networking: network ADB rides on it, so breaking it strands the
+    //     TV from this app as well as from the internet ---
+    (
+        "com.android.networkstack.inprocess",
+        "Network Stack. Runs Wi-Fi and Ethernet connections; disabling can take the TV offline and cut this app's connection.",
+    ),
+    (
+        "com.google.android.networkstack",
+        "Network Stack. Runs Wi-Fi and Ethernet connections; disabling can take the TV offline and cut this app's connection.",
+    ),
+    (
+        "com.android.wifi.resources",
+        "Wi-Fi Resources. The Wi-Fi service's configuration; disabling can break Wi-Fi and cut this app's connection.",
+    ),
+    (
+        "com.google.android.wifi.resources",
+        "Wi-Fi Resources. The Wi-Fi service's configuration; disabling can break Wi-Fi and cut this app's connection.",
+    ),
     // --- Certs / keychain ---
     (
         "com.android.keychain",
@@ -378,6 +428,16 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
         "com.google.android.ext.services",
         "Android extension services. Disabling breaks notifications and ranking.",
     ),
+    // --- WebView provider: apps use it to draw web pages and sign-in
+    //     screens, and Android has nothing to fall back to without it ---
+    (
+        "com.google.android.webview",
+        "Android System WebView. Apps use it for web pages and sign-in screens; disabling breaks them.",
+    ),
+    (
+        "com.android.webview",
+        "Android System WebView. Apps use it for web pages and sign-in screens; disabling breaks them.",
+    ),
     // --- Persistent system bridges ---
     (
         "com.android.location.fused",
@@ -399,6 +459,10 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     ),
     (
         "com.google.android.leanbackkeyboard",
+        "Leanback Keyboard — the Android TV system keyboard. Disabling removes on-screen text input.",
+    ),
+    (
+        "com.google.android.leanback.ime",
         "Leanback Keyboard — the Android TV system keyboard. Disabling removes on-screen text input.",
     ),
     (
@@ -439,6 +503,50 @@ const CAUTION: &[(&str, &str)] = &[
     (
         "com.android.printspooler",
         "Print Spooler. Unused on TV; shown here so it isn't mistaken for bloat.",
+    ),
+    // --- Network stack companions: not the stack itself, but nobody has
+    //     shown that removing them leaves networking intact ---
+    (
+        "com.android.networkstack.tethering.inprocess",
+        "Tethering, part of Android's network stack. Its effect on the TV's own connection hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.networkstack.tethering",
+        "Tethering, part of Android's network stack. Its effect on the TV's own connection hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.android.networkstack.tethering.nvidia",
+        "NVIDIA's tethering settings for the network stack. Its effect on the TV's own connection hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.android.networkstack.permissionconfig",
+        "Permission settings for the network stack. Its effect on the TV's own connection hasn't been verified, so leave it on.",
+    ),
+    // --- Updatable-module plumbing. Each is listed by exact ID: a shared
+    //     prefix says nothing about what an unrelated package does ---
+    (
+        "com.google.android.modulemetadata",
+        "Lists Android's updatable system modules for system updates. What depends on it hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.ext.shared",
+        "Shared code library for system apps. What depends on it hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.overlay.modules.ext.services",
+        "Configuration for a core Android module. Its effect hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.overlay.modules.modulemetadata.forframework",
+        "Configuration for a core Android module. Its effect hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.overlay.modules.permissioncontroller",
+        "Configuration for a core Android module. Its effect hasn't been verified, so leave it on.",
+    ),
+    (
+        "com.google.android.overlay.modules.permissioncontroller.forframework",
+        "Configuration for a core Android module. Its effect hasn't been verified, so leave it on.",
     ),
 ];
 
@@ -646,6 +754,134 @@ mod tests {
         assert!(is_never_disable("com.google.android.inputmethod.latin"));
         assert!(is_never_disable("com.google.android.leanbackkeyboard"));
         assert!(is_never_disable("com.android.inputmethod.latin"));
+    }
+
+    #[test]
+    fn the_shield_leanback_keyboard_is_never_disable() {
+        // The Shield ships the Leanback keyboard as `leanback.ime`, and lists
+        // it among the enabled keyboards. The older ID stays protected too.
+        assert!(is_never_disable("com.google.android.leanback.ime"));
+        assert!(is_never_disable("com.google.android.leanbackkeyboard"));
+    }
+
+    #[test]
+    fn webview_providers_are_never_disable() {
+        assert!(is_never_disable("com.google.android.webview"));
+        assert!(is_never_disable("com.android.webview"));
+        // Trichrome is a library a provider can depend on, not a provider.
+        assert!(!is_never_disable("com.google.android.trichromelibrary"));
+    }
+
+    #[test]
+    fn the_network_stack_is_never_disable_and_its_companions_are_caution() {
+        for package in [
+            "com.android.networkstack.inprocess",
+            "com.google.android.networkstack",
+            "com.android.wifi.resources",
+            "com.google.android.wifi.resources",
+        ] {
+            assert!(is_never_disable(package), "{package}");
+        }
+        for package in [
+            "com.android.networkstack.tethering.inprocess",
+            "com.android.networkstack.tethering.nvidia",
+            "com.google.android.networkstack.tethering",
+            "com.android.networkstack.permissionconfig",
+        ] {
+            assert!(
+                matches!(
+                    classify(package),
+                    Safety::Caution {
+                        source: SafetySource::CautionList,
+                        ..
+                    }
+                ),
+                "{package}"
+            );
+        }
+    }
+
+    #[test]
+    fn module_plumbing_is_caution_by_exact_id_not_by_prefix() {
+        for package in [
+            "com.google.android.modulemetadata",
+            "com.google.android.ext.shared",
+            "com.google.android.overlay.modules.ext.services",
+            "com.google.android.overlay.modules.modulemetadata.forframework",
+            "com.google.android.overlay.modules.permissioncontroller",
+            "com.google.android.overlay.modules.permissioncontroller.forframework",
+        ] {
+            assert!(
+                matches!(classify(package), Safety::Caution { .. }),
+                "{package}"
+            );
+        }
+        for package in [
+            "com.google.android.overlay.modules.something.new",
+            "com.google.android.networkstack.example",
+            "com.android.wifi.resources.example",
+        ] {
+            assert!(
+                matches!(classify(package), Safety::Unknown { .. }),
+                "{package}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_shield_capture_has_no_unguarded_keyboard_webview_or_network_stack() {
+        // Every package on the captured Shield that is the keyboard, the
+        // WebView or the network stack must reach a hand-written verdict, not
+        // Unknown behind a single confirm.
+        let list =
+            include_str!("../../tests/fixtures/devices/shield-tv-pro/pm-list-packages-s.txt");
+        let installed: Vec<&str> = list
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("package:"))
+            .collect();
+        for package in [
+            "com.google.android.leanback.ime",
+            "com.google.android.webview",
+            "com.android.networkstack.inprocess",
+            "com.android.wifi.resources",
+        ] {
+            assert!(installed.contains(&package), "{package} not in capture");
+            assert!(is_never_disable(package), "{package}");
+        }
+        for package in installed.iter().filter(|p| {
+            p.contains("networkstack")
+                || p.contains("webview")
+                || p.contains("wifi.resources")
+                || p.contains("leanback.ime")
+                || p.starts_with("com.google.android.overlay.modules.")
+        }) {
+            assert!(
+                !matches!(classify(package), Safety::Unknown { .. }),
+                "{package} is still Unknown"
+            );
+        }
+    }
+
+    #[test]
+    fn an_active_role_refuses_only_its_holder() {
+        let roles = ActiveRoles {
+            keyboard: Some("com.example.keyboard".into()),
+            webview: Some("com.android.chrome".into()),
+        };
+        assert_eq!(
+            active_role_reason("com.example.keyboard", &roles),
+            Some(ACTIVE_KEYBOARD_REASON)
+        );
+        assert_eq!(
+            active_role_reason("com.android.chrome", &roles),
+            Some(ACTIVE_WEBVIEW_REASON)
+        );
+        assert_eq!(active_role_reason("com.example.other", &roles), None);
+        // Unknown roles refuse nothing.
+        assert_eq!(
+            active_role_reason("com.example.keyboard", &ActiveRoles::default()),
+            None
+        );
     }
 
     #[test]
