@@ -2,11 +2,12 @@
   import HelpSheet from "../components/HelpSheet.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import PaywallSheet from "../components/PaywallSheet.svelte";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { api } from "../lib/api";
   import { billing } from "../lib/billing.svelte";
   import { session } from "../lib/session.svelte";
   import { currentTarget, sameTv } from "../lib/tvTarget";
+  import { normalizeHardwareId } from "../lib/identity";
   import type { Screen } from "../lib/router.svelte";
   import {
     getShellAcknowledged,
@@ -39,26 +40,36 @@
   let editLabel = $state("");
   let editCommand = $state("");
   let bookmarkError = $state<string | null>(null);
+  let editNameInput = $state<HTMLInputElement>();
+  let editReturnFocus: HTMLButtonElement | null = null;
 
   // Consent is resolved once per TV and written back on every change; it is
   // never re-read over live state, so a refresh can't clear a fresh tick.
-  // A TV with no hardware id keeps its tick only while this screen is open.
   let acknowledged = $state(false);
   // A run belongs to the TV it started on. Leaving that TV drops its late
-  // result and releases Run for the new one.
+  // result, says so, and releases Run for the new one.
   let runToken = 0;
+  let leftRunning = $state(false);
   let resolvedFor: string | null = null;
-  const hardwareId = $derived(session.connectedDevice?.properties?.serial_number ?? null);
+  const hardwareId = $derived(normalizeHardwareId(session.connectedDevice?.properties?.serial_number));
   $effect(() => {
     const identity = `${session.serial}:${session.deviceEpoch}:${hardwareId ?? ""}`;
     if (identity === resolvedFor) return;
+    const wasRunning = resolvedFor !== null && untrack(() => running);
     resolvedFor = identity;
     acknowledged = getShellAcknowledged(hardwareId);
     runToken++;
     running = false;
     result = null;
     err = null;
+    leftRunning = wasRunning;
   });
+  // The phone's ADB runs a command only on a TV with a verified hardware id,
+  // so a TV without one can't use Shell and its box stays off.
+  const identified = $derived(!!hardwareId);
+  // A tick while no TV is live would land on whichever TV the session last
+  // knew, so the box waits for a live, identified TV.
+  const canAcknowledge = $derived(session.isConnected && identified && !running);
 
   function setAcknowledged(next: boolean) {
     acknowledged = next;
@@ -66,14 +77,16 @@
   }
 
   const canRun = $derived(
-    acknowledged && session.isConnected && !!session.serial && !running && !!command.trim(),
+    acknowledged && identified && session.isConnected && !!session.serial && !running && !!command.trim(),
   );
   const runHint = $derived(
     !session.isConnected
       ? "Connect a TV to run commands."
-      : !acknowledged
-        ? "Check the box above to enable Run."
-        : null,
+      : !identified
+        ? "Shell can't run on this TV because it didn't report a hardware ID."
+        : !acknowledged
+          ? "Check the box above to enable Run."
+          : null,
   );
   const outLines = $derived(result ? shellOutputLines(result) : 0);
   const stopNotice = $derived(result ? shellStopNotice(result) : null);
@@ -87,6 +100,7 @@
     running = true;
     err = null;
     result = null;
+    leftRunning = false;
     try {
       const response = await api.runShell(target.serial, trimmed);
       if (token !== runToken || !sameTv(target)) return;
@@ -154,18 +168,25 @@
     if (persistBookmarks([...bookmarks, { label, command: cmd }])) bookmarkLabel = "";
   }
 
-  function editBookmark(index: number) {
+  async function editBookmark(index: number, trigger: HTMLButtonElement) {
     editingIndex = index;
     editLabel = bookmarks[index].label;
     editCommand = bookmarks[index].command;
     bookmarkError = null;
+    editReturnFocus = trigger;
+    await tick();
+    editNameInput?.focus();
+    editNameInput?.scrollIntoView({ block: "center" });
   }
 
-  function cancelEdit() {
+  async function cancelEdit() {
     editingIndex = null;
     editLabel = "";
     editCommand = "";
     bookmarkError = null;
+    await tick();
+    if (editReturnFocus?.isConnected) editReturnFocus.focus();
+    editReturnFocus = null;
   }
 
   function saveEdit() {
@@ -181,12 +202,12 @@
       return;
     }
     const next = bookmarks.map((b, index) => (index === editingIndex ? { label, command: cmd } : b));
-    if (persistBookmarks(next)) cancelEdit();
+    if (persistBookmarks(next)) void cancelEdit();
   }
 
   function removeBookmark(index: number) {
     if (persistBookmarks(bookmarks.filter((_, position) => position !== index)) && editingIndex !== null) {
-      cancelEdit();
+      void cancelEdit();
     }
   }
 </script>
@@ -228,15 +249,15 @@
           <input
             type="checkbox"
             checked={acknowledged}
-            disabled={running}
+            disabled={!canAcknowledge}
             onchange={(e) => setAcknowledged((e.currentTarget as HTMLInputElement).checked)}
           />
-          <span>I understand these risks and want to enable expert shell on this TV.</span>
+          <span>I understand these risks and want to enable expert shell on {session.isConnected ? session.deviceLabel : "this TV"}.</span>
         </label>
         <HelpSheet title="Shell limits">
           <p class="card-desc">A basic check catches some obvious dangerous commands, but shell expressions can bypass it.</p>
           <p class="card-desc">Commands time out after 30 seconds, and output is capped at 256 KiB per stream. Leaving this screen doesn't stop a command that is already running on the TV.</p>
-          <p class="card-desc">Your choice is remembered for this TV until you uncheck it. A TV that doesn't report a hardware ID asks again each time.</p>
+          <p class="card-desc">Your choice is remembered for this TV until you uncheck it. Shell needs a TV that reports a hardware ID.</p>
         </HelpSheet>
       </div>
     </div>
@@ -253,7 +274,6 @@
           aria-label="Shell command"
           autocapitalize="off"
           autocomplete="off"
-         
           spellcheck="false"
         ></textarea>
       </div>
@@ -262,6 +282,10 @@
       </button>
       {#if runHint}<p class="card-desc" role="status">{runHint}</p>{/if}
     </div>
+
+    {#if leftRunning}
+      <p class="blocked" role="status">A command was still running on the previous TV. It may have finished there; its output isn't shown here.</p>
+    {/if}
 
     {#if err}
       <p class="error" role="alert">{err}</p>
@@ -329,7 +353,7 @@
               class="iconbtn row-action"
               aria-label={`Edit the bookmark ${bookmark.label}`}
               disabled={editingIndex !== null}
-              onclick={() => editBookmark(index)}
+              onclick={(event) => editBookmark(index, event.currentTarget)}
             ><span class="msr" aria-hidden="true">edit</span></button>
             <button
               class="iconbtn row-action"
@@ -343,7 +367,7 @@
       {#if bookmarkError}<p class="error" role="alert">{bookmarkError}</p>{/if}
       {#if editingIndex !== null}
         <form class="bookmark-form" aria-label="Edit custom bookmark" onsubmit={(event) => { event.preventDefault(); saveEdit(); }}>
-          <label>Name<input bind:value={editLabel} autocapitalize="off" autocomplete="off" spellcheck="false" /></label>
+          <label>Name<input bind:this={editNameInput} bind:value={editLabel} autocapitalize="off" autocomplete="off" spellcheck="false" /></label>
           <label>Command<textarea class="mono" bind:value={editCommand} rows="4" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea></label>
           <div class="form-actions">
             <button type="submit" class="primary small">Save changes</button>

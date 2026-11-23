@@ -140,7 +140,7 @@ test("nothing runs until the box is ticked and Run is pressed; output stays text
   assert.equal(await page.getByLabel("Command output").count(), 0);
 });
 
-test("consent is remembered by hardware id and asked again for a TV without one", async (t) => {
+test("consent is remembered by hardware id, and a TV without one can't use Shell", async (t) => {
   const page = await open(t, "shell");
   await ack(page).check();
   await page.reload();
@@ -152,14 +152,26 @@ test("consent is remembered by hardware id and asked again for a TV without one"
     ["HW-SHELL-A"],
   );
 
+  // The phone's ADB refuses to run a command on a TV with no verified id,
+  // so the box stays off rather than promising a run that can't happen.
   const idless = await open(t, "shell", { device: { ...TV_A, properties: null } });
-  await ack(idless).check();
-  assert.equal(await idless.evaluate(() => localStorage.getItem("shieldOptimizer.expertShellAcknowledged")), null,
-    "a TV with no hardware id is never filed under its address");
-  await idless.reload();
-  await enter(idless, "shell");
   await ack(idless).waitFor();
-  assert.equal(await ack(idless).isChecked(), false);
+  assert.equal(await ack(idless).isDisabled(), true);
+  await idless.getByText("Shell can't run on this TV because it didn't report a hardware ID.").waitFor();
+  await idless.getByLabel("Shell command").fill("uptime");
+  assert.equal(await runButton(idless).isDisabled(), true);
+  assert.equal(await idless.evaluate(() => localStorage.getItem("shieldOptimizer.expertShellAcknowledged")), null);
+});
+
+test("the box names the TV and can't be ticked while no TV is live", async (t) => {
+  const page = await open(t, "shell");
+  await page.getByText("I understand these risks and want to enable expert shell on A.").waitFor();
+  await page.evaluate(async () => {
+    const { session } = await import("/src/lib/session.svelte.ts");
+    session.liveness = "lost";
+  });
+  assert.equal(await ack(page).isDisabled(), true, "a tick now would land on the last TV the session knew");
+  await page.getByText("Connect a TV to run commands.").waitFor();
 });
 
 test("a refused command is shown as a refusal with nothing to copy", async (t) => {
@@ -213,6 +225,7 @@ test("a late result from the previous TV never lands on the new one", async (t) 
     await session.connect("B", 5555);
   });
   assert.equal(await ack(page).isChecked(), false, "consent for TV A is not consent for TV B");
+  await page.getByText("A command was still running on the previous TV. It may have finished there; its output isn't shown here.").waitFor();
   await page.evaluate(() => window.pending.shift()());
   await page.waitForTimeout(200);
   assert.doesNotMatch(await page.locator(".screen").innerText(), /LATE OLD TV OUTPUT/);
@@ -242,6 +255,12 @@ test("custom bookmarks are saved, edited and removed without running anything", 
 
   await page.getByRole("button", { name: "Edit the bookmark Battery" }).click();
   const form = page.getByRole("form", { name: "Edit custom bookmark" });
+  assert.equal(await form.getByLabel("Name").evaluate((el) => el === document.activeElement), true,
+    "Edit moves focus into the form");
+  await form.getByRole("button", { name: "Cancel" }).click();
+  assert.equal(await page.getByRole("button", { name: "Edit the bookmark Battery" })
+    .evaluate((el) => el === document.activeElement), true, "Cancel returns focus to Edit");
+  await page.getByRole("button", { name: "Edit the bookmark Battery" }).click();
   await form.getByLabel("Name").fill("Power");
   await form.getByLabel("Command").fill("dumpsys power");
   await form.getByRole("button", { name: "Save changes" }).click();

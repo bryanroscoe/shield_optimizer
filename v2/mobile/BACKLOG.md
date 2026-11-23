@@ -121,7 +121,7 @@ go-ahead; don't infer permission from a phone being powered on.
    Optimize filters; the phone has no equivalent on those screens yet.
 12. ~~**Expert shell.**~~ Done 2026-11-22: More › Shell (Pro), through core `run_shell` with
    desktop's presets, bookmarks, bounds and refusal gate, behind a per-TV acknowledgment kept by
-   hardware id. Not yet run on a phone: a preset, a refused command, a 30-second timeout and a TV
+   hardware id (a TV without a verified id can't use it). Not yet run on a phone: a preset, a refused command, a 30-second timeout and a TV
    switch mid-run on a real TV.
 
 ## P2 — release readiness

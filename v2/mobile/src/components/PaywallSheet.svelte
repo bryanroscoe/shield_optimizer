@@ -41,6 +41,11 @@
       title: "System tweaks",
       desc: "Change HDMI-CEC, frame rate, audio, display scaling, Private DNS and more.",
     },
+    {
+      icon: "terminal",
+      title: "Shell",
+      desc: "Run adb shell commands on your TV, with bookmarks for the ones you use.",
+    },
   ];
 
   let checking = $state(false);
