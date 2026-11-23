@@ -185,6 +185,7 @@ debugging; the devtest APKs or any small APK you are willing to install and remo
 | M6 | Choose Disable on one optional app, switch tabs, Apply | The summary shows 1 optional; the confirmation names the app and the 0.5× animation post-pass; Cancel leaves the TV untouched; Apply disables only that app |
 | M7 | Apps → system filter; Backups | System apps hidden by default and toggle on; Backups lists every installed app, not only the catalog |
 | M8 | Diagnostics → unknown-app log | Entries exist for the Unknown apps seen in M5 |
+| M8a | More → Shell (Pro): open it, pick Disabled packages, then tick the warning and Run; then type `pm disable-user --user 0 com.android.systemui` and Run | Run stays disabled until the box is ticked; the preset lists the disabled apps with exit 0; the systemui command is refused and nothing changes on the TV; reopening Shell for the same TV keeps the box ticked |
 | M8b | More → Help → Report a bug, connected to the TV | Send is disabled until a description is typed; Show exactly what's sent lists the phone's model and Android version and the TV's make, model and Android version, with no TV name, address or serial; Send reports "Sent as report #N" with the Support ID; Report on GitHub instead opens the bug form with the description filled in |
 
 The mobile app's own open physical gates (saved-TV reconnect #93, the restart report #105, code

@@ -176,6 +176,15 @@
       ]
     },
     {
+      "command": "run_shell",
+      "api": "runShell",
+      "gate": "ShellRunner",
+      "backend": "../crates/core/src/commands/shell.rs",
+      "callers": [
+        "src/screens/Shell.svelte"
+      ]
+    },
+    {
       "command": "list_devices",
       "api": "listDevices",
       "gate": "Free",

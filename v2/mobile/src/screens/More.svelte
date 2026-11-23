@@ -267,6 +267,7 @@
         { screen: "sideload", icon: "android", title: "Install APK", desc: "Install an APK from this phone", pro: false },
         { screen: "backups", icon: "cloud_sync", title: "Backups", desc: "Back up and restore an app's APK", pro: false },
         { screen: "logs", icon: "receipt_long", title: "Device logs", desc: "Read recent system logs", pro: false },
+        { screen: "shell", icon: "terminal", title: "Shell", desc: "Run adb shell commands on the TV", pro: true },
       ],
     },
     {

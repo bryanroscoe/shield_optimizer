@@ -11,6 +11,7 @@ import { Channel, invoke } from "@tauri-apps/api/core";
 import { parseSafety } from "../../../shared/safety";
 import type { MediaCapabilities } from "../../../shared/media";
 import type { DeviceLogOptions, DeviceLogResult } from "../../../shared/device-logs";
+import type { ShellRunResult } from "../../../shared/shell";
 import { observeCall, type Send, type TelemetrySettings } from "../../../shared/telemetry";
 import { logCall, summarizeArgs } from "./log";
 import type { BugReportResult, BugReportSummary, ConnectionStep } from "./bug-report";
@@ -346,6 +347,9 @@ export const api = {
   sendBugReport: (id: number, note: string) => call<BugReportResult>("send_bug_report", { id, note }),
   readDeviceLogs: (serial: string, options: DeviceLogOptions) =>
     call<DeviceLogResult>("read_device_logs", { serial, options }),
+  /// Expert shell (Pro). The debug log redacts `command`.
+  runShell: (serial: string, command: string) =>
+    call<ShellRunResult>("run_shell", { serial, command }),
 
   // ---- Anonymous reports ----
   telemetrySettings: () => call<TelemetrySettings>("telemetry_settings"),

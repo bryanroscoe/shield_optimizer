@@ -199,15 +199,7 @@ export interface ResourceSample {
 
 export type { DeviceLogOptions, DeviceLogResult } from "../../shared/device-logs";
 
-export interface ShellRunResult {
-  stdout: string;
-  stderr: string;
-  exit_code: number | null;
-  termination: "completed" | "output_limit" | "timeout";
-  /// The safety gate refused it; nothing was sent to the device.
-  blocked: boolean;
-  blocked_reason: string | null;
-}
+export type { ShellRunResult } from "../../shared/shell";
 
 export interface MemoryEntry {
   /// The full process name the device reported (`com.foo:remote`,

@@ -119,6 +119,10 @@ go-ahead; don't infer permission from a phone being powered on.
    store app the user installed) and the snapshot's absent apps match desktop as of 2026-11-09,
    but the explanation lives only in More › Risk guide. Desktop has a "?" beside its App List and
    Optimize filters; the phone has no equivalent on those screens yet.
+12. ~~**Expert shell.**~~ Done 2026-11-22: More › Shell (Pro), through core `run_shell` with
+   desktop's presets, bookmarks, bounds and refusal gate, behind a per-TV acknowledgment kept by
+   hardware id. Not yet run on a phone: a preset, a refused command, a 30-second timeout and a TV
+   switch mid-run on a real TV.
 
 ## P2 — release readiness
 

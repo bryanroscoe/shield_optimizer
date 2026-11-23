@@ -4,6 +4,7 @@
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { getShellBookmarks, setShellBookmarks, type ShellBookmark } from "$lib/prefs";
   import type { ShellRunResult } from "$lib/types";
+  import { SHELL_PRESETS as PRESETS, shellOutputLines, shellOutputText, shellStopNotice } from "../../../shared/shell";
   import { onDestroy, tick } from "svelte";
 
   let { serial, active = true, acknowledged = false, onacknowledge, onexecuted }: {
@@ -44,7 +45,7 @@
 
   async function copyOutput() {
     if (!result || result.blocked) return;
-    const text = [result.stdout, result.stderr].filter((p) => p.trim()).join("\n");
+    const text = shellOutputText(result);
     try {
       await navigator.clipboard.writeText(text);
       outputCopied = true;
@@ -60,27 +61,7 @@
   }
 
   /// Line counts for the output footer the board carries under the pane.
-  const outLines = $derived(
-    result && !result.blocked
-      ? (result.stdout.trim() ? result.stdout.trimEnd().split("\n").length : 0) +
-        (result.stderr.trim() ? result.stderr.trimEnd().split("\n").length : 0)
-      : 0,
-  );
-
-  const PRESETS: ShellBookmark[] = [
-    { label: "All packages", command: "pm list packages --user 0" },
-    { label: "All packages with paths", command: "pm list packages -f --user 0" },
-    { label: "System packages", command: "pm list packages -s --user 0" },
-    { label: "Enabled packages", command: "pm list packages -e --user 0" },
-    { label: "Disabled packages", command: "pm list packages -d --user 0" },
-    { label: "Third-party packages", command: "pm list packages -3 --user 0" },
-    { label: "Uninstall a package", command: "pm uninstall --user 0 PACKAGE_NAME" },
-    { label: "Current launcher", command: "cmd shortcut get-default-launcher" },
-    { label: "Device properties", command: "getprop | grep ro.product" },
-    { label: "Display state", command: "dumpsys display | grep -E 'mBaseDisplayInfo|modeId'" },
-    { label: "Running processes", command: "ps -A -o NAME,PID,RSS --sort=-RSS | head -20" },
-    { label: "Uptime", command: "uptime" },
-  ];
+  const outLines = $derived(result ? shellOutputLines(result) : 0);
 
   async function run() {
     const trimmed = command.trim();
@@ -278,8 +259,8 @@
         {#if result.blocked}
           <p class="blocked">{result.blocked_reason}</p>
         {:else}
-          {#if result.termination !== "completed"}
-            <p class="blocked">{result.termination === "timeout" ? "Stopped after 30 seconds." : "Stopped at the output limit."} Partial output is shown below. The command may already have changed the device.</p>
+          {#if shellStopNotice(result)}
+            <p class="blocked">{shellStopNotice(result)}</p>
           {/if}
           <div class="shell-pane">
             {#if result.stdout.trim()}

@@ -32,6 +32,7 @@ export type Screen =
   | "catalog"
   | "files"
   | "logs"
+  | "shell"
   | "backups"
   | "sideload";
 

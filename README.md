@@ -132,7 +132,7 @@ own, it shows up when the device list refreshes.
 - A curated **do-not-disable list** blocks disables that would break the device, in every curated
   action: Optimize, App List, the Launcher wizard and Snapshot apply.
 - **Emergency recovery** asks the TV to re-enable every disabled app and reports any it refused.
-- The **Shell** tab is the exception: it runs whatever you type. Its warnings are there for a
+- The **Shell** (a tab on desktop, More › Shell on Android) is the exception: it runs whatever you type. Its warnings are there for a
   reason. A bad command can erase data or leave the device unusable.
 
 **Use at your own risk.** Changing system apps always carries some risk, but the app favors safe,
@@ -229,7 +229,7 @@ and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.c
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
 The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching,
-changing tweaks, and snapshots) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
+changing tweaks, snapshots and the Shell) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
 more. Every price unlocks the same Pro.
 
 ## Support the project

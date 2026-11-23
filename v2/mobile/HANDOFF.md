@@ -128,7 +128,11 @@ to remove a Caution or Unknown app).
 Links open in the phone's browser through `tauri-plugin-opener`, scoped to http/https.
 Device logs (More › Device logs) reads the same bounded logcat snapshot as desktop's Logs tab
 through core `commands::logcat::read_device_logs` and the shared `v2/shared/log-poller.ts`; it never
-saves or uploads them. More › Bug report builds desktop's narrow bundle through core
+saves or uploads them. More › Shell (`src/screens/Shell.svelte`, Pro, 2026-11-22) is desktop's Shell
+tab: core `commands::shell::run_shell` with the same lexical gate and bounds, the presets from
+`v2/shared/shell.ts`, local bookmarks, and Run enabled only after a per-TV risk acknowledgment
+kept by hardware id (a TV without one is asked every time). The debug log redacts the command. Not
+yet run on a phone. More › Bug report builds desktop's narrow bundle through core
 `commands::diagnostics` (with this app's `debug.log` tail), shows it for review and copies it to the
 clipboard; nothing is sent. More › Help › Report a bug (`BugReportSheet.svelte`, 2026-11-22) is the
 one upload the user starts: a description plus a short redacted summary built in Rust

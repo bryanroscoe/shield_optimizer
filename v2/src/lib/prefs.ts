@@ -1,3 +1,5 @@
+import { parseShellBookmarks, type ShellBookmark } from "../../shared/shell";
+
 const KEY = "shieldopt.autoUpdate";
 
 // Opt-in: off unless the user explicitly enables it. The build is unsigned, so
@@ -47,10 +49,7 @@ export function setRemoteForceShell(enabled: boolean): void {
 
 const SHELL_BOOKMARKS_KEY = "shieldopt.shellBookmarks";
 
-export interface ShellBookmark {
-  label: string;
-  command: string;
-}
+export type { ShellBookmark };
 
 /// Bookmarks are local-only and shared across devices on purpose: the useful
 /// ones ("list disabled packages", "dump the launcher") are about Android, not
@@ -59,15 +58,7 @@ export interface ShellBookmark {
 export function getShellBookmarks(): ShellBookmark[] {
   if (typeof localStorage === "undefined") return [];
   try {
-    const raw = JSON.parse(localStorage.getItem(SHELL_BOOKMARKS_KEY) ?? "[]");
-    if (!Array.isArray(raw)) return [];
-    // Hand-edited or older localStorage payloads reach this unchecked, so each
-    // row is validated rather than trusted into the UI.
-    return raw.filter(
-      (b): b is ShellBookmark =>
-        !!b && typeof b.label === "string" && typeof b.command === "string",
-    ).map((b) => ({ label: b.label.trim(), command: b.command.trim() }))
-      .filter((b) => b.label && b.command);
+    return parseShellBookmarks(JSON.parse(localStorage.getItem(SHELL_BOOKMARKS_KEY) ?? "[]"));
   } catch {
     return [];
   }

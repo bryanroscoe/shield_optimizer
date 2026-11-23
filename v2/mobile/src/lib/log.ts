@@ -34,6 +34,8 @@ export function summarizeArgs(args: Record<string, unknown> | undefined): string
         "hardwareid",
         // A bug report's description stays out of the debug log.
         "note",
+        // Expert shell: whatever the person typed, which can hold secrets.
+        "command",
       ].some(
         (name) =>
           normalizedKey === name ||
