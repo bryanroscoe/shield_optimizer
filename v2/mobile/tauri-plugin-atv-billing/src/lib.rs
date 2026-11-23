@@ -1,8 +1,9 @@
 //! Google Play Billing adapter for ATV Optimizer.
 //!
 //! On Android this ships a thin Kotlin plugin (see `android/`) around the Play
-//! Billing Library: product lookup, the purchase sheet, owned-purchase queries
-//! and acknowledgment. It makes no entitlement decisions. It hands Rust the
+//! Billing Library: product lookup, the purchase sheet, owned-purchase queries,
+//! acknowledgment and consumption. It makes no entitlement decisions, and it
+//! consumes only the purchase tokens Rust hands it (verified tips, never Pro). It hands Rust the
 //! signed purchase JSON and signature exactly as Play delivered them, and the
 //! app verifies those against its Play license key before anything unlocks.
 //! Host builds get a stub that reports billing as unsupported.

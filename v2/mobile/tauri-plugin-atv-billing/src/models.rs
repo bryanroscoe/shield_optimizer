@@ -87,7 +87,7 @@ pub(crate) struct ProductArgs<'a> {
 #[cfg(mobile)]
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct AcknowledgeArgs<'a> {
+pub(crate) struct TokenArgs<'a> {
     pub purchase_token: &'a str,
 }
 

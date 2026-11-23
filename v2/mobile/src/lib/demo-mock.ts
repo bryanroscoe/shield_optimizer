@@ -56,7 +56,9 @@ const backups: BackupEntry[] = [
 
 // Mock Google Play billing. The gallery shows a Play build that owns Pro.
 // `?billing=free|pending|unavailable` in the URL previews the other states;
-// in `free`, Buy succeeds after a short delay, as Play's sheet would.
+// in `free`, Buy succeeds after a short delay, as Play's sheet would. A tip
+// (offered once Pro is owned) is thanked after the same delay and changes
+// nothing else.
 type DemoBilling = "owned" | "free" | "pending" | "unavailable";
 let demoBilling: DemoBilling = (() => {
   const wanted = typeof location === "undefined" ? null : new URLSearchParams(location.search).get("billing");
@@ -84,13 +86,17 @@ function billingStatus() {
       demoBilling === "unavailable"
         ? null
         : { product_id: "atvopt_pro", formatted_price: "$4.99", title: "ATV Optimizer Pro (ATV Optimizer)", name: "ATV Optimizer Pro", description: "Unlock every Pro tool." },
-    support_offers:
-      demoBilling === "unavailable"
-        ? []
-        : [
-            { product_id: "atvopt_pro_support_1", formatted_price: "$9.99", title: "ATV Optimizer Pro, supporter", name: "ATV Optimizer Pro, supporter", description: "" },
-            { product_id: "atvopt_pro_support_2", formatted_price: "$19.99", title: "ATV Optimizer Pro, big supporter", name: "ATV Optimizer Pro, big supporter", description: "" },
-          ],
+    tips_available: demoBilling !== "unavailable",
+    // The backend asks Play for tip prices only while Pro is unlocked.
+    tip_offers: owned
+      ? [
+          { product_id: "atvopt_tip_2", formatted_price: "$2.00", title: "Tip $2 (ATV Optimizer)", name: "Tip $2", description: "" },
+          { product_id: "atvopt_tip_5", formatted_price: "$5.00", title: "Tip $5 (ATV Optimizer)", name: "Tip $5", description: "" },
+          { product_id: "atvopt_tip_10", formatted_price: "$10.00", title: "Tip $10 (ATV Optimizer)", name: "Tip $10", description: "" },
+          { product_id: "atvopt_tip_20", formatted_price: "$20.00", title: "Tip $20 (ATV Optimizer)", name: "Tip $20", description: "" },
+        ]
+      : [],
+    tip_pending: false,
     ack_pending: false,
     product_id: "atvopt_pro",
   };
@@ -103,6 +109,10 @@ async function handleAsync(cmd: string, args: Record<string, unknown>): Promise<
     await new Promise((resolve) => setTimeout(resolve, 600));
     demoBilling = "owned";
     return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: billingStatus() };
+  }
+  if (cmd === "billing_tip") {
+    await new Promise((resolve) => setTimeout(resolve, 600));
+    return { outcome: "thanked", message: "Thank you for the tip!", status: billingStatus() };
   }
   return handle(cmd, args);
 }

@@ -16,6 +16,7 @@ import com.android.billingclient.api.BillingClient.ProductType
 import com.android.billingclient.api.BillingClientStateListener
 import com.android.billingclient.api.BillingFlowParams
 import com.android.billingclient.api.BillingResult
+import com.android.billingclient.api.ConsumeParams
 import com.android.billingclient.api.PendingPurchasesParams
 import com.android.billingclient.api.ProductDetails
 import com.android.billingclient.api.Purchase
@@ -42,7 +43,7 @@ internal class ProductArgs {
 }
 
 @InvokeArg
-internal class AcknowledgeArgs {
+internal class TokenArgs {
   var purchaseToken: String = ""
 }
 
@@ -55,8 +56,9 @@ internal class WatchPurchasesArgs {
  * Thin adapter over the Play Billing Library. It decides nothing: every
  * response carries Play's response code, and purchases go back to Rust as the
  * signed `originalJson` plus `signature`, which Rust verifies against the
- * app's Play license key before any entitlement changes. Consumption is never
- * called; Pro is a non-consumable one-time product.
+ * app's Play license key before any entitlement changes. `consume` runs only
+ * when Rust asks for it, which it does only for a verified tip purchase (a
+ * consumable that unlocks nothing). Pro is non-consumable and never consumed.
  */
 @TauriPlugin
 class BillingPlugin(private val activity: Activity) : Plugin(activity), PurchasesUpdatedListener {
@@ -65,6 +67,8 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
   private val products = ConcurrentHashMap<String, ProductDetails>()
   private var pendingPurchase: Invoke? = null
+  /// The product `pendingPurchase` asked for. Main thread only.
+  private var pendingProductId: String? = null
   private var connecting: CompletableDeferred<BillingResult>? = null
   /// Told when Play reports purchases outside an in-app flow. Main thread only.
   private var purchaseWatch: Channel? = null
@@ -174,6 +178,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         // for instance). Release it rather than refusing every later purchase.
         pendingPurchase?.reject("Superseded by a newer purchase request")
         pendingPurchase = invoke
+        pendingProductId = args.productId
         val productParams = BillingFlowParams.ProductDetailsParams.newBuilder().setProductDetails(details)
         purchaseOffer(details)?.offerToken?.takeIf { it.isNotBlank() }?.let { productParams.setOfferToken(it) }
         val flow = BillingFlowParams.newBuilder()
@@ -182,10 +187,14 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
         val launch = client.launchBillingFlow(activity, flow)
         if (launch.responseCode != BillingResponseCode.OK && pendingPurchase === invoke) {
           pendingPurchase = null
+          pendingProductId = null
           invoke.resolve(resultJson(launch))
         }
       } catch (error: Throwable) {
-        if (pendingPurchase === invoke) pendingPurchase = null
+        if (pendingPurchase === invoke) {
+          pendingPurchase = null
+          pendingProductId = null
+        }
         invoke.reject(error.message ?: error.javaClass.simpleName)
       }
     }
@@ -195,7 +204,7 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   fun acknowledge(invoke: Invoke) {
     scope.launch {
       try {
-        val args = invoke.parseArgs(AcknowledgeArgs::class.java)
+        val args = invoke.parseArgs(TokenArgs::class.java)
         val connection = connect()
         if (connection.responseCode != BillingResponseCode.OK) {
           invoke.resolve(resultJson(connection))
@@ -212,18 +221,47 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
     }
   }
 
+  @Command
+  fun consume(invoke: Invoke) {
+    scope.launch {
+      try {
+        val args = invoke.parseArgs(TokenArgs::class.java)
+        val connection = connect()
+        if (connection.responseCode != BillingResponseCode.OK) {
+          invoke.resolve(resultJson(connection))
+          return@launch
+        }
+        val params = ConsumeParams.newBuilder().setPurchaseToken(args.purchaseToken).build()
+        val result = suspendCancellableCoroutine { cont ->
+          client.consumeAsync(params) { result, _ -> if (cont.isActive) cont.resume(result) }
+        }
+        invoke.resolve(resultJson(result))
+      } catch (error: Throwable) {
+        invoke.reject(error.message ?: error.javaClass.simpleName)
+      }
+    }
+  }
+
   override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
     val waiting = pendingPurchase
-    pendingPurchase = null
-    if (waiting == null) {
-      // An update outside an in-app flow (a promo code redeemed in the Play
-      // Store, a pending purchase completing). The app re-queries owned
-      // purchases when told, as it also does on launch and on every resume.
-      Log.i(TAG, "purchase update with no waiting flow (code=${result.responseCode})")
-      purchaseWatch?.send(JSObject().put("code", result.responseCode))
-      return
+    val all = purchases.orEmpty()
+    // Play sends every update here, including ones that have nothing to do
+    // with the open sheet (an earlier pending purchase clearing, a promo code
+    // redeemed in the Play Store). Only purchases of the product the sheet is
+    // for answer it; the rest go the way of any update outside a flow.
+    val mine = all.filter { pendingProductId != null && pendingProductId in it.products }
+    val unrelated = all.size - mine.size
+    if (waiting != null && (mine.isNotEmpty() || all.isEmpty())) {
+      pendingPurchase = null
+      pendingProductId = null
+      waiting.resolve(purchasesJson(result, mine))
     }
-    waiting.resolve(purchasesJson(result, purchases.orEmpty()))
+    if (waiting == null || unrelated > 0) {
+      // The app re-queries owned purchases when told, as it also does on
+      // launch and on every resume, and verifies whatever Play lists.
+      Log.i(TAG, "purchase update outside the open flow (code=${result.responseCode}, purchases=$unrelated)")
+      purchaseWatch?.send(JSObject().put("code", result.responseCode))
+    }
   }
 
   // A timed-out caller stops waiting but the attempt carries on, and calling

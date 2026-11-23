@@ -18,6 +18,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `billing_status` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `billing_refresh` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `billing_purchase` | Free | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
+| `billing_tip` | Pro, Play builds only (a tip unlocks nothing) | `src-tauri/src/billing_commands.rs` | `src/lib/billing.svelte.ts` |
 | `license_info` | Free | `../crates/core/src/commands/license.rs` | `src/screens/More.svelte` |
 | `read_debug_log` | Free | `src-tauri/src/lib.rs` | `src/components/SupportReports.svelte` |
 | `collect_diagnostics` | Free | `src-tauri/src/lib.rs` | `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte` |

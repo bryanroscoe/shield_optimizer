@@ -107,10 +107,13 @@ go-ahead; don't infer permission from a phone being powered on.
      delete them.
    - ~~The launcher icon reads slightly top-heavy.~~ Superseded 2026-11-23: the 11-09 shift
      centred the TV body, and the outlined-TV icon then replaced the glyph outright.
-10. Commerce: Play billing v1 (one-time `atvopt_pro` plus two same-Pro support tiers, on-device verification) is **built, not yet
-   tested with a real Play account**; see [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md)
-   "Implemented v1". Remaining: license-tester purchases on a Play track (buy, pending, cancel,
-   restore on a second phone, refund, promo code), and later a server verifier/RTDN. Bounded Free
+10. Commerce: Play billing v1 (one-time `atvopt_pro`, on-device verification; the two same-Pro
+   support tiers are retired but still count as Pro) and the consumable tip jar for Pro owners
+   (2026-11-23) are **built; tips not yet tested with a real Play account**; see
+   [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md) "Implemented v1". Remaining:
+   license-tester purchases on a Play track (buy, pending, cancel, restore on a second phone,
+   refund, promo code, a tip and a repeat tip of the same amount, a pending tip), and later a
+   server verifier/RTDN. Bounded Free
    undo per [`FREE-SETTINGS-UNDO-DESIGN.md`](FREE-SETTINGS-UNDO-DESIGN.md) is not built, so copy
    promises only free app re-enable and emergency recovery.
 11. **Disable-vs-Uninstall help on Apps and Optimize.** The suggestion rule (Uninstall only for a

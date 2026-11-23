@@ -50,6 +50,7 @@ import type {
   PrivateDnsResult,
   PrivateDnsState,
   PurchaseOutcome,
+  TipOutcome,
   RebootMode,
   RebootResult,
   RecoveryResult,
@@ -303,8 +304,8 @@ export const api = {
   licenseInfo: () => call<LicenseInfo | null>("license_info"),
   billingStatus: () => call<BillingStatus>("billing_status"),
   billingRefresh: (force = false) => call<BillingStatus>("billing_refresh", { force }),
-  billingPurchase: (productId?: string) =>
-    call<PurchaseOutcome>("billing_purchase", productId ? { productId } : {}),
+  billingPurchase: () => call<PurchaseOutcome>("billing_purchase", {}),
+  billingTip: (productId: string) => call<TipOutcome>("billing_tip", { productId }),
 
   // ---- File transfer (7.2) ----
   listRemoteDir: (serial: string, path: string) =>

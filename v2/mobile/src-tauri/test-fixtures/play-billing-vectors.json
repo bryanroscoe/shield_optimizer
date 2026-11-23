@@ -46,5 +46,43 @@
         "signature": "E5B/KJF3kd1CRVeOhALRW0m0YtERTpIvIaZRQci61BQgaSQs7mRpD83HiPkpDDATAOmz8CgJesggsFlZ8SM8w8ZCJFSdi4iw9y4lfCXzoXeHpZW+Dlomoc1GIvV4f3JlN8wod+moy4UTcNFptD0uETgODDb47QMkud0B4eRnS0HJCK2nd2YulPP38N6iZpoHMl3xUeSiuo3x1vXfjwLU5B5P3Np0Y5tshdG7mgmIpWWkvkubQ3bvFCEXK05nQ5M8NuNM/UpW4WIqZSiYmh36DQFi0TrhHnob1LH5TAAM0JgmRhr/F4Jg1KWbo7gBBR1wIxUBAFd+Br1z9Ztd08WPOw=="
       }
     }
+  },
+  "tips": {
+    "note": "Generated 2026-11-23 with LibreSSL 3.3.6: a third throwaway 2048-bit RSA test key (private half discarded) for the consumable tip products and their mix with Pro.",
+    "play_public_key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA2h6zBqXOGoKIRlm2RSw13cCACO7kDTgDyQx3nCcFDqy+A2b5+h7+5E8tErQX20kWzmYYIEVq28/aXVv/bgDVrQR4yUXJT92+gsHSwt9QlDRXdkodq6jzX2CYZB0210Nbhdp3bPsc0Yl1zVzIEouH4JxtcxcpoM878ML2B1zVx9IEylbfby879x2QeGvw6lp+PlcxTVY2yBzmsTgBvVnRT0ey74Qsql29F9A+htSrhYStHbW4DlEhO3axs/WnlIB91QrIiAdEuxlRIrdMPbRsDXEwgYe5cG0NwTq0WJjVG0WoAwvUNjwPPoYmSLppzSOxV8IczExXs4hFZDTwWRfyaQIDAQAB",
+    "purchases": {
+      "tip_purchased": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-55555\",\"packageName\":\"com.atvoptimizer.mobile\",\"productId\":\"atvopt_tip_5\",\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-tip-5\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "b7ASYWhSKscnxPjieEp90x9Bp7IRuL0KHTD0vdFW6L5eo5ExLsx+KyF2QZPCJQrSvYw6EKsxM9gOUXjxNEAkKWTHSRepS41x6R5IMbj9T5mJDT7tx429uNBTgEOqWxoD6o2+bVcYK/Otp5QDC5RuWKNkYTJf4yP7uDu4Hihu+AMunn2cexNJW9/wzNCc5pv/NcPS9ssXroiag3h55/I8RlFPpUHT/gUqoPjxfeZFpJp4d3Ycer3TZhlWTCWGlauqay2JaTAg6sITTFjYyCXa0N6nosqcL/tQ7l4COs/LpCQokK1hKh6ycGko47tu3TI1hDp1kWdcJjlxR0PrHfLJpA=="
+      },
+      "tip_listed": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-66666\",\"packageName\":\"com.atvoptimizer.mobile\",\"productIds\":[\"atvopt_tip_20\"],\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-tip-20\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "MpV9BdmanIBohQaCiiXK73gKkiU0jonXE5Dq9CZRlvvBslPZ/L6k8A0nFLccpjzrh7eAZQ/VYYk4ddp7SNzBOXcLwcqKRbtRF+LB172TmO3yHbREw5GuMyI8T0qWS3RX0Oc7k+mSVbqSXCZyA5Hk2quVPUCIwwYZAcBk4B5BBBG9IdDd4xkqx5V4/OM+Tfq0OBTU9wwO/14M4tG+ig25l9MpjVW0N68aJog/ZYnw0r18eb5hcEXspRedETV0pR22K35E7V1STB4rFRrY1A9uEo0mf/LvwoBkTkIwVIVAcS5vG2r+/QCR/4vzfW3wDrwgoLMywt2BBqiaVxRSm82PhA=="
+      },
+      "tip_pending": {
+        "original_json": "{\"packageName\":\"com.atvoptimizer.mobile\",\"productId\":\"atvopt_tip_2\",\"purchaseTime\":1761900000000,\"purchaseState\":4,\"purchaseToken\":\"tok-tip-2-pending\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "biduqF1flfQ285U1eT3r7hKX9H+hr8vgemMxz0mAf7hOOgwdEEUCr28c+sTMSwLk8s8+TAUJ/hfi3EIxAoAmAzkeLV5lj7Ku2cXWtBRGDfzRjXuCzIxC7nl7T+VuF0CXYy946g3W59AnAaOcQeIvIn3iMAIH+ApUPkCu/Gtj2cO4VJUWGMGG7tooxskVAqBKX8OOvvqjQp8EqwtzoMZPlucKIlGxRKP5w8BsEgdQs+TKKpW9bsRTM/pExOlSC5wmA4lcVgtfzlSj1KM7OiQN+SCPm8vNxZ7tOAZ7Z9B335ZpPaDuxx54aBbcrvP/Uz1k1e4howySw4GtmHrSJLVA9g=="
+      },
+      "tip_otherpkg": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-77777\",\"packageName\":\"com.example.other\",\"productId\":\"atvopt_tip_10\",\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-tip-otherpkg\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "u2FnDgkvjjR4zvzz6uFrxBegPQgTXN0BDFozHEdnmgusRnlBms1U8DbKkLBZOYr6PJTxsKT7N58pxJ6D1yfKDTRgFn/zYp6l7fIicHHw4MiMczO3jl1P7vAsFF04nEeZcaW0SgHD90CWE+YWcO9s6ZUDsvymhhIwGX7lDk135EYlbobJ4iW1DPb/dWOJ7Qh+ShSJHTGxw/scDsPy/Kzrg0T//Gz4eHKpwEm8nss3Os92vQF+WOIyeZizC31igxCaZ92pq9ta9NnHwF/8+8o7fa8Or67VT5otvmjngKqOLDxSa1pTCvM5Zs0ZrvePUe+IdtJxQ2fKHKIy6oSqqiweww=="
+      },
+      "tip_lookalike": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-88888\",\"packageName\":\"com.atvoptimizer.mobile\",\"productId\":\"atvopt_tip_3\",\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-tip-lookalike\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "UOYDs8Zwd08GWL+pBVJ1mNxpimRY1Jta7G4gz9oO1A9OkFRqcE/GIyq0Ku6udWDGSZ0U0pNUSzkg6ZvdSVOQbGZ3W+jKDv62CgsKVzGLsrmAsrOKeQMR7heyBhJuCdG8LfKSJHd4l4kPlsrTmILXMCZnMFYylJotA5RdC0jkKn1LGZfs3UAn3gOYu7dseCo9AO9iqVFb0IeXGOaCjqgKFRatEUAxn3e2Cf+oFUJ0ZM3Z4CEXPW3Txe/uOh4u+NCdwg5gPmdGT54DQCKlzavo3PmGxNdlI82e21EL54a0GmlxbIGLKFoIJKIgyrOkBF2HHFsLwWZB5rK14kdoASXJ0w=="
+      },
+      "pro_and_tip": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-99999\",\"packageName\":\"com.atvoptimizer.mobile\",\"productIds\":[\"atvopt_pro\",\"atvopt_tip_2\"],\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-pro-and-tip\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "xFXQ6GHwBrIG8NDrNho4+L/FXMjdMI9UxfD+SIer2pWedVOq9hO7T5+Khv004SC12v00n6PSh0W6jeX410sEcBYZvJBSU0996pp8ShUlEnauBcRfOu7xJ4BaW1UG0X/bQFx57F+WUienX0H6cU/LYmXjwwW0aXraaQZfg/582hiZDwLhqH86QsG/XS9qW1lTLM/TFWx4De6ilgAdb0VTDAhIOmIjlO57mI0A0A9Fw1NQK4utPkY+NkdZQ1kIfX0ExQ/f4ilerYSjdKG3VYsD4xlgabxkz4BicPzqX96KvwuWGrv8kKLhoxrCviY/HDHqBgn6eNoVf3v5T9bBnecnJQ=="
+      },
+      "pro_purchased": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-10101\",\"packageName\":\"com.atvoptimizer.mobile\",\"productId\":\"atvopt_pro\",\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-pro-with-tips\",\"quantity\":1,\"acknowledged\":true}",
+        "signature": "ygIdA0VMtKiyMw7Jd/LU022ShWVO1l9ZZdn2cmLG5GYobCuLSqJ2Xk9QOoNxseqSJpRYk8f2Nlc51IHpGQPuSoB+0YrN6iLHgPxVWT8YnZjodIxf3NJlR8q/ev0srrMfVuewULfXzmxWUdEM7eEGkA0rbINo8ffPp9eACg3DTUAL7PxNnOEYiLRRDj5f3srx3bX8cU8RPjw55K7a3f+mZCIgx74+gate6mx+AuUugwsSufb7FLJjwDK5MM9ts+GpXnFdBj319Gub7Jg5pxOh3ifQFiol2qFzONTm0IWZSayL2auch0U9sThGuMC4jzVSmJkmnCO87TVvemAmVR2grQ=="
+      },
+      "support_1_unacked": {
+        "original_json": "{\"orderId\":\"GPA.3301-2104-5511-20202\",\"packageName\":\"com.atvoptimizer.mobile\",\"productId\":\"atvopt_pro_support_1\",\"purchaseTime\":1761900000000,\"purchaseState\":0,\"purchaseToken\":\"tok-support-with-tips\",\"quantity\":1,\"acknowledged\":false}",
+        "signature": "qei2BmEXPiemGhCClNVXVmjd/XU1nf3x0PanbHB986OoqmpHuTzK50j1W2q1nGjFLaTT5M9xXRe20yrT/gK50QszY3T5wnewm/QtFFJX59ccenORmge59e1Zal38LOf9yNbd56WnKMf+o2+l+i8Bclpi2f8mM6DirQWJVrAhoJHuEMEBda0IhKSjTg56/Cx4jprfS6Th3ZezGo9UAMKbjGyHCjAdryBLWfC0qZ7b78Xk9FDnmjbyqXw/DVwYTFStYuW2XDYsbcVltPU4noEag9O8hkO9cO7gZt9b6GiTsqkVolPglP4/YHLfrva+LamAHfexUhSDYAlRUGrKRO8sDg=="
+      }
+    }
   }
 }

@@ -238,8 +238,8 @@ and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.c
 The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
 
 The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching,
-changing tweaks, snapshots and the Shell) as a one-time Google Play purchase: US $4.99, or $9.99 or $19.99 if you'd like to chip in
-more. Every price unlocks the same Pro.
+changing tweaks, snapshots and the Shell) as a one-time Google Play purchase: US $4.99. Once you own
+Pro, you can leave an optional tip in the app; a tip doesn't unlock anything extra.
 
 ## Support the project
 

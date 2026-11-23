@@ -622,7 +622,7 @@ export type PlayState =
   | { state: "owned"; acknowledged: boolean; verified_at_ms: number; cached: boolean }
   | { state: "error"; message: string };
 
-/// Play's localized offer for Pro. Display only; never a hard-coded price.
+/// Play's localized offer for Pro or a tip. Display only; never a hard-coded price.
 export interface PlayOffer {
   product_id: string;
   formatted_price: string;
@@ -642,10 +642,14 @@ export interface BillingStatus {
   /// Whether Buy and Restore purchases can work in this build on this phone.
   available: boolean;
   play: PlayState;
-  /// The standard Pro product.
+  /// The standard Pro product, the only one sold for Pro.
   offer: PlayOffer | null;
-  /// Optional pay-more tiers. Each unlocks the same Pro as `offer`.
-  support_offers?: PlayOffer[];
+  /// Whether this build may offer tips (Google Play builds with working billing).
+  tips_available?: boolean;
+  /// Tips Play returned a price for, in display order. A tip unlocks nothing.
+  tip_offers?: PlayOffer[];
+  /// A tip is waiting on payment.
+  tip_pending?: boolean;
   ack_pending: boolean;
   product_id: string;
 }
@@ -662,6 +666,15 @@ export type PurchaseResultKind =
 /// `billing_purchase`.
 export interface PurchaseOutcome {
   outcome: PurchaseResultKind;
+  message: string;
+  status: BillingStatus;
+}
+
+export type TipResultKind = "thanked" | "pending" | "canceled" | "unavailable" | "failed";
+
+/// `billing_tip`. A tip never changes the entitlement.
+export interface TipOutcome {
+  outcome: TipResultKind;
   message: string;
   status: BillingStatus;
 }

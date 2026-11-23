@@ -14,6 +14,12 @@
 //!
 //! This source never touches the Ed25519 offline license. The two are kept
 //! separate and combined only by [`effective_entitlement`].
+//!
+//! Tips are separate consumable products that grant nothing. They are
+//! verified the same way but through [`PlayVerifier::verify_tip`], whose
+//! product list shares no id with Pro's, and [`reconcile_tips`] is the only
+//! source of the [`ConsumableTip`] tokens the native plugin may consume. A
+//! purchase that names any Pro product is never a tip and is never consumed.
 
 use atv_optimizer_core::license::Entitlement;
 use base64::Engine as _;
@@ -27,13 +33,14 @@ use tauri_plugin_atv_billing::{response_code, RawPurchase};
 /// creates it in Play Console with exactly this id.
 pub const PRO_PRODUCT_ID: &str = "atvopt_pro";
 
-/// Optional pay-more tiers, in the order the app offers them. Each is its own
-/// non-consumable one-time product and unlocks exactly the same Pro as
-/// [`PRO_PRODUCT_ID`]; the extra is support, not a feature. The ids are
-/// permanent in Play and deliberately don't name a price.
+/// Retired pay-more tiers ($9.99 and $19.99 "Support me", offered by the app
+/// 2026-11-08 to 2026-11-23 but never created in Play Console, so never sold).
+/// The app no longer offers them. They still unlock exactly the same Pro as
+/// [`PRO_PRODUCT_ID`], so if one is ever created by mistake its buyer keeps
+/// Pro. Never remove them from [`PRO_PRODUCT_IDS`] or reuse the ids.
 pub const SUPPORT_PRODUCT_IDS: [&str; 2] = ["atvopt_pro_support_1", "atvopt_pro_support_2"];
 
-/// Every product that unlocks Pro: the standard one first, then the tiers.
+/// Every product that unlocks Pro: the standard one first, then the retired tiers.
 pub const PRO_PRODUCT_IDS: [&str; 3] = [
     PRO_PRODUCT_ID,
     SUPPORT_PRODUCT_IDS[0],
@@ -43,6 +50,21 @@ pub const PRO_PRODUCT_IDS: [&str; 3] = [
 /// Whether a Play product id is one of ours that unlocks Pro.
 pub fn is_pro_product(id: &str) -> bool {
     PRO_PRODUCT_IDS.contains(&id)
+}
+
+/// The tip jar: consumable one-time products, buyable any number of times,
+/// in the order the app offers them. A tip unlocks nothing. No id here may
+/// ever appear in [`PRO_PRODUCT_IDS`] (a test holds the two lists apart).
+pub const TIP_PRODUCT_IDS: [&str; 4] = [
+    "atvopt_tip_2",
+    "atvopt_tip_5",
+    "atvopt_tip_10",
+    "atvopt_tip_20",
+];
+
+/// Whether a Play product id is one of the tip jar's.
+pub fn is_tip_product(id: &str) -> bool {
+    TIP_PRODUCT_IDS.contains(&id)
 }
 
 /// The app's Play licensing public key (Play Console → Monetization setup),
@@ -97,7 +119,7 @@ pub enum PurchaseState {
 }
 
 /// A purchase whose signature verified and whose signed JSON names this app
-/// and a Pro product.
+/// and a product of the kind that was asked for (Pro or tip).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VerifiedPurchase {
     pub purchase_token: String,
@@ -151,7 +173,38 @@ impl PlayVerifier {
         })
     }
 
+    /// Verify a Pro purchase. A purchase counts as Pro when any product it
+    /// names unlocks Pro.
     pub fn verify(&self, raw: &RawPurchase) -> Result<VerifiedPurchase, VerifyError> {
+        let json = self.signed_json(raw)?;
+        if !product_ids(&json).any(is_pro_product) {
+            return Err(VerifyError::OtherProduct);
+        }
+        read_purchase(&json)
+    }
+
+    /// Verify a tip purchase. It is a tip only when every product it names is
+    /// a tip, so a purchase that also names Pro (or anything else) is never
+    /// treated as one, and never consumed.
+    pub fn verify_tip(&self, raw: &RawPurchase) -> Result<VerifiedPurchase, VerifyError> {
+        let json = self.signed_json(raw)?;
+        let mut ids = product_ids(&json).peekable();
+        if ids.peek().is_none() || !ids.all(is_tip_product) {
+            return Err(VerifyError::OtherProduct);
+        }
+        read_purchase(&json)
+    }
+
+    /// Whether a genuine purchase for this app names `product_id`. A purchase
+    /// flow uses it to tell its own result from an unrelated update Play
+    /// delivered at the same time (an earlier pending tip clearing, say).
+    pub fn names_product(&self, raw: &RawPurchase, product_id: &str) -> bool {
+        self.signed_json(raw)
+            .is_ok_and(|json| product_ids(&json).any(|id| id == product_id))
+    }
+
+    /// Check Play's signature and the package, and only then parse the JSON.
+    fn signed_json(&self, raw: &RawPurchase) -> Result<serde_json::Value, VerifyError> {
         let signature: String = raw
             .signature
             .chars()
@@ -171,45 +224,96 @@ impl PlayVerifier {
         if json.get("packageName").and_then(|v| v.as_str()) != Some(self.package_name.as_str()) {
             return Err(VerifyError::WrongPackage);
         }
-        let single = json
-            .get("productId")
-            .and_then(|v| v.as_str())
-            .is_some_and(is_pro_product);
-        let listed = json
-            .get("productIds")
-            .and_then(|v| v.as_array())
-            .map(|ids| ids.iter().any(|id| id.as_str().is_some_and(is_pro_product)))
-            .unwrap_or(false);
-        if !single && !listed {
-            return Err(VerifyError::OtherProduct);
-        }
-        let purchase_token = json
-            .get("purchaseToken")
-            .and_then(|v| v.as_str())
-            .filter(|t| !t.is_empty())
-            .ok_or(VerifyError::MissingToken)?
-            .to_string();
-        // Play's JSON uses 0 = purchased and 4 = pending. A missing state is
-        // treated as unknown rather than guessed.
-        let state = match json.get("purchaseState").and_then(|v| v.as_i64()) {
-            Some(0) => PurchaseState::Purchased,
-            Some(4) => PurchaseState::Pending,
-            Some(other) => PurchaseState::Other(other),
-            None => PurchaseState::Other(-1),
-        };
-        Ok(VerifiedPurchase {
-            purchase_token,
-            state,
-            acknowledged: json
-                .get("acknowledged")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false),
-            purchase_time_ms: json
-                .get("purchaseTime")
-                .and_then(|v| v.as_i64())
-                .unwrap_or(0),
-        })
+        Ok(json)
     }
+}
+
+/// Every product id a signed purchase names: `productId` (older JSON) and the
+/// `productIds` list (promo redemptions and newer JSON). Non-strings are
+/// skipped.
+fn product_ids(json: &serde_json::Value) -> impl Iterator<Item = &str> {
+    let single = json.get("productId").and_then(|v| v.as_str());
+    let listed = json
+        .get("productIds")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|id| id.as_str());
+    single.into_iter().chain(listed)
+}
+
+/// Read the fields the app uses from verified, signed purchase JSON.
+fn read_purchase(json: &serde_json::Value) -> Result<VerifiedPurchase, VerifyError> {
+    let purchase_token = json
+        .get("purchaseToken")
+        .and_then(|v| v.as_str())
+        .filter(|t| !t.is_empty())
+        .ok_or(VerifyError::MissingToken)?
+        .to_string();
+    // Play's JSON uses 0 = purchased and 4 = pending. A missing state is
+    // treated as unknown rather than guessed.
+    let state = match json.get("purchaseState").and_then(|v| v.as_i64()) {
+        Some(0) => PurchaseState::Purchased,
+        Some(4) => PurchaseState::Pending,
+        Some(other) => PurchaseState::Other(other),
+        None => PurchaseState::Other(-1),
+    };
+    Ok(VerifiedPurchase {
+        purchase_token,
+        state,
+        acknowledged: json
+            .get("acknowledged")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        purchase_time_ms: json
+            .get("purchaseTime")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0),
+    })
+}
+
+/// A verified, PURCHASED tip whose purchase token Play may be asked to
+/// consume. Only [`reconcile_tips`] makes one, from a purchase that passed
+/// [`PlayVerifier::verify_tip`], so no Pro purchase can ever become one: the
+/// native consume call takes nothing else.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumableTip {
+    token: String,
+}
+
+impl ConsumableTip {
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+}
+
+/// What a list of purchases says about tips. Nothing in it touches Pro.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TipsReconciled {
+    /// Verified, PURCHASED tips to consume now (which also acknowledges them).
+    pub consume: Vec<ConsumableTip>,
+    /// A verified tip is waiting on payment. It is never consumed until Play
+    /// reports it PURCHASED.
+    pub pending: bool,
+}
+
+/// Find the tips in a list of purchases (an owned-purchase query or a purchase
+/// flow). Pro purchases, other products and anything that fails verification
+/// are ignored here; the Pro reconciliation reports those.
+pub fn reconcile_tips(verifier: &PlayVerifier, purchases: &[RawPurchase]) -> TipsReconciled {
+    let mut out = TipsReconciled::default();
+    for raw in purchases {
+        if let Ok(p) = verifier.verify_tip(raw) {
+            match p.state {
+                PurchaseState::Purchased => out.consume.push(ConsumableTip {
+                    token: p.purchase_token,
+                }),
+                PurchaseState::Pending => out.pending = true,
+                PurchaseState::Other(_) => {}
+            }
+        }
+    }
+    out
 }
 
 /// The last verified Pro purchase, persisted so Pro survives a restart while
@@ -659,6 +763,171 @@ mod tests {
         for id in PRO_PRODUCT_IDS {
             assert!(is_pro_product(id));
         }
+    }
+
+    fn tip_vectors() -> TierVectors {
+        let all: serde_json::Value =
+            serde_json::from_str(include_str!("../test-fixtures/play-billing-vectors.json"))
+                .expect("vectors parse");
+        serde_json::from_value(all["tips"].clone()).expect("tip vectors parse")
+    }
+
+    fn tip_verifier() -> PlayVerifier {
+        PlayVerifier::from_base64(&tip_vectors().play_public_key, PACKAGE).unwrap()
+    }
+
+    fn tip(name: &str) -> RawPurchase {
+        let t = tip_vectors();
+        let v = &t.purchases[name];
+        RawPurchase {
+            original_json: v.original_json.clone(),
+            signature: v.signature.clone(),
+        }
+    }
+
+    fn tokens(r: &TipsReconciled) -> Vec<&str> {
+        r.consume.iter().map(ConsumableTip::token).collect()
+    }
+
+    #[test]
+    fn tip_and_pro_product_lists_never_overlap() {
+        for id in TIP_PRODUCT_IDS {
+            assert!(is_tip_product(id));
+            assert!(!is_pro_product(id), "{id} must never unlock Pro");
+        }
+        for id in PRO_PRODUCT_IDS {
+            assert!(!is_tip_product(id), "{id} must never be consumed as a tip");
+        }
+        assert!(!is_tip_product("atvopt_tip_3"));
+        assert!(!is_tip_product(""));
+    }
+
+    #[test]
+    fn a_verified_tip_grants_no_pro_and_is_consumed() {
+        let v = tip_verifier();
+        let p = v.verify_tip(&tip("tip_purchased")).expect("tip verifies");
+        assert_eq!(p.state, PurchaseState::Purchased);
+        assert_eq!(
+            v.verify(&tip("tip_purchased")),
+            Err(VerifyError::OtherProduct)
+        );
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[tip("tip_purchased")]), NOW);
+        assert_eq!(r.state, PlayState::NotOwned);
+        assert_eq!(r.rejected, 0);
+        assert!(
+            r.acknowledge.is_empty(),
+            "a tip is consumed, never acknowledged as Pro"
+        );
+        assert_eq!(effective_entitlement(false, &r.state), Entitlement::Free);
+        assert!(reconcile_flow(&v, &[tip("tip_purchased")], NOW).is_none());
+        let tips = reconcile_tips(&v, &[tip("tip_purchased"), tip("tip_listed")]);
+        assert_eq!(tokens(&tips), vec!["tok-tip-5", "tok-tip-20"]);
+        assert!(!tips.pending);
+    }
+
+    #[test]
+    fn a_pending_tip_is_never_consumed() {
+        let v = tip_verifier();
+        let tips = reconcile_tips(&v, &[tip("tip_pending")]);
+        assert!(tips.consume.is_empty());
+        assert!(tips.pending);
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[tip("tip_pending")]), NOW);
+        assert_eq!(
+            r.state,
+            PlayState::NotOwned,
+            "a pending tip is not a pending Pro"
+        );
+    }
+
+    #[test]
+    fn no_pro_purchase_is_ever_consumed() {
+        let v = tip_verifier();
+        let pro = [
+            tip("pro_purchased"),
+            tip("support_1_unacked"),
+            tip("pro_and_tip"),
+        ];
+        assert!(reconcile_tips(&v, &pro).consume.is_empty());
+        for raw in &pro {
+            assert_eq!(v.verify_tip(raw), Err(VerifyError::OtherProduct));
+            assert!(v.verify(raw).is_ok(), "still Pro");
+        }
+        // A purchase naming Pro and a tip together is Pro, kept and acknowledged.
+        let r = reconcile(&v, None, QueryOutcome::Owned(&[tip("pro_and_tip")]), NOW);
+        assert!(r.state.grants_pro());
+        assert_eq!(r.acknowledge, vec!["tok-pro-and-tip"]);
+        // The original vectors: no Pro purchase (standard, promo, tiers) is a tip.
+        let base = verifier();
+        for name in ["purchased", "acked", "pending", "promo"] {
+            assert!(reconcile_tips(&base, &[raw(name)]).consume.is_empty());
+        }
+        let (tv, support) = tier("support_1");
+        assert!(reconcile_tips(&tv, &[support]).consume.is_empty());
+    }
+
+    #[test]
+    fn tips_beside_pro_leave_pro_exactly_as_it_was() {
+        let v = tip_verifier();
+        let with_tips = [
+            tip("tip_purchased"),
+            tip("support_1_unacked"),
+            tip("tip_pending"),
+            tip("pro_purchased"),
+        ];
+        let r = reconcile(&v, None, QueryOutcome::Owned(&with_tips), NOW);
+        let alone = reconcile(
+            &v,
+            None,
+            QueryOutcome::Owned(&[tip("support_1_unacked"), tip("pro_purchased")]),
+            NOW,
+        );
+        assert_eq!(r, alone);
+        assert!(r.state.grants_pro());
+        assert_eq!(r.acknowledge, vec!["tok-support-with-tips"]);
+        let tips = reconcile_tips(&v, &with_tips);
+        assert_eq!(tokens(&tips), vec!["tok-tip-5"]);
+        assert!(tips.pending);
+    }
+
+    #[test]
+    fn names_product_matches_only_genuine_purchases_of_that_product() {
+        let v = tip_verifier();
+        assert!(v.names_product(&tip("tip_purchased"), "atvopt_tip_5"));
+        assert!(v.names_product(&tip("tip_listed"), "atvopt_tip_20"));
+        assert!(!v.names_product(&tip("tip_purchased"), "atvopt_tip_2"));
+        assert!(v.names_product(&tip("pro_and_tip"), "atvopt_tip_2"));
+        assert!(!v.names_product(&tip("tip_otherpkg"), "atvopt_tip_10"));
+        let mut forged = tip("tip_purchased");
+        forged.original_json = forged.original_json.replace("tok-tip-5", "tok-forged");
+        assert!(!v.names_product(&forged, "atvopt_tip_5"));
+    }
+
+    #[test]
+    fn untrusted_or_foreign_tips_are_not_consumed() {
+        let v = tip_verifier();
+        assert_eq!(
+            v.verify_tip(&tip("tip_otherpkg")),
+            Err(VerifyError::WrongPackage)
+        );
+        assert_eq!(
+            v.verify_tip(&tip("tip_lookalike")),
+            Err(VerifyError::OtherProduct)
+        );
+        let mut forged = tip("tip_purchased");
+        forged.original_json = forged.original_json.replace("tok-tip-5", "tok-forged");
+        assert_eq!(v.verify_tip(&forged), Err(VerifyError::BadSignature));
+        // Signed by another key: the original vectors' key never verifies a tip.
+        assert!(verifier().verify_tip(&tip("tip_purchased")).is_err());
+        let tips = reconcile_tips(
+            &v,
+            &[
+                tip("tip_otherpkg"),
+                tip("tip_lookalike"),
+                forged,
+                raw("otherproduct"),
+            ],
+        );
+        assert_eq!(tips, TipsReconciled::default());
     }
 
     #[test]
