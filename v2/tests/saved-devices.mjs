@@ -172,6 +172,80 @@ for (const bad of ["192.168.1.42", "192.168.1.42:0", "192.168.1.42:70000", "host
 assert.equal(saved.hostOfAddress("[fe80::1]:5555"), "fe80::1");
 assert.equal(saved.lastConnectedLabel("2026-11-23T11:58:00Z", now.getTime()), "2 min ago");
 assert.equal(saved.lastConnectedLabel("2026-11-21T12:00:00Z", now.getTime()), "2 days ago");
+assert.equal(saved.lastConnectedLabel("1970-01-01T00:00:00.000Z", now.getTime()), "", "an unknown time is left out");
+assert.equal(saved.lastConnectedLabel("garbage", now.getTime()), "");
+
+// --- a sleeping TV's leftover transport --------------------------------------
+{
+  const rec = saved.observeConnected(empty, tv(), now).devices[0];
+  // platform-tools keeps an offline transport when a TV sleeps.
+  const asleep = tv({ status: "offline", properties: null });
+  assert.equal(saved.savedStatus(rec, [asleep], "no_answer"), "no_answer",
+    "an offline transport at the saved address is a TV that didn't answer, not an unknown one");
+  assert.equal(saved.savedStatus(rec, [asleep], undefined), "not_connected");
+  assert.equal(saved.savedStatus(rec, [tv({ status: "unauthorized", properties: null })], "no_answer"), "unverified");
+}
+
+// --- a device that only answered a dial for another saved TV ------------------
+{
+  const dialled = new Map([["192.168.1.64:5555", "XMS3B0042A"]]);
+  const other = tv({ serial: "192.168.1.64:5555", name: "Kitchen Chromecast", properties: { serial_number: "CCHD0099" } });
+  assert.equal(saved.observeConnected(empty, other, now, dialled), empty,
+    "a different device reached only by dialling a saved address is not auto-saved");
+  const same = tv({ serial: "192.168.1.64:5555", properties: { serial_number: "XMS3B0042A" } });
+  assert.equal(saved.observeConnected(empty, same, now, dialled).devices.length, 1, "the expected device is");
+  assert.equal(saved.saveDevice(empty, other, now).devices.length, 1, "and the bookmark still saves the other one");
+  assert.equal(saved.observeConnected(empty, tv(), now, dialled).devices.length, 1, "other addresses are unaffected");
+}
+
+// --- a MAC written by a closed screen survives this screen's write ------------
+{
+  const s1 = saved.observeConnected(empty, tv(), now);
+  const disk = saved.recordMac(s1, "0323220012345", { hardware_id: "0323220012345", mac: "00:04:4b:8c:21:5e" });
+  const merged = saved.mergeStoredMacs(s1, disk);
+  assert.equal(merged.devices[0].mac, "00:04:4b:8c:21:5e");
+  assert.equal(saved.mergeStoredMacs(disk, s1), disk, "a MAC already in memory is kept, and nothing changes");
+  assert.equal(saved.mergeStoredMacs(s1, empty), s1);
+  const unsaved = saved.unsaveDevice(s1, "0323220012345");
+  assert.deepEqual(saved.mergeStoredMacs(unsaved, disk).devices, [], "merging never brings back an unsaved record");
+}
+
+// --- dialling: bounded wait, one call at a time, a late success counts --------
+{
+  const session = () => ({ dial: {}, pending: {}, landed: 0 });
+  const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+  const rec = { hardwareId: "XMS3B0042A", address: "192.168.1.64:5555" };
+
+  // Answers after the wait: "Didn't answer" meanwhile, the call stays the only
+  // one, and the late success clears the row and is counted.
+  let s = session();
+  let calls = 0;
+  let call = deferred();
+  const connect = () => { calls += 1; return call.promise; };
+  await saved.dialSavedAddress(s, rec, connect, 20);
+  assert.equal(s.dial.XMS3B0042A, "no_answer");
+  assert.equal(s.pending.XMS3B0042A, true, "the call is still pending after the wait");
+  await saved.dialSavedAddress(s, rec, connect, 20);
+  assert.equal(calls, 1, "Connect can't start a second call while the first is pending");
+  call.resolve({ ok: true });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(s.dial.XMS3B0042A, undefined, "a success never reads as Didn't answer");
+  assert.equal(s.pending.XMS3B0042A, undefined);
+  assert.equal(s.landed, 1, "and whichever screen is open re-reads the list");
+
+  // Fails: Didn't answer. Throws: the same.
+  s = session();
+  await saved.dialSavedAddress(s, rec, async () => ({ ok: false }), 1000);
+  assert.equal(s.dial.XMS3B0042A, "no_answer");
+  assert.equal(s.landed, 0);
+  s = session();
+  await saved.dialSavedAddress(s, rec, async () => { throw new Error("adb"); }, 1000);
+  assert.equal(s.dial.XMS3B0042A, "no_answer");
+  // Succeeds in time.
+  s = session();
+  await saved.dialSavedAddress(s, rec, async () => ({ ok: true }), 1000);
+  assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1]);
+}
 
 console.log("Saved device store passed.");
 
@@ -211,7 +285,8 @@ async function exercise(browser, base) {
   // Help is a keyboard-reachable control on the section, not text per row.
   await page.getByRole("button", { name: "About Saved" }).focus();
   await page.keyboard.press("Enter");
-  await page.getByRole("region", { name: "Saved" }).getByText("never this saved name", { exact: false }).waitFor();
+  await page.getByRole("region", { name: "Saved" }).getByText("never under this saved name", { exact: false }).waitFor();
+  await page.getByRole("region", { name: "Saved" }).getByText("hasn't allowed this computer, so it can't say", { exact: false }).waitFor();
   await page.keyboard.press("Escape");
 
   // Connect retries the saved address; once woken it goes Online by id.
@@ -252,7 +327,8 @@ async function exercise(browser, base) {
   // and the live device keeps its own row and name.
   await page.evaluate((key) => {
     localStorage.setItem(key, JSON.stringify({ devices: [{ hardwareId: "XMS3B0042A", address: "192.168.1.64:5555",
-      name: "Bedroom Xiaomi Box", deviceType: "google_tv", lastConnected: new Date().toISOString() }], unsaved: [] }));
+      name: "Bedroom Xiaomi Box", deviceType: "google_tv", lastConnected: new Date().toISOString() }],
+      unsaved: ["0323220012345", "9AB4C21D7E03"] }));
   }, KEY);
   await page.reload({ waitUntil: "networkidle" });
   await page.evaluate(() => {
@@ -276,15 +352,66 @@ async function exercise(browser, base) {
   const savedBox = rowIn(savedSection(page), "Bedroom Xiaomi Box");
   await savedBox.locator(".device-status", { hasText: "Different device" }).waitFor();
   assert.equal(await savedBox.locator("a.device-row").count(), 0, "the saved row never opens the other device");
-  const other = rowIn(foundList(page), "Kitchen Chromecast");
-  assert.equal(await other.getByText("Bedroom Xiaomi Box").count(), 0, "it never inherits the saved name");
-  // An id-less device is not saved and claims no saved row.
+  const other = page.locator('[data-serial="192.168.1.64:5555"]');
+  assert.equal(await other.count(), 1, "the device at the saved address has its own row");
+  assert.match(await other.innerText(), /Kitchen Chromecast/);
+  assert.doesNotMatch(await other.innerText(), /Bedroom Xiaomi Box/, "it never inherits the saved name");
+  assert.equal(await savedSection(page).locator('[data-serial="192.168.1.64:5555"]').count(), 0, "it isn't in Saved");
+  assert.equal(await foundList(page).locator('[data-serial="192.168.1.64:5555"]').count(), 1, "it's under Other devices");
+  assert.equal(await page.locator("#found-devices-heading").innerText(), "Other devices");
+  await other.getByRole("button", { name: "Save Kitchen Chromecast" }).waitFor();
   const records = (await stored(page)).devices;
-  assert.ok(records.some((d) => d.hardwareId === "CCHD0099" && d.name === "Kitchen Chromecast"),
-    "the other device is saved under its own id and name");
+  assert.equal(records.some((d) => d.hardwareId === "CCHD0099"), false,
+    "a device that only answered the dial for another saved TV is not auto-saved");
   assert.equal(records.find((d) => d.hardwareId === "XMS3B0042A").name, "Bedroom Xiaomi Box", "the saved row keeps its own");
   assert.equal(records.some((d) => d.address === "192.168.1.65:5555"), false, "the unauthorized device isn't saved");
+
+  // Unsaving the last saved device moves focus to a remaining row, never the page.
+  await savedBox.getByRole("button", { name: "Unsave Bedroom Xiaomi Box" }).click();
+  await savedSection(page).waitFor({ state: "detached" });
+  const focused = await page.evaluate(() => document.activeElement?.tagName);
+  assert.notEqual(focused, "BODY", "focus has somewhere to go");
   assert.deepEqual(errors, []);
+  await context.close();
+}
+
+// A launch dial that answers after the user has left Devices and come back:
+// the TV must show up Online, not as "Didn't answer" (the screen that
+// started the dial is gone, so the new one has to pick it up).
+async function exerciseRemount(browser, base) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
+  await context.addInitScript(() => {
+    let wrapped = null;
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      get: () => wrapped,
+      set(bridge) {
+        const original = bridge.invoke;
+        bridge.invoke = (cmd, args = {}) => {
+          if (cmd === "connect_device" && args.address === "192.168.1.64:5555") {
+            // Wakes and answers 2.5 s later.
+            return new Promise((resolve) => setTimeout(() => {
+              localStorage.setItem("shieldopt.demo.savedBoxAwake", "1");
+              resolve(original(cmd, args));
+            }, 2500));
+          }
+          return original(cmd, args);
+        };
+        wrapped = bridge;
+      },
+    });
+  });
+  const page = await context.newPage();
+  page.setDefaultTimeout(15000);
+  await page.goto(base, { waitUntil: "domcontentloaded" });
+  const box = () => rowIn(savedSection(page), "Bedroom Xiaomi Box");
+  await box().getByText("Connecting…", { exact: true }).first().waitFor();
+  await page.getByRole("link", { name: "Snapshots", exact: true }).click();
+  await page.waitForURL("**/snapshots");
+  await page.getByRole("link", { name: "Devices", exact: true }).click();
+  await box().locator("a.device-row").waitFor({ timeout: 20000 });
+  assert.equal(await box().getByText("Didn't answer", { exact: true }).count(), 0);
+  assert.equal(await page.evaluate(() => localStorage.getItem("shieldopt.demo.savedBoxAwake")), "1");
   await context.close();
 }
 
@@ -301,6 +428,7 @@ try {
   await server.listen();
   browser = await chromium.launch();
   await exercise(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
+  await exerciseRemount(browser, `http://127.0.0.1:${server.httpServer.address().port}`);
   console.log("Saved devices screen passed.");
 } finally {
   await browser?.close();

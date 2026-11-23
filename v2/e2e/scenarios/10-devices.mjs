@@ -63,7 +63,11 @@ export const scenarios = [
       const other = row(ctx, SHIELD.key);
       await other.locator('[data-bookmark="0323716101827"]').waitFor();
       ctx.assert.equal(await savedRow(ctx, SHIELD.serial).locator("a").count(), 0, "the saved row doesn't open the other TV");
-      await ctx.step("a different TV at the saved address gets its own row");
+      ctx.assert.equal(await ctx.page.locator(".device-section").locator(`[data-serial="${SHIELD.key}"]`).count(), 0,
+        "the other TV is listed under Other devices");
+      ctx.assert.ok(!(await savedRecords(ctx)).some((d) => d.hardwareId === "0323716101827"),
+        "it answered only the saved Shield's dial, so it isn't saved");
+      await ctx.step("a different TV at the saved address gets its own unsaved row");
     },
   },
   {
