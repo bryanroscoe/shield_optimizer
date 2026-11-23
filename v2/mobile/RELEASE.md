@@ -508,14 +508,19 @@ python3 v2/mobile/scripts/play-publish.py listing publish \
   --confirm com.atvoptimizer.mobile
 ```
 
-Always run `diff` first and read it. `publish` validates everything before it sends anything
-(title ≤ 30, short description ≤ 80, full description ≤ 4000 characters, 2-8 PNG phone
-screenshots, a 512×512 icon, a 1024×500 feature graphic), refuses unless `--confirm` is the
+Always run `diff` first and read it. Before it sends anything, `publish` checks text lengths
+(title ≤ 30, short description ≤ 80, full description ≤ 4000 characters), that every file exists
+and has a PNG signature, 2-8 phone screenshots with sides of 320-3840 px at most 2.3:1, a 512×512
+icon and a 1024×500 feature graphic. Alpha and bit depth are checked by `npm run store-assets`
+and by Play at upload, where a rejection discards the edit. It refuses unless `--confirm` is the
 package name, updates the text (keeping any promo video) only if it changed, and replaces an image
 type (all its images, in `listing.json` order) only if any of them changed. Any failure discards
 the edit, so nothing is half-applied. After the commit it re-reads Play through a fresh edit and
-fails if the text or any image SHA-256 still differs. A committed listing change goes through
-Google's review before the public page shows it.
+fails if the text or any image SHA-256 still differs; that failure means the commit succeeded and
+only the re-read disagreed. If the commit request itself fails, its outcome is unknown: run `diff`
+before publishing again. The images API carries no alt text, so after a publish that replaces
+screenshots, add or re-check each one's alt text from `listing.json` in Play Console. A committed
+listing change goes through Google's review before the public page shows it.
 
 ## Testing-candidate gates
 

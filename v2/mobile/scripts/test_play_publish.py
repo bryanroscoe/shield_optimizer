@@ -384,6 +384,7 @@ class Listing(unittest.TestCase):
         self.assertEqual(differences['text'], {})
         self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
         self.assertTrue(all(m in ('GET', 'POST') for m, _ in fake.calls()[:-1]))
+        self.assertEqual([u for m, u in fake.calls() if m == 'POST'], ['edits'])
         self.assertEqual(fake.commits, 0)
 
     def test_diff_reports_text_and_image_changes(self):
@@ -475,9 +476,50 @@ class Listing(unittest.TestCase):
             if url.endswith(':commit'):
                 fake.live['listing']['title'] = 'Old'
             return status, payload
-        with self.assertRaisesRegex(play.PlayError, 'Committed, but a fresh edit still differs.*title'):
+        with self.assertRaisesRegex(play.VerifyError, 'commit succeeded, but re-reading.*title') as caught:
             play.listing_publish(play.Play(ACCOUNT, http=drop_title_on_commit, sign=lambda k, m: b's',
                                            clock=lambda: 1000), self.local(), 'com.atvoptimizer.mobile')
+        self.assertIn('title: changed (3 -> 13 characters)', caught.exception.lines)
+        original_from_file = play.Play.from_file
+        play.Play.from_file = classmethod(lambda cls, path, **kw: play.Play(
+            ACCOUNT, http=drop_title_on_commit, sign=lambda k, m: b's', clock=lambda: 1000))
+        self.addCleanup(setattr, play.Play, 'from_file', original_from_file)
+        fake.live['listing']['title'] = 'Old'
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = play.main(['listing', 'publish', '--service-account', 'unused.json', '--listing-dir', str(self.dir),
+                              '--confirm', 'com.atvoptimizer.mobile'])
+        self.assertEqual(code, 1)
+        self.assertIn('title: changed', out.getvalue())
+        self.assertIn('commit succeeded', err.getvalue())
+
+    def test_commit_transport_error_reports_unknown_outcome(self):
+        fake = self.store(text={**TEXT, 'title': 'Old'})
+        original = fake.__call__
+
+        def timeout_on_commit(method, url, headers, body, timeout):
+            if url.endswith(':commit'):
+                original(method, url, headers, body, timeout)
+                raise TimeoutError('timed out')
+            return original(method, url, headers, body, timeout)
+        with self.assertRaisesRegex(play.PlayError, 'whether Play applied it is unknown.*listing diff'):
+            play.listing_publish(play.Play(ACCOUNT, http=timeout_on_commit, sign=lambda k, m: b's',
+                                           clock=lambda: 1000), self.local(), 'com.atvoptimizer.mobile')
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+
+    def test_discard_swallows_any_error_so_the_original_surfaces(self):
+        fake = self.store(text={**TEXT, 'title': 'Old'}, shots=[],
+                          fail=lambda m, u: m == 'POST' and 'uploadType=media' in u)
+        original = fake.__call__
+
+        def broken_delete(method, url, headers, body, timeout):
+            if method == 'DELETE' and url.endswith('/edits/e1'):
+                raise ConnectionResetError('reset')
+            return original(method, url, headers, body, timeout)
+        with self.assertRaisesRegex(play.PlayError, 'HTTP 500.*backend error'):
+            play.listing_publish(play.Play(ACCOUNT, http=broken_delete, sign=lambda k, m: b's',
+                                           clock=lambda: 1000), self.local(), 'com.atvoptimizer.mobile')
+        self.assertEqual(fake.commits, 0)
 
     def test_missing_live_listing_counts_as_empty(self):
         fake = self.store()
@@ -495,7 +537,7 @@ class Listing(unittest.TestCase):
             (dict(icon=png(512, 511)), 'icon must be 512x512'),
             (dict(feature=png(1024, 512)), 'feature graphic must be 1024x500'),
             (dict(icon=b'GIF89a not a png at all'), 'icon.png is not a PNG'),
-            (dict(shots=[self.shots[0], png(1000, 2100)]), 'at most 2:1'),
+            (dict(shots=[self.shots[0], png(1000, 2301)]), 'at most 2.3:1'),
         ]
         for kwargs, pattern in cases:
             for leftover in (self.dir / 'screenshots').glob('*.png'):

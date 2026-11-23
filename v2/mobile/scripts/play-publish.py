@@ -51,6 +51,14 @@ class PlayError(Exception):
         self.status = status
 
 
+class VerifyError(PlayError):
+    """The commit succeeded but a fresh edit disagrees; `lines` is what was applied."""
+
+    def __init__(self, message, lines):
+        super().__init__(message)
+        self.lines = lines
+
+
 def resolve_version(config_path, tag=None, override=None):
     config = json.loads(Path(config_path).read_text())
     version = config.get('version', '')
@@ -160,9 +168,10 @@ class Play:
         return self.call('POST', 'edits', {})['id']
 
     def discard_edit(self, edit):
+        # Never let a second failure here mask the error that made us discard.
         try:
             self.call('DELETE', f'edits/{edit}')
-        except PlayError:
+        except Exception:
             pass
 
     def highest(self, edit):
@@ -367,8 +376,8 @@ def load_listing(listing_dir=LISTING_DIR, language=None):
             problems.append(f'{name} is {width}x{height}; the icon must be 512x512')
         elif kind == 'featureGraphic' and size != (1024, 500):
             problems.append(f'{name} is {width}x{height}; the feature graphic must be 1024x500')
-        elif kind == 'phoneScreenshots' and not (320 <= min(size) and max(size) <= 3840 and max(size) <= 2 * min(size)):
-            problems.append(f'{name} is {width}x{height}; screenshots need sides of 320-3840 px and at most 2:1')
+        elif kind == 'phoneScreenshots' and not (320 <= min(size) and max(size) <= 3840 and max(size) <= 2.3 * min(size)):
+            problems.append(f'{name} is {width}x{height}; screenshots need sides of 320-3840 px and at most 2.3:1')
         images[kind].append({'file': name, 'data': content, 'sha256': hashlib.sha256(content).hexdigest()})
     if problems:
         raise PlayError('Store listing is not valid:\n  ' + '\n  '.join(problems))
@@ -479,7 +488,12 @@ def listing_publish(play, local, confirm):
                 if sha and sha != image['sha256']:
                     raise PlayError(f'Play reports a different SHA-256 for {image["file"]}')
         play.call('POST', f'edits/{edit}:validate')
-        play.call('POST', f'edits/{edit}:commit')
+        try:
+            play.call('POST', f'edits/{edit}:commit')
+        except Exception as error:
+            # A timeout or dropped connection can arrive after Play applied the commit.
+            raise PlayError(f'The commit request failed ({error}); whether Play applied it is unknown. '
+                            'Run `listing diff` to see the live state before publishing again') from None
         committed = True
     finally:
         if not committed:
@@ -487,7 +501,8 @@ def listing_publish(play, local, confirm):
     after, _ = listing_diff(play, local)
     if after['text'] or any(after['images'].values()):
         left = list(after['text']) + [kind for kind, rows in after['images'].items() if rows]
-        raise PlayError('Committed, but a fresh edit still differs from local in: ' + ', '.join(left))
+        raise VerifyError('The commit succeeded, but re-reading Play through a fresh edit still differs from '
+                          'local in: ' + ', '.join(left) + '. Run `listing diff` to compare again', lines)
     return lines, 'committed; a fresh edit matches local text and image SHA-256s'
 
 
@@ -527,7 +542,11 @@ def main(argv=None):
             if args.action == 'diff':
                 print('\n'.join(listing_diff(store_play, local)[1]))
             else:
-                lines, result = listing_publish(store_play, local, args.confirm)
+                try:
+                    lines, result = listing_publish(store_play, local, args.confirm)
+                except VerifyError as error:
+                    print('\n'.join(error.lines))
+                    raise
                 print('\n'.join(lines))
                 print(f'Publish: {result}')
             return 0
