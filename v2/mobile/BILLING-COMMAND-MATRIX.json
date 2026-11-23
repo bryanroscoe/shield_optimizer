@@ -805,6 +805,15 @@
       ]
     },
     {
+      "command": "list_storage_volumes",
+      "api": "listStorageVolumes",
+      "gate": "Free",
+      "backend": "src-tauri/src/file_commands.rs",
+      "callers": [
+        "src/screens/Files.svelte"
+      ]
+    },
+    {
       "command": "delete_path",
       "api": "deletePath",
       "gate": "Free",

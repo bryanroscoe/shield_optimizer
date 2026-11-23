@@ -25,6 +25,7 @@ import type {
   BackupEntry,
   BillingStatus,
   FileEntry,
+  StorageVolume,
   PulledFile,
   ConnectResult,
   CurrentDisplayScaling,
@@ -382,6 +383,9 @@ export const api = {
   findFiles: (serial: string, dirs: string[], pattern: string) =>
     call<FindResult>("find_files", { serial, dirs, pattern }),
   /// Delete a file or folder on the TV. /sdcard-confined backend-side.
+  /// USB drives and SD cards mounted as portable storage, at `/storage/<uuid>`.
+  listStorageVolumes: (serial: string) =>
+    call<StorageVolume[]>("list_storage_volumes", { serial }),
   deletePath: (serial: string, path: string) =>
     call<ActionResult>("delete_path", { serial, path }),
 

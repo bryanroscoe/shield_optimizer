@@ -85,6 +85,8 @@ pub fn allowed(command: &str) -> bool {
             | "backup_apk"
             | "clone_app"
             | "list_dir"
+            // Runs `sm list-volumes` and reads /proc/mounts on the simulator.
+            | "list_storage_volumes"
             | "pull_file"
             | "push_file"
             | "delete_path"

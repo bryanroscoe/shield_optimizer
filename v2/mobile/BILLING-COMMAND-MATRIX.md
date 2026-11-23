@@ -99,6 +99,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `delete_backup` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Backups.svelte` |
 | `find_files` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `delete_path` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
+| `list_storage_volumes` | Free | `src-tauri/src/file_commands.rs` | `src/screens/Files.svelte` |
 | `export_file` | Free | `src-tauri/src/export_commands.rs` | `src/components/ExportActions.svelte` |
 | `import_pick` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte`, `src/screens/Sideload.svelte` |
 | `discard_import` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte`, `src/screens/Sideload.svelte` |

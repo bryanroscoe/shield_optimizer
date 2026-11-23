@@ -7,8 +7,8 @@
 //! permission and no persistable URI grant is involved, and no URI outlives its copy. The
 //! frontend gets an opaque batch id, never a path, and every later step looks the batch up here.
 //!
-//! - **Upload to TV** pushes one staged file at a time into the current TV folder, `/sdcard`
-//!   confined like delete. An existing file is replaced only after the user said so; a folder of
+//! - **Upload to TV** pushes one staged file at a time into the current TV folder, confined to
+//!   `/sdcard` and USB drives like delete. An existing file is replaced only after the user said so; a folder of
 //!   the same name is never replaced. The pushed size is checked on the TV when it can be read.
 //! - **Install APK** installs a staged `.apk` set with `install -r` / `install-multiple -r` and
 //!   core's install check, the path Backups restore uses ([`install_local_apks`]).
@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use atv_optimizer_core::commands::files::validate_sdcard_path;
+use atv_optimizer_core::commands::files::{user_storage_root, validate_user_storage_path};
 use atv_optimizer_core::commands::AppState;
 use atv_optimizer_core::engine::apk_abis;
 use atv_optimizer_core::engine::install_outcome::decode_install_error;
@@ -422,18 +422,18 @@ pub async fn discard_import(store: State<'_, ImportStore>, batch: String) -> Res
     Ok(())
 }
 
-/// `/sdcard`-confined `<dir>/<name>` for an upload: the same bound as delete, and never
-/// `/sdcard` itself.
+/// `<dir>/<name>` for an upload, confined to user storage (`/sdcard` or a USB drive): the
+/// same bound as delete, and never a storage root itself.
 pub fn remote_target(remote_dir: &str, name: &str) -> Result<String, String> {
-    let dir = validate_sdcard_path(remote_dir)?;
+    let dir = validate_user_storage_path(remote_dir)?;
     let dir = dir.trim_end_matches('/');
-    let dir = if dir.is_empty() { "/sdcard" } else { dir };
     if name.is_empty() || name == "." || name == ".." || name.contains('/') {
         return Err(format!("Not a file name: {name:?}"));
     }
-    let target = validate_sdcard_path(&format!("{dir}/{name}"))?;
-    if target.trim_end_matches('/') == "/sdcard" {
-        return Err("Pick a folder under /sdcard.".into());
+    let target = validate_user_storage_path(&format!("{dir}/{name}"))?;
+    let trimmed = target.trim_end_matches('/');
+    if user_storage_root(trimmed).as_deref() == Some(trimmed) {
+        return Err("Pick a folder under /sdcard or on a USB drive.".into());
     }
     Ok(target)
 }
@@ -1091,13 +1091,23 @@ mod tests {
     }
 
     #[test]
-    fn uploads_stay_under_sdcard_like_delete() {
+    fn uploads_stay_in_user_storage_like_delete() {
         assert_eq!(
             remote_target("/sdcard/Movies/", "clip.mp4").unwrap(),
             "/sdcard/Movies/clip.mp4"
         );
         assert_eq!(remote_target("/sdcard", "a.txt").unwrap(), "/sdcard/a.txt");
+        assert_eq!(
+            remote_target("/storage/1A2B-3C4D", "clip.mp4").unwrap(),
+            "/storage/1A2B-3C4D/clip.mp4"
+        );
+        assert_eq!(
+            remote_target("/storage/1A2B-3C4D/Movies/", "clip.mp4").unwrap(),
+            "/storage/1A2B-3C4D/Movies/clip.mp4"
+        );
         for (dir, name) in [
+            ("/storage", "1A2B-3C4D"),
+            ("/storage/1A2B-3C4D", ".."),
             ("/storage/emulated/0", "a.txt"),
             ("/data/local/tmp", "a.txt"),
             ("/sdcard/../data", "a.txt"),

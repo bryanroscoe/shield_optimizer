@@ -1050,6 +1050,8 @@ impl DeviceShell<'_> {
                     .collect::<String>(),
             ),
             "id" => Out::ok("uid=2000(shell) gid=2000(shell)\n"),
+            // No USB drive is plugged into a simulated TV.
+            "sm" if args.first().map(String::as_str) == Some("list-volumes") => Out::ok(""),
             "reboot" => Out::ok(""),
             "screencap" => Out::ok(""),
             _ => return None,

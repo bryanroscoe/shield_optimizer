@@ -7,11 +7,17 @@
   import Icon from "$lib/components/Icon.svelte";
   import type { IconName } from "$lib/icons";
   import appFilesCatalog from "$lib/app-files-catalog.json";
-  import type { Device, FileEntry, FindResult } from "$lib/types";
+  import type { Device, FileEntry, FindResult, StorageVolume } from "$lib/types";
+  import { INTERNAL_STORAGE, storageRootOf } from "../../../shared/storage-paths";
 
   let { serial }: { serial: string } = $props();
 
-  let filesPath = $state("/sdcard");
+  let filesPath = $state(INTERNAL_STORAGE);
+  /// USB drives and SD cards the TV has mounted as portable storage.
+  let volumes = $state<StorageVolume[]>([]);
+  let currentRoot = $derived(storageRootOf(filesPath));
+  let currentVolume = $derived(volumes.find((v) => v.path === currentRoot));
+  let readOnlyDrive = $derived(currentVolume?.read_only === true);
   let filesEntries = $state<FileEntry[] | null>(null);
   let filesLoading = $state(false);
   let filesErr = $state<string | null>(null);
@@ -65,6 +71,26 @@
     }
   }
 
+  async function loadVolumes() {
+    try {
+      const rows = await api.listStorageVolumes(serial);
+      volumes = Array.isArray(rows) ? rows : [];
+    } catch {
+      // No drive list just means no drive picker; /sdcard still works.
+      volumes = [];
+    }
+  }
+
+  function volumeLabel(v: StorageVolume): string {
+    const name = volumes.length > 1 ? `USB drive ${v.uuid}` : "USB drive";
+    return v.read_only ? `${name} (read-only)` : name;
+  }
+
+  function refresh() {
+    void loadFiles(filesPath);
+    void loadVolumes();
+  }
+
   async function startFileCopy(name: string) {
     filesMessage = "";
     try {
@@ -86,10 +112,13 @@
     const name = fileCopyName;
     filesBusy = name;
     // Land it in the same path on the target so a /sdcard/Download file
-    // arrives in /sdcard/Download there too.
+    // arrives in /sdcard/Download there too. A drive's path names this TV's
+    // drive, which the other TV doesn't have, so a file from a drive goes to
+    // the other TV's Download folder.
+    const targetDir = currentRoot === INTERNAL_STORAGE ? filesPath : `${INTERNAL_STORAGE}/Download`;
     filesMessage = `Copying ${name} to ${target.name}…`;
     try {
-      const r = await api.copyFileToDevice(serial, joinPath(filesPath, name), target.serial, filesPath);
+      const r = await api.copyFileToDevice(serial, joinPath(filesPath, name), target.serial, targetDir);
       filesMessage = r.message;
       if (r.ok) fileCopyName = null;
     } catch (e) {
@@ -132,8 +161,8 @@
 
   async function deleteEntry(entry: FileEntry) {
     const what = entry.is_dir ? "folder and everything in it" : "file";
-    const outsideSdcard = !filesPath.startsWith("/sdcard");
-    const prefix = outsideSdcard
+    const outsideUserStorage = currentRoot === null;
+    const prefix = outsideUserStorage
       ? `Warning: system path (${filesPath}). Deleting here can break the TV.\n\n`
       : "";
     if (filesBusy) return;
@@ -182,11 +211,11 @@
   }
 
   function goToFolder(path: string) {
-    // Parent dir. Below /sdcard normally; in power-user mode you can climb to
-    // the filesystem root.
-    const floor = powerUserPaths ? "/" : "/sdcard";
-    const dir = path.slice(0, path.lastIndexOf("/")) || floor;
-    loadFiles(dir);
+    // Parent dir. Inside the current storage (/sdcard or a USB drive)
+    // normally; in power-user mode you can climb to the filesystem root.
+    const root = storageRootOf(path) ?? INTERNAL_STORAGE;
+    const parent = path.slice(0, path.lastIndexOf("/")) || "/";
+    loadFiles(powerUserPaths || storageRootOf(parent) !== null ? parent : root);
   }
 
   function formatSize(bytes: number): string {
@@ -196,7 +225,10 @@
     return `${bytes} B`;
   }
 
-  onMount(() => loadFiles(filesPath));
+  onMount(() => {
+    void loadFiles(filesPath);
+    void loadVolumes();
+  });
 
   /// Files dropped from this computer upload into the folder on screen. The
   /// same Tauri drag-drop stream as Install APK (HTML5 drag events carry no
@@ -218,6 +250,10 @@
   async function uploadDropped(paths: string[]) {
     if (filesBusy !== null) {
       filesMessage = "Wait for the current transfer to finish, then drop again.";
+      return;
+    }
+    if (readOnlyDrive) {
+      filesMessage = "This USB drive is read-only. Nothing was uploaded.";
       return;
     }
     const dir = filesPath;
@@ -316,10 +352,15 @@
       </p>
     </div>
     <div class="header-actions">
-      <button class="primary" onclick={uploadToCurrentDir} disabled={filesBusy !== null} title="Upload a file from this computer into the current folder">
+      <button
+        class="primary"
+        onclick={uploadToCurrentDir}
+        disabled={filesBusy !== null || readOnlyDrive}
+        title={readOnlyDrive ? "This USB drive is read-only" : "Upload a file from this computer into the current folder"}
+      >
         <Icon name="upload" size={16} /> {filesBusy === "__upload__" ? "Uploading…" : "Upload here"}
       </button>
-      <button onclick={() => loadFiles(filesPath)} disabled={filesLoading}>
+      <button onclick={refresh} disabled={filesLoading}>
         {filesLoading ? "Loading…" : "Refresh"}
       </button>
     </div>
@@ -327,7 +368,12 @@
   <p class="muted small files-intro">
     {#if powerUserPaths}
       Browsing all folders. Most system paths are read-only;
-      deletes outside <code>/sdcard</code> are double-confirmed and critical mounts are refused.
+      deletes outside the TV's storage and USB drives are double-confirmed and critical mounts
+      are refused.
+    {:else if currentVolume}
+      Browsing a USB drive (<code>{currentVolume.path}</code>{currentVolume.fs_type === "vfat"
+        ? ", FAT32: files under 4 GB only"
+        : ""}).
     {:else}
       Browsing the device's user storage (<code>/sdcard</code>).
     {/if}
@@ -337,7 +383,7 @@
         checked={powerUserPaths}
         onchange={(e) => {
           powerUserPaths = e.currentTarget.checked;
-          loadFiles(powerUserPaths ? filesPath : "/sdcard");
+          loadFiles(powerUserPaths || currentRoot !== null ? filesPath : INTERNAL_STORAGE);
         }}
       />
       Show system folders
@@ -401,11 +447,36 @@
     {/each}
   </details>
 
+  {#if volumes.length > 0}
+    <div class="storage-picker" role="group" aria-label="Storage">
+      <button
+        class="storage-choice"
+        class:active={currentRoot === INTERNAL_STORAGE}
+        aria-pressed={currentRoot === INTERNAL_STORAGE}
+        onclick={() => loadFiles(INTERNAL_STORAGE)}
+        disabled={filesLoading}
+      >
+        <Icon name="tv" size={16} /> TV storage
+      </button>
+      {#each volumes as v (v.path)}
+        <button
+          class="storage-choice"
+          class:active={currentRoot === v.path}
+          aria-pressed={currentRoot === v.path}
+          onclick={() => loadFiles(v.path)}
+          disabled={filesLoading}
+        >
+          <Icon name="usb" size={16} /> {volumeLabel(v)}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
   <nav class="crumbs" aria-label="Path">
     <button
       class="small-action subtle"
       onclick={() => goToFolder(filesPath)}
-      disabled={filesPath === "/" || (filesPath === "/sdcard" && !powerUserPaths) || filesLoading}
+      disabled={filesPath === "/" || (filesPath === currentRoot && !powerUserPaths) || filesLoading}
       title="Up one level"
     >
       <Icon name="arrow_upward" size={16} /> Up
@@ -414,6 +485,9 @@
       {#if i > 0}<span class="muted">/</span>{/if}
       {#if i === crumbs.length - 1}
         <span class="crumb-current">{c.label}</span>
+      {:else if !powerUserPaths && storageRootOf(c.path) === null}
+        <!-- Above the drive's root: outside user storage, so not a link. -->
+        <span class="muted">{c.label}</span>
       {:else}
         <button class="crumb" onclick={() => loadFiles(c.path)}>{c.label}</button>
       {/if}
@@ -459,7 +533,7 @@
   {:else}
     <table class="files-table">
       <thead>
-        <tr><th>Name</th><th class="num">Size</th><th class="num">Modified</th><th class="num">Actions</th></tr>
+        <tr><th>Name</th><th class="num">Size</th><th class="num col-modified">Modified</th><th class="num">Actions</th></tr>
       </thead>
       <tbody>
         {#each filesEntries as f (f.name)}
@@ -477,7 +551,7 @@
               {/if}
             </td>
             <td class="num muted mono">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
-            <td class="num muted small mono">{f.modified}</td>
+            <td class="num muted small mono col-modified">{f.modified}</td>
             <!-- Icon-only, per the board, so the verbs do not crowd out the
                  names they belong to. Each has a title and an aria-label, and
                  the legend is under the table. -->
@@ -500,6 +574,7 @@
                     data-tip="Download"
                     aria-label={`Download ${f.name}`}
                   ><Icon name="download" size={16} /></button>
+                  {#if currentRoot !== null}
                   <button
                     class="file-tool"
                     onclick={() => startFileCopy(f.name)}
@@ -508,6 +583,7 @@
                     data-tip="Copy to device"
                     aria-label={`Copy ${f.name} to another device`}
                   ><Icon name="swap_horiz" size={16} /></button>
+                  {/if}
                 {/if}
                 <button
                   class="file-tool danger"
@@ -537,6 +613,14 @@
 <style>
   .files-drop {
     position: relative;
+    container-type: inline-size;
+  }
+  /* At the 720px minimum with larger text the names would break mid-word;
+     the date is the column that can go. */
+  @container (max-width: 36rem) {
+    .files-table .col-modified {
+      display: none;
+    }
   }
   .files-drop.dragging {
     min-height: 8rem;
@@ -756,6 +840,42 @@
     justify-content: space-between;
     gap: 0.8rem;
     padding: 0.25rem 0;
+  }
+  /* The same segmented control as Optimize's mode switch: the chosen storage
+     carries the accent edge without borrowing the action colour. */
+  .storage-picker {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px;
+    margin: 0.4rem 0 0.2rem;
+    padding: 3px;
+    background: var(--bg-inset);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+  }
+  .storage-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid transparent;
+    background: none;
+    border-radius: var(--radius-pill);
+    color: var(--fg-muted);
+    padding: 0.25rem 0.9rem;
+    font-size: 0.85rem;
+    transition: background 0.15s, color 0.15s;
+  }
+  .storage-choice:hover:not(.active):not(:disabled) {
+    background: var(--bg-button-hover);
+    color: var(--fg-primary);
+  }
+  .storage-choice.active {
+    background: var(--bg-surface);
+    border-color: var(--accent);
+    color: var(--fg-primary);
+    font-weight: 600;
+    box-shadow: 0 1px 0 0 color-mix(in srgb, var(--accent) 45%, transparent);
   }
   .crumbs {
     display: flex;

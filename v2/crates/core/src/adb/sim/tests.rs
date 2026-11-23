@@ -487,3 +487,14 @@ async fn disable_setup_helper_is_guarded_and_verified() {
     assert!(!not_helper.ok);
     assert!(enabled(&sim, PROJECTIVY_PKG));
 }
+
+#[tokio::test]
+async fn a_simulated_tv_has_no_usb_drive() {
+    use crate::commands::files::list_storage_volumes_with;
+    let sim = shield_world();
+    let volumes = list_storage_volumes_with(&sim, "192.0.2.1:5555")
+        .await
+        .unwrap();
+    assert!(volumes.is_empty(), "{volumes:?}");
+    assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}

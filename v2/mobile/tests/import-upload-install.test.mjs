@@ -13,9 +13,10 @@ after(async () => { await browser?.close(); await server?.close(); });
 async function open(t, screen, options = {}) {
   const page = await browser.newPage({ viewport: { width: options.width ?? 384, height: 812 }, ...(options.record ? { recordVideo: { dir: options.record, size: { width: 384, height: 812 } } } : {}) });
   page.setDefaultTimeout(10000); t.after(() => page.close());
-  await page.addInitScript(() => {
+  await page.addInitScript((volumes) => {
     localStorage.clear(); window.calls = [];
     window.mock = {
+      volumes,
       pick: { status: "picked", batch: "import-1", files: [{ name: "clip.mp4", size_bytes: 2048 }, { name: "notes.txt", size_bytes: 10 }] },
       conflicts: [],
       upload: {},
@@ -36,6 +37,7 @@ async function open(t, screen, options = {}) {
         case "health_report": return { ram: {}, storage: {}, display: {}, top_memory: [] };
         case "app_list_for_device": case "list_installed_packages": case "list_backups": return [];
         case "package_states": case "app_memory_map": case "app_usage_map": case "app_storage_map": return {};
+        case "list_storage_volumes": return mock.volumes;
         case "list_remote_dir": return args.path === "/sdcard" ? [{ name: "Movies", is_dir: true, is_symlink: false, size_bytes: 0, modified: "" }, { name: "old.txt", is_dir: false, is_symlink: false, size_bytes: 3, modified: "" }] : [];
         case "import_pick": { if (mock.pickHold) await mock.pickHold; return reply(args.purpose === "apk" ? mock.apkPick : mock.pick); }
         case "discard_import": return null;
@@ -53,7 +55,7 @@ async function open(t, screen, options = {}) {
         default: return { ok: true, message: "done" };
       }
     } };
-  });
+  }, options.volumes ?? []);
   await page.goto(origin);
   await page.evaluate(async ({ screen, scale }) => {
     const { session } = await import("/src/lib/session.svelte.ts"); const { router } = await import("/src/lib/router.svelte.ts");
@@ -84,6 +86,16 @@ test("Upload sends each picked file to the open folder, lists it and frees the c
   await page.locator(".dl-row").filter({ hasText: "On the TV: /sdcard/clip.mp4" }).waitFor();
   // The folder is read again so the new files show.
   assert.equal((await called(page, "list_remote_dir")).filter(a => a.path === "/sdcard").length, 2);
+});
+
+test("Upload goes straight onto a USB drive plugged into the TV", async t => {
+  const page = await open(t, "files", { volumes: [{ path: "/storage/1A2B-3C4D", uuid: "1A2B-3C4D", read_only: false }] });
+  await page.getByRole("group", { name: "Storage" }).getByRole("button", { name: "USB drive" }).click();
+  await page.getByText("This folder is empty.").waitFor();
+  await uploadButton(page).click();
+  await page.getByText("Uploaded 2 files to /storage/1A2B-3C4D.").waitFor();
+  assert.deepEqual((await called(page, "upload_imported")).map(a => a.remoteDir), ["/storage/1A2B-3C4D", "/storage/1A2B-3C4D"]);
+  await page.locator(".dl-row").filter({ hasText: "On the TV: /storage/1A2B-3C4D/clip.mp4" }).waitFor();
 });
 
 test("upload preserves the original normalized hardware identity across picker and confirmation", async t => {
