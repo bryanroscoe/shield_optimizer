@@ -13,3 +13,4 @@ pub mod engine;
 pub mod license;
 pub mod net;
 pub mod telemetry;
+pub mod wol;

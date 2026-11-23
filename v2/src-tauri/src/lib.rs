@@ -32,7 +32,7 @@ use atv_optimizer_core::telemetry::{
 use commands::adb_engine::{self, AdbEngineControl, EngineStarter};
 use commands::quit::{self, AdbQuitControl};
 use commands::{
-    app_report, backup, diagnostics, files, install, local_network, scan, sideload, update,
+    app_report, backup, diagnostics, files, install, local_network, scan, sideload, update, wake,
     AppState,
 };
 use tauri::Manager;
@@ -263,6 +263,7 @@ pub fn invoke_handler<R: tauri::Runtime>(
         scan::local_address_for,
         devices::rename_device,
         mac_address::device_mac_address,
+        wake::wake_device,
         health::health_report,
         health::media_report,
         health::resource_sample,

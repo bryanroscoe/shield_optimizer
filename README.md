@@ -100,8 +100,10 @@ Use **Scan LAN**, **Add by IP** or **Pair PIN**.
 
 **Saved TVs.** A network TV is saved the first time it connects, and the app dials it directly at
 every launch, so a box that sleeps through a scan still shows up. A saved TV that **Didn't answer**
-is probably asleep: wake it and click **Connect**. The bookmark on a row saves or unsaves it, and an
-unsaved TV stays unsaved. A saved TV only counts as connected when the device at its address
+is probably asleep: wake it and click **Connect**. When the app knows the TV's MAC address,
+**Connect** also sends a Wake-on-LAN packet first and keeps trying for about 30 seconds while the
+TV starts; many TVs ignore it while asleep, especially on Wi-Fi. Only **Connect** sends one, never
+the launch. The bookmark on a row saves or unsaves it, and an unsaved TV stays unsaved. A saved TV only counts as connected when the device at its address
 reports the same hardware ID; if another device answers there, the saved row says **Different
 device**.
 

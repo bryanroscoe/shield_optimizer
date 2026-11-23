@@ -15,7 +15,8 @@
 //
 // Stored locally like the other desktop preferences. No keys, PINs or other
 // secrets: an address, a name, what the device reported about itself, and
-// its MAC address for a later Wake-on-LAN.
+// its MAC address for Wake-on-LAN. Only Connect on a saved row wakes a TV;
+// the launch and restart redials never do.
 
 import { idKey } from "./hardware-id";
 
@@ -55,6 +56,8 @@ export interface LiveDevice {
 
 export type SavedStatus =
   | "online"
+  /// Connect sent a Wake-on-LAN packet; the dial follows.
+  | "waking"
   | "connecting"
   | "no_answer"
   /// Another verified id answers at the saved address.
@@ -63,7 +66,7 @@ export type SavedStatus =
   | "unverified"
   | "not_connected";
 
-export type DialState = "connecting" | "no_answer";
+export type DialState = "waking" | "connecting" | "no_answer";
 
 export const SAVED_DEVICES_KEY = "shieldopt.savedDevices.v1";
 export const MAX_SAVED = 32;
@@ -292,22 +295,70 @@ export interface DialSession {
   landed: number;
 }
 
+/// A MAC a wake packet can be sent for: well formed, unicast and not all
+/// zeros (the backend checks again). Null means no wake.
+export function wakeMac(mac: string | null | undefined): string | null {
+  const m = mac?.trim().toLowerCase() ?? "";
+  if (!MAC.test(m) || m === "00:00:00:00:00:00") return null;
+  // The multicast bit also covers broadcast.
+  return parseInt(m.slice(0, 2), 16) & 1 ? null : m;
+}
+
+/// Connect on a saved row that knows its MAC: send a Wake-on-LAN packet,
+/// then dial, retrying while a woken TV boots.
+export interface WakeFirst {
+  wake: (mac: string, host: string) => Promise<unknown>;
+  /// The longest the wake send may hold up the first dial.
+  wakeMs: number;
+  /// The pause between dials.
+  retryMs: number;
+  /// Replaces the normal wait: a woken box needs time.
+  waitMs: number;
+}
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /// Dial a saved address. Resolves when the call returns or after `waitMs`,
 /// whichever is first; at the wait the row says "Didn't answer", but the
 /// call stays pending (and Connect stays off) until it really returns. A
 /// success never reads as "Didn't answer": it clears the row's dial state,
 /// and Online then comes from the list.
+///
+/// With `wakeFirst` and a usable MAC on the record, the row says "Waking…"
+/// while the packet goes out, then dials one call at a time until one
+/// answers or `wakeFirst.waitMs` runs out. Without either it dials once, as
+/// the launch and restart redials always do: they never wake anything.
 export function dialSavedAddress(
   session: DialSession,
-  saved: Pick<SavedDevice, "hardwareId" | "address">,
+  saved: Pick<SavedDevice, "hardwareId" | "address" | "mac">,
   connect: (address: string) => Promise<{ ok: boolean } | null>,
   waitMs: number,
+  wakeFirst?: WakeFirst,
 ): Promise<void> {
   const id = saved.hardwareId;
   if (session.pending[id]) return Promise.resolve();
+  const mac = wakeFirst ? wakeMac(saved.mac) : null;
+  const wait = mac && wakeFirst ? wakeFirst.waitMs : waitMs;
+  const deadline = Date.now() + wait;
   session.pending[id] = true;
-  session.dial[id] = "connecting";
-  const settled = connect(saved.address)
+  session.dial[id] = mac ? "waking" : "connecting";
+  const attempt = async (): Promise<{ ok: boolean } | null> => {
+    if (!mac || !wakeFirst) return connect(saved.address).catch(() => null);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      // A failed or slow send never blocks the dial.
+      Promise.resolve().then(() => wakeFirst.wake(mac, hostOfAddress(saved.address))).catch(() => undefined),
+      new Promise<void>((resolve) => { timer = setTimeout(resolve, wakeFirst.wakeMs); }),
+    ]);
+    clearTimeout(timer);
+    if (session.dial[id] === "waking") session.dial[id] = "connecting";
+    for (;;) {
+      const r = await connect(saved.address).catch(() => null);
+      if (r?.ok || Date.now() + wakeFirst.retryMs >= deadline) return r;
+      await pause(wakeFirst.retryMs);
+    }
+  };
+  const settled = attempt()
     .catch(() => null)
     .then((r) => {
       delete session.pending[id];
@@ -321,9 +372,10 @@ export function dialSavedAddress(
   let timer: ReturnType<typeof setTimeout> | undefined;
   const waited = new Promise<void>((resolve) => {
     timer = setTimeout(() => {
-      if (session.pending[id] && session.dial[id] === "connecting") session.dial[id] = "no_answer";
+      const state = session.dial[id];
+      if (session.pending[id] && (state === "connecting" || state === "waking")) session.dial[id] = "no_answer";
       resolve();
-    }, waitMs);
+    }, wait);
   });
   return Promise.race([settled.then(() => clearTimeout(timer)), waited]);
 }
@@ -346,7 +398,7 @@ export function savedStatus(saved: SavedDevice, devices: LiveDevice[], dial: Dia
   if (atAddress.some((d) => { const id = hardwareIdOf(d); return id !== null && id !== saved.hardwareId; })) {
     return "different_device";
   }
-  if (dial === "connecting") return "connecting";
+  if (dial === "connecting" || dial === "waking") return dial;
   // An offline transport is what adb leaves when a TV sleeps: nothing is
   // answering, so it is no reason to doubt who is there.
   if (atAddress.some((d) => d.status !== "offline" && hardwareIdOf(d) === null)) return "unverified";

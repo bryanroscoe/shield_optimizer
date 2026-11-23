@@ -55,6 +55,12 @@ export interface DeviceMacAddress {
   mac: string | null;
 }
 
+/// `wake_device`: how many Wake-on-LAN packets went out. Zero for an
+/// unusable MAC or a failed send; never a sign the TV woke.
+export interface WakeResult {
+  sent: number;
+}
+
 export interface AppEntry {
   package: string;
   name: string;

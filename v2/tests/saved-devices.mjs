@@ -247,6 +247,144 @@ assert.equal(saved.lastConnectedLabel("garbage", now.getTime()), "");
   assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1]);
 }
 
+// --- Wake-on-LAN: only Connect wakes, and only with a usable MAC --------------
+assert.equal(saved.wakeMac(" A4:5E:60:1D:42:0A "), "a4:5e:60:1d:42:0a");
+assert.equal(saved.wakeMac("02:11:22:33:44:55"), "02:11:22:33:44:55", "a randomized (locally administered) MAC is unicast");
+for (const bad of [undefined, null, "", "nope", "00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff", "01:00:5e:00:00:fb", "a4:5e:60:1d:42"]) {
+  assert.equal(saved.wakeMac(bad), null, String(bad));
+}
+{
+  const rec = saved.observeConnected(empty, tv(), now).devices[0];
+  assert.equal(saved.savedStatus(rec, [], "waking"), "waking");
+  const impostor = tv({ properties: { serial_number: "ZZZ999" } });
+  assert.equal(saved.savedStatus(rec, [impostor], "waking"), "different_device");
+}
+{
+  const session = () => ({ dial: {}, pending: {}, landed: 0 });
+  const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; };
+  const withMac = { hardwareId: "XMS3B0042A", address: "192.168.1.64:5555", mac: "a4:5e:60:1d:42:0a" };
+  const noMac = { hardwareId: "XMS3B0042A", address: "192.168.1.64:5555" };
+  const tick = () => new Promise((r) => setTimeout(r, 0));
+  /// A recorder for wake and connect calls; `answers` are connect's replies
+  /// in order (the last one repeats).
+  const recorder = (answers) => {
+    const log = [];
+    let active = 0;
+    let maxActive = 0;
+    let n = 0;
+    return {
+      log,
+      maxActive: () => maxActive,
+      wake: async (mac, host) => { log.push(["wake", mac, host]); },
+      connect: async (address) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        log.push(["connect", address]);
+        await new Promise((r) => setTimeout(r, 5));
+        active -= 1;
+        return answers[Math.min(n++, answers.length - 1)];
+      },
+    };
+  };
+  const wakeFirst = (r, over = {}) => ({ wake: r.wake, wakeMs: 200, retryMs: 10, waitMs: 1000, ...over });
+
+  // Connect with a MAC: "Waking…", the packet, then the dial.
+  {
+    const r = recorder([{ ok: true }]);
+    const gate = deferred();
+    const s = session();
+    const done = saved.dialSavedAddress(s, withMac, r.connect, 8000,
+      wakeFirst(r, { wake: async (mac, host) => { r.log.push(["wake", mac, host]); await gate.promise; } }));
+    assert.equal(s.dial.XMS3B0042A, "waking", "the row says Waking… while the packet goes out");
+    await tick();
+    assert.deepEqual(r.log, [["wake", "a4:5e:60:1d:42:0a", "192.168.1.64"]], "nothing is dialled before the wake is sent");
+    gate.resolve();
+    await done;
+    assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect"], "wake, then dial");
+    assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1]);
+  }
+
+  // Connect without a MAC behaves as before: no wake, one dial.
+  {
+    let woke = 0;
+    const r = recorder([{ ok: false }]);
+    const s = session();
+    await saved.dialSavedAddress(s, noMac, r.connect, 1000, wakeFirst(r, { wake: async () => { woke += 1; } }));
+    assert.equal(woke, 0, "no MAC, no wake");
+    assert.deepEqual(r.log, [["connect", "192.168.1.64:5555"]], "and a single dial, no retries");
+    assert.equal(s.dial.XMS3B0042A, "no_answer");
+    // An unusable MAC is the same, and isn't an error.
+    const r2 = recorder([{ ok: true }]);
+    await saved.dialSavedAddress(session(), { ...withMac, mac: "ff:ff:ff:ff:ff:ff" }, r2.connect, 1000,
+      wakeFirst(r2, { wake: async () => { woke += 1; } }));
+    assert.equal(woke, 0, "a broadcast MAC is never woken");
+  }
+
+  // The launch and restart redials pass no wake option: a MAC on the record
+  // never sends a packet from them.
+  {
+    const r = recorder([{ ok: false }]);
+    const s = session();
+    await saved.dialSavedAddress(s, withMac, r.connect, 1000);
+    assert.deepEqual(r.log, [["connect", "192.168.1.64:5555"]], "redial: one dial, never a wake");
+  }
+
+  // A woken TV boots slowly: dials repeat, one at a time, until one answers.
+  {
+    const r = recorder([{ ok: false }, { ok: false }, { ok: true }]);
+    const s = session();
+    await saved.dialSavedAddress(s, withMac, r.connect, 20, wakeFirst(r));
+    assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect", "connect", "connect"]);
+    assert.equal(r.maxActive(), 1, "never two dials at once");
+    assert.deepEqual([s.dial, s.pending, s.landed], [{}, {}, 1], "the longer wait, not the normal one, applies");
+  }
+
+  // Connect again during the longer wait starts nothing: no second wake or dial.
+  {
+    const r = recorder([{ ok: false }, { ok: true }]);
+    const s = session();
+    const first = saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, { retryMs: 30 }));
+    await new Promise((res) => setTimeout(res, 15));
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r));
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000);
+    await first;
+    assert.deepEqual(r.log.map((e) => e[0]), ["wake", "connect", "connect"], "only the first Connect's calls");
+    assert.equal(r.maxActive(), 1);
+  }
+
+  // It gives up at the longer wait and says Didn't answer.
+  {
+    const r = recorder([{ ok: false }]);
+    const s = session();
+    const started = Date.now();
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000, wakeFirst(r, { retryMs: 20, waitMs: 120 }));
+    await new Promise((res) => setTimeout(res, 60));
+    const dials = r.log.filter((e) => e[0] === "connect").length;
+    assert.ok(dials >= 2 && dials <= 6, `retried a bounded number of times (${dials})`);
+    assert.ok(Date.now() - started < 1000);
+    assert.equal(s.dial.XMS3B0042A, "no_answer");
+    assert.equal(s.pending.XMS3B0042A, undefined, "and stops dialling");
+    await new Promise((res) => setTimeout(res, 60));
+    assert.equal(r.log.filter((e) => e[0] === "connect").length, dials, "no dial after giving up");
+  }
+
+  // A failed or hung wake never blocks the dial.
+  {
+    const r = recorder([{ ok: true }]);
+    const s = session();
+    await saved.dialSavedAddress(s, withMac, r.connect, 8000,
+      wakeFirst(r, { wake: () => { throw new Error("socket"); } }));
+    assert.deepEqual(r.log, [["connect", "192.168.1.64:5555"]]);
+    assert.equal(s.landed, 1);
+    const r2 = recorder([{ ok: true }]);
+    const s2 = session();
+    await saved.dialSavedAddress(s2, withMac, r2.connect, 8000,
+      wakeFirst(r2, { wakeMs: 20, wake: () => new Promise(() => {}) }));
+    assert.deepEqual(r2.log, [["connect", "192.168.1.64:5555"]], "a wake that never returns is waited on only briefly");
+    assert.equal(s2.landed, 1);
+  }
+}
+
 console.log("Saved device store passed.");
 
 // --- the Devices screen ------------------------------------------------------
@@ -256,8 +394,31 @@ const rowIn = (scope, name) => scope.locator("li", { has: scope.page().getByText
 const foundList = (page) => page.locator("ul.device-list").last();
 const stored = (page) => page.evaluate((key) => JSON.parse(localStorage.getItem(key) ?? "null"), KEY);
 
+/// Records every wake_device and connect_device call from page load on.
+function recordWakes(context) {
+  return context.addInitScript(() => {
+    let wrapped = null;
+    window.__wakes = [];
+    window.__dials = [];
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      configurable: true,
+      get: () => wrapped,
+      set(bridge) {
+        const original = bridge.invoke;
+        bridge.invoke = (cmd, args = {}) => {
+          if (cmd === "wake_device") window.__wakes.push(args);
+          if (cmd === "connect_device") window.__dials.push(args.address);
+          return original(cmd, args);
+        };
+        wrapped = bridge;
+      },
+    });
+  });
+}
+
 async function exercise(browser, base) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 1100 } });
+  await recordWakes(context);
   const page = await context.newPage();
   page.setDefaultTimeout(15000);
   const errors = [];
@@ -269,6 +430,7 @@ async function exercise(browser, base) {
   await box.getByText("Connecting…", { exact: true }).first().waitFor();
   await box.getByText("Didn't answer", { exact: true }).waitFor();
   assert.match(await box.innerText(), /192\.168\.1\.64:5555 · Google TV · MiTV-AFKR0 · last connected 2 days ago/);
+  assert.deepEqual(await page.evaluate(() => window.__wakes), [], "the launch dial never sends a wake packet");
   assert.equal(await box.locator("a.device-row").count(), 0, "a saved device that didn't answer doesn't open");
   const shield = rowIn(savedSection(page), "NVIDIA SHIELD Android TV");
   await shield.getByText("Online", { exact: true }).waitFor();
@@ -287,15 +449,24 @@ async function exercise(browser, base) {
   await page.keyboard.press("Enter");
   await page.getByRole("region", { name: "Saved" }).getByText("never under this saved name", { exact: false }).waitFor();
   await page.getByRole("region", { name: "Saved" }).getByText("hasn't allowed this computer, so it can't say", { exact: false }).waitFor();
+  await page.getByRole("region", { name: "Saved" }).getByText("Connect also tries to wake a sleeping TV over the network", { exact: false }).waitFor();
   await page.keyboard.press("Escape");
 
-  // Connect retries the saved address; once woken it goes Online by id.
-  await page.evaluate(() => localStorage.setItem("shieldopt.demo.savedBoxAwake", "1"));
+  // Connect wakes the box (its record has a MAC), then dials the saved
+  // address until the woken box answers; it goes Online by id. The demo box
+  // misses the first dial and answers the retry.
+  const dialsBefore = (await page.evaluate(() => window.__dials)).filter((a) => a === "192.168.1.64:5555").length;
   await box.getByRole("button", { name: "Connect to Bedroom Xiaomi Box" }).click();
+  await box.getByText("Waking…", { exact: true }).first().waitFor();
+  assert.equal(await box.getByRole("button", { name: "Waking Bedroom Xiaomi Box" }).isDisabled(), true,
+    "no second Connect while waking");
+  assert.deepEqual(await page.evaluate(() => window.__wakes), [{ mac: "a4:5e:60:1d:42:0a", host: "192.168.1.64" }]);
   await box.getByText("Connecting…", { exact: true }).first().waitFor();
+  assert.equal(await box.getByRole("button", { name: "Connecting to Bedroom Xiaomi Box" }).isDisabled(), true);
   await rowIn(savedSection(page), "Bedroom Xiaomi Box").locator("a.device-row").waitFor();
-  await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).devices
-    .find((d) => d.hardwareId === "XMS3B0042A")?.mac === "a4:5e:60:1d:42:0a", KEY);
+  const boxDials = (await page.evaluate(() => window.__dials)).filter((a) => a === "192.168.1.64:5555").length - dialsBefore;
+  assert.equal(boxDials, 2, "the first dial missed, the retry landed");
+  assert.equal((await page.evaluate(() => window.__wakes)).length, 1, "one wake per Connect");
 
   // Forget a saved device: it disconnects and its row returns to the offline state.
   await rowIn(savedSection(page), "Bedroom Xiaomi Box").getByRole("button", { name: "Forget" }).click();
@@ -318,6 +489,9 @@ async function exercise(browser, base) {
 
   await page.reload({ waitUntil: "networkidle" });
   await rowIn(savedSection(page), "Living Room Box").getByText("Online", { exact: true }).waitFor();
+  // Its MAC is read while it's connected and filed under its id.
+  await page.waitForFunction((key) => JSON.parse(localStorage.getItem(key)).devices
+    .find((d) => d.hardwareId === "9AB4C21D7E03")?.mac === "a4:5e:60:9a:b4:c2", KEY);
   await rowIn(foundList(page), "NVIDIA SHIELD Android TV").getByRole("button", { name: "Save NVIDIA SHIELD Android TV" }).waitFor();
   const after = await stored(page);
   assert.deepEqual(after.devices.map((d) => d.hardwareId), ["9AB4C21D7E03"], "only the saved box survives the restart");
@@ -388,7 +562,9 @@ async function exerciseRemount(browser, base) {
       set(bridge) {
         const original = bridge.invoke;
         window.__boxDials = 0;
+        window.__wakes = 0;
         bridge.invoke = (cmd, args = {}) => {
+          if (cmd === "wake_device") window.__wakes += 1;
           if (cmd === "connect_device" && args.address === "192.168.1.64:5555") window.__boxDials += 1;
           if (cmd === "connect_device" && args.address === "192.168.1.64:5555" && window.__boxDials === 1) {
             // Wakes and answers 2.5 s later.
@@ -425,6 +601,20 @@ async function exerciseRemount(browser, base) {
   page.once("dialog", (dialog) => dialog.accept());
   await page.locator(".connect-form").getByRole("button", { name: "Restart ADB", exact: true }).click();
   await page.waitForFunction(() => window.__boxDials === 2);
+  await box().getByText("Didn't answer", { exact: true }).waitFor({ timeout: 20000 });
+
+  // Switching the ADB engine redials too, the next time Devices opens.
+  await page.getByRole("link", { name: "Settings", exact: true }).click();
+  await page.waitForURL("**/settings");
+  const engines = page.locator("#adb").getByRole("radiogroup", { name: "ADB engine" });
+  const other = (await engines.getByRole("radio", { name: "Built-in", exact: true }).isChecked())
+    ? "Google platform-tools" : "Built-in";
+  await engines.getByRole("radio", { name: other, exact: true }).check();
+  await page.waitForFunction(() => document.querySelector("#adb [role=radiogroup]")?.getAttribute("aria-busy") === "false");
+  await page.getByRole("link", { name: "Devices", exact: true }).click();
+  await page.waitForFunction(() => window.__boxDials === 3);
+  assert.equal(await page.evaluate(() => window.__wakes), 0,
+    "the box has a MAC, yet neither the launch dial nor a restart or engine-switch redial woke it");
   await context.close();
 }
 
