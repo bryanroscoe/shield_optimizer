@@ -67,9 +67,6 @@ fn exclusive_copy_command(partial: &str, target: &str) -> String {
     format!("if [ -e {target} ] || [ -L {target} ]; then exit 1; fi; ( set -C; {{ [ -f /proc/self/fd/1 ] && cat {}; }} > {target} ) && echo atvopt-committed", quote(partial))
 }
 
-/// FAT32 stores sizes in 32 bits, so 4 GiB is the first size it can't hold.
-const FAT32_MAX_FILE: u64 = 1 << 32;
-
 pub fn upload(
     io: &mut impl UploadIo,
     local: &Path,
@@ -125,11 +122,7 @@ pub fn upload(
     let partial = format!("{stage}/payload");
     if let Err(error) = io.push(local, &partial) {
         let left = cleanup(io, &stage);
-        let hint = if expected_size >= FAT32_MAX_FILE && root.is_some_and(|r| r != "/sdcard") {
-            " USB drives formatted as FAT32 can't hold files of 4 GB or more; exFAT or NTFS can."
-        } else {
-            ""
-        };
+        let hint = crate::commands::files::drive_size_hint(target, expected_size);
         return Err(AdbError::Transport(format!(
             "The file didn't finish uploading: {error}. Nothing in the folder was replaced. {left}{hint}"
         )));

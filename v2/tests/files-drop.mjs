@@ -129,8 +129,8 @@ async function main() {
     assert.ok(await panel.locator(".crumbs button", { hasText: "Up" }).isDisabled(), "Up stops at the drive's root");
     assert.equal(
       await panel.getByRole("button", { name: "Copy holiday-2025.mkv to another device" }).count(),
-      0,
-      "device-to-device copy stays on internal storage",
+      1,
+      "a file on the drive can be copied to another TV",
     );
     await fire(page, { type: "drop", paths: ["/Users/me/film.mkv"], position: at });
     await page.waitForFunction(

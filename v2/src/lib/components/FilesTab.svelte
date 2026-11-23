@@ -112,10 +112,13 @@
     const name = fileCopyName;
     filesBusy = name;
     // Land it in the same path on the target so a /sdcard/Download file
-    // arrives in /sdcard/Download there too.
+    // arrives in /sdcard/Download there too. A drive's path names this TV's
+    // drive, which the other TV doesn't have, so a file from a drive goes to
+    // the other TV's Download folder.
+    const targetDir = currentRoot === INTERNAL_STORAGE ? filesPath : `${INTERNAL_STORAGE}/Download`;
     filesMessage = `Copying ${name} to ${target.name}…`;
     try {
-      const r = await api.copyFileToDevice(serial, joinPath(filesPath, name), target.serial, filesPath);
+      const r = await api.copyFileToDevice(serial, joinPath(filesPath, name), target.serial, targetDir);
       filesMessage = r.message;
       if (r.ok) fileCopyName = null;
     } catch (e) {
@@ -368,7 +371,9 @@
       deletes outside the TV's storage and USB drives are double-confirmed and critical mounts
       are refused.
     {:else if currentVolume}
-      Browsing a USB drive (<code>{currentVolume.path}</code>).
+      Browsing a USB drive (<code>{currentVolume.path}</code>{currentVolume.fs_type === "vfat"
+        ? ", FAT32: files under 4 GB only"
+        : ""}).
     {:else}
       Browsing the device's user storage (<code>/sdcard</code>).
     {/if}
@@ -480,6 +485,9 @@
       {#if i > 0}<span class="muted">/</span>{/if}
       {#if i === crumbs.length - 1}
         <span class="crumb-current">{c.label}</span>
+      {:else if !powerUserPaths && storageRootOf(c.path) === null}
+        <!-- Above the drive's root: outside user storage, so not a link. -->
+        <span class="muted">{c.label}</span>
       {:else}
         <button class="crumb" onclick={() => loadFiles(c.path)}>{c.label}</button>
       {/if}
@@ -566,7 +574,7 @@
                     data-tip="Download"
                     aria-label={`Download ${f.name}`}
                   ><Icon name="download" size={16} /></button>
-                  {#if currentRoot === INTERNAL_STORAGE}
+                  {#if currentRoot !== null}
                   <button
                     class="file-tool"
                     onclick={() => startFileCopy(f.name)}

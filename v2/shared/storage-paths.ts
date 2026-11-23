@@ -5,10 +5,10 @@
 export const INTERNAL_STORAGE = "/sdcard";
 
 /// A removable volume's folder name under /storage (crates/core `is_volume_name`): the
-/// filesystem UUID Android names a USB drive or SD card by. `emulated` and `self` are the
-/// internal storage's own aliases.
+/// filesystem UUID Android names a USB drive or SD card by, as `1A2B-3C4D` (FAT/exFAT),
+/// 16 hex digits (NTFS) or a dashed 8-4-4-4-12 UUID (ext4, f2fs).
 export function isVolumeName(name: string): boolean {
-  return /^[A-Za-z0-9][A-Za-z0-9-]{0,63}$/.test(name) && name !== "emulated" && name !== "self";
+  return /^(?:[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}|[0-9A-Fa-f]{16}|[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12})$/.test(name);
 }
 
 /// The user-storage root a path is in: "/sdcard", "/storage/<uuid>" for a USB drive, or null.

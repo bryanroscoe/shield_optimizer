@@ -15,16 +15,32 @@ use crate::commands::quote_shell_arg;
 pub const VOLUME_PARENT: &str = "/storage";
 
 /// A removable volume's directory name under `/storage`: the filesystem UUID
-/// Android names it by (`1A2B-3C4D` for FAT/exFAT, 16 hex digits for NTFS, a
-/// dashed UUID for ext4). `emulated` and `self` are the internal storage's own
-/// aliases, not removable volumes.
+/// Android names it by, in one of the shapes vold produces — `1A2B-3C4D`
+/// (FAT/exFAT), 16 hex digits (NTFS) or a dashed 8-4-4-4-12 UUID (ext4, f2fs).
+/// Nothing else counts: not `emulated` or `self` (internal storage's own
+/// aliases), not `null` (what `sm` prints for a drive with no UUID) and not a
+/// legacy name such as `sdcard0`.
 pub fn is_volume_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.starts_with(|c: char| c.is_ascii_alphanumeric())
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-        && name != "emulated"
-        && name != "self"
+    let groups: Vec<&str> = name.split('-').collect();
+    let lengths: Vec<usize> = groups.iter().map(|g| g.len()).collect();
+    groups
+        .iter()
+        .all(|g| g.chars().all(|c| c.is_ascii_hexdigit()))
+        && matches!(lengths.as_slice(), [4, 4] | [16] | [8, 4, 4, 4, 12])
+}
+
+/// FAT32 stores sizes in 32 bits, so 4 GiB is the first size it can't hold.
+pub const FAT32_MAX_FILE: u64 = 1 << 32;
+
+/// Appended to a failed upload of `size` bytes to `target`: a file of 4 GiB or
+/// more on a USB drive most likely hit FAT32's limit. Empty otherwise.
+pub fn drive_size_hint(target: &str, size: u64) -> &'static str {
+    let on_drive = user_storage_root(target).is_some_and(|root| root != "/sdcard");
+    if on_drive && size >= FAT32_MAX_FILE {
+        " USB drives formatted as FAT32 can't hold files of 4 GB or more; exFAT or NTFS can."
+    } else {
+        ""
+    }
 }
 
 /// The user-storage root a path lives in: `/sdcard` (internal storage) or
@@ -95,6 +111,9 @@ pub struct StorageVolume {
     /// The filesystem UUID Android names the volume by.
     pub uuid: String,
     pub read_only: bool,
+    /// The filesystem as `/proc/mounts` names it (`vfat`, `exfat`, `ntfs`, …),
+    /// or `None` when the TV didn't say.
+    pub fs_type: Option<String>,
 }
 
 /// Parse `sm list-volumes public`: one `<id> <state> <fs uuid>` line per
@@ -123,6 +142,7 @@ pub fn parse_sm_volumes(out: &str) -> Vec<StorageVolume> {
             path: format!("{VOLUME_PARENT}/{uuid}"),
             uuid: uuid.to_string(),
             read_only,
+            fs_type: None,
         });
     }
     volumes
@@ -132,10 +152,76 @@ pub fn parse_sm_volumes(out: &str) -> Vec<StorageVolume> {
 /// told apart from a TV without the tool.
 const NO_SM: &str = "__ATVOPT_NO_SM__";
 
-/// The removable drives mounted on the TV. Reads `sm list-volumes public`;
-/// where `sm` is missing, falls back to the volume directories under
-/// `/storage` (read/write state then unknown, so reported writable and left to
-/// the upload itself to fail).
+/// The filesystem of the drive named `uuid`, from `/proc/mounts`. vold mounts
+/// the real filesystem at `/mnt/media_rw/<uuid>` and exposes it at
+/// `/storage/<uuid>` through FUSE or sdcardfs, so the former is the one that
+/// says `vfat` or `exfat`; `/storage/<uuid>` is the fallback on TVs that mount
+/// the drive there directly.
+pub fn mount_fs_type(mounts: &str, uuid: &str) -> Option<String> {
+    let media_rw = format!("/mnt/media_rw/{uuid}");
+    let storage = format!("{VOLUME_PARENT}/{uuid}");
+    let fs_at = |point: &str| {
+        mounts.lines().find_map(|line| {
+            let mut fields = line.split_whitespace();
+            let (_, Some(mount), Some(fs)) = (fields.next(), fields.next(), fields.next()) else {
+                return None;
+            };
+            (mount == point).then(|| fs.to_string())
+        })
+    };
+    fs_at(&media_rw).or_else(|| {
+        fs_at(&storage).filter(|fs| !matches!(fs.as_str(), "fuse" | "sdcardfs" | "esdfs"))
+    })
+}
+
+/// FAT32 as Linux names it.
+pub fn is_fat32(fs_type: Option<&str>) -> bool {
+    matches!(fs_type, Some("vfat" | "msdos"))
+}
+
+/// Refuse, before any bytes move, a file FAT32 can't hold on a drive known to
+/// be FAT32. A drive whose filesystem is unknown is left to the transfer
+/// itself, whose failure carries [`drive_size_hint`].
+pub fn fat32_refusal(name: &str, size: u64, fs_type: Option<&str>) -> Result<(), String> {
+    if size >= FAT32_MAX_FILE && is_fat32(fs_type) {
+        return Err(format!(
+            "{name} is 4 GB or larger, and this USB drive is formatted as FAT32, which can't hold files that big. Nothing was copied. Reformat the drive as exFAT or NTFS, or use a smaller file."
+        ));
+    }
+    Ok(())
+}
+
+/// The filesystem of the drive `path` is on, read from the TV's
+/// `/proc/mounts`; `None` for internal storage or when it can't be read.
+pub async fn drive_fs_type_with(adb: &dyn AdbDriver, serial: &str, path: &str) -> Option<String> {
+    let root = user_storage_root(path)?;
+    let uuid = root.strip_prefix(&format!("{VOLUME_PARENT}/"))?;
+    let out = adb.shell(serial, "cat /proc/mounts").await.ok()?;
+    mount_fs_type(&out.stdout, uuid)
+}
+
+/// Fill in each drive's filesystem from `/proc/mounts`. An unreadable file
+/// leaves them unknown rather than failing the list.
+async fn with_fs_types(
+    adb: &dyn AdbDriver,
+    serial: &str,
+    mut volumes: Vec<StorageVolume>,
+) -> Vec<StorageVolume> {
+    if volumes.is_empty() {
+        return volumes;
+    }
+    if let Ok(out) = adb.shell(serial, "cat /proc/mounts").await {
+        for v in &mut volumes {
+            v.fs_type = mount_fs_type(&out.stdout, &v.uuid);
+        }
+    }
+    volumes
+}
+
+/// The removable drives mounted on the TV, with their filesystems. Reads
+/// `sm list-volumes public`; where `sm` is missing, falls back to the volume
+/// directories under `/storage` (read/write state then unknown, so reported
+/// writable and left to the upload itself to fail).
 pub async fn list_storage_volumes_with(
     adb: &dyn AdbDriver,
     serial: &str,
@@ -148,7 +234,7 @@ pub async fn list_storage_volumes_with(
         .await
         .map_err(|e| format!("list volumes: {e}"))?;
     if !out.stdout.contains(NO_SM) {
-        return Ok(parse_sm_volumes(&out.stdout));
+        return Ok(with_fs_types(adb, serial, parse_sm_volumes(&out.stdout)).await);
     }
     let out = adb
         .shell(serial, "ls -1 /storage 2>/dev/null; true")
@@ -161,10 +247,11 @@ pub async fn list_storage_volumes_with(
                 path: format!("{VOLUME_PARENT}/{name}"),
                 uuid: name.to_string(),
                 read_only: false,
+                fs_type: None,
             });
         }
     }
-    Ok(volumes)
+    Ok(with_fs_types(adb, serial, volumes).await)
 }
 
 /// Normalise a device path for deleting: collapse repeated slashes and `.`
@@ -454,6 +541,10 @@ mod tests {
             ("/storage/1A2B-3C4D", "/storage/1A2B-3C4D"),
             ("/storage/1A2B-3C4D/Movies/a b.mkv", "/storage/1A2B-3C4D"),
             ("/storage/0123456789ABCDEF/x", "/storage/0123456789ABCDEF"),
+            (
+                "/storage/0a1b2c3d-4e5f-6789-abcd-ef0123456789/x",
+                "/storage/0a1b2c3d-4e5f-6789-abcd-ef0123456789",
+            ),
         ] {
             assert_eq!(user_storage_root(path).as_deref(), Some(root), "{path}");
             assert_eq!(validate_user_storage_path(path).unwrap(), path);
@@ -466,6 +557,11 @@ mod tests {
             "/storage/-ABCD",
             "/storage/AB_CD",
             "/storage/AB CD",
+            "/storage/null",
+            "/storage/sdcard0/x",
+            "/storage/usbdisk",
+            "/storage/1A2B-3C4G",
+            "/storage/1A2B3C4D",
             "/storage/1A2B-3C4D/../../data",
             "/data/local/tmp",
             "/sdcardX",
@@ -474,6 +570,14 @@ mod tests {
         }
         // The backup finder and device-to-device copy stay on internal storage.
         assert!(validate_sdcard_path("/storage/1A2B-3C4D/x").is_err());
+    }
+
+    #[test]
+    fn the_fat32_hint_is_for_big_files_on_drives() {
+        let big = FAT32_MAX_FILE;
+        assert!(drive_size_hint("/storage/1A2B-3C4D/m.mkv", big).contains("FAT32"));
+        assert!(drive_size_hint("/storage/1A2B-3C4D/m.mkv", big - 1).is_empty());
+        assert!(drive_size_hint("/sdcard/m.mkv", big).is_empty());
     }
 
     #[test]
@@ -496,7 +600,8 @@ mod tests {
                    public:8,49 checking 5555-6666\n\
                    public:8,1 mounted 1A2B-3C4D\n\
                    private mounted null\n\
-                   public:8,65 mounted ../x\n";
+                   public:8,65 mounted ../x\n\
+                   public:8,81 mounted null\n";
         assert_eq!(
             parse_sm_volumes(out),
             vec![
@@ -504,22 +609,67 @@ mod tests {
                     path: "/storage/1A2B-3C4D".into(),
                     uuid: "1A2B-3C4D".into(),
                     read_only: false,
+                    fs_type: None,
                 },
                 StorageVolume {
                     path: "/storage/0123456789ABCDEF".into(),
                     uuid: "0123456789ABCDEF".into(),
                     read_only: true,
+                    fs_type: None,
                 },
             ]
         );
         assert!(parse_sm_volumes("").is_empty());
     }
 
+    const MOUNTS: &str = "/dev/block/vold/public:8,1 /mnt/media_rw/1A2B-3C4D vfat rw,dirsync 0 0\n\
+        /dev/fuse /storage/1A2B-3C4D fuse rw,nosuid 0 0\n\
+        /dev/block/vold/public:8,17 /mnt/media_rw/0123456789ABCDEF ntfs rw 0 0\n\
+        /dev/block/sda1 /storage/5555-6666 exfat rw 0 0\n\
+        /dev/fuse /storage/7777-8888 fuse rw 0 0\n";
+
+    #[test]
+    fn drive_filesystems_come_from_proc_mounts() {
+        assert_eq!(mount_fs_type(MOUNTS, "1A2B-3C4D").as_deref(), Some("vfat"));
+        assert_eq!(
+            mount_fs_type(MOUNTS, "0123456789ABCDEF").as_deref(),
+            Some("ntfs")
+        );
+        assert_eq!(mount_fs_type(MOUNTS, "5555-6666").as_deref(), Some("exfat"));
+        // Only the FUSE view is known: the real filesystem is unknown, not "fuse".
+        assert_eq!(mount_fs_type(MOUNTS, "7777-8888"), None);
+        assert_eq!(mount_fs_type(MOUNTS, "9999-AAAA"), None);
+    }
+
+    #[test]
+    fn fat32_refuses_only_what_it_cannot_hold() {
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, Some("vfat")).is_err());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE - 1, Some("vfat")).is_ok());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, Some("exfat")).is_ok());
+        assert!(fat32_refusal("m.mkv", FAT32_MAX_FILE, None).is_ok());
+    }
+
+    #[tokio::test]
+    async fn a_drive_filesystem_is_read_for_its_path() {
+        let mock = MockAdb::default().on_shell("cat /proc/mounts", MOUNTS);
+        assert_eq!(
+            drive_fs_type_with(&mock, "tv", "/storage/1A2B-3C4D/Movies")
+                .await
+                .as_deref(),
+            Some("vfat")
+        );
+        assert_eq!(
+            drive_fs_type_with(&mock, "tv", "/sdcard/Movies").await,
+            None
+        );
+    }
+
     #[tokio::test]
     async fn volumes_fall_back_to_the_storage_folder_without_sm() {
         let mock = MockAdb::default()
             .on_shell("sm list-volumes", &format!("{NO_SM}\n"))
-            .on_shell("ls -1 /storage", "emulated\nself\n1A2B-3C4D\n");
+            .on_shell("ls -1 /storage", "emulated\nself\nsdcard0\n1A2B-3C4D\n")
+            .on_shell("cat /proc/mounts", MOUNTS);
         let volumes = list_storage_volumes_with(&mock, "tv").await.unwrap();
         assert_eq!(
             volumes,
@@ -527,6 +677,7 @@ mod tests {
                 path: "/storage/1A2B-3C4D".into(),
                 uuid: "1A2B-3C4D".into(),
                 read_only: false,
+                fs_type: Some("vfat".into()),
             }]
         );
         let none = MockAdb::default().on_shell("sm list-volumes", "");

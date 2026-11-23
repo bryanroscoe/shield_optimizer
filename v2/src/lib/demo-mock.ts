@@ -1156,7 +1156,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "list_dir":
       return demoFiles(args.path as string);
     case "list_storage_volumes":
-      return [{ path: DEMO_USB, uuid: "1A2B-3C4D", read_only: false }];
+      return [{ path: DEMO_USB, uuid: "1A2B-3C4D", read_only: false, fs_type: "exfat" }];
     // The real command refuses anything that is not a regular file. The demo
     // cannot stat a path, so a last segment with no extension stands in for a
     // dropped folder.

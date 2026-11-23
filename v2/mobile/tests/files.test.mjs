@@ -68,6 +68,8 @@ test("delete is only offered strictly inside /sdcard or a USB drive", () => {
     "/storage/1A2B-3C4D/",
     "/storage/self/primary/a",
     "/storage/1A2B-3C4D/../../data",
+    "/storage/null/a",
+    "/storage/sdcard0/a",
     "/storage/emulated/0/old.zip",
     "/data/local/tmp/a",
     "/sdcard/../data",

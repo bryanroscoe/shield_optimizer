@@ -684,4 +684,6 @@ export interface StorageVolume {
   path: string;
   uuid: string;
   read_only: boolean;
+  /// The filesystem from the TV's /proc/mounts (`vfat` is FAT32), or null when unknown.
+  fs_type: string | null;
 }
