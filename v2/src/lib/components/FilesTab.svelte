@@ -525,7 +525,7 @@
   {:else}
     <table class="files-table">
       <thead>
-        <tr><th>Name</th><th class="num">Size</th><th class="num">Modified</th><th class="num">Actions</th></tr>
+        <tr><th>Name</th><th class="num">Size</th><th class="num col-modified">Modified</th><th class="num">Actions</th></tr>
       </thead>
       <tbody>
         {#each filesEntries as f (f.name)}
@@ -543,7 +543,7 @@
               {/if}
             </td>
             <td class="num muted mono">{f.is_dir ? "—" : formatSize(f.size_bytes)}</td>
-            <td class="num muted small mono">{f.modified}</td>
+            <td class="num muted small mono col-modified">{f.modified}</td>
             <!-- Icon-only, per the board, so the verbs do not crowd out the
                  names they belong to. Each has a title and an aria-label, and
                  the legend is under the table. -->
@@ -605,6 +605,14 @@
 <style>
   .files-drop {
     position: relative;
+    container-type: inline-size;
+  }
+  /* At the 720px minimum with larger text the names would break mid-word;
+     the date is the column that can go. */
+  @container (max-width: 36rem) {
+    .files-table .col-modified {
+      display: none;
+    }
   }
   .files-drop.dragging {
     min-height: 8rem;
