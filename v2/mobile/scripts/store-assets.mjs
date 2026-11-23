@@ -223,7 +223,7 @@ try {
   const square = iconSvg.replace('<rect width="120" height="120" rx="28"', '<rect width="120" height="120"');
   if (square === iconSvg) throw new Error("icon.svg no longer starts with the rounded background rect; update the store icon render");
   const page = await browser.newPage({ viewport: ICON_SIZE, deviceScaleFactor: 1 });
-  await page.setContent(`<!doctype html><style>html,body{margin:0;background:#c9f24e}svg{display:block;width:${ICON_SIZE.width}px;height:${ICON_SIZE.height}px}</style>${square}`);
+  await page.setContent(`<!doctype html><style>html,body{margin:0;background:#b9e640}svg{display:block;width:${ICON_SIZE.width}px;height:${ICON_SIZE.height}px}</style>${square}`);
   const iconPng = toRgbaPng(await page.screenshot());
   fail(validateImage("icon.png", iconPng, "icon"));
   outputs.set("icon.png", iconPng);
