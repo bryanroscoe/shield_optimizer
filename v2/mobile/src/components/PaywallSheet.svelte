@@ -3,7 +3,6 @@
   import { billing, FREE_RECOVERY_PROMISE, RESTORE_HINT } from "../lib/billing.svelte";
   import { session } from "../lib/session.svelte";
   import ErrorNotice from "./ErrorNotice.svelte";
-  import SupportTiers from "./SupportTiers.svelte";
   // The one Pro upsell surface (design §6.3). Screens open this when a Pro
   // command throws `LOCKED:<feature>` instead of showing a raw error. Buying
   // goes through Google Play; the backend verifies the purchase before Pro
@@ -165,7 +164,6 @@
               Price unavailable
             {/if}
           </button>
-          <SupportTiers onPurchased={() => session.isPro && onClose()} />
           <button
             class="ghost paywall-restore"
             disabled={billing.purchasing || billing.restoring}

@@ -36,6 +36,9 @@ function status(over = {}) {
     available: over.available ?? true,
     play,
     offer: "offer" in over ? over.offer : OFFER,
+    tips_available: (over.distribution ?? "play") === "play" && (over.available ?? true),
+    tip_offers: over.tip_offers ?? [],
+    tip_pending: over.tip_pending ?? false,
     ack_pending: false,
     product_id: "atvopt_pro",
   };
@@ -123,36 +126,14 @@ test("Play build on Free shows Play's localized price, Restore and the free-reco
   assert.ok((await count(page, "billing_refresh")) >= 1, "purchases are checked on launch");
 });
 
+// What an older backend sent; the UI must never offer the retired tiers.
 const TIERS = [
   { product_id: "atvopt_pro_support_1", formatted_price: "€9,99", title: "", name: "", description: "" },
   { product_id: "atvopt_pro_support_2", formatted_price: "€19,99", title: "", name: "", description: "" },
 ];
 
-test("support tiers buy the same Pro through their own Play product, and Buy Pro sends none", async (t) => {
+test("Buy Pro sends no product, and the retired support tiers are never offered", async (t) => {
   const page = await open(t, { ...status(), support_offers: TIERS });
-  await page.evaluate(() => {
-    window.handlers.billing_purchase = () => {
-      window.billingStatus = {
-        ...window.billingStatus,
-        entitlement: "pro",
-        sources: ["play"],
-        play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false },
-      };
-      return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: window.billingStatus };
-    };
-  });
-  const card = licensing(page);
-  await card.getByText("Support me").waitFor();
-  await card.getByRole("button", { name: "Support me with €9,99" }).waitFor();
-  await card.getByRole("button", { name: "Support me with €19,99" }).click();
-  await card.locator(".license-badge", { hasText: "Pro" }).waitFor();
-  const buy = await page.evaluate(() => window.calls.filter((c) => c.command === "billing_purchase").map((c) => c.args));
-  assert.deepEqual(buy, [{ productId: "atvopt_pro_support_2" }]);
-  assert.equal(await card.getByText("Support me").count(), 0, "tiers disappear once Pro is owned");
-});
-
-test("Buy Pro sends no product, and no tiers from Play means no Support me row", async (t) => {
-  const page = await open(t, status());
   await page.evaluate(() => {
     window.handlers.billing_purchase = () => ({ outcome: "canceled", message: "", status: window.billingStatus });
   });
@@ -162,6 +143,124 @@ test("Buy Pro sends no product, and no tiers from Play means no Support me row",
   const args = await page.evaluate(() => window.calls.find((c) => c.command === "billing_purchase").args);
   assert.deepEqual(args, {});
   assert.equal(await card.getByText("Support me").count(), 0);
+  assert.equal(await card.getByRole("button", { name: /€9,99|€19,99/ }).count(), 0);
+  assert.equal(await card.getByRole("button", { name: "Leave a tip" }).count(), 0, "no tip jar before Pro");
+});
+
+const TIPS = [
+  { product_id: "atvopt_tip_2", formatted_price: "€2,00", title: "", name: "", description: "" },
+  { product_id: "atvopt_tip_5", formatted_price: "€5,00", title: "", name: "", description: "" },
+  { product_id: "atvopt_tip_20", formatted_price: "€20,00", title: "", name: "", description: "" },
+];
+const PRO_PLAY = { play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false } };
+
+test("a Pro owner can leave a tip at Play's prices; it says thanks and changes nothing else", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS }));
+  await page.evaluate(() => {
+    window.handlers.billing_tip = () => ({ outcome: "thanked", message: "Thank you for the tip!", status: window.billingStatus });
+  });
+  const card = licensing(page);
+  const link = card.getByRole("button", { name: "Leave a tip" });
+  await link.waitFor();
+  assert.equal(await link.getAttribute("aria-expanded"), "false");
+  assert.equal(await card.getByRole("button", { name: /^Tip / }).count(), 0, "tips stay folded away until asked for");
+  await link.click();
+  assert.equal(await link.getAttribute("aria-expanded"), "true");
+  await card.getByText("Optional. A tip doesn't unlock anything.").waitFor();
+  const prices = await card.getByRole("button", { name: /^Tip / }).allTextContents();
+  assert.deepEqual(prices.map((p) => p.trim()), ["€2,00", "€5,00", "€20,00"], "only the tips Play priced, in order");
+  await card.getByRole("button", { name: "Tip €5,00" }).click();
+  await card.getByText("Thank you for the tip!").waitFor();
+  const tips = await page.evaluate(() => window.calls.filter((c) => c.command === "billing_tip").map((c) => c.args));
+  assert.deepEqual(tips, [{ productId: "atvopt_tip_5" }]);
+  assert.equal(await count(page, "billing_purchase"), 0);
+  assert.equal(await page.evaluate(() => window.calls.filter(purchaseReport).length), 0, "tips aren't reported");
+  assert.equal(await card.locator(".license-badge").textContent(), "Pro");
+  assert.doesNotMatch(await page.locator("body").innerText(), /ko-?fi/i);
+  assert.equal(await page.locator('a[href*="ko-fi"]').count(), 0);
+});
+
+test("no tip jar on Free, in sideload builds, without Play prices or without billing", async (t) => {
+  const cases = [
+    ["Free", status({ tip_offers: TIPS })],
+    ["sideload", status({ ...PRO_PLAY, distribution: "sideload", tip_offers: TIPS })],
+    ["no Play prices", status({ ...PRO_PLAY, tip_offers: [] })],
+    ["billing unavailable", { ...status({ ...PRO_PLAY, available: false, tip_offers: TIPS }), tips_available: true }],
+    ["license-key Pro", status({ license: true, distribution: "sideload", tip_offers: TIPS })],
+  ];
+  for (const [label, initial] of cases) {
+    const page = await open(t, initial);
+    const card = licensing(page);
+    await card.locator(".license-badge").waitFor();
+    await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 50)));
+    assert.equal(await card.getByRole("button", { name: "Leave a tip" }).count(), 0, label);
+    assert.equal(await page.getByRole("button", { name: /^Tip / }).count(), 0, label);
+  }
+});
+
+const TIP_PENDING = "Your tip is pending. Google Play finishes it once the payment clears.";
+
+test("a pending tip says so, grants nothing, and the note clears once Play settles it", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS }), "more", { events: true });
+  await page.evaluate(() => {
+    window.handlers.billing_tip = () => {
+      window.billingStatus = { ...window.billingStatus, tip_pending: true };
+      return { outcome: "pending", message: "Your tip is pending. Google Play finishes it once the payment clears.", status: window.billingStatus };
+    };
+  });
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Leave a tip" }).click();
+  await card.getByRole("button", { name: "Tip €2,00" }).click();
+  await card.getByText(TIP_PENDING).waitFor();
+  assert.equal(await card.locator(".license-badge").textContent(), "Pro");
+  // Play finishes the tip; the next owned-purchase check no longer reports it pending.
+  await page.evaluate(() => {
+    window.billingStatus = { ...window.billingStatus, tip_pending: false };
+    window.emitTauriEvent("purchases-updated");
+  });
+  await card.getByText(TIP_PENDING).waitFor({ state: "detached" });
+  assert.equal(await card.locator(".tip-status").count(), 0, "no stale pending note");
+  assert.equal(await card.locator(".license-badge").textContent(), "Pro");
+});
+
+test("a pending tip is re-checked while the app stays open", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS, tip_pending: true }), "more", { clock: true });
+  const card = licensing(page);
+  await card.getByText(TIP_PENDING).waitFor();
+  await page.evaluate(() => {
+    window.billingStatus = { ...window.billingStatus, tip_pending: false };
+  });
+  const before = await count(page, "billing_refresh");
+  await page.clock.runFor(31_000);
+  await card.getByText(TIP_PENDING).waitFor({ state: "detached" });
+  assert.ok((await count(page, "billing_refresh")) > before);
+  const after = await count(page, "billing_refresh");
+  await page.clock.runFor(61_000);
+  assert.equal(await count(page, "billing_refresh"), after, "polling stops once no tip is pending");
+});
+
+test("a tip still being finished shows as pending on launch", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS, tip_pending: true }));
+  await licensing(page).getByText(TIP_PENDING).waitFor();
+});
+
+test("a failed tip shows Play's reason, and a cancelled one is quiet", async (t) => {
+  const page = await open(t, status({ ...PRO_PLAY, tip_offers: TIPS }));
+  await page.evaluate(() => {
+    window.handlers.billing_tip = ({ productId }) =>
+      productId === "atvopt_tip_2"
+        ? { outcome: "canceled", message: "", status: window.billingStatus }
+        : { outcome: "failed", message: "That tip isn't available right now.", status: window.billingStatus };
+  });
+  const card = licensing(page);
+  await card.getByRole("button", { name: "Leave a tip" }).click();
+  await card.getByRole("button", { name: "Tip €2,00" }).click();
+  await page.waitForFunction(() => window.calls.some((c) => c.command === "billing_tip"));
+  await card.getByRole("button", { name: "Tip €2,00" }).waitFor();
+  assert.equal(await card.locator(".tip-status").count(), 0);
+  await card.getByRole("button", { name: "Tip €20,00" }).click();
+  await card.getByText("That tip isn't available right now.").waitFor();
+  assert.equal(await card.locator(".license-badge").textContent(), "Pro");
 });
 
 test("a pending purchase never unlocks and blocks a second purchase", async (t) => {
@@ -435,23 +534,11 @@ test("a pending purchase that completes while the app stays open unlocks without
   assert.equal(await count(page, "billing_refresh"), after, "polling stops once the purchase is no longer pending");
 });
 
-test("a support tier bought from the paywall closes it and reports no product or price", async (t) => {
-  const page = await open(t, { ...status(), support_offers: TIERS }, "optimize");
-  await page.evaluate(() => {
-    window.handlers.billing_purchase = () => {
-      window.billingStatus = {
-        ...window.billingStatus,
-        entitlement: "pro",
-        sources: ["play"],
-        play: { state: "owned", acknowledged: true, verified_at_ms: 1, cached: false },
-      };
-      return { outcome: "purchased", message: "Pro unlocked. Thank you!", status: window.billingStatus };
-    };
-  });
+test("the paywall sells only Pro: no retired tiers and no tips", async (t) => {
+  const page = await open(t, { ...status({ tip_offers: TIPS }), support_offers: TIERS }, "optimize");
   await page.getByRole("button", { name: "Unlock Pro" }).click();
   const paywall = page.getByRole("dialog", { name: "ATV Optimizer Pro" });
-  await paywall.getByRole("button", { name: "Support me with €9,99" }).click();
-  await paywall.waitFor({ state: "detached" });
-  const report = await page.evaluate(() => window.calls.find(purchaseReport)?.args);
-  assert.deepEqual(report, { action: "other", serial: null, ok: true, errorCode: null, message: null });
+  await paywall.getByRole("button", { name: "Buy Pro · €3,49" }).waitFor();
+  assert.equal(await paywall.getByText(/\bSupport me\b|\btips?\b/i).count(), 0);
+  assert.equal(await paywall.getByRole("button", { name: /€9,99|€19,99|€2,00/ }).count(), 0);
 });

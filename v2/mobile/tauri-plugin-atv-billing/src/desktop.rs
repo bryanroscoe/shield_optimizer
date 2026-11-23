@@ -30,4 +30,8 @@ impl<R: Runtime> Billing<R> {
     pub fn acknowledge(&self, _purchase_token: &str) -> Result<BillingResultResponse> {
         Err(Error::Unsupported)
     }
+
+    pub fn consume(&self, _purchase_token: &str) -> Result<BillingResultResponse> {
+        Err(Error::Unsupported)
+    }
 }

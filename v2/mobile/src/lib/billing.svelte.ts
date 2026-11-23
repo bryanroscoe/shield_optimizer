@@ -6,7 +6,7 @@
 import { api, sendTelemetry } from "./api";
 import { recordAction } from "../../../shared/telemetry";
 import { session } from "./session.svelte";
-import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind } from "./types";
+import type { BillingStatus, PlayOffer, PurchaseOutcome, PurchaseResultKind, TipOutcome } from "./types";
 
 export const FREE_RECOVERY_PROMISE = "Re-enabling apps and emergency recovery are always free.";
 
@@ -38,17 +38,25 @@ export function reportPurchaseOutcome(kind: PurchaseResultKind | undefined): voi
   recordAction(sendTelemetry, "other", null, ok ? { ok } : { ok, code: `billing_${kind ?? "failed"}` });
 }
 
-/// While a purchase is pending, re-check this often (the backend rate-limits to
-/// the same interval). Play delivers a completed pending payment to the app
-/// only as an unsolicited update the adapter doesn't forward, so without this a
-/// user who keeps the app open would stay Free until they leave and return.
+/// While a purchase or tip is pending, re-check this often (the backend
+/// rate-limits to the same interval). Play's update for a cleared payment can
+/// be missed while the app is open, so without this a user who keeps it open
+/// would stay Free (or a tip unfinished) until they leave and return.
 const PENDING_POLL_MS = 30_000;
+
+/// Shown while Google Play still has a tip waiting on payment. It follows the
+/// backend's `tip_pending`, so it goes away once Play settles the tip.
+export const TIP_PENDING_NOTE = "Your tip is pending. Google Play finishes it once the payment clears.";
 
 class BillingStore {
   status = $state<BillingStatus | null>(null);
   purchasing = $state(false);
   /// The product whose purchase sheet is open, so only its button says so.
   purchasingId = $state<string | null>(null);
+  /// The tip whose purchase sheet is open. Tips never change the entitlement.
+  tippingId = $state<string | null>(null);
+  tipMessage = $state("");
+  tipTone = $state<Tone>("info");
   restoring = $state(false);
   message = $state("");
   tone = $state<Tone>("info");
@@ -73,8 +81,17 @@ class BillingStore {
     return this.status?.sources.includes("play") ?? false;
   }
 
-  get supportOffers(): PlayOffer[] {
-    return this.status?.support_offers ?? [];
+  /// Tips Play returned a price for. Offered only to Pro owners in Google
+  /// Play builds; empty everywhere else, so nothing shows.
+  get tipOffers(): PlayOffer[] {
+    const s = this.status;
+    if (!s || s.distribution !== "play" || !s.available || !s.tips_available) return [];
+    if (s.entitlement !== "pro") return [];
+    return s.tip_offers ?? [];
+  }
+
+  get tipPending(): boolean {
+    return this.status?.tip_pending ?? false;
   }
 
   get pending(): boolean {
@@ -93,7 +110,7 @@ class BillingStore {
     if (!isStatus(status)) return false;
     this.status = status;
     session.entitlement = status.entitlement;
-    this.watchPending(status.play.state === "pending");
+    this.watchPending(status.play.state === "pending" || status.tip_pending === true);
     return true;
   }
 
@@ -173,15 +190,15 @@ class BillingStore {
     }
   }
 
-  /// Buy Pro. A support tier's product id buys the same Pro at its higher price.
-  async purchase(productId?: string): Promise<PurchaseOutcome | null> {
-    if (this.purchasing || this.restoring) return null;
+  /// Buy Pro (the standard product; the only one the app sells for Pro).
+  async purchase(): Promise<PurchaseOutcome | null> {
+    if (this.purchasing || this.restoring || this.tippingId) return null;
     this.userChecks++;
     this.purchasing = true;
-    this.purchasingId = productId ?? this.status?.offer?.product_id ?? null;
+    this.purchasingId = this.status?.offer?.product_id ?? null;
     this.say("", "info");
     try {
-      const outcome = await api.billingPurchase(productId);
+      const outcome = await api.billingPurchase();
       this.apply(outcome?.status);
       reportPurchaseOutcome(outcome?.outcome);
       switch (outcome?.outcome) {
@@ -205,6 +222,40 @@ class BillingStore {
     } finally {
       this.purchasing = false;
       this.purchasingId = null;
+    }
+  }
+
+  /// Leave a tip. The backend verifies and finishes it with Google Play; it
+  /// unlocks nothing, so the entitlement is never touched here. Not reported
+  /// to telemetry.
+  async tip(productId: string): Promise<TipOutcome | null> {
+    if (this.tippingId || this.purchasing || this.restoring) return null;
+    this.tippingId = productId;
+    this.tipMessage = "";
+    try {
+      const outcome = await api.billingTip(productId);
+      this.apply(outcome?.status);
+      switch (outcome?.outcome) {
+        case "thanked":
+          this.tipMessage = outcome.message;
+          this.tipTone = "success";
+          break;
+        case "pending":
+          // Shown from `tip_pending` instead, so it clears when Play settles it.
+          break;
+        case "canceled":
+          break;
+        default:
+          this.tipMessage = outcome?.message || "Google Play reported an error. Try again.";
+          this.tipTone = "error";
+      }
+      return outcome ?? null;
+    } catch (e) {
+      this.tipMessage = String(e).replace(/^.*Error:\s*/, "") || "Google Play reported an error. Try again.";
+      this.tipTone = "error";
+      return null;
+    } finally {
+      this.tippingId = null;
     }
   }
 }

@@ -156,7 +156,7 @@
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
   import SupportReports from "../components/SupportReports.svelte";
-  import SupportTiers from "../components/SupportTiers.svelte";
+  import TipJar from "../components/TipJar.svelte";
   import Toast from "../components/Toast.svelte";
 
   let { onDisconnect, navigate }: {
@@ -516,7 +516,6 @@
           </button>
         </div>
         <p class="license-desc restore-hint">{RESTORE_HINT}</p>
-        <SupportTiers />
       {:else if !session.isPro && !billing.licenseKeyEntry}
         <p class="license-desc">{billing.unavailableReason}</p>
       {/if}
@@ -564,6 +563,7 @@
         {/if}
       {:else if session.isPro}
         <p class="license-desc success-color">Thank you for supporting ATV Optimizer.</p>
+        <TipJar />
         {#if license && billing.status?.sources?.includes("license") !== false}
           <dl class="license-details">
             <dt>Licensed to</dt>

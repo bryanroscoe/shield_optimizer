@@ -112,6 +112,15 @@
       ]
     },
     {
+      "command": "billing_tip",
+      "api": "billingTip",
+      "gate": "Pro, Play builds only (a tip unlocks nothing)",
+      "backend": "src-tauri/src/billing_commands.rs",
+      "callers": [
+        "src/lib/billing.svelte.ts"
+      ]
+    },
+    {
       "command": "license_info",
       "api": "licenseInfo",
       "gate": "Free",
