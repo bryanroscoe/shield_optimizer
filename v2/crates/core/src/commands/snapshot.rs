@@ -10,12 +10,10 @@ use crate::adb::{
     parse_installed_packages_output,
 };
 use crate::engine::snapshot::{
-    absent_catalog_packages, compute_apply_plan, is_tracked_setting, tracked_setting_keys,
-    ApplyPlanInputs, Snapshot, SnapshotApplyPlan, SCHEMA_VERSION,
+    absent_catalog_packages, compute_apply_plan, hold_protected, is_tracked_setting,
+    tracked_setting_keys, ApplyPlanInputs, Snapshot, SnapshotApplyPlan, SCHEMA_VERSION,
 };
-use crate::engine::{
-    home_keep_reason, is_never_disable, is_valid_package_name, may_be_home_handler,
-};
+use crate::engine::{home_keep_reason, is_valid_package_name, may_be_home_handler};
 use crate::license::Feature;
 
 use super::launcher::{
@@ -154,11 +152,18 @@ async fn read_confined_snapshot(
 /// Read the device and plan `snap` against it. Preview and apply share it,
 /// so the preview shows what apply runs. Also returns the HOME handlers it
 /// read, which tell apply which packages are Home apps.
+/// What [`plan_for`] read besides the plan, for apply to reuse.
+struct PlanReads {
+    home_handlers: Option<Vec<String>>,
+    /// Read only when the plan still disables something; unknown otherwise.
+    roles: crate::engine::ActiveRoles,
+}
+
 async fn plan_for(
     state: &AppState,
     serial: &str,
     snap: &Snapshot,
-) -> Result<(SnapshotApplyPlan, Option<Vec<String>>), String> {
+) -> Result<(SnapshotApplyPlan, PlanReads), String> {
     let adb = state.adb_snapshot().await;
     let reads = restore_reads(adb.as_ref(), serial).await?;
     // This TV's type alone: another connected TV's failed read must not
@@ -170,7 +175,7 @@ async fn plan_for(
         .ok()
         .and_then(|r| r.package);
     let catalog = state.app_lists.for_device(device_type);
-    let plan = compute_apply_plan(
+    let mut plan = compute_apply_plan(
         snap,
         &ApplyPlanInputs {
             target_device_type: device_type,
@@ -183,7 +188,23 @@ async fn plan_for(
             catalog: &catalog,
         },
     );
-    Ok((plan, reads.home_handlers))
+    // Only a package disable, or the setup helper that follows a stock
+    // launcher's, can reach a role holder. A settings-only restore skips the
+    // read. Apply plans again, so it reads the roles afresh.
+    let roles = if plan.packages_to_disable.is_empty() {
+        crate::engine::ActiveRoles::default()
+    } else {
+        let roles = super::apps::read_active_roles(adb.as_ref(), serial).await;
+        hold_protected(&mut plan, &roles);
+        roles
+    };
+    Ok((
+        plan,
+        PlanReads {
+            home_handlers: reads.home_handlers,
+            roles,
+        },
+    ))
 }
 
 #[derive(Debug, Serialize)]
@@ -519,13 +540,10 @@ async fn disable_from_plan(
                 .push(format!("{pkg:?} (invalid package name in snapshot)"));
             continue;
         }
-        if is_never_disable(pkg) {
-            out.failed.push(format!("{pkg} (refused: brick risk)"));
-            continue;
-        }
-        if crate::engine::active_role_reason(pkg, roles).is_some() {
-            out.failed
-                .push(format!("{pkg} (refused: the keyboard or WebView in use)"));
+        // The plan already holds these back; this is the last check before
+        // the write.
+        if let Some(reason) = crate::engine::removal_refusal_reason(pkg, roles) {
+            out.failed.push(format!("{pkg} (protected: {reason})"));
             continue;
         }
         let mut inventory = None;
@@ -627,7 +645,7 @@ async fn apply_snapshot_impl(
     serial: &str,
     snap: &Snapshot,
 ) -> Result<ApplyResult, String> {
-    let (plan, home_handlers) = plan_for(state, serial, snap).await?;
+    let (plan, reads) = plan_for(state, serial, snap).await?;
     let adb = state.adb_snapshot().await;
     let catalog = launchers();
 
@@ -650,25 +668,30 @@ async fn apply_snapshot_impl(
         .packages_kept
         .iter()
         .map(|k| format!("{} (kept: {})", k.package, k.reason))
+        .chain(
+            plan.packages_protected
+                .iter()
+                .map(|p| format!("{} (protected: {})", p.package, p.reason)),
+        )
         .collect();
     let mut kept: Vec<String> = plan
         .packages_kept
         .iter()
         .map(|k| k.package.clone())
         .collect();
-    // Read once: nothing this loop disables can be the keyboard or WebView,
-    // so the roles it reads stay put.
-    let roles = super::apps::read_active_roles(adb.as_ref(), serial).await;
+    // The plan's one role read serves the whole run: nothing this disables
+    // holds a role, so the roles stay put.
+    let roles = &reads.roles;
     let outcome = disable_from_plan(
         adb.as_ref(),
         serial,
         &plan.packages_to_disable,
         HomeGuard {
-            handlers: home_handlers.as_deref(),
+            handlers: reads.home_handlers.as_deref(),
             current_home: plan.current_launcher.as_deref(),
             kept: kept.clone(),
         },
-        &roles,
+        roles,
     )
     .await;
     let mut packages_disabled = outcome.disabled;
@@ -699,6 +722,7 @@ async fn apply_snapshot_impl(
             serial,
             stock,
             Some(inventory),
+            roles,
             &mut diagnostics,
         )
         .await
@@ -762,6 +786,17 @@ async fn apply_snapshot_impl(
             }
         ));
     }
+    if !plan.packages_protected.is_empty() {
+        summary.push_str(&format!(
+            " Left {} protected {} on.",
+            plan.packages_protected.len(),
+            if plan.packages_protected.len() == 1 {
+                "app"
+            } else {
+                "apps"
+            }
+        ));
+    }
     if !kept.is_empty() {
         summary.push_str(&format!(
             " Kept on so the TV keeps a Home screen: {}.",
@@ -786,15 +821,17 @@ async fn apply_snapshot_impl(
     })
 }
 
-/// Packages kept on for Home ride in `packages_failed` as `pkg (kept: …)` so
-/// every client lists them, but keeping a Home app on is not a failure.
+/// Packages kept on for Home ride in `packages_failed` as `pkg (kept: …)`,
+/// and protected ones as `pkg (protected: …)`, so every client lists them
+/// with the reason. Neither is a failure: the preview named both.
 fn real_failures(packages_failed: &[String], kept: &[String]) -> usize {
     packages_failed
         .iter()
         .filter(|entry| {
-            !kept
-                .iter()
-                .any(|pkg| entry.starts_with(&format!("{pkg} (kept: ")))
+            !entry.contains(" (protected: ")
+                && !kept
+                    .iter()
+                    .any(|pkg| entry.starts_with(&format!("{pkg} (kept: ")))
         })
         .count()
 }
@@ -1183,6 +1220,7 @@ mod tests {
             launcher_not_installed: None,
             launcher_disabled: None,
             packages_kept: vec![],
+            packages_protected: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
             settings_refused: vec![],
@@ -1238,6 +1276,7 @@ mod tests {
             launcher_not_installed: None,
             launcher_disabled: None,
             packages_kept: vec![],
+            packages_protected: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
             settings_refused: vec![],
@@ -1690,6 +1729,7 @@ mod tests {
             launcher_not_installed: not_installed.map(str::to_string),
             launcher_disabled: disabled.map(str::to_string),
             packages_kept: vec![],
+            packages_protected: vec![],
             cross_device_warning: None,
             settings_already_set: vec![],
             settings_refused: vec![],
@@ -1726,12 +1766,13 @@ mod tests {
     fn only_real_failures_are_counted_as_failed() {
         let failed = [
             format!("{STOCK} (kept: only Home app)"),
-            format!("{BLOAT} (refused: brick risk)"),
+            // Named in the preview, so not a failure either.
+            format!("{BLOAT} (protected: Core system service.)"),
             "com.example.gone".to_string(),
             // Not in `kept`, so a look-alike entry still counts.
             "com.example.other (kept: forged)".to_string(),
         ];
-        assert_eq!(super::real_failures(&failed, &[STOCK.to_string()]), 3);
+        assert_eq!(super::real_failures(&failed, &[STOCK.to_string()]), 2);
         assert_eq!(super::real_failures(&[], &[STOCK.to_string()]), 0);
     }
 
@@ -1885,7 +1926,7 @@ mod tests {
         assert!(out
             .failed
             .iter()
-            .all(|f| f.contains("keyboard or WebView in use")));
+            .all(|f| f.contains(" (protected: The TV reports it as the ")));
         let issued = log.lock().unwrap().clone();
         assert!(
             !issued
@@ -1893,6 +1934,77 @@ mod tests {
                 .any(|c| c.contains("com.example.keyboard") || c.contains("com.android.chrome")),
             "{issued:?}"
         );
+    }
+
+    fn role_reads(log: &std::sync::Arc<std::sync::Mutex<Vec<String>>>) -> usize {
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.contains("default_input_method"))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn preview_names_protected_apps_and_apply_refuses_them_with_the_reason() {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        const LEANBACK: &str = "com.google.android.leanback.ime";
+        const KEYBOARD: &str = "com.example.keyboard";
+        let roles = format!(
+            "{KEYBOARD}/.KeyboardService\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\
+             Current WebView package (name, version): (com.android.chrome, 120.0)\n{BATCH_STATUS}0\n"
+        );
+        let mock = restore_tv(&[SETTINGS, LEANBACK, KEYBOARD, BLOAT], &[], &[SETTINGS], "")
+            .on_shell("default_input_method", &roles);
+        let log = mock.shell_log();
+        let state = catalog_state(mock, &[]);
+        let snap = snapshot(None, &[LEANBACK, KEYBOARD, BLOAT]);
+
+        let (plan, _) = super::plan_for(&state, "serial", &snap).await.unwrap();
+        assert_eq!(plan.packages_to_disable, [BLOAT]);
+        let held: Vec<(&str, &str)> = plan
+            .packages_protected
+            .iter()
+            .map(|p| (p.package.as_str(), p.reason.as_str()))
+            .collect();
+        assert_eq!(held.len(), 2, "{held:?}");
+        assert!(held[0].0 == LEANBACK && held[0].1.starts_with("Leanback Keyboard"));
+        assert!(held[1].0 == KEYBOARD && held[1].1.contains("keyboard in use"));
+        assert_eq!(role_reads(&log), 1, "preview reads the roles once");
+
+        let res = apply_snapshot_impl(&state, "serial", &snap).await.unwrap();
+        assert_eq!(res.packages_disabled, [BLOAT]);
+        assert_eq!(res.packages_failed.len(), 2, "{:?}", res.packages_failed);
+        assert!(res.packages_failed[0]
+            .starts_with(&format!("{LEANBACK} (protected: Leanback Keyboard")));
+        assert!(
+            res.packages_failed[1].starts_with(&format!("{KEYBOARD} (protected: The TV reports"))
+        );
+        assert!(
+            res.summary.starts_with("Disabled 1 apps (0 failed)."),
+            "{}",
+            res.summary
+        );
+        assert!(
+            res.summary.contains("Left 2 protected apps on."),
+            "{}",
+            res.summary
+        );
+        assert_eq!(role_reads(&log), 2, "apply reads the roles once, afresh");
+        assert!(!disabled_any(&log, LEANBACK));
+        assert!(!disabled_any(&log, KEYBOARD));
+        assert!(disabled_any(&log, BLOAT));
+    }
+
+    #[tokio::test]
+    async fn a_restore_with_nothing_to_disable_reads_no_roles() {
+        let mock = restore_tv(&[SETTINGS], &[], &[SETTINGS], "");
+        let log = mock.shell_log();
+        let state = catalog_state(mock, &[]);
+        let mut snap = snapshot(None, &[]);
+        snap.settings
+            .insert("global.window_animation_scale".into(), "0.5".into());
+        apply_snapshot_impl(&state, "serial", &snap).await.unwrap();
+        assert_eq!(role_reads(&log), 0);
     }
 
     #[tokio::test]

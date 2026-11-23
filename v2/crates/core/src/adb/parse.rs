@@ -1049,31 +1049,52 @@ pub fn parse_permission_granted(dumpsys_package: &str, permission: &str) -> Opti
 /// The package of the selected keyboard, from
 /// `settings get secure default_input_method`, which prints a component
 /// (`com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME`)
-/// or `null`. Anything that isn't a component of a well-formed package is
-/// `None`: unknown, not "no keyboard".
+/// or `null`. Anything that isn't a whole component (a well-formed package,
+/// then a short `.Class` or fully qualified class name) is `None`: unknown,
+/// not "no keyboard".
 pub fn parse_default_input_method(settings_output: &str) -> Option<String> {
     let line = settings_output
         .lines()
         .map(str::trim)
         .find(|l| !l.is_empty())?;
     let (package, class) = line.split_once('/')?;
-    (!class.is_empty() && crate::engine::is_valid_package_name(package))
+    (crate::engine::is_valid_package_name(package) && is_component_class(class))
         .then(|| package.to_string())
+}
+
+/// A component's class: `.Short` (relative to the package) or `a.b.Class`,
+/// each dot-separated part a Java identifier (`$` for nested classes).
+fn is_component_class(class: &str) -> bool {
+    let name = class.strip_prefix('.').unwrap_or(class);
+    !name.is_empty()
+        && name.split('.').all(|part| {
+            let mut chars = part.chars();
+            chars
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+                && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+        })
 }
 
 /// The package Android uses as WebView now, from `dumpsys webviewupdate`'s
 /// `Current WebView package (name, version): (<package>, <version>)` line.
-/// `None` when the line is missing ("Current WebView package is null", an
-/// error, an unfamiliar build).
+/// `None` when the line is missing or incomplete ("Current WebView package
+/// is null", an error, a truncated read, an unfamiliar build).
 pub fn parse_current_webview_package(dumpsys: &str) -> Option<String> {
     dumpsys.lines().find_map(|line| {
-        let rest = line
+        let record = line
             .trim()
             .strip_prefix("Current WebView package (name, version):")?
             .trim()
-            .strip_prefix('(')?;
-        let package = rest.split(',').next()?.trim();
-        crate::engine::is_valid_package_name(package).then(|| package.to_string())
+            .strip_prefix('(')?
+            .strip_suffix(')')?;
+        let (package, version) = record.split_once(',')?;
+        let package = package.trim();
+        let version = version.trim();
+        (crate::engine::is_valid_package_name(package)
+            && !version.is_empty()
+            && !version.contains(['(', ')', ',']))
+        .then(|| package.to_string())
     })
 }
 
@@ -1093,10 +1114,17 @@ mod tests {
             parse_default_input_method(&format!("{value}\n")).as_deref(),
             Some("com.google.android.inputmethod.latin")
         );
-        assert_eq!(
-            parse_default_input_method("com.example.ime/.Service\n").as_deref(),
-            Some("com.example.ime")
-        );
+        for valid in [
+            "com.example.ime/.Service\n",
+            "com.example.ime/com.example.ime.Service",
+            "com.example.ime/.latin.LatinIME$Inner",
+        ] {
+            assert_eq!(
+                parse_default_input_method(valid).as_deref(),
+                Some("com.example.ime"),
+                "{valid:?}"
+            );
+        }
         for unknown in [
             "null\n",
             "",
@@ -1104,6 +1132,14 @@ mod tests {
             "garbage",
             "bad name/.Svc",
             "com.example.ime/",
+            "com.example.ime//",
+            "com.example.ime/.",
+            "com.example.ime/..Svc",
+            "com.example.ime/Svc.",
+            "com.example.ime/.Svc/extra",
+            "com.example.ime/.1Svc",
+            "com.example.ime/.Svc trailing",
+            "/.Svc",
         ] {
             assert_eq!(parse_default_input_method(unknown), None, "{unknown:?}");
         }
@@ -1127,6 +1163,11 @@ mod tests {
             "",
             "Can't find service: webviewupdate\n",
             "  Current WebView package (name, version): (, )\n",
+            "  Current WebView package (name, version): (com.example.webview\n",
+            "  Current WebView package (name, version): (com.example.webview, 1.0\n",
+            "  Current WebView package (name, version): (com.example.webview)\n",
+            "  Current WebView package (name, version): (com.example.webview, )\n",
+            "  Current WebView package (name, version): com.example.webview, 1.0)\n",
         ] {
             assert_eq!(parse_current_webview_package(unknown), None, "{unknown:?}");
         }

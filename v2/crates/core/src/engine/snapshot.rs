@@ -11,6 +11,7 @@ use thiserror::Error;
 
 use super::detection::DeviceType;
 use super::launcher::{plan_home_safe_disables, LauncherCatalog};
+use super::safety::{removal_refusal_reason, ActiveRoles};
 use super::types::{AppEntry, RiskTier};
 
 /// Current snapshot schema version. Bump when the structure changes; the
@@ -206,6 +207,11 @@ pub struct SnapshotApplyPlan {
     /// Home screen. Not in `packages_to_disable`.
     #[serde(default)]
     pub packages_kept: Vec<KeptPackage>,
+    /// Packages the snapshot lists as disabled that the safety rules refuse:
+    /// on the protected list, or the keyboard or WebView the TV reports in
+    /// use. Not in `packages_to_disable`; `reason` is the package's own.
+    #[serde(default)]
+    pub packages_protected: Vec<KeptPackage>,
     /// Settings whose current device value differs from the snapshot —
     /// these will be written. Same key format as `Snapshot::settings`.
     pub settings_to_write: BTreeMap<String, String>,
@@ -376,7 +382,7 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         })
         .collect();
 
-    SnapshotApplyPlan {
+    let mut plan = SnapshotApplyPlan {
         packages_to_disable: to_disable,
         packages_absent_in_snapshot: Vec::new(),
         packages_absent_skipped,
@@ -387,13 +393,36 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         launcher_not_installed,
         launcher_disabled,
         packages_kept,
+        packages_protected: Vec::new(),
         settings_to_write,
         settings_to_delete,
         settings_already_set,
         settings_refused,
         current_values,
         cross_device_warning,
-    }
+    };
+    hold_protected(&mut plan, &ActiveRoles::default());
+    plan
+}
+
+/// Move every planned disable the safety rules refuse out of
+/// `packages_to_disable` and into `packages_protected`, with its reason.
+/// [`compute_apply_plan`] applies the protected list; the host layer calls
+/// this again with the roles it read from the TV.
+pub fn hold_protected(plan: &mut SnapshotApplyPlan, roles: &ActiveRoles) {
+    let mut held = Vec::new();
+    plan.packages_to_disable
+        .retain(|pkg| match removal_refusal_reason(pkg, roles) {
+            Some(reason) => {
+                held.push(KeptPackage {
+                    package: pkg.clone(),
+                    reason: reason.to_string(),
+                });
+                false
+            }
+            None => true,
+        });
+    plan.packages_protected.extend(held);
 }
 
 #[cfg(test)]

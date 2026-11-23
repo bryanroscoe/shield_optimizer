@@ -46,6 +46,18 @@ async fn shield_profile_lists_as_a_shield() {
 }
 
 #[tokio::test]
+async fn the_simulated_shield_reports_its_keyboard_and_webview() {
+    let sim = shield_world();
+    let roles = crate::commands::apps::read_active_roles(&sim, "192.0.2.1:5555").await;
+    assert_eq!(
+        roles.keyboard.as_deref(),
+        Some("com.google.android.inputmethod.latin")
+    );
+    assert_eq!(roles.webview.as_deref(), Some("com.google.android.webview"));
+    assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}
+
+#[tokio::test]
 async fn a_phone_answering_no_to_leanback_still_profiles() {
     let sim = SimulatedAdb::empty();
     {

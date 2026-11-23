@@ -3720,6 +3720,7 @@
           preview.packages_not_installed.length +
           preview.settings_already_set.length +
           preview.packages_kept.length +
+          (preview.packages_protected ?? []).length +
           (launcherUnchanged || launcherSkip ? 1 : 0)}
         <p class="rail-label">Restore plan — preview before running</p>
         {#if preview.cross_device_warning}
@@ -3781,6 +3782,13 @@
                   <td class="plan-next">→ kept on: {kept.reason}</td>
                 </tr>
               {/each}
+              {#each preview.packages_protected ?? [] as held (held.package)}
+                <tr class="plan-noop" data-plan-item="protected">
+                  <td class="mono"><BreakableId text={held.package} /></td>
+                  <td class="plan-now">ENABLED</td>
+                  <td class="plan-next">→ protected, left on: {held.reason}</td>
+                </tr>
+              {/each}
               {#each preview.settings_already_set as key (key)}
                 <tr class="plan-noop">
                   <td class="mono"><BreakableId text={key} /></td>
@@ -3837,6 +3845,9 @@
                 <li><strong>{applyResult.packages_disabled.length}</strong> apps disabled</li>
                 {#if outcome.kept.length > 0}
                   <li><PackageOutcomeList label="Kept on:" items={outcome.kept} reasonsLabel="Why they were kept on" /></li>
+                {/if}
+                {#if outcome.protected.length > 0}
+                  <li><PackageOutcomeList label="Protected, left on:" items={outcome.protected} reasonsLabel="Why they are protected" /></li>
                 {/if}
                 {#if outcome.failed.length > 0}
                   <li><PackageOutcomeList label={`${outcome.failed.length} failed:`} items={outcome.failed.map(failureOutcome)} warn reasonsLabel="Why they failed" /></li>

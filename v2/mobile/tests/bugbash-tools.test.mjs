@@ -151,6 +151,23 @@ test("a disabled target launcher and kept Home apps are named with the plan's re
   assert.equal(preview.launcherSkipNote(plan()), null);
 });
 
+test("protected apps are named in the preview and in the restore outcome with their reason", () => {
+  const reason = "Leanback Keyboard, an Android TV system keyboard. Disabling may remove on-screen text input.";
+  const held = plan({ packages_protected: [{ package: "com.google.android.leanback.ime", reason }] });
+  const { acting, unchanged } = preview.previewRows(held, SNAP.launcher);
+  assert.ok(!acting.some((row) => row.item === "com.google.android.leanback.ime"));
+  assert.ok(unchanged.some((row) => row.item === "com.google.android.leanback.ime" && row.result === `Protected, left on: ${reason}`));
+  assert.match(preview.previewSummary(held), / · 1 protected/);
+  assert.doesNotMatch(preview.previewSummary(plan()), /protected/);
+  const outcome = preview.restoreOutcome({
+    packages_disabled: ["com.bloat"],
+    packages_failed: [`com.google.android.leanback.ime (protected: ${reason})`],
+    launcher_set: true, launcher_message: null, settings_written: [], settings_deleted: [], settings_failed: [],
+    summary: "Disabled 1 apps (0 failed).",
+  });
+  assert.deepEqual(outcome, [{ item: "com.google.android.leanback.ime", reason: `Protected, left on: ${reason}` }]);
+});
+
 test("snapshot delete names the snapshot and keeps the TV-unaffected sentence", async (t) => {
   const page = await open(t, "snapshots", {
     setup: () => { window.snapshots = [{
@@ -219,6 +236,32 @@ test("a restore preview that resolves after a redial is never shown", async (t) 
   });
   await page.getByText("The TV connection changed while the plan was loading. Preview again.", { exact: true }).waitFor();
   assert.equal(await page.locator(".plan-card").count(), 0);
+});
+
+test("restore preview lists a protected app as left on, with its reason", async (t) => {
+  const reason = "Leanback Keyboard, an Android TV system keyboard. Disabling may remove on-screen text input.";
+  const page = await open(t, "snapshots", {
+    setup: () => {
+      window.snapshots = [{
+        path: "/data/s.json", filename: "s.json", saved_at: "2026-10-01T10:00:00Z", label: "Before tweaks",
+        device_name: "A", device_serial: "A:5555", device_type: "shield", disabled_count: 2, settings_count: 0,
+        launcher: null,
+      }];
+      window.handlers.preview_apply = () => ({
+        cross_device_warning: null, packages_to_disable: ["com.bloat"], packages_already_disabled: [],
+        packages_not_installed: [], launcher_to_set: null, current_launcher: null, launcher_not_installed: null,
+        launcher_disabled: null, packages_kept: [],
+        packages_protected: [{ package: "com.google.android.leanback.ime", reason: "Leanback Keyboard, an Android TV system keyboard. Disabling may remove on-screen text input." }],
+        settings_to_write: {}, settings_to_delete: [], settings_already_set: [], current_values: {},
+      });
+    },
+  });
+  await page.getByRole("button", { name: "Preview restore" }).click();
+  const card = page.locator(".plan-card");
+  await card.getByText(`Protected, left on: ${reason}`, { exact: true }).waitFor();
+  assert.match(await card.locator(".plan-summary").innerText(), /1 to disable .* · 1 protected/);
+  const evidence = process.env.PROTECTED_RESTORE_EVIDENCE;
+  if (evidence) await page.screenshot({ path: `${evidence}/mobile-restore-preview-protected.png`, fullPage: true });
 });
 
 test("restore preview shows a skipped Home app beside Restore and the result lists what didn't restore", async (t) => {

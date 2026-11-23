@@ -13,7 +13,7 @@ use crate::adb::lifetimes::{ClosedAdb, LeasedAdb};
 use crate::adb::remote_input::SERVER_JAR_RESOURCE_PATH;
 use crate::adb::RemoteInputSession;
 use crate::adb::{AdbDriver, AdbError, Lease, Leases, ServerStop};
-use crate::engine::{AppListBundle, SupportRules};
+use crate::engine::{ActiveRoles, AppListBundle, SupportRules};
 use crate::license::{Entitlement, Feature, LicenseInfo};
 use crate::telemetry::Telemetry;
 
@@ -58,6 +58,10 @@ pub struct AppState {
     /// Names for listed TVs adb cannot query yet. Off unless the app enables
     /// it, so tests and the simulated-device harness never reach the network.
     cast_names: Option<Arc<crate::net::CastNames>>,
+    /// The keyboard and WebView each TV reported, with when, so the per-row
+    /// mutations of one Optimize run share a read. See
+    /// [`crate::commands::apps::active_roles`].
+    role_cache: std::sync::Mutex<HashMap<String, (std::time::Instant, ActiveRoles)>>,
 }
 
 impl AppState {
@@ -79,6 +83,7 @@ impl AppState {
             support_rules: std::sync::RwLock::new(crate::commands::loader::embedded_support_rules()),
             telemetry: Telemetry::disabled(),
             cast_names: None,
+            role_cache: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -350,6 +355,31 @@ impl AppState {
             )
             .await
     }
+    /// The roles read for `serial` less than `max_age` ago.
+    pub(crate) fn cached_roles(
+        &self,
+        serial: &str,
+        max_age: std::time::Duration,
+    ) -> Option<ActiveRoles> {
+        let cache = self.role_cache.lock().unwrap_or_else(|p| p.into_inner());
+        cache
+            .get(serial)
+            .filter(|(at, _)| at.elapsed() < max_age)
+            .map(|(_, roles)| roles.clone())
+    }
+
+    pub(crate) fn store_roles(&self, serial: &str, roles: ActiveRoles) {
+        let mut cache = self.role_cache.lock().unwrap_or_else(|p| p.into_inner());
+        cache.insert(serial.to_string(), (std::time::Instant::now(), roles));
+    }
+
+    /// Drop the cached roles for `serial`: it disconnected, or something
+    /// outside the app's own checks may have changed its keyboard or WebView.
+    pub fn forget_roles(&self, serial: &str) {
+        let mut cache = self.role_cache.lock().unwrap_or_else(|p| p.into_inner());
+        cache.remove(serial);
+    }
+
     pub async fn drop_remote_session(&self, serial: &str) {
         if let Err(error) = self.remote_registry.close(serial, None).await {
             tracing::warn!(%error,"Remote cleanup incomplete");

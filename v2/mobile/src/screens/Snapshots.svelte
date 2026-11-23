@@ -464,7 +464,7 @@
               <p class="plan-empty">
                 {(pending.plan.packages_absent_skipped?.length ?? 0) > 0
                   ? "Nothing to change. Recorded absent apps are skipped."
-                  : homeSkip || kept.length > 0 || refused.length > 0
+                  : homeSkip || kept.length > 0 || refused.length > 0 || (pending.plan.packages_protected?.length ?? 0) > 0
                   ? "Nothing to change. Everything else already matches the snapshot."
                   : "This TV already matches the snapshot — nothing to change."}
               </p>

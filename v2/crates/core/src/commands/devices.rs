@@ -388,6 +388,7 @@ pub fn native_not_allowed_message(target: &str) -> String {
 
 pub async fn connect_device_impl(state: &AppState, address: &str) -> Result<ConnectResult, String> {
     let target = normalize_connect_address(address)?;
+    state.forget_roles(&target);
     let adb = state.adb_snapshot().await;
     let out = match adb.raw(&["connect", &target]).await {
         Ok(out) => out,
@@ -512,6 +513,7 @@ pub async fn disconnect_device(
     // A live remote-input session holds an open socket + forward to this
     // device — tear it down before dropping the connection.
     state.drop_remote_session(&serial).await;
+    state.forget_roles(&serial);
     let adb = state.adb_snapshot().await;
     let out = match adb.raw(&["disconnect", &serial]).await {
         Ok(out) => out,
@@ -572,6 +574,7 @@ pub async fn forget_device(
 }
 
 pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<ForgetResult, String> {
+    state.forget_roles(serial);
     let adb = state.adb_snapshot().await;
     if native_scan_has_endpoint(&*adb, serial).await {
         adb.raw(&["disconnect", serial])
@@ -614,6 +617,7 @@ pub async fn forget_device_impl(state: &AppState, serial: &str) -> Result<Forget
     let mut failures = Vec::new();
     for target in &targets {
         state.drop_remote_session(target).await;
+        state.forget_roles(target);
         match adb.raw(&["disconnect", target]).await {
             Ok(out) if out.success() && !out.combined().to_lowercase().contains("error") => {
                 disconnected.push(target.clone())
@@ -691,6 +695,7 @@ pub async fn reprompt_device_impl(
     state: &AppState,
     serial: &str,
 ) -> Result<RepromptResult, String> {
+    state.forget_roles(serial);
     let adb = state.adb_snapshot().await;
     let native_attempt = native_scan_has_endpoint(&*adb, serial).await;
     let entry = if native_attempt {

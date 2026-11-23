@@ -204,9 +204,9 @@ pub struct ActiveRoles {
     pub webview: Option<String>,
 }
 
-const ACTIVE_KEYBOARD_REASON: &str = "It's the keyboard this TV uses now. Removing it can leave you no way to type. Choose another keyboard in Settings first.";
+const ACTIVE_KEYBOARD_REASON: &str = "The TV reports it as the keyboard in use. Removing it may leave you no way to type. Choose another keyboard in Settings first.";
 
-const ACTIVE_WEBVIEW_REASON: &str = "It's the WebView this TV uses now, so apps that show web pages or sign-in screens would break. Choose another WebView implementation in Developer options first.";
+const ACTIVE_WEBVIEW_REASON: &str = "The TV reports it as the WebView in use. Removing it may break apps that show web pages or sign-in screens. Choose another WebView in Developer options first.";
 
 /// Why `package` must stay because of a role it holds right now, or `None`.
 /// Checked after the protected list, so it only ever adds a refusal.
@@ -218,6 +218,13 @@ pub fn active_role_reason(package: &str, roles: &ActiveRoles) -> Option<&'static
         return Some(ACTIVE_WEBVIEW_REASON);
     }
     None
+}
+
+/// Why `package` must not be disabled or uninstalled: it is on the protected
+/// list, or the TV reports it holds the keyboard or WebView role. The one
+/// decision every typed removal path asks.
+pub fn removal_refusal_reason(package: &str, roles: &ActiveRoles) -> Option<&'static str> {
+    never_disable_reason(package).or_else(|| active_role_reason(package, roles))
 }
 
 /// Destructive package verbs. Each one takes a package away from the user in a
@@ -395,6 +402,10 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
         "Network Stack. Runs Wi-Fi and Ethernet connections; disabling can take the TV offline and cut this app's connection.",
     ),
     (
+        "com.android.networkstack",
+        "Network Stack. Runs Wi-Fi and Ethernet connections; disabling can take the TV offline and cut this app's connection.",
+    ),
+    (
         "com.android.wifi.resources",
         "Wi-Fi Resources. The Wi-Fi service's configuration; disabling can break Wi-Fi and cut this app's connection.",
     ),
@@ -432,11 +443,11 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     //     screens, and Android has nothing to fall back to without it ---
     (
         "com.google.android.webview",
-        "Android System WebView. Apps use it for web pages and sign-in screens; disabling breaks them.",
+        "Android System WebView. Apps use it for web pages and sign-in screens; disabling may break them.",
     ),
     (
         "com.android.webview",
-        "Android System WebView. Apps use it for web pages and sign-in screens; disabling breaks them.",
+        "Android System WebView. Apps use it for web pages and sign-in screens; disabling may break them.",
     ),
     // --- Persistent system bridges ---
     (
@@ -463,7 +474,7 @@ const NEVER_DISABLE: &[(&str, &str)] = &[
     ),
     (
         "com.google.android.leanback.ime",
-        "Leanback Keyboard — the Android TV system keyboard. Disabling removes on-screen text input.",
+        "Leanback Keyboard, an Android TV system keyboard. Disabling may remove on-screen text input.",
     ),
     (
         "com.android.inputmethod.latin",
@@ -777,6 +788,7 @@ mod tests {
         for package in [
             "com.android.networkstack.inprocess",
             "com.google.android.networkstack",
+            "com.android.networkstack",
             "com.android.wifi.resources",
             "com.google.android.wifi.resources",
         ] {
@@ -877,6 +889,16 @@ mod tests {
             Some(ACTIVE_WEBVIEW_REASON)
         );
         assert_eq!(active_role_reason("com.example.other", &roles), None);
+        // The shared decision puts the protected list first.
+        assert_eq!(
+            removal_refusal_reason("com.example.keyboard", &roles),
+            Some(ACTIVE_KEYBOARD_REASON)
+        );
+        assert!(
+            removal_refusal_reason("com.google.android.webview", &ActiveRoles::default())
+                .is_some_and(|r| r.starts_with("Android System WebView"))
+        );
+        assert_eq!(removal_refusal_reason("com.example.other", &roles), None);
         // Unknown roles refuse nothing.
         assert_eq!(
             active_role_reason("com.example.keyboard", &ActiveRoles::default()),

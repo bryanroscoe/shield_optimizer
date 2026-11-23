@@ -1241,6 +1241,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         launcher_not_installed: null,
         launcher_disabled: null,
         packages_kept: [],
+        packages_protected: [],
         settings_to_write: {
           "global.hdmi_control_enabled": "0",
           "secure.match_content_frame_rate": "1",

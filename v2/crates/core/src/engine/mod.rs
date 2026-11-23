@@ -39,7 +39,8 @@ pub use media::{
 pub use optimize::{compute_plan, OptimizeInputs, OptimizePlan};
 pub use safety::{
     active_role_reason, classify as classify_safety, classify_with_catalog, classify_with_sources,
-    is_never_disable, shell_command_blocked, ActiveRoles, CatalogVerdict, Safety, SafetySource,
+    is_never_disable, removal_refusal_reason, shell_command_blocked, ActiveRoles, CatalogVerdict,
+    Safety, SafetySource,
 };
 pub use snapshot::{Snapshot, SnapshotApplyPlan, SnapshotError, SCHEMA_VERSION};
 pub use support::{classify_support, parse_support_rules, SupportInfo, SupportRules, SupportTier};

@@ -20,16 +20,24 @@ export function homeAlreadyMatches(plan: SnapshotApplyPlan, snapshotLauncher: st
 }
 
 /// A restore reports packages it kept on for Home inside `packages_failed` as
-/// `pkg (kept: reason)`; those are not failures, so they are listed apart.
-export function splitRestoreFailures(res: ApplyResult): { kept: KeptPackage[]; failed: string[] } {
+/// `pkg (kept: reason)`, and protected ones as `pkg (protected: reason)`;
+/// neither is a failure, so they are listed apart.
+export function splitRestoreFailures(res: ApplyResult): {
+  kept: KeptPackage[];
+  protected: KeptPackage[];
+  failed: string[];
+} {
   const kept: KeptPackage[] = [];
+  const held: KeptPackage[] = [];
   const failed: string[] = [];
   for (const entry of res.packages_failed) {
-    const m = /^(\S+) \(kept: ([^)]+)\)$/.exec(entry.trim());
-    if (m) kept.push({ package: m[1], reason: m[2] });
+    const k = /^(\S+) \(kept: ([^)]+)\)$/.exec(entry.trim());
+    const p = /^(\S+) \(protected: ([\s\S]+)\)$/.exec(entry.trim());
+    if (k) kept.push({ package: k[1], reason: k[2] });
+    else if (p) held.push({ package: p[1], reason: p[2] });
     else failed.push(entry);
   }
-  return { kept, failed };
+  return { kept, protected: held, failed };
 }
 
 /// A failure entry is `pkg (why)`; split it so the list can show the name

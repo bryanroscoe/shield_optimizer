@@ -530,9 +530,10 @@ pub(crate) async fn disable_package_impl(
     // same guard applies here. A third-party launcher is only Caution to the
     // safety rules, so nothing else stops it.
     state.require_pro(Feature::CuratedDebloat)?;
-    if let Err(refusal) = guard_active_roles(state, serial, package, "disable").await {
-        return Ok(refusal);
-    }
+    let roles = match guard_active_roles(state, serial, package, "disable").await {
+        Ok(roles) => roles,
+        Err(refusal) => return Ok(refusal),
+    };
     let handlers = match guard_last_home_handler(state, serial, package, "disable").await {
         Ok(handlers) => handlers,
         Err(refusal) => return Ok(refusal),
@@ -587,6 +588,7 @@ pub(crate) async fn disable_package_impl(
             serial,
             package,
             inventory.as_deref(),
+            &roles,
             &mut diagnostics,
         )
         .await
@@ -617,47 +619,71 @@ pub(crate) async fn disable_package_impl(
     Ok(result)
 }
 
-/// Who holds the keyboard and WebView roles now, in one round trip. A read
-/// that fails leaves its role unknown, which refuses nothing (see
-/// [`ActiveRoles`]).
-pub(crate) async fn read_active_roles(
+/// How long one role read answers later mutations on the same TV. Optimize
+/// sends one command per row, so a run shares a read; a standalone action
+/// still sees the TV as it was a moment ago.
+pub(crate) const ROLE_READ_MAX_AGE: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Who holds the keyboard and WebView roles now, in one round trip. `None`
+/// when the read failed outright; a role the TV didn't name is `None` inside.
+async fn try_read_active_roles(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
-) -> ActiveRoles {
+) -> Option<ActiveRoles> {
     let cmd = checked_batch_command(&[
         "settings --user 0 get secure default_input_method",
         "dumpsys webviewupdate",
     ]);
-    let sections = match adb.shell(serial, &cmd).await {
-        Ok(out) => parse_checked_batch(&out.stdout, 2, &[]).ok(),
-        Err(_) => None,
-    };
-    let Some(sections) = sections else {
-        return ActiveRoles::default();
-    };
-    ActiveRoles {
+    let out = adb.shell(serial, &cmd).await.ok()?;
+    let sections = parse_checked_batch(&out.stdout, 2, &[]).ok()?;
+    Some(ActiveRoles {
         keyboard: parse_default_input_method(&sections[0]),
         webview: parse_current_webview_package(&sections[1]),
+    })
+}
+
+/// A fresh role read. A read that fails leaves its role unknown, which
+/// refuses nothing (see [`ActiveRoles`]).
+pub(crate) async fn read_active_roles(
+    adb: &dyn crate::adb::AdbDriver,
+    serial: &str,
+) -> ActiveRoles {
+    try_read_active_roles(adb, serial).await.unwrap_or_default()
+}
+
+/// A role read at most [`ROLE_READ_MAX_AGE`] old. Only a read that answered
+/// is kept, so a failed one is retried by the next action.
+pub(crate) async fn active_roles(state: &AppState, serial: &str) -> ActiveRoles {
+    if let Some(roles) = state.cached_roles(serial, ROLE_READ_MAX_AGE) {
+        return roles;
+    }
+    let adb = state.adb_snapshot().await;
+    match try_read_active_roles(&*adb, serial).await {
+        Some(roles) => {
+            state.store_roles(serial, roles.clone());
+            roles
+        }
+        None => ActiveRoles::default(),
     }
 }
 
-/// `Err(refusal)` when `package` is the keyboard or WebView the device uses
-/// right now. Read at the moment of the change: the role can move between
-/// the list being shown and the button being pressed.
+/// `Err(refusal)` when `package` is the keyboard or WebView the device
+/// reports in use, `Ok` with the roles read otherwise. Read close to the
+/// change: the role can move between the list being shown and the button
+/// being pressed.
 async fn guard_active_roles(
     state: &AppState,
     serial: &str,
     package: &str,
     verb: &str,
-) -> Result<(), ActionResult> {
-    let adb = state.adb_snapshot().await;
-    let roles = read_active_roles(&*adb, serial).await;
+) -> Result<ActiveRoles, ActionResult> {
+    let roles = active_roles(state, serial).await;
     match active_role_reason(package, &roles) {
         Some(reason) => Err(ActionResult {
             ok: false,
             message: format!("Refusing to {verb} {package}: {reason}"),
         }),
-        None => Ok(()),
+        None => Ok(roles),
     }
 }
 
@@ -1400,8 +1426,8 @@ mod tests {
     async fn the_selected_keyboard_and_webview_are_refused_at_mutation_time() {
         use crate::commands::test_support::{state_with, MockAdb};
         for (package, needle) in [
-            ("com.example.keyboard", "keyboard this TV uses now"),
-            ("com.android.chrome", "WebView this TV uses now"),
+            ("com.example.keyboard", "keyboard in use"),
+            ("com.android.chrome", "WebView in use"),
         ] {
             let mock = MockAdb::default().on_shell(
                 "default_input_method",
@@ -1476,6 +1502,67 @@ mod tests {
             !result.ok,
             "the static list still protects the stock WebView"
         );
+    }
+
+    #[tokio::test]
+    async fn one_role_read_serves_a_run_of_mutations() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default().on_shell(
+            "default_input_method",
+            &roles_reply("com.example.keyboard/.KeyboardService", WEBVIEW_DUMP),
+        );
+        let log = mock.shell_log();
+        let reads = || {
+            log.lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.contains("default_input_method"))
+                .count()
+        };
+        let state = state_with(mock);
+        for package in ["com.example.one", "com.example.two", "com.example.three"] {
+            let result = disable_package_impl(&state, "serial", package)
+                .await
+                .unwrap();
+            assert!(result.ok, "{}", result.message);
+        }
+        let _ = uninstall_package_impl(&state, "serial", "com.example.four").await;
+        let refused = disable_package_impl(&state, "serial", "com.example.keyboard")
+            .await
+            .unwrap();
+        assert!(!refused.ok, "the shared read still refuses the keyboard");
+        assert_eq!(reads(), 1, "one read for the whole run");
+        // Another TV gets its own read.
+        disable_package_impl(&state, "other", "com.example.one")
+            .await
+            .unwrap();
+        assert_eq!(reads(), 2);
+        // A disconnect drops the cached read.
+        state.forget_roles("serial");
+        disable_package_impl(&state, "serial", "com.example.five")
+            .await
+            .unwrap();
+        assert_eq!(reads(), 3);
+    }
+
+    #[tokio::test]
+    async fn a_failed_role_read_is_not_reused() {
+        use crate::commands::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default().on_shell_err("default_input_method", "offline");
+        let log = mock.shell_log();
+        let state = state_with(mock);
+        for package in ["com.example.one", "com.example.two"] {
+            disable_package_impl(&state, "serial", package)
+                .await
+                .unwrap();
+        }
+        let reads = log
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.contains("default_input_method"))
+            .count();
+        assert_eq!(reads, 2);
     }
 
     #[tokio::test]

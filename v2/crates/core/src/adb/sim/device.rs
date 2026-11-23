@@ -675,6 +675,7 @@ impl Device {
             "activity" if args.len() == 2 && args[1] == "settings" => {
                 "ACTIVITY MANAGER SETTINGS (dumpsys activity settings) activity_manager_constants:\n  max_cached_processes=32\n\n  CUR_MAX_CACHED_PROCESSES=32\n  CUR_MAX_EMPTY_PROCESSES=16\n".into()
             }
+            "webviewupdate" if args.len() == 1 => self.webview_update(),
             _ => return None,
         }))
     }
@@ -698,6 +699,24 @@ impl Device {
             })
             .map(|l| format!("{l}\n"))
             .collect()
+    }
+
+    /// AOSP's WebViewUpdateService report, for a profile with no capture of
+    /// it: the first stock provider this TV has installed and enabled, or
+    /// null when it has none.
+    fn webview_update(&self) -> String {
+        let current = [
+            "com.google.android.webview",
+            "com.android.webview",
+            "com.android.chrome",
+        ]
+        .into_iter()
+        .find(|pkg| self.package(pkg).is_some_and(|p| p.installed && p.enabled));
+        let line = match current {
+            Some(pkg) => format!("  Current WebView package (name, version): ({pkg}, 1.0)\n"),
+            None => "  Current WebView package is null\n".to_string(),
+        };
+        format!("Current WebView Update Service state\n  Multiprocess enabled: true\n{line}")
     }
 
     fn dumpsys_package(&self, pkg: &str) -> String {

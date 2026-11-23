@@ -217,6 +217,7 @@
       <strong>{settingKeys.length}</strong> setting{settingKeys.length === 1 ? "" : "s"}
       to change · <strong>{plan.settings_to_delete.length}</strong> to reset
       {#if plan.packages_kept.length > 0}· {plan.packages_kept.length} kept on for Home{/if}
+      {#if (plan.packages_protected ?? []).length > 0}· {(plan.packages_protected ?? []).length} protected{/if}
       {#if plan.launcher_to_set}· Home app{/if}
     </div>
 
@@ -242,6 +243,9 @@
         {/if}
         {#each plan.packages_kept as kept (kept.package)}
           <tr class="dim" data-plan-item="kept"><td class="mono small">{kept.package}</td><td class="mono small">enabled</td><td><span class="terminal-reason">Kept on: {kept.reason}</span></td></tr>
+        {/each}
+        {#each plan.packages_protected ?? [] as held (held.package)}
+          <tr class="dim" data-plan-item="protected"><td class="mono small">{held.package}</td><td class="mono small">enabled</td><td><span class="terminal-reason">Protected, left on: {held.reason}</span></td></tr>
         {/each}
         {#each plan.settings_already_set as k (k)}
           <tr class="dim"><td class="mono small">{k}</td><td class="mono small">{nowValues[k] ?? "unset"}</td><td><span class="terminal-reason">Already set</span></td></tr>
@@ -271,6 +275,9 @@
         {/if}
         {#if outcome.kept.length > 0}
           <PackageOutcomeList label="Kept on:" items={outcome.kept} reasonsLabel="Why they were kept on" />
+        {/if}
+        {#if outcome.protected.length > 0}
+          <PackageOutcomeList label="Protected, left on:" items={outcome.protected} reasonsLabel="Why they are protected" />
         {/if}
         {#if outcome.failed.length > 0}
           <PackageOutcomeList label={`${outcome.failed.length} failed:`} items={outcome.failed.map(failureOutcome)} warn reasonsLabel="Why they failed" />
