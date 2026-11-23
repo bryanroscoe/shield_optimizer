@@ -128,6 +128,8 @@ export interface HealthReport {
 export interface ActionResult {
   ok: boolean;
   message: string;
+  /// Not ok, yet part of the change landed (stock off, its setup helper on).
+  partial?: boolean;
 }
 
 export interface ConnectResult {
@@ -411,6 +413,10 @@ export interface SnapshotApplyPlan {
   /// Listed as disabled in the snapshot but kept on so the TV keeps a Home
   /// screen; `reason` is display-ready.
   packages_kept: { package: string; reason: string }[];
+  /// Listed as disabled in the snapshot but refused by the safety rules (the
+  /// protected list, or the keyboard or WebView the TV reports in use);
+  /// `reason` is the package's own. Older cores omit it.
+  packages_protected?: { package: string; reason: string }[];
   settings_to_write: Record<string, string>;
   settings_to_delete: string[];
   settings_already_set: string[];

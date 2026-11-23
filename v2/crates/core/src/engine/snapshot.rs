@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::detection::DeviceType;
-use super::launcher::{plan_home_safe_disables, LauncherCatalog};
+use super::launcher::{plan_home_safe_disables_holding, LauncherCatalog};
+use super::safety::{removal_refusal_reason, ActiveRoles};
 use super::types::{AppEntry, RiskTier};
 
 /// Current snapshot schema version. Bump when the structure changes; the
@@ -206,6 +207,11 @@ pub struct SnapshotApplyPlan {
     /// Home screen. Not in `packages_to_disable`.
     #[serde(default)]
     pub packages_kept: Vec<KeptPackage>,
+    /// Packages the snapshot lists as disabled that the safety rules refuse:
+    /// on the protected list, or the keyboard or WebView the TV reports in
+    /// use. Not in `packages_to_disable`; `reason` is the package's own.
+    #[serde(default)]
+    pub packages_protected: Vec<KeptPackage>,
     /// Settings whose current device value differs from the snapshot —
     /// these will be written. Same key format as `Snapshot::settings`.
     pub settings_to_write: BTreeMap<String, String>,
@@ -258,9 +264,21 @@ pub struct ApplyPlanInputs<'a> {
     pub catalog: &'a [AppEntry],
 }
 
-/// Compute the plan for applying `snap` to a device in `inputs`' state.
+/// Compute the plan for applying `snap` to a device in `inputs`' state,
+/// holding back only the protected list (no live roles).
 /// Per commitment #1: this function is pure; the host layer executes the plan.
 pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> SnapshotApplyPlan {
+    compute_apply_plan_with_roles(snap, inputs, &ActiveRoles::default())
+}
+
+/// [`compute_apply_plan`] that also holds back the packages the TV reports in
+/// `roles`. Protection is decided first, and the Home planning that follows
+/// treats every held package as staying on, as it will on the device.
+pub fn compute_apply_plan_with_roles(
+    snap: &Snapshot,
+    inputs: &ApplyPlanInputs<'_>,
+    roles: &ActiveRoles,
+) -> SnapshotApplyPlan {
     let disabled_set: std::collections::HashSet<&str> = inputs
         .currently_disabled
         .iter()
@@ -362,11 +380,27 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         }
     }
 
-    let (to_disable, kept) = plan_home_safe_disables(
+    let mut packages_protected = Vec::new();
+    to_disable.retain(|pkg| match removal_refusal_reason(pkg, roles) {
+        Some(reason) => {
+            packages_protected.push(KeptPackage {
+                package: pkg.clone(),
+                reason: reason.to_string(),
+            });
+            false
+        }
+        None => true,
+    });
+    let held: Vec<String> = packages_protected
+        .iter()
+        .map(|p| p.package.clone())
+        .collect();
+    let (to_disable, kept) = plan_home_safe_disables_holding(
         &to_disable,
         inputs.home_handlers,
         inputs.current_launcher,
         inputs.launchers,
+        &held,
     );
     let packages_kept = kept
         .into_iter()
@@ -387,6 +421,7 @@ pub fn compute_apply_plan(snap: &Snapshot, inputs: &ApplyPlanInputs<'_>) -> Snap
         launcher_not_installed,
         launcher_disabled,
         packages_kept,
+        packages_protected,
         settings_to_write,
         settings_to_delete,
         settings_already_set,
@@ -1111,6 +1146,92 @@ mod tests {
             assert_eq!(plan.packages_kept.len(), 1);
             assert_eq!(plan.packages_kept[0].package, stock);
         }
+    }
+
+    #[test]
+    fn home_planning_treats_a_protected_home_app_as_staying_on() {
+        // Two enabled Home apps both listed as disabled; the first in run
+        // order is the keyboard in use. It stays on, so the second may go.
+        let (a, b) = ("com.example.home_a", "com.example.home_b");
+        let mut snap = sample_snapshot();
+        snap.disabled_packages = vec![a.into(), b.into()];
+        let installed = vec![a.to_string(), b.to_string()];
+        let settings = BTreeMap::new();
+        let handlers = [
+            a.to_string(),
+            b.to_string(),
+            "com.android.tv.settings".to_string(),
+        ];
+        let roles = ActiveRoles {
+            keyboard: Some(a.into()),
+            webview: None,
+        };
+        let plan = compute_apply_plan_with_roles(
+            &snap,
+            &ApplyPlanInputs {
+                home_handlers: Some(&handlers),
+                catalog: &[],
+                ..launcher_inputs(&installed, &settings, None)
+            },
+            &roles,
+        );
+        assert_eq!(plan.packages_to_disable, [b]);
+        assert!(plan.packages_kept.is_empty(), "{:?}", plan.packages_kept);
+        assert_eq!(plan.packages_protected.len(), 1);
+        assert_eq!(plan.packages_protected[0].package, a);
+        assert!(
+            plan.packages_protected[0]
+                .reason
+                .contains("keyboard in use"),
+            "{}",
+            plan.packages_protected[0].reason
+        );
+    }
+
+    #[test]
+    fn a_protected_stock_launcher_keeps_its_setup_helper_on() {
+        let stock = "com.google.android.tvlauncher";
+        let helper = "com.google.android.tungsten.setupwraith";
+        let target = "com.spocky.projengmenu";
+        let mut snap = sample_snapshot();
+        snap.disabled_packages = vec![stock.into(), helper.into()];
+        let installed = vec![stock.to_string(), helper.to_string(), target.to_string()];
+        let settings = BTreeMap::new();
+        let launchers = LauncherCatalog {
+            stock: vec![super::super::launcher::LauncherEntry {
+                name: "Stock".into(),
+                package: stock.into(),
+                source_url: None,
+                other_sources: Vec::new(),
+                disable_with: vec![helper.into()],
+            }],
+            transient_home_holders: vec![helper.into()],
+            ..NO_LAUNCHERS.clone()
+        };
+        let handlers = [stock.to_string(), helper.to_string(), target.to_string()];
+        let roles = ActiveRoles {
+            keyboard: Some(stock.into()),
+            webview: None,
+        };
+        let plan = compute_apply_plan_with_roles(
+            &snap,
+            &ApplyPlanInputs {
+                home_handlers: Some(&handlers),
+                launchers: &launchers,
+                catalog: &[],
+                ..launcher_inputs(&installed, &settings, Some(target))
+            },
+            &roles,
+        );
+        assert!(plan.packages_to_disable.is_empty(), "{plan:?}");
+        assert_eq!(plan.packages_protected.len(), 1);
+        assert_eq!(plan.packages_protected[0].package, stock);
+        assert_eq!(plan.packages_kept.len(), 1);
+        assert_eq!(plan.packages_kept[0].package, helper);
+        assert_eq!(
+            plan.packages_kept[0].reason,
+            super::super::launcher::HomeKeepReason::PairedStockKept.label()
+        );
     }
 
     #[test]

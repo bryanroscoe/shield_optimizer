@@ -83,6 +83,12 @@ test("the stock-disable message never claims what wasn't verified or re-read", (
   assert.doesNotMatch(view.stockDisableMessage(ok, PROJECTIVY, true, null), /Wraith/);
   // Predicted off, re-read says it is still on.
   assert.match(view.stockDisableMessage(ok, PROJECTIVY, true, "risk"), /still reads as enabled/);
+  // The takeover left the helper on (protected or holding a role): its note
+  // replaces the predicted "disabled too".
+  const held = { ok: true, last_error: "Google TV's setup helper (Setup Wraith, w) was left on." };
+  const heldText = view.stockDisableMessage(held, PROJECTIVY, true, "off");
+  assert.match(heldText, /was left on/);
+  assert.doesNotMatch(heldText, /disabled too/);
   assert.equal(
     view.stockDisableMessage({ ok: false, last_error: "Refusing to disable x." }, PROJECTIVY, true, "off"),
     "Refusing to disable x.",

@@ -289,6 +289,8 @@ export interface SnapshotSaveOutcome {
 export interface ActionResult {
   ok: boolean;
   message: string;
+  /// Not ok, yet part of the change landed (stock off, its setup helper on).
+  partial?: boolean;
 }
 
 export interface OtherPackage {
@@ -533,6 +535,10 @@ export interface SnapshotApplyPlan {
   /// Listed as disabled in the snapshot but kept on so the TV keeps a Home
   /// screen; `reason` is display-ready ("only Home app").
   packages_kept: KeptPackage[];
+  /// Listed as disabled in the snapshot but refused by the safety rules (the
+  /// protected list, or the keyboard or WebView the TV reports in use);
+  /// `reason` is the package's own. Older cores omit it.
+  packages_protected?: KeptPackage[];
   cross_device_warning: string | null;
 }
 

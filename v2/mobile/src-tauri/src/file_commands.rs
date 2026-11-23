@@ -461,6 +461,7 @@ async fn restore_apk_backup_impl(
         } else {
             message
         },
+        partial: false,
     })
 }
 
@@ -535,6 +536,7 @@ pub async fn delete_backup(
     Ok(ActionResult {
         ok: true,
         message: "Backup deleted from this phone.".to_string(),
+        partial: false,
     })
 }
 

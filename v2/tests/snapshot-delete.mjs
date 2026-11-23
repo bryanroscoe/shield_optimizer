@@ -144,7 +144,11 @@ try {
 
   // Restore preview and result for a plan that skips a disabled snapshot
   // launcher and keeps stock on as the only Home app (core 341f117).
-  const restoreContext = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
+  const restoreContext = await browser.newContext({
+    viewport: { width: 1280, height: 1000 },
+    ...(evidence ? { recordVideo: { dir: evidence, size: { width: 1280, height: 1000 } } } : {}),
+  });
+  const shot = async (name) => { if (evidence) await restorePage.screenshot({ path: resolve(evidence, name), fullPage: true }); };
   const restorePage = await restoreContext.newPage();
   restorePage.setDefaultTimeout(10000);
   const restoreErrors = [];
@@ -161,6 +165,7 @@ try {
           current_launcher: "com.google.android.tvlauncher",
           launcher_disabled: "com.spocky.projengmenu",
           packages_kept: [{ package: "com.google.android.tvlauncher", reason: "only Home app" }],
+          packages_protected: [{ package: "com.google.android.leanback.ime", reason: "Leanback Keyboard, an Android TV system keyboard." }],
         };
         window.__RESTORE_TEST__.plan = plan;
         return plan;
@@ -169,7 +174,11 @@ try {
         window.__RESTORE_TEST__.applies++;
         return {
           packages_disabled: ["com.google.android.feedback"],
-          packages_failed: ["com.google.android.tvlauncher (kept: only Home app)", "com.android.printspooler (exit 1)"],
+          packages_failed: [
+            "com.google.android.tvlauncher (kept: only Home app)",
+            "com.google.android.leanback.ime (protected: Leanback Keyboard, an Android TV system keyboard.)",
+            "com.android.printspooler (exit 1)",
+          ],
           launcher_set: false,
           launcher_message: "com.spocky.projengmenu is disabled; re-enable it first, then restore",
           settings_written: [],
@@ -196,15 +205,22 @@ try {
   assert.match(await deviceKeptRow.innerText(), /com\.google\.android\.tvlauncher\s+ENABLED\s+→ kept on: only Home app/);
   const plan = await restorePage.evaluate(() => window.__RESTORE_TEST__.plan);
   const unchangedCount = plan.packages_already_disabled.length + plan.packages_not_installed.length
-    + plan.settings_already_set.length + plan.packages_kept.length + 1;
+    + plan.settings_already_set.length + plan.packages_kept.length + plan.packages_protected.length + 1;
+  assert.match(
+    await restorePage.locator('.plan-table [data-plan-item="protected"]').innerText(),
+    /com\.google\.android\.leanback\.ime\s+ENABLED\s+→ protected, left on: Leanback Keyboard, an Android TV system keyboard\./,
+  );
   assert.match(await restorePage.locator(".plan-totals .foot-card").filter({ hasText: "Unchanged" }).innerText(), new RegExp(`Unchanged\\s+${unchangedCount} items`, "i"));
+  await shot("restore-preview-device.png");
   acceptNextConfirm();
   await restorePage.getByRole("button", { name: "Restore this snapshot", exact: true }).click();
   const deviceResult = restorePage.locator(".apply-result");
   await deviceResult.getByRole("listitem").filter({ hasText: /^com\.google\.android\.tvlauncher \(only Home app\)$/ }).waitFor();
   assert.match(await deviceResult.locator("[data-package-outcome]").first().innerText(), /^Kept on:\s+com\.google\.android\.tvlauncher \(only Home app\)$/);
   assert.match(await deviceResult.locator("[data-package-outcome].warn-text").innerText(), /^1 failed:\s+com\.android\.printspooler \(exit 1\)$/);
-  assert.doesNotMatch(await deviceResult.innerText(), /2 failed:|failed:.*kept: only Home app/, "kept packages are not listed as failures");
+  assert.match(await deviceResult.locator("[data-package-outcome]").nth(1).innerText(), /^Protected, left on:\s+com\.google\.android\.leanback\.ime \(Leanback Keyboard, an Android TV system keyboard\.\)$/);
+  assert.doesNotMatch(await deviceResult.innerText(), /[23] failed:|failed:.*kept: only Home app/, "kept and protected packages are not listed as failures");
+  await shot("restore-result-device.png");
   assert.doesNotMatch(await deviceResult.innerText(), /re-enabled/i);
 
   await restorePage.getByRole("link", { name: "Snapshots", exact: true }).click();
@@ -216,6 +232,9 @@ try {
   assert.equal(await restorePage.locator(".plan-table").getByText("Already Home", { exact: true }).count(), 0);
   assert.match(await restorePage.locator('.plan-table [data-plan-item="kept"]').innerText(), /com\.google\.android\.tvlauncher\s+enabled\s+Kept on: only Home app/);
   assert.match(await restorePage.locator(".plan-summary").innerText(), /1 kept on for Home/);
+  assert.match(await restorePage.locator(".plan-summary").innerText(), /1 protected/);
+  assert.match(await restorePage.locator('.plan-table [data-plan-item="protected"]').innerText(), /com\.google\.android\.leanback\.ime\s+enabled\s+Protected, left on: Leanback Keyboard/);
+  await shot("restore-preview-global.png");
   acceptNextConfirm();
   await restorePage.getByRole("button", { name: "Restore snapshot", exact: true }).click();
   const globalResult = restorePage.locator(".apply-result");
@@ -223,9 +242,13 @@ try {
   await globalResult.locator("[data-package-outcome]").first().waitFor();
   assert.match(await globalResult.locator("[data-package-outcome]").first().innerText(), /^Kept on:\s+com\.google\.android\.tvlauncher \(only Home app\)$/);
   assert.match(await globalResult.locator("[data-package-outcome].warn-text").innerText(), /^1 failed:\s+com\.android\.printspooler \(exit 1\)$/);
+  assert.match(await globalResult.locator("[data-package-outcome]").nth(1).innerText(), /^Protected, left on:\s+com\.google\.android\.leanback\.ime \(Leanback Keyboard, an Android TV system keyboard\.\)$/);
+  await shot("restore-result-global.png");
   assert.equal(await restorePage.evaluate(() => window.__RESTORE_TEST__.applies), 2);
   assert.deepEqual(restoreErrors, []);
+  const restoreVideo = evidence ? await restorePage.video().path() : null;
   await restoreContext.close();
+  if (restoreVideo) await rename(restoreVideo, resolve(evidence, "restore-protected-simulated.webm"));
   console.log("PASS: restore preview names a disabled snapshot launcher and kept Home apps on both screens; results list kept packages apart from failures.");
 } finally {
   await browser?.close();

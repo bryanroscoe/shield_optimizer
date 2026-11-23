@@ -341,13 +341,31 @@ pub fn plan_home_safe_disables(
     current_home: Option<&str>,
     catalog: &LauncherCatalog,
 ) -> (Vec<String>, Vec<(String, HomeKeepReason)>) {
+    plan_home_safe_disables_holding(pkgs, enabled_handlers, current_home, catalog, &[])
+}
+
+/// [`plan_home_safe_disables`] when `held` stays on for another reason (the
+/// protected list, a role the TV reports). Held packages are not in `pkgs`,
+/// so they stay in the simulated Home list, and a held stock launcher keeps
+/// its paired setup helper on as a kept one would.
+pub fn plan_home_safe_disables_holding(
+    pkgs: &[String],
+    enabled_handlers: Option<&[String]>,
+    current_home: Option<&str>,
+    catalog: &LauncherCatalog,
+    held: &[String],
+) -> (Vec<String>, Vec<(String, HomeKeepReason)>) {
     let mut remaining = enabled_handlers
         .filter(|h| !h.is_empty())
         .map(<[String]>::to_vec);
     let mut run = Vec::new();
     let mut kept: Vec<(String, HomeKeepReason)> = Vec::new();
     for pkg in order_for_home_safety(pkgs, enabled_handlers, current_home, catalog) {
-        let kept_names: Vec<String> = kept.iter().map(|(p, _)| p.clone()).collect();
+        let kept_names: Vec<String> = held
+            .iter()
+            .cloned()
+            .chain(kept.iter().map(|(p, _)| p.clone()))
+            .collect();
         match home_keep_reason(
             &pkg,
             remaining.as_deref(),

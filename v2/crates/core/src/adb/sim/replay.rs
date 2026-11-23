@@ -602,6 +602,7 @@ pub fn write_profile(d: &Device, name: &str, dir: &std::path::Path) -> std::io::
         ("dumpsys meminfo", "dumpsys-meminfo.txt"),
         ("dumpsys diskstats", "dumpsys-diskstats.txt"),
         ("dumpsys activity settings", "dumpsys-activity-settings.txt"),
+        ("dumpsys webviewupdate", "dumpsys-webviewupdate.txt"),
         ("top -b -n 1", "top.txt"),
         ("wm size", "wm-size.txt"),
         ("wm density", "wm-density.txt"),

@@ -247,6 +247,7 @@ pub fn load_profile(dir: &Path) -> Result<Device, String> {
         ("dumpsys meminfo", "dumpsys-meminfo.txt"),
         ("dumpsys diskstats", "dumpsys-diskstats.txt"),
         ("dumpsys activity settings", "dumpsys-activity-settings.txt"),
+        ("dumpsys webviewupdate", "dumpsys-webviewupdate.txt"),
         ("top -b -n 1", "top.txt"),
     ] {
         if let Some(text) = read(dir, file) {

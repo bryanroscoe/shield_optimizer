@@ -130,6 +130,9 @@
   function showFailure(title: string, error: unknown) {
     actionFailure = { title, error };
   }
+  // A change that landed only in part (stock disabled, its setup helper left
+  // on): a warning, never a failure heading.
+  let actionWarning = $state<{ title: string; message: string } | null>(null);
 
 
   function sessionCurrent(serial: string, generation: number): boolean {
@@ -483,6 +486,7 @@
     const request = ++actionRequest;
     busyAction = app.package;
     actionFailure = null;
+    actionWarning = null;
     patch(app.package, "enabled", identity);
     selectedPkg = null;
     try {
@@ -596,6 +600,7 @@
     const request = ++actionRequest;
     busyAction = intent.app.package;
     actionFailure = null;
+    actionWarning = null;
     try {
       let fresh: Safety;
       try {
@@ -641,6 +646,12 @@
           }
         }
         showToast(`${intent.action === "disable" ? "Disabled" : "Uninstalled"} ${label(intent.app)}.`, "success");
+      } else if (r.partial) {
+        actionWarning = {
+          title: `${intent.action === "disable" ? "Disabled" : "Uninstalled"} ${label(intent.app)}, with a warning`,
+          message: r.message,
+        };
+        await loadApps(true);
       } else {
         // A not-ok result can still have landed (stock disabled with its
         // setup helper left on), so reload the real state instead of
@@ -674,6 +685,7 @@
     const request = ++actionRequest;
     busyAction = app.package;
     actionFailure = null;
+    actionWarning = null;
     try {
       const r = await settleChange(api.reinstallExisting(target.serial, app.package));
       if (request !== actionRequest || !sessionCurrent(target.serial, target.generation)) return;
@@ -960,6 +972,16 @@
       action={actionFailure.title}
       onDismiss={() => (actionFailure = null)}
     />
+  {/if}
+  {#if actionWarning}
+    <div class="callout warn action-warning" role="alert">
+      <span class="msr" aria-hidden="true">warning</span>
+      <div class="aw-body">
+        <span class="aw-title">{actionWarning.title}</span>
+        <span>{actionWarning.message}</span>
+        <button type="button" class="aw-dismiss" onclick={() => (actionWarning = null)}>Dismiss</button>
+      </div>
+    </div>
   {/if}
 
   {#if loading && others.length === 0 && catalog.length === 0}
@@ -1585,5 +1607,31 @@
   .status-badge.off {
     color: var(--muted);
     background: color-mix(in srgb, var(--text) 6%, transparent);
+  }
+  .callout.warn {
+    background: color-mix(in srgb, var(--amber) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--amber) 35%, transparent);
+  }
+  .callout.warn .msr {
+    color: var(--amber);
+  }
+  .aw-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .aw-title {
+    font-weight: 600;
+    color: var(--text);
+  }
+  .aw-dismiss {
+    align-self: flex-start;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--accent);
+    font: inherit;
   }
 </style>

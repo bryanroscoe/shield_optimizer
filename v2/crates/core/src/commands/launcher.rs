@@ -4,8 +4,8 @@ use serde::Serialize;
 use tauri::State;
 
 use crate::engine::{
-    is_last_enabled_home_handler, is_valid_package_name, launcher_rows, paired_transient_holders,
-    pick_current_home, HomeReading, LauncherStatus,
+    active_role_reason, is_last_enabled_home_handler, is_valid_package_name, launcher_rows,
+    paired_transient_holders, pick_current_home, ActiveRoles, HomeReading, LauncherStatus,
 };
 use crate::license::Feature;
 
@@ -127,7 +127,13 @@ pub async fn disable_launcher_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
+    let refuse = |message: String| {
+        Ok(crate::commands::apps::ActionResult {
+            ok: false,
+            message,
+            partial: false,
+        })
+    };
     let adb = state.adb_snapshot().await;
     let Some(enabled_handlers) = read_enabled_home_handlers(&*adb, serial).await else {
         return refuse(format!(
@@ -638,6 +644,17 @@ pub async fn disable_stock_launcher_impl(
         }
         remaining.retain(|h| h != stock);
     }
+    let roles = super::apps::fresh_active_roles(state, serial).await;
+    if let Some((stock, reason)) = stocks
+        .iter()
+        .find_map(|stock| active_role_reason(stock, &roles).map(|reason| (stock, reason)))
+    {
+        return Ok(refuse(
+            None,
+            format!("Refusing to disable {stock}: {reason} Nothing was disabled."),
+            diagnostics,
+        ));
+    }
 
     let reading = read_current_home(&*adb, serial).await.unwrap_or_default();
     diagnostics.push(match reading.package.as_deref() {
@@ -648,8 +665,17 @@ pub async fn disable_stock_launcher_impl(
     let active = reading.package;
     match active.as_deref() {
         Some(a) if stocks.iter().any(|s| s == a) => {
-            if let Some(result) =
-                stock_takeover(&*adb, serial, target, a, true, progress, &mut diagnostics).await
+            if let Some(result) = stock_takeover(
+                &*adb,
+                serial,
+                target,
+                a,
+                true,
+                &roles,
+                progress,
+                &mut diagnostics,
+            )
+            .await
             {
                 return Ok(result);
             }
@@ -694,17 +720,20 @@ pub async fn disable_stock_launcher_impl(
                         home,
                         &disabled,
                         Some(&handlers),
+                        &roles,
                         progress,
                         &mut diagnostics,
                     )
                     .await
                     {
-                        Ok(()) => {
+                        Ok(held) => {
+                            // A successful switch carries `last_error` only
+                            // as a follow-up note.
                             return Ok(SetLauncherResult {
                                 ok: true,
                                 strategy: Some("disable_stock_takeover".into()),
                                 current_launcher: Some(target.to_string()),
-                                last_error: None,
+                                last_error: (!held.is_empty()).then(|| held_helpers_note(&held)),
                                 stock_takeover_available: false,
                                 diagnostics,
                             });
@@ -1009,6 +1038,7 @@ pub(crate) async fn set_default_launcher_core(
     // full strategy ladder with its multi-second verify back-offs. Switches
     // between non-stock launchers fall through to the normal ladder below,
     // which works for them.
+    let mut known_roles = ActiveRoles::default();
     let active_before = active_launcher(&*adb, serial).await;
     diagnostics.push(match active_before.as_deref() {
         Some(active) => format!("resolve-activity HOME -> {active}"),
@@ -1049,12 +1079,14 @@ pub(crate) async fn set_default_launcher_core(
                     diagnostics,
                 });
             }
+            let roles = takeover_roles(state, serial, package, &active, &mut known_roles).await;
             if let Some(result) = stock_takeover(
                 &*adb,
                 serial,
                 package,
                 &active,
                 allow_stock_disable,
+                &roles,
                 progress,
                 &mut diagnostics,
             )
@@ -1172,12 +1204,14 @@ pub(crate) async fn set_default_launcher_core(
     // HOME wasn't stock at the start but resolved back to it after the polite
     // strategies. Gated, never touches other launchers, attempts to restore on failure.
     if let Some(active) = now_active.clone() {
+        let roles = takeover_roles(state, serial, package, &active, &mut known_roles).await;
         if let Some(result) = stock_takeover(
             &*adb,
             serial,
             package,
             &active,
             allow_stock_disable,
+            &roles,
             progress,
             &mut diagnostics,
         )
@@ -1234,15 +1268,17 @@ enum PairedHomeTarget<'a> {
 /// last-Home-handler check, and a second verification that `target` still holds
 /// Home. On failure this attempts to re-enable the helpers it touched, then
 /// the caller attempts to restore stock.
+#[allow(clippy::too_many_arguments)]
 async fn disable_paired_holders(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
     home: PairedHomeTarget<'_>,
     stocks: &[String],
     inventory: Option<&[String]>,
+    roles: &ActiveRoles,
     progress: &Progress,
     diagnostics: &mut Vec<String>,
-) -> Result<(), String> {
+) -> Result<Vec<HeldHelper>, String> {
     let (target, blocking_helper) = match home {
         PairedHomeTarget::Confirmed(target) => (target, None),
         PairedHomeTarget::BlockedByHelper { target, helper } => (target, Some(helper)),
@@ -1251,7 +1287,7 @@ async fn disable_paired_holders(
         .iter()
         .all(|s| launchers().disable_with_for(s).is_empty())
     {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let refreshed;
     let enabled = if blocking_helper.is_some() {
@@ -1275,13 +1311,12 @@ async fn disable_paired_holders(
         }
     }
     let mut disabled: Vec<String> = Vec::new();
+    let mut held: Vec<HeldHelper> = Vec::new();
     let mut failure = None;
     for holder in holders {
-        if matches!(
-            crate::engine::classify_safety(&holder),
-            crate::engine::Safety::NeverDisable { .. }
-        ) {
-            diagnostics.push(format!("{holder} skipped: on the do-not-disable list"));
+        if let Some(helper) = protected_helper(&holder, roles) {
+            diagnostics.push(format!("{holder} skipped: {}", helper.reason));
+            held.push(helper);
             continue;
         }
         let remaining: Vec<String> = enabled
@@ -1293,6 +1328,11 @@ async fn disable_paired_holders(
             || !remaining.iter().any(|h| h == target)
         {
             diagnostics.push(format!("{holder} skipped: it would leave no Home app"));
+            held.push(HeldHelper {
+                package: holder,
+                reason: "Disabling it would leave no Home app.".to_string(),
+                protected: false,
+            });
             continue;
         }
         progress.step("Disabling Google TV's setup helper");
@@ -1317,7 +1357,7 @@ async fn disable_paired_holders(
             failure = Some(format!("Couldn't disable the setup helper {helper} safely"));
         }
     } else if disabled.is_empty() {
-        return Ok(());
+        return Ok(held);
     }
     if failure.is_none() {
         if blocking_helper.is_some() {
@@ -1338,7 +1378,7 @@ async fn disable_paired_holders(
             .await
             .confirmed
         {
-            return Ok(());
+            return Ok(held);
         }
         failure = Some(format!(
             "Home moved away from {target} after the setup helper was disabled"
@@ -1365,6 +1405,73 @@ async fn disable_paired_holders(
     Err(reason)
 }
 
+/// A paired setup helper [`disable_paired_holders`] left on, and why.
+pub(crate) struct HeldHelper {
+    pub package: String,
+    /// A display-ready sentence.
+    pub reason: String,
+    /// Held by the protected list or a role it holds, rather than to keep a
+    /// Home app.
+    pub protected: bool,
+}
+
+/// A paired helper that must stay on whatever holds Home: on the
+/// do-not-disable list, or the keyboard or WebView the TV reports in use.
+fn protected_helper(holder: &str, roles: &ActiveRoles) -> Option<HeldHelper> {
+    let reason = if matches!(
+        crate::engine::classify_safety(holder),
+        crate::engine::Safety::NeverDisable { .. }
+    ) {
+        "It's on the do-not-disable list."
+    } else {
+        active_role_reason(holder, roles)?
+    };
+    Some(HeldHelper {
+        package: holder.to_string(),
+        reason: reason.to_string(),
+        protected: true,
+    })
+}
+
+/// The follow-up note for a helper left on because no other launcher holds
+/// Home. A protected helper also names why it stays on, and Disable Setup
+/// Wraith isn't offered while it would be refused.
+pub(crate) fn left_on_note(protected: &[HeldHelper]) -> String {
+    if protected.is_empty() {
+        return "Google TV's setup helper (Setup Wraith) is still enabled and can take the Home \
+                button. Set another launcher as Home, then use Disable Setup Wraith in Launcher."
+            .to_string();
+    }
+    let helpers = protected
+        .iter()
+        .map(|h| {
+            format!(
+                "Google TV's setup helper (Setup Wraith, {}) is still enabled and can take the \
+                 Home button. It stays on because no other launcher holds Home, and because it \
+                 can't be disabled: {}",
+                h.package, h.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    format!("{helpers} Set another launcher as Home.")
+}
+
+/// The follow-up note for helpers left on: with stock off, each can take the
+/// Home button back (#157).
+pub(crate) fn held_helpers_note(held: &[HeldHelper]) -> String {
+    held.iter()
+        .map(|h| {
+            format!(
+                "Google TV's setup helper (Setup Wraith, {}) was left on, so it can still take \
+                 the Home button. {}",
+                h.package, h.reason
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// What happened to a stock launcher's paired setup helper after that stock
 /// launcher was disabled outside the takeover (App List, Optimize, the
 /// Launcher tab's Disable). Setup Wraith left on with stock off grabs the Home
@@ -1375,11 +1482,16 @@ pub(crate) enum PairedHelperOutcome {
     Untouched,
     /// The helper was turned off too and Home stayed on `target`.
     Disabled { target: String },
+    /// Home is on another launcher, but a helper stayed on: protected, the
+    /// keyboard or WebView in use, or the last Home app. It can take the Home
+    /// button back.
+    Held { held: Vec<HeldHelper> },
     /// Turning the helper off failed, so stock was turned back on.
     RolledBack { reason: String },
     /// No other launcher holds Home yet, so the helper was left on; the
-    /// Launcher tab warns about it and offers the fix.
-    LeftOn,
+    /// Launcher tab warns about it and offers the fix. `protected` lists
+    /// helpers that would stay on even then, with why.
+    LeftOn { protected: Vec<HeldHelper> },
 }
 
 pub(crate) async fn settle_paired_helpers_after_stock_disable(
@@ -1387,6 +1499,7 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
     serial: &str,
     stock: &str,
     inventory: Option<&[String]>,
+    roles: &ActiveRoles,
     diagnostics: &mut Vec<String>,
 ) -> PairedHelperOutcome {
     let catalog = launchers();
@@ -1405,7 +1518,11 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
         .filter(|p| p != stock && !catalog.is_stock(p) && !catalog.is_transient_home_holder(p));
     let Some(target) = target else {
         diagnostics.push("setup helper left on: no other launcher holds Home".to_string());
-        return PairedHelperOutcome::LeftOn;
+        let protected = paired
+            .iter()
+            .filter_map(|holder| protected_helper(holder, roles))
+            .collect();
+        return PairedHelperOutcome::LeftOn { protected };
     };
     match disable_paired_holders(
         adb,
@@ -1413,12 +1530,14 @@ pub(crate) async fn settle_paired_helpers_after_stock_disable(
         PairedHomeTarget::Confirmed(&target),
         &stocks,
         inventory,
+        roles,
         &Progress::Silent,
         diagnostics,
     )
     .await
     {
-        Ok(()) => PairedHelperOutcome::Disabled { target },
+        Ok(held) if held.is_empty() => PairedHelperOutcome::Disabled { target },
+        Ok(held) => PairedHelperOutcome::Held { held },
         Err(reason) => {
             let restore = adb.shell(serial, &format!("pm enable {stock}")).await;
             let reason = match command_failure(&restore) {
@@ -1504,7 +1623,13 @@ pub async fn disable_setup_helper_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message });
+    let refuse = |message: String| {
+        Ok(crate::commands::apps::ActionResult {
+            ok: false,
+            message,
+            partial: false,
+        })
+    };
     if !is_valid_package_name(package) || !launchers().is_transient_home_holder(package) {
         return refuse(format!("{package} is not a setup helper this app knows."));
     }
@@ -1513,6 +1638,12 @@ pub async fn disable_setup_helper_impl(
         crate::engine::Safety::NeverDisable { .. }
     ) {
         return refuse(format!("{package} is on the do-not-disable list."));
+    }
+    let roles = super::apps::fresh_active_roles(state, serial).await;
+    if let Some(reason) = active_role_reason(package, &roles) {
+        return refuse(format!(
+            "Refusing to disable {package}: {reason} Nothing was changed."
+        ));
     }
     let adb = state.adb_snapshot().await;
     let enabled = match adb.shell(serial, HOME_HANDLER_QUERY).await {
@@ -1553,6 +1684,7 @@ pub async fn disable_setup_helper_impl(
         return Ok(crate::commands::apps::ActionResult {
             ok: true,
             message: "Setup Wraith is disabled.".to_string(),
+            partial: false,
         });
     }
     let restore = adb.shell(serial, &format!("pm enable {package}")).await;
@@ -1570,6 +1702,25 @@ pub async fn disable_setup_helper_impl(
     })
 }
 
+/// The roles [`stock_takeover`] checks, read fresh only when `active` is a
+/// stock launcher it might disable. `known` carries what earlier reads in the
+/// same Set as Home found: a role a successful read named stays named until
+/// another successful read shows it moved, so a failed re-read late in the
+/// ladder never lifts a refusal the action already established.
+async fn takeover_roles(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    active: &str,
+    known: &mut ActiveRoles,
+) -> ActiveRoles {
+    if active != package && launchers().is_stock(active) {
+        let read = super::apps::fresh_active_roles(state, serial).await;
+        *known = read.read_after(known);
+    }
+    known.clone()
+}
+
 /// Disable the active *stock* launcher so HOME resolves to `package`. On builds
 /// where an enabled stock launcher overrides set-home-activity / the role API
 /// (they answer "Success" but HOME keeps resolving to stock — verified live on
@@ -1580,12 +1731,14 @@ pub async fn disable_setup_helper_impl(
 /// NEVER_DISABLE package, and attempts to restore stock if the switch doesn't verify.
 /// Returns `None` when `active` isn't a disable-able stock launcher — the
 /// caller then falls through to its normal failure path.
+#[allow(clippy::too_many_arguments)]
 async fn stock_takeover(
     adb: &dyn crate::adb::AdbDriver,
     serial: &str,
     package: &str,
     active: &str,
     allow_stock_disable: bool,
+    roles: &ActiveRoles,
     progress: &Progress,
     diagnostics: &mut Vec<String>,
 ) -> Option<SetLauncherResult> {
@@ -1595,6 +1748,11 @@ async fn stock_takeover(
         crate::engine::Safety::NeverDisable { .. }
     );
     if active == package || !active_is_stock || blocked {
+        return None;
+    }
+    // Like a protected stock: the caller's other strategies still run.
+    if let Some(reason) = active_role_reason(active, roles) {
+        diagnostics.push(format!("{active} not disabled: {reason}"));
         return None;
     }
     if !allow_stock_disable {
@@ -1653,17 +1811,18 @@ async fn stock_takeover(
                 home,
                 &stocks,
                 inventory.as_deref(),
+                roles,
                 progress,
                 diagnostics,
             )
             .await
             {
-                Ok(()) => {
+                Ok(held) => {
                     return Some(SetLauncherResult {
                         ok: true,
                         strategy: Some("disable_stock_takeover".into()),
                         current_launcher: Some(package.to_string()),
-                        last_error: None,
+                        last_error: (!held.is_empty()).then(|| held_helpers_note(&held)),
                         stock_takeover_available: false,
                         diagnostics: std::mem::take(diagnostics),
                     });
@@ -2397,6 +2556,7 @@ mod tests {
                     "com.spocky.projengmenu",
                     stock,
                     true,
+                    &Default::default(),
                     &Progress::Silent,
                     &mut Vec::new(),
                 )
@@ -2466,6 +2626,7 @@ mod tests {
             "com.spocky.projengmenu",
             "com.amazon.tv.launcher",
             true,
+            &Default::default(),
             &Progress::Silent,
             &mut Vec::new(),
         )
@@ -2523,6 +2684,7 @@ mod tests {
             target,
             stock,
             true,
+            &Default::default(),
             &Progress::Silent,
             &mut Vec::new(),
         )
@@ -2612,6 +2774,7 @@ mod tests {
                 target,
                 stock,
                 true,
+                &Default::default(),
                 &Progress::Silent,
                 &mut Vec::new(),
             )
@@ -2983,6 +3146,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn set_as_home_keeps_a_role_refusal_when_a_later_read_fails() {
+        use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+        const STOCK: &str = "com.google.android.tvlauncher";
+        // The first role read names stock as the keyboard; the ladder's
+        // final takeover re-reads and that read fails. Stock stays enabled.
+        let stock_keyboard =
+            format!("{STOCK}/.Ime\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\n{BATCH_STATUS}0\n");
+        let mock = MockAdb::default()
+            .on_shell_seq("default_input_method", &[&stock_keyboard, "offline"])
+            .on_shell("add-role-holder", "Unknown command")
+            .on_shell_failure("set-home-activity", "Error: no such activity")
+            .on_shell("resolve-activity", &format!("{STOCK}/.Home"));
+        let log = mock.shell_log();
+        let state = state_with(mock);
+
+        let res = set_default_launcher_impl(
+            &state,
+            "serial",
+            "com.example.launcher",
+            true,
+            &Progress::Silent,
+        )
+        .await
+        .unwrap();
+
+        assert!(!res.ok);
+        let calls = log.lock().unwrap().clone();
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|c| c.contains("default_input_method"))
+                .count(),
+            2,
+            "both takeovers read the roles: {calls:?}"
+        );
+        assert!(
+            !calls
+                .iter()
+                .any(|c| c == &format!("pm disable-user --user 0 {STOCK}")),
+            "{calls:?}"
+        );
+        assert!(
+            res.diagnostics
+                .iter()
+                .filter(|d| d.contains("keyboard in use"))
+                .count()
+                == 2,
+            "{:?}",
+            res.diagnostics
+        );
+    }
+
+    #[tokio::test]
     async fn set_launcher_from_stock_offers_takeover_without_grinding_the_ladder() {
         // Stock holds HOME and overrides the polite setters (the resolver keeps
         // naming stock even after set-home-activity "Success"). Without the
@@ -3272,6 +3488,7 @@ mod tests {
             "com.spocky.projengmenu",
             PROTECTED,
             true,
+            &Default::default(),
             &Progress::Silent,
             &mut diagnostics,
         )
@@ -3301,6 +3518,107 @@ mod tests {
             format!(
                 "    packageName={GTV_STOCK}\n    packageName={WRAITH}\n    packageName=com.example.launcher\n"
             )
+        }
+
+        fn keyboard_is(package: &str) -> String {
+            use crate::adb::{BATCH_SEPARATOR, BATCH_STATUS};
+            format!("{package}/.Ime\n{BATCH_STATUS}0\n{BATCH_SEPARATOR}\n\n{BATCH_STATUS}0\n")
+        }
+
+        #[tokio::test]
+        async fn a_stock_launcher_or_setup_helper_holding_a_role_is_never_disabled() {
+            const TARGET: &str = "com.example.launcher";
+            for holder in [GTV_STOCK, WRAITH] {
+                for initially_active in [GTV_STOCK, TARGET] {
+                    let initial = format!("{initially_active}/.Home");
+                    let helper = format!("{WRAITH}/.Wraith");
+                    let mut home_answers = vec![initial.as_str()];
+                    home_answers.extend(vec![helper.as_str(); verify_poll_delays().len() + 1]);
+                    let mock = MockAdb::default()
+                        .on_shell(HOME_HANDLER_QUERY, &gtv_home_query())
+                        .on_shell_failure(HOME_ROLE_HOLDERS, "Unknown command: get-role-holders")
+                        .on_shell_seq(RESOLVE_HOME, &home_answers)
+                        .on_shell("default_input_method", &keyboard_is(holder));
+                    let log = mock.shell_log();
+                    let state = state_with(mock);
+
+                    let result =
+                        disable_stock_launcher_impl(&state, "serial", TARGET, &Progress::Silent)
+                            .await
+                            .unwrap();
+
+                    assert!(!result.ok, "{holder} from {initially_active}");
+                    let calls = log.lock().unwrap().clone();
+                    assert!(
+                        !calls
+                            .iter()
+                            .any(|c| c == &format!("pm disable-user --user 0 {holder}")),
+                        "{holder} from {initially_active}: {calls:?}"
+                    );
+                    if holder == GTV_STOCK {
+                        let error = result.last_error.unwrap_or_default();
+                        assert!(error.contains("keyboard in use"), "{error}");
+                    } else {
+                        // Stock went first; with the helper held on, it
+                        // comes back.
+                        assert!(
+                            calls.iter().any(|c| c == &format!("pm enable {GTV_STOCK}")),
+                            "{calls:?}"
+                        );
+                    }
+                }
+            }
+
+            let mock = MockAdb::default()
+                .on_shell(HOME_HANDLER_QUERY, &gtv_home_query())
+                .on_shell("default_input_method", &keyboard_is(WRAITH));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+            let result = disable_setup_helper_impl(&state, "serial", WRAITH)
+                .await
+                .unwrap();
+            assert!(!result.ok);
+            assert!(
+                result.message.contains("keyboard in use"),
+                "{}",
+                result.message
+            );
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c.contains("disable-user")));
+
+            // Set as Home: a stock launcher holding a role is passed over, as
+            // a protected one is, and the caller's other strategies run.
+            let mock = MockAdb::default().on_shell(HOME_HANDLER_QUERY, &gtv_home_query());
+            let log = mock.shell_log();
+            let mut diagnostics = Vec::new();
+            let roles = ActiveRoles {
+                keyboard: Some(GTV_STOCK.into()),
+                webview: None,
+            };
+            let takeover = stock_takeover(
+                &mock,
+                "serial",
+                TARGET,
+                GTV_STOCK,
+                true,
+                &roles,
+                &Progress::Silent,
+                &mut diagnostics,
+            )
+            .await;
+            assert!(takeover.is_none());
+            assert!(
+                diagnostics.iter().any(|d| d.contains("keyboard in use")),
+                "{diagnostics:?}"
+            );
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c.contains("disable-user")));
         }
 
         #[tokio::test]
@@ -3377,6 +3695,7 @@ mod tests {
                 TARGET,
                 GTV_STOCK,
                 true,
+                &Default::default(),
                 &Progress::Silent,
                 &mut Vec::new(),
             )
@@ -3416,6 +3735,7 @@ mod tests {
                 "com.example.launcher",
                 GTV_STOCK,
                 true,
+                &Default::default(),
                 &Progress::Silent,
                 &mut Vec::new(),
             )
@@ -3461,6 +3781,67 @@ mod tests {
             );
         }
 
+        /// A helper the TV reports as its keyboard stays on, and neither the
+        /// Apps flow nor the Launcher takeover says it was disabled.
+        #[tokio::test]
+        async fn a_held_setup_helper_is_reported_left_on_not_disabled() {
+            let mock = MockAdb::default()
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "com.example.launcher")
+                .on_shell("resolve-activity", "com.example.launcher/.MainActivity")
+                .on_shell("default_input_method", &keyboard_is(WRAITH));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let res = crate::commands::apps::disable_package_impl(&state, "serial", GTV_STOCK)
+                .await
+                .unwrap();
+
+            assert!(!res.ok, "{}", res.message);
+            assert!(res.partial, "stock landed, so this is partial");
+            assert!(res.message.contains("was left on"), "{}", res.message);
+            assert!(res.message.contains("keyboard in use"), "{}", res.message);
+            assert!(!res.message.contains("disabled too"), "{}", res.message);
+            let calls = log.lock().unwrap().clone();
+            assert!(
+                calls
+                    .iter()
+                    .any(|c| c == &format!("pm disable-user --user 0 {GTV_STOCK}")),
+                "{calls:?}"
+            );
+            assert!(
+                !calls
+                    .iter()
+                    .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")),
+                "{calls:?}"
+            );
+
+            // The Launcher tab's takeover, with Home landing on the target.
+            const TARGET: &str = "com.example.launcher";
+            let initial = format!("{GTV_STOCK}/.Home");
+            let landed = format!("{TARGET}/.MainActivity");
+            let mut home_answers = vec![initial.as_str()];
+            home_answers.extend(vec![landed.as_str(); verify_poll_delays().len() + 2]);
+            let mock = MockAdb::default()
+                .on_shell(HOME_HANDLER_QUERY, &gtv_home_query())
+                .on_shell_failure(HOME_ROLE_HOLDERS, "Unknown command: get-role-holders")
+                .on_shell_seq(RESOLVE_HOME, &home_answers)
+                .on_shell("default_input_method", &keyboard_is(WRAITH));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+            let res = disable_stock_launcher_impl(&state, "serial", TARGET, &Progress::Silent)
+                .await
+                .unwrap();
+            assert!(res.ok, "{:?}", res.last_error);
+            let note = res.last_error.unwrap_or_default();
+            assert!(note.contains("was left on"), "{note}");
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")));
+        }
+
         /// #157: with no other launcher holding Home yet, the helper is left
         /// on (it may be the only Home left) and the user is told why.
         #[tokio::test]
@@ -3484,10 +3865,51 @@ mod tests {
                 "helper disabled with no launcher to take Home: {calls:?}"
             );
             assert!(
-                !res.ok && res.message.contains("still enabled"),
+                !res.ok && res.partial && res.message.contains("still enabled"),
                 "{}",
                 res.message
             );
+            assert!(
+                res.message.contains("Disable Setup Wraith"),
+                "{}",
+                res.message
+            );
+        }
+
+        /// Setup Wraith takes Home after stock goes off and also holds the
+        /// keyboard: both reasons are named, and Disable Setup Wraith, which
+        /// would refuse it, isn't offered.
+        #[tokio::test]
+        async fn a_keyboard_helper_holding_home_names_both_reasons_it_stayed_on() {
+            let mock = MockAdb::default()
+                .on_shell("query-activities", &gtv_home_query())
+                .on_shell("get-role-holders", "")
+                .on_shell("resolve-activity", &format!("{WRAITH}/.SetupActivity"))
+                .on_shell("default_input_method", &keyboard_is(WRAITH));
+            let log = mock.shell_log();
+            let state = state_with(mock);
+
+            let res = crate::commands::apps::disable_package_impl(&state, "serial", GTV_STOCK)
+                .await
+                .unwrap();
+
+            assert!(!res.ok && res.partial, "{}", res.message);
+            assert!(
+                res.message.contains("no other launcher holds Home"),
+                "{}",
+                res.message
+            );
+            assert!(res.message.contains("keyboard in use"), "{}", res.message);
+            assert!(
+                !res.message.contains("Disable Setup Wraith"),
+                "{}",
+                res.message
+            );
+            assert!(!log
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|c| c == &format!("pm disable-user --user 0 {WRAITH}")));
         }
 
         /// #158: "Enable & set default" on a disabled stock launcher brings

@@ -144,7 +144,11 @@ export function stockDisableMessage(
 ): string {
   if (!result.ok) return result.last_error ?? "The stock launcher wasn't changed.";
   let wraith = "";
-  if (helperExpectedOff && helperAfter === "off") {
+  // A successful takeover carries `last_error` only as a follow-up note,
+  // such as a setup helper it had to leave on.
+  if (result.last_error) {
+    wraith = ` ${result.last_error}`;
+  } else if (helperExpectedOff && helperAfter === "off") {
     wraith = " Google TV's setup helper (Setup Wraith) was disabled too.";
   } else if (helperAfter === "risk") {
     wraith = " Setup Wraith still reads as enabled, so it may reclaim the Home button. See below.";

@@ -110,6 +110,9 @@ export function previewRows(plan: SnapshotApplyPlan, snapshotLauncher: string | 
   for (const kept of homeSafety(plan).packages_kept) {
     unchanged.push({ item: kept.package, now: "enabled", result: `Kept on: ${kept.reason}`, kind: "disable" });
   }
+  for (const held of plan.packages_protected ?? []) {
+    unchanged.push({ item: held.package, now: "enabled", result: `Protected, left on: ${held.reason}`, kind: "disable" });
+  }
   for (const key of plan.settings_already_set) {
     unchanged.push({ item: key, now: now[key] ?? "unset", result: "Already set", kind: "setting" });
   }
@@ -136,6 +139,8 @@ export function previewSummary(plan: SnapshotApplyPlan): string {
   if (absent > 0) parts.push(`${absent} recorded absent (skipped)`);
   const kept = homeSafety(plan).packages_kept.length;
   if (kept > 0) parts.push(`${kept} kept on for Home`);
+  const held = plan.packages_protected?.length ?? 0;
+  if (held > 0) parts.push(`${held} protected`);
   if (plan.launcher_to_set) parts.push("Home app");
   return parts.join(" · ");
 }
@@ -162,7 +167,8 @@ export function restoreOutcome(
   const rows: RestoreOutcomeRow[] = [];
   for (const entry of res.packages_failed) {
     const m = /^(\S+) \(([\s\S]+)\)$/.exec(entry.trim());
-    rows.push(m ? { item: m[1], reason: m[2] } : { item: entry, reason: "Couldn't disable it." });
+    const reason = m?.[2].replace(/^protected: /, "Protected, left on: ");
+    rows.push(m && reason ? { item: m[1], reason } : { item: entry, reason: "Couldn't disable it." });
   }
   const message = res.launcher_message?.trim() ?? "";
   if (!res.launcher_set && message) {
