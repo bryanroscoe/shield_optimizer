@@ -1,6 +1,7 @@
 //! File manager — browse / download / upload / delete on the device's user
-//! storage. Confined to `/sdcard`: system paths stay out of reach, which is
-//! the same foot-gun avoidance v1 practiced (and aTV Tools doesn't).
+//! storage. Confined to `/sdcard` and removable drives under `/storage/<uuid>`:
+//! system paths stay out of reach, which is the same foot-gun avoidance v1
+//! practiced (and aTV Tools doesn't).
 
 use std::path::{Path, PathBuf};
 
@@ -8,7 +9,9 @@ use serde::Serialize;
 use tauri::State;
 
 use atv_optimizer_core::commands::files::{
-    delete_path_with, find_files_with, validate_device_path, validate_sdcard_path, FindResult,
+    delete_path_with, drive_fs_type_with, drive_size_hint, fat32_refusal, find_files_with,
+    list_storage_volumes_with, validate_device_path, validate_user_storage_path, FindResult,
+    StorageVolume, FAT32_MAX_FILE,
 };
 
 use crate::adb::{parse_ls_output, FileEntry};
@@ -20,7 +23,18 @@ fn quote_path(p: &str) -> String {
     format!("'{}'", p.replace('\'', r"'\''"))
 }
 
-/// `list_dir` — entries of a directory under `/sdcard`, folders first.
+/// `list_storage_volumes` — USB drives and SD cards the TV has mounted as
+/// portable storage, so the Files tab can offer them next to `/sdcard`.
+#[tauri::command]
+pub async fn list_storage_volumes(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<StorageVolume>, String> {
+    let adb = state.adb_snapshot().await;
+    list_storage_volumes_with(adb.as_ref(), &serial).await
+}
+
+/// `list_dir` — entries of a directory in user storage, folders first.
 #[tauri::command]
 pub async fn list_dir(
     state: State<'_, AppState>,
@@ -116,10 +130,15 @@ pub async fn push_file(
         .ok_or_else(|| format!("Unreadable file name: {local_path}"))?;
     let remote = format!("{}/{}", remote_dir.trim_end_matches('/'), file_name);
 
+    let size = local.metadata().map(|m| m.len()).unwrap_or(0);
     let adb = state.adb_snapshot().await;
+    if size >= FAT32_MAX_FILE {
+        let fs = drive_fs_type_with(adb.as_ref(), &serial, &remote_dir).await;
+        fat32_refusal(file_name, size, fs.as_deref())?;
+    }
     adb.raw_transfer(&["-s", &serial, "push", &local_path, &remote])
         .await
-        .map_err(|e| format!("push {file_name}: {e}"))?;
+        .map_err(|e| format!("push {file_name}: {e}{}", drive_size_hint(&remote, size)))?;
     Ok(FileTransferResult {
         ok: true,
         message: format!("Uploaded {file_name} to {remote_dir}."),
@@ -128,8 +147,8 @@ pub async fn push_file(
 }
 
 /// `copy_file_to_device` — pull a file from one connected device and push it
-/// to another's `/sdcard`. Both paths are `/sdcard`-confined; the file lands
-/// in `target_dir` under its original name. A temp file on this computer
+/// to another. Both paths are confined to user storage (`/sdcard` and USB
+/// drives); the file lands in `target_dir` under its original name. A temp file on this computer
 /// bridges the two transfers and is cleaned up either way.
 #[tauri::command]
 pub async fn copy_file_to_device(
@@ -139,8 +158,8 @@ pub async fn copy_file_to_device(
     target_serial: String,
     target_dir: String,
 ) -> Result<FileTransferResult, String> {
-    let remote = validate_sdcard_path(&remote_path)?;
-    let target_dir = validate_sdcard_path(&target_dir)?;
+    let remote = validate_user_storage_path(&remote_path)?;
+    let target_dir = validate_user_storage_path(&target_dir)?;
     if source_serial == target_serial {
         return Err("Source and target device are the same.".to_string());
     }
@@ -158,13 +177,36 @@ pub async fn copy_file_to_device(
     let adb = state.adb_snapshot().await;
 
     let result = async {
+        // Checked before the pull so a file the target drive can't hold isn't
+        // downloaded first.
+        let source_size = adb
+            .shell(
+                &source_serial,
+                &format!("stat -c %s {}", quote_path(&remote)),
+            )
+            .await
+            .ok()
+            .and_then(|out| out.stdout.trim().parse::<u64>().ok());
+        if let Some(size) = source_size.filter(|size| *size >= FAT32_MAX_FILE) {
+            let fs = drive_fs_type_with(adb.as_ref(), &target_serial, &target_dir).await;
+            fat32_refusal(&file_name, size, fs.as_deref())?;
+        }
         adb.raw_transfer(&["-s", &source_serial, "pull", &remote, &temp_str])
             .await
             .map_err(|e| format!("pull {remote}: {e}"))?;
+        let size = tokio::fs::metadata(&temp)
+            .await
+            .map(|m| m.len())
+            .unwrap_or(0);
         let dest = format!("{}/{file_name}", target_dir.trim_end_matches('/'));
         adb.raw_transfer(&["-s", &target_serial, "push", &temp_str, &dest])
             .await
-            .map_err(|e| format!("push to {target_serial}: {e}"))?;
+            .map_err(|e| {
+                format!(
+                    "push to {target_serial}: {e}{}",
+                    drive_size_hint(&dest, size)
+                )
+            })?;
         Ok::<FileTransferResult, String>(FileTransferResult {
             ok: true,
             message: format!("Copied {file_name} to {target_serial}:{target_dir}."),
@@ -231,7 +273,7 @@ fn sanitize_temp(name: &str) -> String {
 }
 
 /// `delete_path` — remove a file or directory (recursively). Confined to
-/// `/sdcard` unless `allow_system` (power-user) is set; the UI confirms before
+/// user storage unless `allow_system` (power-user) is set; the UI confirms before
 /// calling, and core's `protected_delete_reason` still blocks catastrophic
 /// targets.
 #[tauri::command]

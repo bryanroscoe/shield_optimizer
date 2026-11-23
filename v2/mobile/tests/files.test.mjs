@@ -50,14 +50,26 @@ test("a search that could not run never summarizes as no matches", () => {
   });
 });
 
-test("delete is only offered strictly inside /sdcard", () => {
-  for (const ok of ["/sdcard/old.zip", "/sdcard/Download/a b", "/sdcard/Documents"]) {
+test("delete is only offered strictly inside /sdcard or a USB drive", () => {
+  for (const ok of [
+    "/sdcard/old.zip",
+    "/sdcard/Download/a b",
+    "/sdcard/Documents",
+    "/storage/1A2B-3C4D/clip.mkv",
+    "/storage/0123456789ABCDEF/Movies",
+  ]) {
     assert.equal(appFiles.canDeleteOnTv(ok), true, ok);
   }
   for (const bad of [
     "/sdcard",
     "/sdcard/",
     "/sdcardX/a",
+    "/storage/1A2B-3C4D",
+    "/storage/1A2B-3C4D/",
+    "/storage/self/primary/a",
+    "/storage/1A2B-3C4D/../../data",
+    "/storage/null/a",
+    "/storage/sdcard0/a",
     "/storage/emulated/0/old.zip",
     "/data/local/tmp/a",
     "/sdcard/../data",
@@ -66,14 +78,21 @@ test("delete is only offered strictly inside /sdcard", () => {
   ]) {
     assert.equal(appFiles.canDeleteOnTv(bad), false, JSON.stringify(bad));
   }
+  for (const ok of ["/sdcard", "/storage/1A2B-3C4D", "/storage/1A2B-3C4D/Movies"]) {
+    assert.equal(appFiles.canUploadToTv(ok), true, ok);
+  }
+  for (const bad of ["/", "/storage", "/storage/emulated/0", "/data/local/tmp"]) {
+    assert.equal(appFiles.canUploadToTv(bad), false, bad);
+  }
   assert.equal(appFiles.parentDir(HIT), "/sdcard/Documents/SmartTubeBackup");
   assert.equal(appFiles.parentDir("/sdcard"), "/");
 });
 
-async function open(t) {
+async function open(t, volumes = []) {
   const page = await browser.newPage({ viewport: { width: 384, height: 812 } });
   t.after(() => page.close());
-  await page.addInitScript(() => {
+  await page.addInitScript((volumes) => {
+    window.volumes = volumes;
     window.calls = [];
     window.handlers = {};
     window.activeHost = "A";
@@ -87,6 +106,9 @@ async function open(t) {
         { name: "system", is_dir: true, is_symlink: false, size_bytes: 0, modified: "" },
         // `ls -lA` reports a link's own type, so a directory link arrives like this.
         { name: "etc", is_dir: false, is_symlink: true, size_bytes: 11, modified: "" },
+      ],
+      "/storage/1A2B-3C4D": [
+        { name: "holiday.mkv", is_dir: false, is_symlink: false, size_bytes: 4096, modified: "" },
       ],
       "/sdcard/Documents/SmartTubeBackup": [
         { name: "org.smarttube.stable_20260908.zip", is_dir: false, is_symlink: false, size_bytes: 10, modified: "" },
@@ -114,6 +136,7 @@ async function open(t) {
             window.activeHost = args.host;
             return { ok: true, message: "connected" };
           case "list_remote_dir": return window.listing[args.path] ?? [];
+          case "list_storage_volumes": return window.volumes;
           case "pull_file": {
             const name = args.remotePath.slice(args.remotePath.lastIndexOf("/") + 1);
             return { name, path: `/app/downloads/${name}`, size_bytes: 10 };
@@ -123,7 +146,7 @@ async function open(t) {
         }
       },
     };
-  });
+  }, volumes);
   await page.goto(origin);
   await page.evaluate(async () => {
     const { session } = await import("/src/lib/session.svelte.ts");
@@ -289,4 +312,37 @@ test("a link is listed but never offered as a download", async (t) => {
   assert.equal(await page.getByRole("button", { name: /\betc\b/ }).count(), 0);
   await link.click();
   assert.deepEqual(await callsOf(page, "pull_file"), []);
+});
+
+test("a plugged-in USB drive is offered next to the TV's storage and can be cleaned up", async (t) => {
+  const plain = await open(t);
+  assert.equal(await plain.getByRole("group", { name: "Storage" }).count(), 0);
+
+  const page = await open(t, [{ path: "/storage/1A2B-3C4D", uuid: "1A2B-3C4D", read_only: false }]);
+  const picker = page.getByRole("group", { name: "Storage" });
+  await picker.getByRole("button", { name: "USB drive" }).click();
+  await page.getByText("holiday.mkv").waitFor();
+  assert.equal(
+    await picker.getByRole("button", { name: "USB drive" }).getAttribute("aria-pressed"),
+    "true",
+  );
+  await page.getByRole("button", { name: "Upload to this folder" }).waitFor();
+
+  await page.getByRole("button", { name: "Delete holiday.mkv from the TV" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: /Delete/ }).click();
+  await page.waitForFunction(() => window.calls.some((call) => call.command === "delete_path"));
+  assert.deepEqual(
+    (await callsOf(page, "delete_path")).map((call) => call.args),
+    [{ serial: "A:5555", path: "/storage/1A2B-3C4D/holiday.mkv" }],
+  );
+
+  await picker.getByRole("button", { name: "TV storage" }).click();
+  await page.getByText("old.zip").waitFor();
+});
+
+test("a read-only drive can be browsed but offers no upload", async (t) => {
+  const page = await open(t, [{ path: "/storage/1A2B-3C4D", uuid: "1A2B-3C4D", read_only: true }]);
+  await page.getByRole("button", { name: "USB drive (read-only)" }).click();
+  await page.getByText("holiday.mkv").waitFor();
+  assert.equal(await page.getByRole("button", { name: "Upload to this folder" }).count(), 0);
 });

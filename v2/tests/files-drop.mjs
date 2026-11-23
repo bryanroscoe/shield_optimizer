@@ -7,6 +7,8 @@
 //     dropped folder is refused with a message instead;
 //   - a drop does nothing while Files is not the tab showing, because a
 //     visited tab stays mounted, only hidden;
+//   - a USB drive is offered next to the TV's storage, a drop on it lands
+//     there, and Up stops at the drive's root;
 //   - a folder opened from the filesystem root is "/data", not "//data".
 //
 // Run via `npm run test:files-drop` from v2/.
@@ -117,6 +119,27 @@ async function main() {
     assert.equal(await overlay.count(), 0, "no overlay was left behind");
     assert.doesNotMatch(await message.innerText(), /other\.txt/, "a hidden Files tab ignored the drop");
 
+    // A USB drive plugged into the TV is offered next to its storage, and a
+    // drop on it lands on the drive.
+    const picker = panel.getByRole("group", { name: "Storage" });
+    await picker.getByRole("button", { name: "USB drive" }).click();
+    await panel.locator(".crumb-current", { hasText: "1A2B-3C4D" }).waitFor();
+    await panel.locator(".file-name", { hasText: "holiday-2025.mkv" }).waitFor();
+    assert.equal(await picker.getByRole("button", { name: "USB drive" }).getAttribute("aria-pressed"), "true");
+    assert.ok(await panel.locator(".crumbs button", { hasText: "Up" }).isDisabled(), "Up stops at the drive's root");
+    assert.equal(
+      await panel.getByRole("button", { name: "Copy holiday-2025.mkv to another device" }).count(),
+      1,
+      "a file on the drive can be copied to another TV",
+    );
+    await fire(page, { type: "drop", paths: ["/Users/me/film.mkv"], position: at });
+    await page.waitForFunction(
+      () => /film\.mkv/.test(document.querySelector("#tabpanel-files .action-message")?.textContent ?? ""),
+    );
+    assert.equal(await message.innerText(), "Uploaded film.mkv to /storage/1A2B-3C4D.");
+    await picker.getByRole("button", { name: "TV storage" }).click();
+    await panel.locator(".crumb-current", { hasText: "sdcard" }).waitFor();
+
     // Climb to the root (power-user paths) and open a folder from there.
     await page.evaluate(() => {
       const internals = window.__TAURI_INTERNALS__;
@@ -137,7 +160,7 @@ async function main() {
     assert.ok(listed.includes("/data") && !listed.some((p) => p.startsWith("//")), `root children join with one slash: ${listed}`);
 
     console.log(
-      "Files drop passed: the overlay names the folder, a dropped file uploads there, a folder is refused, a hidden Files tab ignores drops, and root folders open as /name.",
+      "Files drop passed: the overlay names the folder, a dropped file uploads there, a folder is refused, a hidden Files tab ignores drops, a USB drive takes drops, and root folders open as /name.",
     );
     await page.close();
   } finally {

@@ -75,13 +75,16 @@ pub fn upload(
     overwrite: bool,
 ) -> AdbResult<UploadResult> {
     let target =
-        crate::commands::files::validate_sdcard_path(target).map_err(AdbError::Transport)?;
+        crate::commands::files::validate_user_storage_path(target).map_err(AdbError::Transport)?;
     let target = target.as_str();
     let (parent, name) = target
         .rsplit_once('/')
         .ok_or_else(|| AdbError::Transport("Invalid upload target.".into()))?;
-    if parent.is_empty() || name.is_empty() || target == "/sdcard" {
-        return Err(AdbError::Transport("Pick a file under /sdcard.".into()));
+    let root = crate::commands::files::user_storage_root(target);
+    if parent.is_empty() || name.is_empty() || root.as_deref() == Some(target) {
+        return Err(AdbError::Transport(
+            "Pick a file under /sdcard or on a USB drive.".into(),
+        ));
     }
     let target_q = quote(target);
     let check = io.shell(&format!("if [ -d {target_q} ]; then echo atvopt-directory; elif [ -e {target_q} ] || [ -L {target_q} ]; then echo atvopt-exists; else echo atvopt-absent; fi"))?;
@@ -119,8 +122,9 @@ pub fn upload(
     let partial = format!("{stage}/payload");
     if let Err(error) = io.push(local, &partial) {
         let left = cleanup(io, &stage);
+        let hint = crate::commands::files::drive_size_hint(target, expected_size);
         return Err(AdbError::Transport(format!(
-            "The file didn't finish uploading: {error}. Nothing in the folder was replaced. {left}"
+            "The file didn't finish uploading: {error}. Nothing in the folder was replaced. {left}{hint}"
         )));
     }
     let verified = match io.shell(&format!("stat -c %s {}", quote(&partial))) {
@@ -199,6 +203,65 @@ mod tests {
     }
     fn run(io: &mut Io, overwrite: bool) -> AdbResult<UploadResult> {
         upload(io, Path::new("local"), "/sdcard/movie", 3, overwrite)
+    }
+    #[test]
+    fn uploads_to_a_usb_drive_stage_on_that_drive() {
+        let mut drive = io(&[
+            "atvopt-absent",
+            "atvopt-created",
+            "3",
+            "atvopt-committed",
+            "atvopt-clean",
+        ]);
+        let result = upload(
+            &mut drive,
+            Path::new("local"),
+            "/storage/1A2B-3C4D/movie.mkv",
+            3,
+            false,
+        );
+        assert_eq!(result.unwrap(), UploadResult::Uploaded { verified: true });
+        assert!(drive.calls[1].starts_with("mkdir '/storage/1A2B-3C4D/.atvopt-upload-"));
+        for bad in [
+            "/storage/1A2B-3C4D",
+            "/storage/emulated/0/movie",
+            "/storage/self/x",
+        ] {
+            let mut refused = io(&[]);
+            assert!(
+                upload(&mut refused, Path::new("local"), bad, 3, false).is_err(),
+                "{bad}"
+            );
+            assert!(refused.calls.is_empty(), "{bad}");
+        }
+    }
+    #[test]
+    fn a_failed_big_push_to_a_drive_mentions_fat32() {
+        let big = 5 << 30;
+        let mut drive = io(&["atvopt-absent", "atvopt-created", "atvopt-clean"]);
+        drive.push_error = true;
+        let error = upload(
+            &mut drive,
+            Path::new("local"),
+            "/storage/1A2B-3C4D/m.mkv",
+            big,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("FAT32"), "{error}");
+        let mut internal = io(&["atvopt-absent", "atvopt-created", "atvopt-clean"]);
+        internal.push_error = true;
+        let error = upload(
+            &mut internal,
+            Path::new("local"),
+            "/sdcard/m.mkv",
+            big,
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(!error.contains("FAT32"), "{error}");
     }
     #[test]
     fn unacknowledged_reservation_never_pushes_or_cleans_an_unowned_path() {

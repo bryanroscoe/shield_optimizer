@@ -23,7 +23,9 @@
 use std::path::{Path, PathBuf};
 
 use atv_optimizer_core::adb::{parse_ls_output, AdbDriver, AdbError, FileEntry};
-use atv_optimizer_core::commands::files::{self, delete_path_with, find_files_with, FindResult};
+use atv_optimizer_core::commands::files::{
+    self, delete_path_with, find_files_with, list_storage_volumes_with, FindResult, StorageVolume,
+};
 use atv_optimizer_core::commands::{apps::ActionResult, AppState};
 use atv_optimizer_core::engine::install_outcome::{
     apk_basename, decode_install_error, install_succeeded, is_safe_apk_name, parse_pm_paths,
@@ -647,8 +649,20 @@ pub async fn find_files(
     find_files_with(adb.as_ref(), &serial, &dirs, &pattern).await
 }
 
-/// `delete_path` — delete a file or folder on the TV. Always `/sdcard`-confined
-/// with `/sdcard` itself refused; the screen confirms before calling.
+/// `list_storage_volumes` — USB drives and SD cards the TV has mounted as
+/// portable storage, so the screen can offer them next to `/sdcard`.
+#[tauri::command]
+pub async fn list_storage_volumes(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<StorageVolume>, String> {
+    let adb = state.adb_snapshot().await;
+    list_storage_volumes_with(adb.as_ref(), &serial).await
+}
+
+/// `delete_path` — delete a file or folder on the TV. Always confined to user
+/// storage (`/sdcard` and USB drives) with each root itself refused; the
+/// screen confirms before calling.
 #[tauri::command]
 pub async fn delete_path(
     state: State<'_, AppState>,

@@ -729,6 +729,9 @@ function optimizePlan(mode: "optimize" | "restore"): OptimizePlan {
   return { mode, items };
 }
 
+/// A USB drive plugged into the demo TV, mounted as portable storage.
+const DEMO_USB = "/storage/1A2B-3C4D";
+
 function demoFiles(path: string) {
   if (path === "/") {
     return [
@@ -744,6 +747,12 @@ function demoFiles(path: string) {
       { name: "Projectivy", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-12 18:40" },
       { name: "device-report.txt", is_dir: false, is_symlink: false, size_bytes: 18432, modified: "2026-06-01 09:15" },
       { name: "screen-test.png", is_dir: false, is_symlink: false, size_bytes: 2411724, modified: "2026-05-30 20:08" },
+    ];
+  }
+  if (path === DEMO_USB) {
+    return [
+      { name: "Movies", is_dir: true, is_symlink: false, size_bytes: 4096, modified: "2026-05-20 20:11" },
+      { name: "holiday-2025.mkv", is_dir: false, is_symlink: false, size_bytes: 1503238553, modified: "2026-05-20 20:14" },
     ];
   }
   return [
@@ -1146,6 +1155,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       return tweaks;
     case "list_dir":
       return demoFiles(args.path as string);
+    case "list_storage_volumes":
+      return [{ path: DEMO_USB, uuid: "1A2B-3C4D", read_only: false, fs_type: "exfat" }];
     // The real command refuses anything that is not a regular file. The demo
     // cannot stat a path, so a last segment with no extension stands in for a
     // dropped folder.
