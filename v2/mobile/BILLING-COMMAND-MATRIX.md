@@ -25,6 +25,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `redact_bug_note` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
 | `send_bug_report` | Free | `src-tauri/src/bug_report_commands.rs` | `src/components/BugReportSheet.svelte` |
 | `read_device_logs` | Free | `../crates/core/src/commands/logcat.rs` | `src/screens/Logs.svelte` |
+| `run_shell` | ShellRunner | `../crates/core/src/commands/shell.rs` | `src/screens/Shell.svelte` |
 | `telemetry_settings` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte`, `src/components/TelemetryNotice.svelte` |
 | `set_telemetry_enabled` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/SupportReports.svelte`, `src/components/TelemetryNotice.svelte` |
 | `dismiss_telemetry_notice` | Free | `../crates/core/src/commands/telemetry.rs` | `src/components/TelemetryNotice.svelte` |
@@ -111,7 +112,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 ## UI and recovery findings
 
 - Onboarding/Devices and compatibility reads are Free. Read errors/unknown evidence must stay honest.
-- More marks Optimize, Launcher and Snapshots as Pro tools; navigation is still allowed, with per-action LOCKED handling. Tweaks current-value reads are Free; setters are Pro.
+- More marks Optimize, Launcher, Snapshots and Shell as Pro tools; navigation is still allowed, with per-action LOCKED handling. Tweaks current-value reads are Free; setters are Pro.
 - Apps enable/reinstall and More emergency recovery are Free; the latter re-enables disabled packages rather than undoing every change. Existing UI/backend behavior is tested without widening gates.
 - Optimize restore still requires Pro to prepare the plan; snapshots list/delete/apply are Pro-gated. Snapshot apply can disable packages and change settings, so it cannot be made Free as arbitrary undo.
 - Settings, permission and Home before-value restore remain gated or incomplete. A bounded journal/undo mechanism needs separate review. This slice creates no persistent journal and does not make arbitrary writes free.

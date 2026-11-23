@@ -270,6 +270,10 @@ function handle(cmd: string, args: Record<string, unknown>): unknown {
       (window as unknown as { __BUG_REPORTS__: unknown[] }).__BUG_REPORTS__.push(args);
       if (!String(args.note ?? "").trim()) throw "Describe the problem before sending the report.";
       return { support_id: "33333333-3333-4333-8333-333333333333", bytes: 1_204, report_id: 42 };
+    // The output and refusals come from the desktop fixture.
+    case "run_shell":
+      if (demoBilling !== "owned") throw "LOCKED:shell_runner";
+      return sharedHandle(cmd, args);
     case "read_device_logs": {
       const options = args.options as { package?: string | null; tag?: string | null };
       const pid = options.package ? 4321 : 1234;

@@ -24,6 +24,7 @@
   import Files from "./screens/Files.svelte";
   import Sideload from "./screens/Sideload.svelte";
   import Logs from "./screens/Logs.svelte";
+  import Shell from "./screens/Shell.svelte";
   import Backups from "./screens/Backups.svelte";
   import ConnectionBanner from "./components/ConnectionBanner.svelte";
   import Toast from "./components/Toast.svelte";
@@ -186,6 +187,8 @@
   <Files {back} />
 {:else if router.current === "logs"}
   <Logs {back} />
+{:else if router.current === "shell"}
+  <Shell {navigate} {back} />
 {:else if router.current === "backups"}
   <Backups {back} />
 {:else if router.current === "sideload"}

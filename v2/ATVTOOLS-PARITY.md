@@ -33,7 +33,7 @@ aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 14+) controlling
 
 **Playback report** (Playback tab) shows codec configuration, reported HDR/display modes, and audio policy. These observations do not establish runtime decoder support, acceleration, or playback quality.
 
-**Bottom line:** ATV Optimizer leads on the *debloat/optimize/safety* core and now covers the general device utilities that complement it (APK backup and cloning, file manager, screenshots, force-stop, text entry, shell runner with bookmarks, cache trim, CPU/network sampling, permissions, low-latency remote). The desktop Shell tab is an explicit expert opt-in: its lexical gate catches obvious protected-package commands but shell expressions can bypass it, so it never carries the curated actions' safety guarantee. Mobile does not expose a shell.
+**Bottom line:** ATV Optimizer leads on the *debloat/optimize/safety* core and now covers the general device utilities that complement it (APK backup and cloning, file manager, screenshots, force-stop, text entry, shell runner with bookmarks, cache trim, CPU/network sampling, permissions, low-latency remote). The Shell (a desktop tab, and More › Shell on Android, Pro) is an explicit expert opt-in: its lexical gate catches obvious protected-package commands but shell expressions can bypass it, so it never carries the curated actions' safety guarantee.
 
 ## Remaining gaps
 

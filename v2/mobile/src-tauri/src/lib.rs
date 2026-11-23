@@ -24,7 +24,7 @@ use std::sync::Arc;
 
 use atv_optimizer_core::commands::{
     apps, devices, diagnostics, health, input, launcher, license, loader, logcat, optimize, reboot,
-    recovery, screenshot, snapshot, telemetry, tuning, AppState,
+    recovery, screenshot, shell, snapshot, telemetry, tuning, AppState,
 };
 use atv_optimizer_core::engine;
 use atv_optimizer_core::engine::telemetry::AppKind;
@@ -345,6 +345,7 @@ pub fn run() {
             bug_report_commands::redact_bug_note,
             bug_report_commands::send_bug_report,
             logcat::read_device_logs,
+            shell::run_shell,
             devices::list_devices,
             devices::device_profile,
             devices::rename_device,

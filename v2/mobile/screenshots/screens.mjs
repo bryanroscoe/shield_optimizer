@@ -34,6 +34,7 @@ export const SCREENS = [
   { name: "sideload-ready", open: ["sideload"], then: pickApk },
   { name: "backups", open: ["backups"] },
   { name: "logs", open: ["logs"], then: readLogs },
+  { name: "shell", open: ["shell"], then: runShell },
   { name: "riskguide", open: ["riskguide"] },
   { name: "add-tv", open: ["addtv"] },
   { name: "catalog", open: ["catalog"], then: openCatalogProfile },
@@ -101,6 +102,14 @@ async function pickApk(page) {
 async function readLogs(page) {
   await page.getByRole("button", { name: "Read logs", exact: true }).click();
   await page.getByLabel("Log output").waitFor();
+}
+
+async function runShell(page) {
+  await page.getByRole("checkbox", { name: /I understand these risks/ }).check();
+  await page.getByRole("button", { name: /Disabled packages/ }).click();
+  await page.getByRole("button", { name: "Run", exact: true }).click();
+  await page.getByLabel("Command output").waitFor();
+  await page.evaluate(() => window.scrollTo(0, 0));
 }
 
 async function openCatalogProfile(page) {
