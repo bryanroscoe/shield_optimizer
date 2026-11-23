@@ -210,9 +210,16 @@ function sameRecord(a: SavedDevice, b: SavedDevice): boolean {
 
 /// Auto-save: a connected network device with a verified id and a dialable
 /// address is saved, or its saved record refreshed (it may have moved to a
-/// new address). Ids the user unsaved are skipped. Returns the same store
-/// object when nothing changed.
-export function observeConnected(store: SavedStore, d: LiveDevice, now = new Date()): SavedStore {
+/// new address). Ids the user unsaved are skipped, and so is a device that
+/// answered only because the app dialled a saved address it then turned out
+/// not to be: `dialledFor` maps each address the app dialled to the saved id
+/// it expected there. Returns the same store object when nothing changed.
+export function observeConnected(
+  store: SavedStore,
+  d: LiveDevice,
+  now = new Date(),
+  dialledFor?: ReadonlyMap<string, string>,
+): SavedStore {
   if (d.status !== "device") return store;
   const hardwareId = hardwareIdOf(d);
   const address = savedAddressOf(d);
@@ -220,6 +227,8 @@ export function observeConnected(store: SavedStore, d: LiveDevice, now = new Dat
   const prior = store.devices.find((s) => s.hardwareId === hardwareId);
   if (!prior) {
     if (!address || store.unsaved.includes(hardwareId)) return store;
+    const expected = dialledFor?.get(address);
+    if (expected !== undefined && expected !== hardwareId) return store;
     return { ...store, devices: [...store.devices, recordFor(d, hardwareId, address, now)] };
   }
   // Reached under a service name: still the saved TV, at its last address.
@@ -262,6 +271,63 @@ export function recordMac(
   return { ...store, devices: store.devices.map((s) => (s === prior ? { ...s, mac } : s)) };
 }
 
+/// Fill in a MAC that another screen wrote to storage for the same id, so a
+/// write from this screen never drops it.
+export function mergeStoredMacs(store: SavedStore, stored: SavedStore): SavedStore {
+  const macs = new Map(stored.devices.flatMap((d) => (d.mac ? [[d.hardwareId, d.mac] as const] : [])));
+  if (!store.devices.some((d) => !d.mac && macs.has(d.hardwareId))) return store;
+  return {
+    ...store,
+    devices: store.devices.map((d) => (!d.mac && macs.has(d.hardwareId) ? { ...d, mac: macs.get(d.hardwareId) } : d)),
+  };
+}
+
+/// Dial state shared by every Devices screen in one app session.
+export interface DialSession {
+  dial: Record<string, DialState>;
+  /// Ids whose connect call hasn't returned yet.
+  pending: Record<string, boolean>;
+  /// Counts connect calls that succeeded, so whichever screen is open re-reads
+  /// the list when one lands, even after the screen that dialled has closed.
+  landed: number;
+}
+
+/// Dial a saved address. Resolves when the call returns or after `waitMs`,
+/// whichever is first; at the wait the row says "Didn't answer", but the
+/// call stays pending (and Connect stays off) until it really returns. A
+/// success never reads as "Didn't answer": it clears the row's dial state,
+/// and Online then comes from the list.
+export function dialSavedAddress(
+  session: DialSession,
+  saved: Pick<SavedDevice, "hardwareId" | "address">,
+  connect: (address: string) => Promise<{ ok: boolean } | null>,
+  waitMs: number,
+): Promise<void> {
+  const id = saved.hardwareId;
+  if (session.pending[id]) return Promise.resolve();
+  session.pending[id] = true;
+  session.dial[id] = "connecting";
+  const settled = connect(saved.address)
+    .catch(() => null)
+    .then((r) => {
+      delete session.pending[id];
+      if (r?.ok) {
+        delete session.dial[id];
+        session.landed += 1;
+      } else {
+        session.dial[id] = "no_answer";
+      }
+    });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const waited = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      if (session.pending[id] && session.dial[id] === "connecting") session.dial[id] = "no_answer";
+      resolve();
+    }, waitMs);
+  });
+  return Promise.race([settled.then(() => clearTimeout(timer)), waited]);
+}
+
 /// The connected device a saved record is, by verified id alone.
 export function liveDeviceFor<T extends LiveDevice>(saved: SavedDevice, devices: T[]): T | undefined {
   return devices.find((d) => d.status === "device" && hardwareIdOf(d) === saved.hardwareId);
@@ -281,7 +347,9 @@ export function savedStatus(saved: SavedDevice, devices: LiveDevice[], dial: Dia
     return "different_device";
   }
   if (dial === "connecting") return "connecting";
-  if (atAddress.some((d) => hardwareIdOf(d) === null)) return "unverified";
+  // An offline transport is what adb leaves when a TV sleeps: nothing is
+  // answering, so it is no reason to doubt who is there.
+  if (atAddress.some((d) => d.status !== "offline" && hardwareIdOf(d) === null)) return "unverified";
   return dial ?? "not_connected";
 }
 
@@ -290,10 +358,11 @@ export function sortedSaved(store: SavedStore): SavedDevice[] {
   return [...store.devices].sort((a, b) => a.name.localeCompare(b.name) || a.hardwareId.localeCompare(b.hardwareId));
 }
 
-/// "Last connected 2 h ago" phrasing for the row's metadata.
+/// "Last connected 2 h ago" phrasing for the row's metadata; empty when the
+/// time is unknown, so the row leaves the phrase out.
 export function lastConnectedLabel(iso: string, now = Date.now()): string {
   const then = new Date(iso).getTime();
-  if (Number.isNaN(then) || then <= 0) return "never connected";
+  if (Number.isNaN(then) || then <= 0) return "";
   const mins = Math.max(0, Math.round((now - then) / 60000));
   if (mins < 1) return "just now";
   if (mins < 60) return `${mins} min ago`;

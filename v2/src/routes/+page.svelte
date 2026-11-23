@@ -43,8 +43,11 @@
   import {
     hostOfAddress,
     lastConnectedLabel,
+    dialSavedAddress,
     liveDeviceFor,
     loadSaved,
+    mergeStoredMacs,
+    normalizeAddress,
     observeConnected,
     recordMac,
     saveDevice,
@@ -114,7 +117,6 @@
   const foundDevices = $derived(visibleDevices.filter((d) => !savedRows.some((r) => r.live?.serial === d.serial)));
   /// How long launch (or Connect) waits for a saved address to answer.
   const SAVED_DIAL_MS = 8000;
-  const dialsInFlight = savedDialWork.inFlight;
   /// Hardware ids whose MAC has been asked for this session.
   const macRead = savedDialWork.macRead;
 
@@ -320,6 +322,9 @@
     connectMessage = adbBackend === "direct" ? "Connecting…" : "";
     connectDetail = "";
     connectError = null;
+    // Typed by the user: no longer just an answer to a saved-device dial.
+    const key = normalizeAddress(connectKey(address));
+    if (key) savedDialWork.dialledFor.delete(key);
     try {
       const r = await api.connectDevice(address);
       if (r.ok) {
@@ -878,6 +883,8 @@
       await freshLocalNetworkStatus(r.message);
       await refresh();
       restartBusy = false;
+      // A restart drops every connection: dial the saved TVs again.
+      if (r.server_ready) void dialSavedDevices();
       if (r.server_ready && retryAddress && connectAddress.trim() === retryAddress) await connect();
     } catch (e) {
       restartMessage = String(e);
@@ -1314,40 +1321,56 @@
     }
   }
 
+  /// Persist a change. A MAC that a closed Devices screen wrote meanwhile is
+  /// merged in first, so this write never drops it.
   function storeSaved(next: SavedStore) {
     if (next === savedStore) return;
+    next = mergeStoredMacs(next, loadSaved());
     savedStore = next;
     writeSaved(next);
   }
 
   /// Every connected network device with a verified hardware id is saved
-  /// (unless the user unsaved it), and a saved one's record follows it to a
-  /// new address. Runs whenever the list is re-read.
+  /// (unless the user unsaved it, or it answered only a dial for another
+  /// saved device), and a saved one's record follows it to a new address.
+  /// Runs whenever the list is re-read.
   $effect(() => {
     const list = devices;
     untrack(() => {
-      let next = savedStore;
-      for (const d of list) next = observeConnected(next, d);
+      let next = mergeStoredMacs(savedStore, loadSaved());
+      for (const d of list) next = observeConnected(next, d, new Date(), savedDialWork.dialledFor);
       storeSaved(next);
-      for (const saved of next.devices) {
+      for (const saved of savedStore.devices) {
         const live = liveDeviceFor(saved, list);
         if (!live) continue;
-        if (savedDial[saved.hardwareId]) delete savedDial[saved.hardwareId];
+        if (savedDial[saved.hardwareId] && !savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
         if (!saved.mac) void readMac(saved, live);
       }
     });
   });
 
+  /// A saved dial that succeeded after the screen that started it closed:
+  /// this screen re-reads the list so the TV shows up.
+  let landedSeen = savedDialSession.landed;
+  $effect(() => {
+    const landed = savedDialSession.landed;
+    untrack(() => {
+      if (landed === landedSeen) return;
+      landedSeen = landed;
+      if (!disposed) void refresh();
+    });
+  });
+
   /// The MAC address of the interface a saved device is reached on, for a
   /// later Wake-on-LAN. Once per session; a failed read is simply no MAC.
+  /// Written to storage straight away, so it survives this screen closing.
   async function readMac(saved: SavedDevice, live: Device) {
     if (macRead.has(saved.hardwareId)) return;
     macRead.add(saved.hardwareId);
     try {
       const read = await api.deviceMacAddress(live.serial, hostOfAddress(savedAddressOf(live) ?? saved.address));
-      // Once this screen has closed, the next one reads the list from storage.
+      writeSaved(recordMac(loadSaved(), saved.hardwareId, read));
       if (!disposed) storeSaved(recordMac(savedStore, saved.hardwareId, read));
-      else writeSaved(recordMac(loadSaved(), saved.hardwareId, read));
     } catch {
       /* no MAC this time */
     }
@@ -1355,35 +1378,19 @@
 
   /// Dial a saved device's last address. The row goes Online only once a
   /// device reporting its hardware id is listed; anything else ends as
-  /// "Didn't answer" or, when another device answers there, says so.
-  async function dialSaved(saved: SavedDevice) {
-    const id = saved.hardwareId;
-    if (dialsInFlight.has(id) || directUnavailable || adbMissing) return;
-    dialsInFlight.add(id);
-    savedDial[id] = "connecting";
-    const attempt = api.connectDevice(saved.address).catch(() => null);
-    let waited = false;
-    // A slow answer that lands after the wait still shows up in the list.
-    void attempt.then((r) => {
-      if (waited && r?.ok && !disposed) return refresh();
-    });
-    try {
-      const r = await Promise.race([attempt, sleep(SAVED_DIAL_MS).then(() => null)]);
-      waited = true;
-      if (r?.ok && !disposed) await refresh();
-    } finally {
-      dialsInFlight.delete(id);
-      // Kept even if this screen closed meanwhile: the state outlives it, and
-      // Online is read from the live list whatever this says.
-      if (!disposed && liveDeviceFor(saved, devices)) delete savedDial[id];
-      else savedDial[id] = "no_answer";
-    }
+  /// "Didn't answer" or, when another device answers there, says so. The
+  /// dial's state lives in the session, so it lands correctly even if this
+  /// screen closes first.
+  function dialSaved(saved: SavedDevice): Promise<void> {
+    if (directUnavailable || adbMissing) return Promise.resolve();
+    savedDialWork.dialledFor.set(saved.address, saved.hardwareId);
+    return dialSavedAddress(savedDialSession, saved, api.connectDevice, SAVED_DIAL_MS);
   }
 
   async function dialSavedDevices() {
     const waiting = savedStore.devices.filter((saved) => !liveDeviceFor(saved, devices));
     for (const saved of savedStore.devices) {
-      if (!waiting.includes(saved)) delete savedDial[saved.hardwareId];
+      if (!waiting.includes(saved) && !savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
     }
     await Promise.all(waiting.map(dialSaved));
   }
@@ -1392,10 +1399,16 @@
     return d.status === "device" && !!idKey(d.properties?.serial_number) && !!savedAddressOf(d);
   }
 
+  /// After a bookmark: the row's bookmark wherever it moved, else the first
+  /// saved row's, else the first row, else the Devices heading.
   async function focusBookmark(id: string) {
     await tick();
-    const button = document.querySelector<HTMLElement>(`[data-bookmark="${CSS.escape(id)}"]`);
-    (button ?? document.getElementById("saved-devices-heading") ?? document.getElementById("found-devices-heading"))?.focus();
+    const target =
+      document.querySelector<HTMLElement>(`[data-bookmark="${CSS.escape(id)}"]`) ??
+      document.querySelector<HTMLElement>(".device-section [data-bookmark]") ??
+      document.querySelector<HTMLElement>("ul.device-list a.device-row, ul.device-list button") ??
+      document.getElementById("devices-heading");
+    target?.focus();
   }
 
   /// The bookmark on a connected row.
@@ -1415,7 +1428,7 @@
   /// The bookmark on a saved row that isn't connected: the row goes away.
   function unsaveRecord(saved: SavedDevice) {
     storeSaved(unsaveDevice(savedStore, saved.hardwareId));
-    delete savedDial[saved.hardwareId];
+    if (!savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
     void focusBookmark(saved.hardwareId);
   }
 
@@ -1425,16 +1438,17 @@
   // devices don't have to click anything.
   async function bootDiscovery() {
     await refresh();
-    const launch = !savedDialSession.launched;
+    const redial = !savedDialSession.launched || savedDialSession.redialDue;
     if (disposed) return;
     savedDialSession.launched = true;
     if (adbMissing || directUnavailable || error) {
-      for (const id of Object.keys(savedDial)) if (!dialsInFlight.has(id)) delete savedDial[id];
+      for (const id of Object.keys(savedDial)) if (!savedDialSession.pending[id]) delete savedDial[id];
       return;
     }
-    // Launch dials every saved address once; coming back to this screen
-    // later leaves them to Connect.
-    const dialing = launch ? dialSavedDevices() : Promise.resolve();
+    savedDialSession.redialDue = false;
+    // Launch (or a restarted ADB) dials every saved address once; coming
+    // back to this screen later leaves them to Connect.
+    const dialing = redial ? dialSavedDevices() : Promise.resolve();
     if (devices.some((d) => d.status === "device")) {
       await dialing;
       return;
@@ -1464,7 +1478,7 @@
 
 <section class="header-row">
   <div class="header-title">
-    <h1>Devices</h1>
+    <h1 id="devices-heading" tabindex="-1">Devices</h1>
     <p class="muted small mono header-sub">
       {#if adbMissing}
         adb not found
@@ -1778,7 +1792,8 @@
           <p>Network devices that connect and report their hardware ID are saved here automatically. The bookmark unsaves one, and it stays unsaved until you save it again.</p>
           <p>At launch the app connects to each saved address directly, so a device that a network scan misses still appears.</p>
           <p><strong>Didn't answer</strong>: it's asleep, off, or at a new address. Wake it, then choose Connect.</p>
-          <p><strong>Different device</strong>: another device answers at that address now. It gets its own row below and never this saved name.</p>
+          <p><strong>Different device</strong>: another device answers at that address now. It's listed under Other devices, never under this saved name, and isn't saved unless you save it.</p>
+          <p><strong>Can't confirm</strong>: something answers at that address but hasn't allowed this computer, so it can't say which device it is.</p>
           <p>Forget disconnects a saved device; it stays saved.</p>
         </HelpTip>
       </div>
@@ -1792,7 +1807,7 @@
         {/each}
       </ul>
     </section>
-    <h2 class="found-heading" id="found-devices-heading" tabindex="-1">Found on this network</h2>
+    <h2 class="found-heading" id="found-devices-heading" tabindex="-1">Other devices</h2>
   {/if}
   {#if (loading || scanBusy || (adbBackend === "direct" && nativeConnections.pending.length > 0)) && foundDevices.length === 0}
     <div class="muted">{scanBusy ? "Scanning for devices…" : loading ? "Looking for devices…" : "Connecting to discovered addresses…"}</div>
@@ -1844,6 +1859,7 @@
       <div class="device-main">
         <div class="device-name">
           <span>{saved.name}</span>
+          <span class="saved-status" role="status">
           {#if status === "connecting"}
             <span class="device-status connecting"><span class="spinner" aria-hidden="true"></span> Connecting…</span>
           {:else if status === "no_answer"}
@@ -1855,11 +1871,12 @@
           {:else}
             <span class="device-status"><span class="status-dot" aria-hidden="true"></span> Not connected</span>
           {/if}
+          </span>
         </div>
         <div class="device-meta muted mono">
           {saved.address} · {deviceTypeLabel(saved.deviceType)}
           {#if saved.model}· {saved.model}{/if}
-          · last connected {lastConnectedLabel(saved.lastConnected)}
+          {#if lastConnectedLabel(saved.lastConnected)}· last connected {lastConnectedLabel(saved.lastConnected)}{/if}
         </div>
       </div>
       <span class="row-actions">
@@ -1876,8 +1893,8 @@
         <button
           class="row-action primary"
           onclick={() => dialSaved(saved)}
-          disabled={status === "connecting" || directUnavailable || adbMissing}
-          aria-label={`Connect to ${saved.name}`}
+          disabled={status === "connecting" || !!savedDialSession.pending[saved.hardwareId] || directUnavailable || adbMissing}
+          aria-label={status === "connecting" ? `Connecting to ${saved.name}` : `Connect to ${saved.name}`}
         >
           {status === "connecting" ? "Connecting…" : "Connect"}
         </button>
@@ -2274,8 +2291,13 @@
     font-size: 0.92rem;
     font-weight: 550;
   }
-  .found-heading:focus {
+  .found-heading:focus,
+  #devices-heading:focus {
     outline: none;
+  }
+  .saved-status {
+    display: inline-flex;
+    align-items: center;
   }
   .found-empty {
     margin: 0;
