@@ -49,12 +49,19 @@ export const scenarios = [
       await ctx.open("/");
       await savedRow(ctx, SHIELD.serial).getByText("Didn't answer").waitFor({ timeout: 20_000 });
       await ctx.step("relaunch: the saved Shield didn't answer");
+      const wakes = async () => (await ctx.invokes()).filter((i) => i.cmd === "wake_device");
+      ctx.assert.deepEqual(await wakes(), [], "the launch dial never sends a wake packet");
       // Woken up.
       await ctx.clearFaults();
       await savedRow(ctx, SHIELD.serial).getByRole("button", { name: `Connect to ${SHIELD.name}` }).click();
       await row(ctx, SHIELD.key).getByText("Online").waitFor();
       ctx.assert.deepEqual((await ctx.state()).transports.map((t) => t.key), [SHIELD.key]);
-      await ctx.step("Connect dialled the saved address and it's online");
+      // Connect sent one wake (answered by the server, never broadcast) for the saved MAC first.
+      const sent = await wakes();
+      ctx.assert.equal(sent.length, 1);
+      ctx.assert.deepEqual(sent[0].args, { mac: record.mac, host: SHIELD.key.split(":")[0] });
+      ctx.assert.equal(sent[0].intercepted, true);
+      await ctx.step("Connect woke and dialled the saved address and it's online");
 
       // Another TV now answers at the saved address.
       await ctx.reset({ devices: [{ profile: "shield-tv-pro", serial: "0323716101827", transports: [] }] });

@@ -30,6 +30,8 @@ pub fn allowed(command: &str) -> bool {
             | "rename_device"
             // One read-only shell batch against the simulator.
             | "device_mac_address"
+            // Answered by `intercepted`: it would broadcast on the host's LAN.
+            | "wake_device"
             | "health_report"
             | "media_report"
             | "resource_sample"
@@ -150,6 +152,7 @@ mod tests {
         // Answered by the server's intercept table, never by the host.
         assert!(allowed("local_network_access"));
         assert!(allowed("open_local_network_settings"));
+        assert!(allowed("wake_device"));
         assert!(allowed("adb_engine"));
         assert!(allowed("set_adb_engine"));
         assert!(!allowed("new_unreviewed_command"));

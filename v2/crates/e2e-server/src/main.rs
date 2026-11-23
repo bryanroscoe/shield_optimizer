@@ -55,6 +55,8 @@ fn intercepted(cmd: &str) -> Option<Value> {
         "local_address_for" => json!("192.0.2.254"),
         "local_network_access" => json!({"status": "not_applicable"}),
         "open_local_network_settings" => Value::Null,
+        // A real wake is a UDP broadcast on the host's LAN.
+        "wake_device" => json!({"sent": 0}),
         _ => return None,
     })
 }
@@ -437,7 +439,7 @@ impl Server {
                 "fixture_subnet": offline::FIXTURE_SUBNET,
                 "fixture_sweep_installed": atv_optimizer_lib::adb::scan::SWEEP_OVERRIDE.read().map(|s| s.is_some()).unwrap_or(false),
                 "command_allowlist_enforced": true,
-                "host_intercepts": ["check_for_update", "install_adb", "open_log_dir", "local_address_for", "local_network_access", "open_local_network_settings"],
+                "host_intercepts": ["check_for_update", "install_adb", "open_log_dir", "local_address_for", "local_network_access", "open_local_network_settings", "wake_device"],
                 "hardware_acceptance_not_run": ["real LAN/multicast discovery", "AUTH/STLS and identity onboarding", "physical helper/key-release cleanup", "packaged platform acceptance"]
             })),
             ("GET", "/control/log") => {

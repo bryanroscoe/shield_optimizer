@@ -59,6 +59,7 @@
     type SavedDevice,
     type SavedStatus,
     type SavedStore,
+    type WakeFirst,
   } from "$lib/saved-devices";
   import { savedDialSession, savedDialWork } from "$lib/saved-dial.svelte";
 
@@ -117,6 +118,30 @@
   const foundDevices = $derived(visibleDevices.filter((d) => !savedRows.some((r) => r.live?.serial === d.serial)));
   /// How long launch (or Connect) waits for a saved address to answer.
   const SAVED_DIAL_MS = 8000;
+  /// Connect on a saved row with a MAC wakes it first, then keeps dialling
+  /// while it boots, until it's unsaved or listed (perhaps at a new address).
+  /// Never used by the launch or restart redials.
+  function wakeFirstFor(saved: SavedDevice): WakeFirst {
+    return {
+      wake: api.wakeDevice,
+      connect: api.connectDeviceQuietly,
+      report: api.reportConnect,
+      // Storage, not this screen's copy: the dial outlives the screen.
+      keepGoing: () =>
+        loadSaved().devices.some((d) => d.hardwareId === saved.hardwareId) && !liveDeviceFor(saved, devices),
+      wakeMs: 2000,
+      retryMs: 3000,
+      waitMs: 30_000,
+    };
+  }
+
+  /// Connect on a saved row. While a dial is under way the button stays
+  /// focusable (`aria-disabled`), so keyboard focus isn't dropped, and a
+  /// press does nothing.
+  function connectSaved(saved: SavedDevice, busy: boolean) {
+    if (busy) return;
+    void dialSaved(saved, wakeFirstFor(saved));
+  }
   /// Hardware ids whose MAC has been asked for this session.
   const macRead = savedDialWork.macRead;
 
@@ -1381,18 +1406,20 @@
   /// "Didn't answer" or, when another device answers there, says so. The
   /// dial's state lives in the session, so it lands correctly even if this
   /// screen closes first.
-  function dialSaved(saved: SavedDevice): Promise<void> {
+  function dialSaved(saved: SavedDevice, wakeFirst?: WakeFirst): Promise<void> {
     if (directUnavailable || adbMissing) return Promise.resolve();
     savedDialWork.dialledFor.set(saved.address, saved.hardwareId);
-    return dialSavedAddress(savedDialSession, saved, api.connectDevice, SAVED_DIAL_MS);
+    return dialSavedAddress(savedDialSession, saved, api.connectDevice, SAVED_DIAL_MS, wakeFirst);
   }
 
+  /// Launch and restart redials: never a wake packet, so opening the app
+  /// doesn't switch on every TV in the house.
   async function dialSavedDevices() {
     const waiting = savedStore.devices.filter((saved) => !liveDeviceFor(saved, devices));
     for (const saved of savedStore.devices) {
       if (!waiting.includes(saved) && !savedDialSession.pending[saved.hardwareId]) delete savedDial[saved.hardwareId];
     }
-    await Promise.all(waiting.map(dialSaved));
+    await Promise.all(waiting.map((saved) => dialSaved(saved)));
   }
 
   function canSave(d: Device): boolean {
@@ -1792,6 +1819,7 @@
           <p>Network devices that connect and report their hardware ID are saved here automatically. The bookmark unsaves one, and it stays unsaved until you save it again.</p>
           <p>At launch the app connects to each saved address directly, so a device that a network scan misses still appears.</p>
           <p><strong>Didn't answer</strong>: it's asleep, off, or at a new address. Wake it, then choose Connect.</p>
+          <p>Connect also tries to wake a sleeping TV over the network when the app knows its MAC address. Many TVs ignore this while asleep.</p>
           <p><strong>Different device</strong>: another device answers at that address now. It's listed under Other devices, never under this saved name, and isn't saved unless you save it.</p>
           <p><strong>Can't confirm</strong>: something answers at that address but hasn't allowed this computer, so it can't say which device it is.</p>
           <p>Forget disconnects a saved device; it stays saved.</p>
@@ -1847,20 +1875,23 @@
 {/snippet}
 
 {#snippet savedRow(saved: SavedDevice, status: SavedStatus)}
+  {@const dialBusy = status === "connecting" || status === "waking" || !!savedDialSession.pending[saved.hardwareId]}
   <li>
     <div
       class="device-row not-clickable saved-offline"
-      class:waiting={status !== "connecting"}
+      class:waiting={status !== "connecting" && status !== "waking"}
       data-saved-id={saved.hardwareId}
     >
       <span class="device-icon" aria-hidden="true">
-        <Icon name={status === "connecting" ? "cast" : "tv_off"} size={20} />
+        <Icon name={status === "connecting" || status === "waking" ? "cast" : "tv_off"} size={20} />
       </span>
       <div class="device-main">
         <div class="device-name">
           <span>{saved.name}</span>
           <span class="saved-status" role="status">
-          {#if status === "connecting"}
+          {#if status === "waking"}
+            <span class="device-status connecting"><span class="spinner" aria-hidden="true"></span> Waking…</span>
+          {:else if status === "connecting"}
             <span class="device-status connecting"><span class="spinner" aria-hidden="true"></span> Connecting…</span>
           {:else if status === "no_answer"}
             <span class="device-status"><span class="status-dot" aria-hidden="true"></span> Didn't answer</span>
@@ -1892,11 +1923,12 @@
         </button>
         <button
           class="row-action primary"
-          onclick={() => dialSaved(saved)}
-          disabled={status === "connecting" || !!savedDialSession.pending[saved.hardwareId] || directUnavailable || adbMissing}
-          aria-label={status === "connecting" ? `Connecting to ${saved.name}` : `Connect to ${saved.name}`}
+          onclick={() => connectSaved(saved, dialBusy)}
+          disabled={directUnavailable || adbMissing}
+          aria-disabled={dialBusy ? "true" : undefined}
+          aria-label={status === "waking" ? `Waking ${saved.name}` : status === "connecting" ? `Connecting to ${saved.name}` : `Connect to ${saved.name}`}
         >
-          {status === "connecting" ? "Connecting…" : "Connect"}
+          {status === "waking" ? "Waking…" : status === "connecting" ? "Connecting…" : "Connect"}
         </button>
       </span>
     </div>

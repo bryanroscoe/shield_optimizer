@@ -291,7 +291,8 @@ function demoDelay<T>(ms: number, run: () => T): Promise<T> {
 /// A saved TV that sleeps (#411): the Xiaomi box in that report drops off the
 /// network while asleep, so a scan never finds it. It is saved, the launch
 /// dial gets no answer, and it answers a Connect only once the
-/// `savedBoxAwake` flag says it has been woken.
+/// `savedBoxAwake` flag says it has been woken, or a few seconds after
+/// Connect sent it a wake packet (so the retry after the wake is what lands).
 const SAVED_BOX_ADDRESS = "192.168.1.64:5555";
 const savedBoxDevice: Device = {
   id: 6,
@@ -320,6 +321,10 @@ const savedBoxDevice: Device = {
   support: { tier: "unknown", note: null },
 };
 let savedBoxConnected = false;
+const SAVED_BOX_MAC = "a4:5e:60:1d:42:0a";
+/// When a wake packet sent to the box has it answering, as `Date.now()`.
+let savedBoxWokenAt: number | null = null;
+const savedBoxAwake = () => demoFlag("savedBoxAwake") || (savedBoxWokenAt !== null && Date.now() >= savedBoxWokenAt);
 
 /// The saved-devices list the demo starts with: the Shield (online), the
 /// sleeping Xiaomi box (didn't answer) and the Living Room Box, which was
@@ -349,6 +354,7 @@ function seedSavedDevices() {
           model: savedBoxDevice.model,
           manufacturer: "Xiaomi",
           deviceType: "google_tv",
+          mac: SAVED_BOX_MAC,
           lastConnected: ago(50),
         },
       ],
@@ -361,7 +367,7 @@ function seedSavedDevices() {
 
 const DEMO_MACS: Record<string, string> = {
   "0323220012345": "00:04:4b:8c:21:5e",
-  XMS3B0042A: "a4:5e:60:1d:42:0a",
+  XMS3B0042A: SAVED_BOX_MAC,
   "9AB4C21D7E03": "a4:5e:60:9a:b4:c2",
 };
 
@@ -1379,7 +1385,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "connect_device":
       if (String(args.address) === SAVED_BOX_ADDRESS) {
         return demoDelay(1500, () => {
-          if (!demoFlag("savedBoxAwake")) {
+          if (!savedBoxAwake()) {
             return { ok: false, message: `failed to connect to '${SAVED_BOX_ADDRESS}': Operation timed out` };
           }
           savedBoxConnected = true;
@@ -1387,6 +1393,13 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         });
       }
       return { ok: true, message: `connected to ${String(args.address)}` };
+    case "wake_device":
+      return demoDelay(700, () => {
+        if (String(args.mac).toLowerCase() === SAVED_BOX_MAC && savedBoxWokenAt === null) {
+          savedBoxWokenAt = Date.now() + 1800;
+        }
+        return { sent: 4 };
+      });
     case "device_mac_address": {
       const row = demoDevices().find((d) => d.serial === String(args.serial));
       const id = row?.properties?.serial_number ?? null;
