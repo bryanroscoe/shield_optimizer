@@ -47,9 +47,11 @@ async function waitForServer(url, timeoutMs = 30000) {
 
 // Walk every screen, shooting one PNG per screen via `shot(name)`.
 async function captureScreens(page, shot) {
-    // 1. Device list (landing) with a connected Shield.
+    // 1. Device list (landing): the saved Shield online, a saved box that
+    // didn't answer its launch dial, and unsaved devices found on the network.
     await page.goto(BASE, { waitUntil: "networkidle" });
     await page.getByText("NVIDIA SHIELD", { exact: false }).first().waitFor();
+    await page.locator(".device-status", { hasText: "Didn't answer" }).waitFor();
     await shot("devices");
 
     // 2. Pairing, caught while it waits for the device to advertise its

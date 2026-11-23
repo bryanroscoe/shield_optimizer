@@ -16,6 +16,8 @@ try {
   await server.listen();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1100, height: 760 }, colorScheme: 'dark', ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });
+  // These count connect calls; the demo's saved devices would add launch dials.
+  await context.addInitScript(() => localStorage.setItem('shieldopt.demo.noSavedDevices', '1'));
   await context.addInitScript(() => {
     let bridge;
     Object.assign(window, { calls: [], progress: { pending: [], failed: [] }, ready: false, secondReady: false, offlineRoute: false, offlineKinds: false, available: true, holdStatus: false, activeReads: 0, peakReads: 0 });

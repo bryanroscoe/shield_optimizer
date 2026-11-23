@@ -4,6 +4,10 @@
 import { PIXEL, SHIELD } from "../lib/worlds.mjs";
 
 const row = (ctx, serial) => ctx.page.locator(`[data-serial="${serial}"]`);
+/// A saved device's row while it isn't connected.
+const savedRow = (ctx, hardwareId) => ctx.page.locator(`[data-saved-id="${hardwareId}"]`);
+const savedRecords = (ctx) =>
+  ctx.page.evaluate(() => JSON.parse(localStorage.getItem("shieldopt.savedDevices.v1") ?? "{}").devices ?? []);
 
 /// A second box on the LAN that has never approved this computer.
 const UNAUTHORIZED_BOX = {
@@ -24,6 +28,44 @@ const PIXEL_TWO_WAYS = {
 };
 
 export const scenarios = [
+  {
+    name: "devices-saved-redial",
+    async run(ctx) {
+      await ctx.reset({ devices: [{ profile: "shield-tv-pro" }] });
+      await ctx.open("/");
+      await row(ctx, SHIELD.key).getByRole("button", { name: `Unsave ${SHIELD.name}` }).waitFor();
+      await ctx.waitFor(async () => (await savedRecords(ctx)).find((d) => d.hardwareId === SHIELD.serial)?.mac,
+        { message: "the MAC was read and saved" });
+      const [record] = await savedRecords(ctx);
+      ctx.assert.equal(record.address, SHIELD.key);
+      ctx.assert.match(record.mac, /^00:1a:11:/);
+      await ctx.step("a connected Shield is saved automatically");
+
+      // Asleep: off the list, and neither the launch dial nor the scan gets
+      // an answer.
+      await ctx.detach(SHIELD.key);
+      await ctx.fault({ scope: "adb", matches: `connect ${SHIELD.key}`,
+        effect: { type: "fail", stdout: `failed to connect to '${SHIELD.key}': Operation timed out`, exit_code: 1 } });
+      await ctx.open("/");
+      await savedRow(ctx, SHIELD.serial).getByText("Didn't answer").waitFor({ timeout: 20_000 });
+      await ctx.step("relaunch: the saved Shield didn't answer");
+      // Woken up.
+      await ctx.clearFaults();
+      await savedRow(ctx, SHIELD.serial).getByRole("button", { name: `Connect to ${SHIELD.name}` }).click();
+      await row(ctx, SHIELD.key).getByText("Online").waitFor();
+      ctx.assert.deepEqual((await ctx.state()).transports.map((t) => t.key), [SHIELD.key]);
+      await ctx.step("Connect dialled the saved address and it's online");
+
+      // Another TV now answers at the saved address.
+      await ctx.reset({ devices: [{ profile: "shield-tv-pro", serial: "0323716101827", transports: [] }] });
+      await ctx.open("/");
+      await savedRow(ctx, SHIELD.serial).locator(".device-status", { hasText: "Different device" }).waitFor();
+      const other = row(ctx, SHIELD.key);
+      await other.locator('[data-bookmark="0323716101827"]').waitFor();
+      ctx.assert.equal(await savedRow(ctx, SHIELD.serial).locator("a").count(), 0, "the saved row doesn't open the other TV");
+      await ctx.step("a different TV at the saved address gets its own row");
+    },
+  },
   {
     name: "devices-scan-lan",
     async run(ctx) {
@@ -59,8 +101,10 @@ export const scenarios = [
       ctx.assert.equal(await ctx.page.locator(".device-row").count(), 1, "one device, two transports, one row");
       await ctx.step("one row for two transports");
       await row(ctx, "192.0.2.2:41235").getByRole("button", { name: "Forget" }).click();
-      await ctx.waitFor(async () => (await ctx.page.locator(".device-row").count()) === 0, { message: "row gone" });
-      await ctx.step("forget removed the row");
+      await ctx.waitFor(async () => (await ctx.page.locator(".device-row:not(.saved-offline)").count()) === 0, { message: "row gone" });
+      // It was saved when it connected, so it stays listed as a saved device.
+      await savedRow(ctx, PIXEL.serial).getByText("Not connected").waitFor();
+      await ctx.step("forget disconnected it; the saved row stays");
       const state = await ctx.state();
       ctx.assert.deepEqual(state.transports, [], "both transports dropped");
       const disconnects = (await ctx.log()).filter((i) => i.args[0] === "disconnect").map((i) => i.args[1]).sort();

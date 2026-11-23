@@ -16,6 +16,7 @@
     "test:sideload-scan": "node tests/sideload-scan.mjs",
     "test:native-install-results": "node tests/native-install-results.mjs",
     "test:device-list-rows": "node tests/device-list-rows.mjs",
+    "test:saved-devices": "node tests/saved-devices.mjs",
     "test:stop-adb-on-quit": "node tests/stop-adb-on-quit.mjs",
     "test:release-notes": "node tests/release-notes.mjs",
     "test:updater-signatures": "node tests/updater-signatures.mjs",
