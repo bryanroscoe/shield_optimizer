@@ -358,7 +358,10 @@ deferred.
 - Design source of truth: `~/Downloads/Shield Optimizer mobile design (1)/ATV Optimizer Mobile.dc.html`
   (20 screen sections; lime `#C9F24E`, Geist/Geist Mono). The `claude_design` MCP is not available
   here; work from the downloaded folder.
-- Launcher icon and in-app BrandMark are the designer's exact glyph (`src-tauri/icons/icon.svg`).
+- Launcher icon and in-app BrandMark share one artwork, `src-tauri/icons/icon.svg`: an ink TV outline on
+  flat-bottomed feet with three solid fader tracks and pill knobs, on a lime gradient (`#DCFF6E` to
+  `#B9E640`). It replaced the filled-TV glyph on 2026-11-23. The gradient is the icon's only; the UI
+  accent stays `#C9F24E`.
 
 ## 6. Validation
 

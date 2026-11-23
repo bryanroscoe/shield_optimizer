@@ -9,7 +9,7 @@ command writes:
 | --- | --- | --- |
 | `screenshots/01-….png` … `08-….png` | 1242×2208 (9:16), 24-bit PNG, no alpha | A caption over the real app screen, shown as a rounded card that runs off the bottom edge |
 | `feature-graphic.png` | 1024×500, 24-bit PNG, no alpha | App name, small icon mark and `featureGraphic.tagline` on brand green beside two real app screens (Dashboard and Optimize) |
-| `icon.png` | 512×512 32-bit RGBA, at most 1024 KB | The app icon's glyph from `src-tauri/icons/icon.svg` on a full-bleed square: every pixel opaque, no rounded corners. Play applies its own mask, so baked-in rounding shows as a white rim. The app's own icon files are not changed |
+| `icon.png` | 512×512 32-bit RGBA, at most 1024 KB | The app icon's glyph from `src-tauri/icons/icon.svg` on a full-bleed square: every pixel opaque, no rounded corners. Play applies its own mask, so baked-in rounding shows as a white rim. The script squares off the rounded background rect at render time; `icon.svg` itself keeps its rounded corners for the launcher |
 | `preview.png` | review sheet | Feature graphic, title, short description, the eight screenshots and the first paragraphs of the full description, laid out roughly like the Play page. Generated locally for review, gitignored and not committed; don't upload it |
 
 Each screenshot entry in `listing.json` is

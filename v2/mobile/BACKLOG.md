@@ -105,10 +105,8 @@ go-ahead; don't infer permission from a phone being powered on.
      count.
    - `Feature::FileManager` / `Feature::BackupClone` exist in core but gate nothing; wire them or
      delete them.
-   - The launcher icon reads slightly top-heavy. A 1.8 px downward optical shift was mocked in
-     `icon-optical-comparison.png` (archived;
-     `git show e4a9300:v2/mobile/evidence/settings-polish-2026-10-17/icon-optical-comparison.png`);
-     the assets are unchanged pending a preference.
+   - ~~The launcher icon reads slightly top-heavy.~~ Superseded 2026-11-23: the 11-09 shift
+     centred the TV body, and the outlined-TV icon then replaced the glyph outright.
 10. Commerce: Play billing v1 (one-time `atvopt_pro` plus two same-Pro support tiers, on-device verification) is **built, not yet
    tested with a real Play account**; see [`BILLING-IMPLEMENTATION-PLAN.md`](BILLING-IMPLEMENTATION-PLAN.md)
    "Implemented v1". Remaining: license-tester purchases on a Play track (buy, pending, cancel,

@@ -7,8 +7,12 @@ export const SCREENSHOT_SIZE = { width: 1242, height: 2208 };
 export const FEATURE_GRAPHIC_SIZE = { width: 1024, height: 500 };
 export const ICON_SIZE = { width: 512, height: 512 };
 export const CAPTION_MAX_SHARE = 0.2;
-// The store icon's square background: Play masks the corners itself.
-export const ICON_BACKGROUND = [0xc9, 0xf2, 0x4e, 255];
+// The store icon's square background, the icon's vertical lime gradient: Play
+// masks the corners itself, so the top corners carry the gradient's first stop
+// and the bottom corners its last, fully opaque.
+export const ICON_BACKGROUND = { top: [0xdc, 0xff, 0x6e, 255], bottom: [0xb9, 0xe6, 0x40, 255] };
+// Antialiasing of a 120-unit gradient at 512px moves edge pixels by a step or two.
+const ICON_BACKGROUND_TOLERANCE = 3;
 export const ICON_MAX_BYTES = 1024 * 1024;
 export const SCREENSHOT_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -158,7 +162,8 @@ export function validateImage(name, buffer, kind) {
       const corners = [[0, 0], [png.width - 1, 0], [0, png.height - 1], [png.width - 1, png.height - 1]];
       for (const [x, y] of corners) {
         const px = png.pixel(x, y);
-        if (px.join() !== ICON_BACKGROUND.join()) {
+        const want = y === 0 ? ICON_BACKGROUND.top : ICON_BACKGROUND.bottom;
+        if (px[3] !== 255 || px.some((v, i) => Math.abs(v - want[i]) > ICON_BACKGROUND_TOLERANCE)) {
           errors.push(`${name} corner (${x},${y}) is rgba(${px.join(",")}), expected the opaque full-bleed background`);
         }
       }
