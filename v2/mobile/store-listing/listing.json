@@ -1,18 +1,71 @@
 {
   "language": "en-US",
   "title": "ATV Optimizer",
-  "shortDescription": "Manage apps, run diagnostics and tune your Android TV over wireless debugging.",
-  "fullDescription": "Manage your Android TV or Google TV from your phone over Wi-Fi, with no computer needed. ATV Optimizer connects through debugging that you enable and authorize on your own TV.\n\nStart with Free\n• Check whether your TV connects before buying Pro\n• View installed apps, storage and diagnostics\n• Use your phone as a remote\n• Re-enable disabled apps and run Emergency recovery, even without Pro\n\nOptional Pro features\n• Disable or uninstall apps you don't use, with protected-app checks and risk warnings\n• Review and apply an Optimize plan\n• Change your Home app and, where the TV firmware allows, disable the stock launcher after confirmation\n• Adjust TV settings such as HDMI-CEC, display scaling and Private DNS\n• Save snapshots and preview changes before applying them\n\nPro is a one-time Google Play purchase with no subscription. Undoing settings, Home app or snapshot changes requires Pro. Emergency recovery re-enables disabled apps; it doesn't reverse every setting.\n\nWhat you need\n• An Android TV or Google TV on the same local network as your phone\n• Developer options and Network debugging or Wireless debugging enabled on the TV\n• Your approval on the TV's debugging prompt\n\nSupport varies by TV and firmware. Some manufacturers protect the stock launcher or other apps, so not every change works on every TV. Fire TV isn't supported.\n\nChanging system apps can affect how your TV behaves. Read the warnings, review every plan and change only what you understand.\n\nPrivacy\nSaved TVs, installed-app lists, snapshots, screenshots and downloaded files stay on your phone or local network. Optional device and error reports are on by default, with a notice and an opt-out in More → Privacy. Reports include TV model, software versions, a random installation ID, action outcomes and redacted errors. They don't include TV serial numbers, network addresses, TV names or installed-app lists. See the privacy policy in the app for retention and deletion details.\n\nATV Optimizer is an independent app, not affiliated with or endorsed by Google or NVIDIA. Android TV and Google TV are trademarks of Google LLC. SHIELD is a trademark of NVIDIA Corporation.",
+  "shortDescription": "Debloat and tune your Android TV or Google TV from your phone, no PC needed.",
+  "fullDescription": "Debloat, tune and manage your Android TV, Google TV or NVIDIA SHIELD from your phone over Wi-Fi. No PC needed.\n\n• Debloat with reviewed safety labels, and re-enable apps any time\n• Swap out the stock launcher where your TV's firmware allows\n• Tweak animation speed, HDMI-CEC, frame-rate matching and Private DNS\n• Sideload APKs, move files both ways and send text from the remote\n• Watch live temps, RAM and storage, and read HDR and codec support\n• Save your setup as a snapshot (Beta) and reapply it later\n\nKnow what is safe\nEvery cataloged app carries a reviewed label: Safe to remove, Caution or Protected. Protected apps are blocked. Unreviewed apps are labeled Unknown, never Safe to remove. Review the plan before anything changes.\n\nFree\n• Connect and check your TV before you buy\n• Browse apps with their safety labels, RAM and storage\n• Live diagnostics, TV screenshots and a remote with text entry\n• File transfer, APK installs and APK backups\n• Re-enable apps and run Emergency recovery, which turns every disabled app back on\n\nPro, a one-time purchase with no subscription\n• Disable or uninstall apps and apply an Optimize plan\n• Set a new Home app and disable the stock launcher\n• Change TV settings\n• Snapshots (Beta). Restoring a snapshot disables apps and restores settings; it never re-enables or reinstalls apps.\nUndoing settings, Home app or snapshot changes needs Pro. Emergency recovery re-enables disabled apps only.\n\nWhat you need\n• An Android TV or Google TV on the same network as your phone\n• Developer options with Network debugging or Wireless debugging turned on\n• Your approval on the TV's debugging prompt\nSupport varies by TV and firmware. Fire TV isn't supported. Changing system apps can affect how your TV behaves, so change only what you understand.\n\nPrivacy\nSaved TVs, app lists, snapshots, screenshots and files stay on your phone or local network. Optional device and error reports are on by default, with a notice and an opt-out in More > Privacy. They include TV model, software versions, a random installation ID, action outcomes and redacted errors. They never include TV serial numbers, network addresses, TV names or app lists. The privacy policy in the app covers retention and deletion.\n\nATV Optimizer is an independent app, not affiliated with or endorsed by Google or NVIDIA. Android TV and Google TV are trademarks of Google LLC. SHIELD is a trademark of NVIDIA Corporation.",
   "category": "TOOLS",
   "containsAds": false,
   "supportEmail": "bryanroscoe+atv@gmail.com",
   "privacyPolicyUrl": "https://atv-optimizer-telemetry.bryanroscoe.workers.dev/privacy",
+  "featureGraphic": {
+    "tagline": "Debloat and tune your Android TV"
+  },
   "screenshots": [
-    { "file": "screenshots/02-dashboard.png", "alt": "Dashboard with TV connection, memory and storage diagnostics, and shortcuts to management tools." },
-    { "file": "screenshots/03-apps.png", "alt": "Installed TV apps with search and reviewed safety labels." },
-    { "file": "screenshots/08-optimize.png", "alt": "Optimize plan listing proposed app changes for review before applying." },
-    { "file": "screenshots/11-launcher.png", "alt": "Launcher management with Home-app choices and separate guarded stock-launcher controls." },
-    { "file": "screenshots/05-tweaks.png", "alt": "TV settings grouped into picture, sound and system controls." },
-    { "file": "screenshots/07-more.png", "alt": "More screen with Pro licensing, diagnostics, privacy and support controls." }
+    {
+      "file": "screenshots/01-hero.png",
+      "screen": "dashboard",
+      "headline": "Take back your Android TV",
+      "subline": "Apps, settings and live stats. No PC needed.",
+      "alt": "Dashboard connected to NVIDIA SHIELD TV showing 10 enabled apps, 1.0 GB free RAM, 64% storage used, 78 C temp, Tweaks and Launcher."
+    },
+    {
+      "file": "screenshots/02-optimize.png",
+      "screen": "optimize",
+      "headline": "Debloat with safety checks",
+      "subline": "Reviewed labels. Protected apps stay blocked.",
+      "alt": "Optimize screen listing recommended catalog apps with Safe to remove chips, toggles, expandable impact notes and RAM in play."
+    },
+    {
+      "file": "screenshots/03-app-detail.png",
+      "screen": "app-detail",
+      "headline": "See why before you remove",
+      "subline": "Removal impact, RAM, storage and sources",
+      "alt": "App detail sheet for Google Play Movies showing Safe to remove badge, removal reason, RAM, storage, last used stats and action buttons."
+    },
+    {
+      "file": "screenshots/04-launcher.png",
+      "screen": "launcher",
+      "headline": "Swap the stock launcher",
+      "subline": "Set a custom Home app where firmware allows",
+      "alt": "Launcher screen showing Projectivy as the active Home app, a Disable button for the stock launcher and other launchers to set or install."
+    },
+    {
+      "file": "screenshots/05-tweaks.png",
+      "screen": "tweaks",
+      "headline": "Tune hidden TV settings",
+      "subline": "Animations, HDMI-CEC, frame rate, Private DNS",
+      "alt": "Tweaks screen showing Remote and buttons controls, Nvidia System Hooks, Assistant mic toggle, long-press timeout and HDMI-CEC settings."
+    },
+    {
+      "file": "screenshots/06-sideload.png",
+      "screen": "sideload-ready",
+      "headline": "Sideload APKs over Wi-Fi",
+      "subline": "Checks TV processor support before installing",
+      "alt": "Install APK screen with a staged SmartTube APK, matching arm64-v8a processor check, Install button and popular sideloads list."
+    },
+    {
+      "file": "screenshots/07-diagnostics.png",
+      "screen": "diagnostics-live",
+      "headline": "Live temps, RAM & storage",
+      "subline": "Plus HDR and codec support reports",
+      "alt": "Diagnostics screen with live toggle, RAM bar at 64%, storage bar at 64% and highest reported CPU temperature at 78 C with thresholds."
+    },
+    {
+      "file": "screenshots/08-snapshots.png",
+      "screen": "snapshots",
+      "headline": "Save & reapply TV setups",
+      "subline": "Preview every change before it runs",
+      "alt": "Snapshots Beta screen with Save current setup and two saved TV snapshots showing disabled app counts, settings counts and Preview restore."
+    }
   ]
 }

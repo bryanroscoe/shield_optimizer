@@ -48,9 +48,11 @@ cost bounds and fail-closed KVM/disk/license prerequisites.
 Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
 `bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
 copyable installation Support ID while reports are on. `npm run store-assets` produces the
-Play listing's six portrait screenshots, icon and feature graphic in `store-listing/`, with
+Play listing's eight captioned portrait screenshots, icon, feature graphic and a review sheet in `store-listing/`, with
 copy and alt text in `listing.json`. Verify the deployed policy, signed Android artifact,
 Console setup and physical/purchase matrix separately; these changes do not clear those gates.
+
+2026-11-22, Bryan: "It's all been managed on a real phone I'm in open beta testing. Assume that everything has been tested at this point." The per-gate notes below were not individually updated; treat their "not yet verified on hardware" wording as predating that statement.
 
 The [`mobile-v0.1.4` run](https://github.com/bryanroscoe/shield_optimizer/actions/runs/44964485346)
 verified and submitted versionCode `1004` from `e94ecc0` to Internal and Closed testing. The fixes
