@@ -35,7 +35,8 @@ fn reject_invalid_package(package: &str) -> Option<ActionResult> {
     }
     Some(ActionResult {
         ok: false,
-        message: format!("Refusing to act on invalid package name: {package:?}"), partial: false
+        message: format!("Refusing to act on invalid package name: {package:?}"),
+        partial: false,
     })
 }
 
@@ -526,7 +527,8 @@ pub(crate) async fn disable_package_impl(
     if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing to disable {package}: {reason}"), partial: false
+            message: format!("Refusing to disable {package}: {reason}"),
+            partial: false,
         });
     }
     // The launcher screen refuses to disable the last enabled HOME handler,
@@ -575,11 +577,13 @@ pub(crate) async fn disable_package_impl(
         Ok(r) if r.ok => r,
         Ok(r) if landed => ActionResult {
             ok: true,
-            message: r.message, partial: false
+            message: r.message,
+            partial: false,
         },
         Err(_) if landed => ActionResult {
             ok: true,
-            message: format!("{package} was disabled (the device's reply was lost)."), partial: false
+            message: format!("{package} was disabled (the device's reply was lost)."),
+            partial: false,
         },
         other => return other,
     };
@@ -681,7 +685,8 @@ async fn guard_active_roles(
     match active_role_reason(package, &roles) {
         Some(reason) => Err(ActionResult {
             ok: false,
-            message: format!("Refusing to {verb} {package}: {reason}"), partial: false
+            message: format!("Refusing to {verb} {package}: {reason}"),
+            partial: false,
         }),
         None => Ok(roles),
     }
@@ -711,7 +716,8 @@ async fn guard_last_home_handler(
                 message: format!(
                     "Refusing to {verb} {package}: it's the only enabled launcher left on this \
                      device. Enable another launcher first."
-                ), partial: false
+                ),
+                partial: false,
             });
         }
         return Ok(Some(handlers));
@@ -729,7 +735,8 @@ async fn guard_last_home_handler(
             message: format!(
                 "Refusing to {verb} {package}: this TV's Home apps couldn't be read, so it can't \
                  be proven another launcher stays enabled. Nothing was changed."
-            ), partial: false
+            ),
+            partial: false,
         });
     }
     Ok(None)
@@ -877,7 +884,8 @@ pub async fn set_app_permission_impl(
     if !is_valid_package_name(package) || !is_valid_permission(permission) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"), partial: false
+            message: format!("Refusing: invalid package/permission ({package:?}, {permission:?})"),
+            partial: false,
         });
     }
     state.require_pro(Feature::AppPermissionWrite)?;
@@ -909,13 +917,15 @@ pub async fn set_app_op_impl(
     if !is_valid_package_name(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid package ({package:?})"), partial: false
+            message: format!("Refusing: invalid package ({package:?})"),
+            partial: false,
         });
     }
     if !op.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') || op.is_empty() {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing: invalid op ({op:?})"), partial: false
+            message: format!("Refusing: invalid op ({op:?})"),
+            partial: false,
         });
     }
     state.require_pro(Feature::AppPermissionWrite)?;
@@ -1019,7 +1029,8 @@ pub(crate) async fn uninstall_package_impl(
     if let Safety::NeverDisable { reason, .. } = classify_safety(package) {
         return Ok(ActionResult {
             ok: false,
-            message: format!("Refusing to uninstall {package}: {reason}"), partial: false
+            message: format!("Refusing to uninstall {package}: {reason}"),
+            partial: false,
         });
     }
     // Uninstalling the only enabled launcher strands the TV without a Home
@@ -1110,7 +1121,11 @@ async fn run(state: &AppState, serial: &str, cmd: &str) -> Result<ActionResult, 
             super::verification::failure_text(&out)
         )
     };
-    Ok(ActionResult { ok, message, partial: false })
+    Ok(ActionResult {
+        ok,
+        message,
+        partial: false,
+    })
 }
 
 #[cfg(test)]

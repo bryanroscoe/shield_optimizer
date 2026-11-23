@@ -127,7 +127,13 @@ pub async fn disable_launcher_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message, partial: false });
+    let refuse = |message: String| {
+        Ok(crate::commands::apps::ActionResult {
+            ok: false,
+            message,
+            partial: false,
+        })
+    };
     let adb = state.adb_snapshot().await;
     let Some(enabled_handlers) = read_enabled_home_handlers(&*adb, serial).await else {
         return refuse(format!(
@@ -1617,7 +1623,13 @@ pub async fn disable_setup_helper_impl(
     serial: &str,
     package: &str,
 ) -> Result<crate::commands::apps::ActionResult, String> {
-    let refuse = |message: String| Ok(crate::commands::apps::ActionResult { ok: false, message, partial: false });
+    let refuse = |message: String| {
+        Ok(crate::commands::apps::ActionResult {
+            ok: false,
+            message,
+            partial: false,
+        })
+    };
     if !is_valid_package_name(package) || !launchers().is_transient_home_holder(package) {
         return refuse(format!("{package} is not a setup helper this app knows."));
     }
@@ -1671,7 +1683,8 @@ pub async fn disable_setup_helper_impl(
     if home_ok {
         return Ok(crate::commands::apps::ActionResult {
             ok: true,
-            message: "Setup Wraith is disabled.".to_string(), partial: false
+            message: "Setup Wraith is disabled.".to_string(),
+            partial: false,
         });
     }
     let restore = adb.shell(serial, &format!("pm enable {package}")).await;
