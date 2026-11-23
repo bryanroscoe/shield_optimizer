@@ -48,12 +48,25 @@ describe("support lookup report", () => {
               reports_on: true,
               bytes: 30,
               note: "Scan finds nothing.\nAgain.",
+              integrity: {
+                status: "ok",
+                reason: null,
+                app_recognition: "PLAY_RECOGNIZED",
+                device_labels: "MEETS_BASIC_INTEGRITY,MEETS_DEVICE_INTEGRITY",
+                licensing: "LICENSED",
+                play_protect: "NO_ISSUES",
+                app_access_risk: "",
+              },
             },
           ],
         },
       ],
     };
     const text = formatSupportReport(report);
+    expect(text).toContain(
+      "Play Integrity: app PLAY_RECOGNIZED, device MEETS_BASIC_INTEGRITY,MEETS_DEVICE_INTEGRITY, licence LICENSED, Play Protect NO_ISSUES",
+    );
+    expect(text.match(/Play Integrity:/g)).toHaveLength(1);
     expect(text).toContain("Support ID 7D0B-0B9E: 1 install matched");
     expect(text).toContain("Install 7d0b0b9e-1f43-4e43-9b47-3a5d6f0f9c11 (7D0B-0B9E)");
     expect(text).toContain("TV          NVIDIA SHIELD Android TV, Android 11, shield (1 events)");

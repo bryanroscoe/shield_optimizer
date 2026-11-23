@@ -65,4 +65,31 @@ impl<R: Runtime> Billing<R> {
             .0
             .run_mobile_plugin("acknowledge", AcknowledgeArgs { purchase_token })?)
     }
+
+    /// Warm up Play Integrity's token provider, so a later
+    /// [`Billing::integrity_token`] answers quickly. `error` says why not.
+    pub fn prepare_integrity(&self, cloud_project_number: i64) -> Result<IntegrityTokenResponse> {
+        Ok(self.0.run_mobile_plugin(
+            "prepareIntegrity",
+            IntegrityArgs {
+                cloud_project_number,
+                request_hash: None,
+            },
+        )?)
+    }
+
+    /// A Standard Play Integrity token bound to `request_hash`.
+    pub fn integrity_token(
+        &self,
+        cloud_project_number: i64,
+        request_hash: &str,
+    ) -> Result<IntegrityTokenResponse> {
+        Ok(self.0.run_mobile_plugin(
+            "integrityToken",
+            IntegrityArgs {
+                cloud_project_number,
+                request_hash: Some(request_hash),
+            },
+        )?)
+    }
 }

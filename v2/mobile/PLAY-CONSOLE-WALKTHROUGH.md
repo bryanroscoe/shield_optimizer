@@ -416,6 +416,25 @@ over-declaring is the safer error. `<<OWNER: confirm; leaving it unticked is a j
 Google may disagree with>>`. User payment info (card numbers) stays unticked: Play collects it
 under its own terms and the app never sees it.
 
+**Play Integrity (record-only, added 2026-11-22): update the form before the release that ships
+it.** Play builds send a Play Integrity token with the first automatic report batch of each day
+(only while reports are on) and with each bug report; the Worker stores Google's decoded labels
+(app recognition, Play licensing, device integrity labels, recent device activity level, SDK level,
+Play Protect status, app-access-risk categories) for 30 days, with no install id
+([`DATA-INVENTORY.md`](DATA-INVENTORY.md), Worker README "Play Integrity"). Suggested answers:
+
+- **App info and performance > Diagnostics** (already declared): add the purpose **Fraud
+  prevention, security, and compliance** alongside Analytics. Still Collected Yes, Shared No, not
+  ephemeral, Optional (reports can be turned off; a bug report is the user's choice).
+- **App activity > Installed apps**: the stored app-access-risk value is only Google's categories
+  (for example `UNKNOWN_CAPTURING`: some app not from Play that can capture the screen is running),
+  never an app name or list. `<<OWNER: decide; declaring it, with purpose Fraud prevention,
+  security, and compliance, is the over-declaring and safer choice>>`. If declared, the "Not
+  collected" list below must drop Installed apps.
+- Device or other IDs: unchanged. Verdict rows carry no id, and the token itself isn't stored.
+- What Google's Play Store processes for the API is Google's disclosure, not ours
+  (<https://developer.android.com/google/play/integrity/terms#data-safety>).
+
 **Not collected** (answer No or leave unticked): Personal info (name, email, address, phone),
 Financial info other than purchase history (reports never include order id, token, price or
 product), Messages, Photos and videos (TV screenshots stay on the phone), Audio, Files and docs

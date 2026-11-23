@@ -41,6 +41,9 @@ describe("Android privacy policy", () => {
     expect(text).toContain("SDK level");
     expect(text).toContain("support tier");
     expect(text).toContain("up to eight recent connection steps");
+    expect(text).toContain("<h2>Google Play Integrity checks</h2>");
+    expect(text).toContain("never blocks, limits or changes any feature or\npurchase");
+    expect(text).toContain("keeps no installation ID or other identifier with them,\nand deletes them after 45 days");
     // The summary carries no TV brand.
     expect(text).not.toMatch(/manufacturer, brand, model, device codename and Android version/);
   });

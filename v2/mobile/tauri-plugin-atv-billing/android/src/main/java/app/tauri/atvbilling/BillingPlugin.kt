@@ -22,6 +22,13 @@ import com.android.billingclient.api.Purchase
 import com.android.billingclient.api.PurchasesUpdatedListener
 import com.android.billingclient.api.QueryProductDetailsParams
 import com.android.billingclient.api.QueryPurchasesParams
+import com.google.android.play.core.integrity.IntegrityManagerFactory
+import com.google.android.play.core.integrity.StandardIntegrityException
+import com.google.android.play.core.integrity.StandardIntegrityManager
+import com.google.android.play.core.integrity.StandardIntegrityManager.PrepareIntegrityTokenRequest
+import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenProvider
+import com.google.android.play.core.integrity.StandardIntegrityManager.StandardIntegrityTokenRequest
+import com.google.android.play.core.integrity.model.StandardIntegrityErrorCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -35,6 +42,7 @@ import kotlin.coroutines.resume
 
 private const val TAG = "AtvBilling"
 private const val CONNECT_TIMEOUT_MS = 15_000L
+private const val INTEGRITY_TIMEOUT_MS = 10_000L
 
 @InvokeArg
 internal class ProductArgs {
@@ -47,6 +55,12 @@ internal class AcknowledgeArgs {
 }
 
 @InvokeArg
+internal class IntegrityArgs {
+  var cloudProjectNumber: Long = 0
+  var requestHash: String? = null
+}
+
+@InvokeArg
 internal class WatchPurchasesArgs {
   lateinit var channel: Channel
 }
@@ -56,7 +70,8 @@ internal class WatchPurchasesArgs {
  * response carries Play's response code, and purchases go back to Rust as the
  * signed `originalJson` plus `signature`, which Rust verifies against the
  * app's Play license key before any entitlement changes. Consumption is never
- * called; Pro is a non-consumable one-time product.
+ * called; Pro is a non-consumable one-time product. It also asks Play
+ * Integrity for Standard tokens, which it hands to Rust unread.
  */
 @TauriPlugin
 class BillingPlugin(private val activity: Activity) : Plugin(activity), PurchasesUpdatedListener {
@@ -68,6 +83,11 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
   private var connecting: CompletableDeferred<BillingResult>? = null
   /// Told when Play reports purchases outside an in-app flow. Main thread only.
   private var purchaseWatch: Channel? = null
+  /// Play Integrity's Standard token provider, prepared once and reused until
+  /// Play says it is invalid. Main thread only, like the billing state.
+  private var integrityProvider: StandardIntegrityTokenProvider? = null
+  private var integrityPreparing: CompletableDeferred<Pair<StandardIntegrityTokenProvider?, String?>>? = null
+  private var integrityManager: StandardIntegrityManager? = null
 
   private val client: BillingClient by lazy {
     BillingClient.newBuilder(activity.applicationContext)
@@ -211,6 +231,100 @@ class BillingPlugin(private val activity: Activity) : Plugin(activity), Purchase
       }
     }
   }
+
+  /// Prepares the Play Integrity token provider ahead of a request. Resolves
+  /// with `error` set when Play can't (no Play Store or Play services, an
+  /// emulator, an unlinked Cloud project); never rejects for that.
+  @Command
+  fun prepareIntegrity(invoke: Invoke) {
+    scope.launch {
+      try {
+        val args = invoke.parseArgs(IntegrityArgs::class.java)
+        val (_, error) = integrityProvider(args.cloudProjectNumber)
+        invoke.resolve(JSObject().apply { if (error != null) put("error", error) })
+      } catch (error: Throwable) {
+        invoke.resolve(JSObject().put("error", error.javaClass.simpleName))
+      }
+    }
+  }
+
+  /// A Standard Play Integrity token bound to `requestHash`, or `error`. The
+  /// token is opaque here: it goes to the developer's server, which records
+  /// Google's verdict and never acts on it. No verdict gates anything.
+  @Command
+  fun integrityToken(invoke: Invoke) {
+    scope.launch {
+      try {
+        val args = invoke.parseArgs(IntegrityArgs::class.java)
+        val hash = args.requestHash
+        if (hash.isNullOrEmpty()) {
+          invoke.resolve(JSObject().put("error", "no_request_hash"))
+          return@launch
+        }
+        val (provider, prepareError) = integrityProvider(args.cloudProjectNumber)
+        if (provider == null) {
+          invoke.resolve(JSObject().put("error", prepareError ?: "unavailable"))
+          return@launch
+        }
+        val request = StandardIntegrityTokenRequest.builder().setRequestHash(hash).build()
+        val outcome = withTimeoutOrNull(INTEGRITY_TIMEOUT_MS) {
+          suspendCancellableCoroutine<Pair<String?, String?>> { cont ->
+            provider.request(request)
+              .addOnSuccessListener { token -> if (cont.isActive) cont.resume(token.token() to null) }
+              .addOnFailureListener { error ->
+                if (integrityErrorCode(error) == StandardIntegrityErrorCode.INTEGRITY_TOKEN_PROVIDER_INVALID &&
+                  integrityProvider === provider
+                ) {
+                  integrityProvider = null
+                }
+                if (cont.isActive) cont.resume(null to integrityError(error))
+              }
+          }
+        } ?: (null to "timeout")
+        invoke.resolve(
+          JSObject().apply {
+            outcome.first?.let { put("token", it) }
+            outcome.second?.let { put("error", it) }
+          }
+        )
+      } catch (error: Throwable) {
+        invoke.resolve(JSObject().put("error", error.javaClass.simpleName))
+      }
+    }
+  }
+
+  // One preparation at a time; later callers wait on it. A failed one is
+  // forgotten, so the next request tries again.
+  private suspend fun integrityProvider(cloudProjectNumber: Long): Pair<StandardIntegrityTokenProvider?, String?> {
+    integrityProvider?.let { return it to null }
+    val attempt = integrityPreparing ?: CompletableDeferred<Pair<StandardIntegrityTokenProvider?, String?>>().also { attempt ->
+      integrityPreparing = attempt
+      try {
+        val manager = integrityManager
+          ?: IntegrityManagerFactory.createStandard(activity.applicationContext).also { integrityManager = it }
+        val request = PrepareIntegrityTokenRequest.builder().setCloudProjectNumber(cloudProjectNumber).build()
+        manager.prepareIntegrityToken(request)
+          .addOnSuccessListener { provider ->
+            integrityProvider = provider
+            if (integrityPreparing === attempt) integrityPreparing = null
+            attempt.complete(provider to null)
+          }
+          .addOnFailureListener { error ->
+            if (integrityPreparing === attempt) integrityPreparing = null
+            attempt.complete(null to integrityError(error))
+          }
+      } catch (error: Throwable) {
+        if (integrityPreparing === attempt) integrityPreparing = null
+        attempt.complete(null to error.javaClass.simpleName)
+      }
+    }
+    return withTimeoutOrNull(INTEGRITY_TIMEOUT_MS) { attempt.await() } ?: (null to "timeout")
+  }
+
+  private fun integrityErrorCode(error: Throwable): Int? = (error as? StandardIntegrityException)?.errorCode
+
+  private fun integrityError(error: Throwable): String =
+    integrityErrorCode(error)?.let { "integrity_$it" } ?: error.javaClass.simpleName
 
   override fun onPurchasesUpdated(result: BillingResult, purchases: MutableList<Purchase>?) {
     val waiting = pendingPurchase

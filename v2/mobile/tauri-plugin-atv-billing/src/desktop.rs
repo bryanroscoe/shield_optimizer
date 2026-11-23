@@ -30,4 +30,16 @@ impl<R: Runtime> Billing<R> {
     pub fn acknowledge(&self, _purchase_token: &str) -> Result<BillingResultResponse> {
         Err(Error::Unsupported)
     }
+
+    pub fn prepare_integrity(&self, _cloud_project_number: i64) -> Result<IntegrityTokenResponse> {
+        Err(Error::Unsupported)
+    }
+
+    pub fn integrity_token(
+        &self,
+        _cloud_project_number: i64,
+        _request_hash: &str,
+    ) -> Result<IntegrityTokenResponse> {
+        Err(Error::Unsupported)
+    }
 }

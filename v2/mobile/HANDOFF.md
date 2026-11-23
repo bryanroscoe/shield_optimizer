@@ -45,6 +45,16 @@ The workflow itself is not a runtime pass; inspect a successful exact-candidate 
 Play splits, physical phone/TV and purchase gates remain separate. See `RELEASE.md` for dispatch,
 cost bounds and fail-closed KVM/disk/license prerequisites.
 
+Play Integrity is in the source (2026-11-22), **record-only**: Play release builds attach a
+Standard Play Integrity token (Cloud project `atv-optimizer-play`, 694361256028) to the first
+automatic report batch of each day, only while reports are on, and to each bug report sent; the
+Worker stores Google's coarse verdict with no install id ([`DATA-INVENTORY.md`](DATA-INVENTORY.md),
+Worker README "Play Integrity"). No feature, Pro entitlement or safety gate reads a verdict, and
+an unavailable one claims nothing; keep it that way. It goes live only after the owner sets the
+Worker secret `PLAY_INTEGRITY_SA_JSON`, applies migration `0005_play_integrity.sql`, deploys the
+Worker and updates Data safety (PLAY-CONSOLE-WALKTHROUGH 2.2a). No Play build has sent a token
+yet: an `ok` verdict from a real Play install is still unverified.
+
 Google Play rollout is authorized (2026-11-03). Public support/privacy contact:
 `bryanroscoe+atv@gmail.com`. More → Privacy links the Worker's `/privacy` policy and shows a
 copyable installation Support ID while reports are on. `npm run store-assets` produces the

@@ -249,6 +249,16 @@ test("More toggles anonymous reports and a build without an endpoint says so", a
   );
 });
 
+test("the reports help discloses the daily Play Integrity check as record-only", async (t) => {
+  const page = await createPage(t);
+  await page.evaluate(() => window.router.navigate("more"));
+  await page.getByRole("switch", { name: "Share anonymous device and error reports" }).waitFor();
+  await page.getByRole("button", { name: "What's sent", exact: true }).first().click();
+  const help = page.getByRole("dialog", { name: "What's sent" });
+  await help.getByText("adds a Google Play Integrity check to one report a day", { exact: false }).waitFor();
+  assert.match(await help.innerText(), /only recorded and never changes\s+what the app does/);
+});
+
 test("privacy is reachable without a TV and remains reachable when reporting fails", async (t) => {
   const page = await createPage(t);
   await page.evaluate(() => {

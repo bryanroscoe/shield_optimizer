@@ -2,7 +2,8 @@
 //!
 //! On Android this ships a thin Kotlin plugin (see `android/`) around the Play
 //! Billing Library: product lookup, the purchase sheet, owned-purchase queries
-//! and acknowledgment. It makes no entitlement decisions. It hands Rust the
+//! and acknowledgment, plus Play Integrity's Standard token request. It makes
+//! no entitlement decisions, and nothing reads an integrity verdict. It hands Rust the
 //! signed purchase JSON and signature exactly as Play delivered them, and the
 //! app verifies those against its Play license key before anything unlocks.
 //! Host builds get a stub that reports billing as unsupported.
@@ -22,8 +23,8 @@ pub const PURCHASES_UPDATED_EVENT: &str = "purchases-updated";
 
 pub use error::{Error, Result};
 pub use models::{
-    response_code, BillingResultResponse, ProductInfo, ProductResponse, PurchasesResponse,
-    RawPurchase,
+    response_code, BillingResultResponse, IntegrityTokenResponse, ProductInfo, ProductResponse,
+    PurchasesResponse, RawPurchase,
 };
 
 #[cfg(not(mobile))]

@@ -14,6 +14,7 @@ mod export_commands;
 mod file_commands;
 mod import_commands;
 mod play_billing;
+mod play_integrity;
 mod remote_lifecycle;
 mod scrcpy_resource;
 mod wireless_adb;
@@ -301,6 +302,11 @@ pub fn run() {
             install_panic_hook(telemetry.clone());
             // No adb binary or server on the phone: the in-process client.
             telemetry.set_adb_facts(adb_diag(AdbSource::Builtin, None, None));
+            // Play release builds only: once a day, a Play Integrity token
+            // rides with the report batch. Record-only; see play_integrity.rs.
+            if play_integrity::available() {
+                telemetry.set_integrity_source(play_integrity::report_source(app.handle()));
+            }
             telemetry.start();
 
             let state = AppState::new(wireless.clone(), app_lists, data_dir)

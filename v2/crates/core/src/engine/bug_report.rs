@@ -225,6 +225,9 @@ pub struct MobileSummary<'a> {
     pub phone_model: Option<&'a str>,
     pub reports_enabled: bool,
     pub test_build: Option<&'a str>,
+    /// A Play release build attaches a Play Integrity token to the upload.
+    /// The summary says so, so the preview shows everything that goes.
+    pub play_integrity: bool,
     pub tv: MobileTv<'a>,
     /// `(command, ok)`, oldest first.
     pub history: &'a [(String, bool)],
@@ -258,6 +261,9 @@ pub fn mobile_summary(s: &MobileSummary, scrub: &Scrub) -> String {
         if s.reports_enabled { "on" } else { "off" }
     ));
     text.push_str("- ADB: built-in wireless client\n");
+    if s.play_integrity {
+        text.push_str("- Google Play Integrity check: attached when Play provides one\n");
+    }
 
     let mut rest = String::from("\n### TV\n\n");
     match s.tv {
@@ -477,6 +483,7 @@ mod tests {
                 phone_model: Some("Google Pixel 10 Pro"),
                 reports_enabled: true,
                 test_build: None,
+                play_integrity: true,
                 tv: MobileTv::Connected(&device),
                 history: &history,
             },
@@ -494,6 +501,10 @@ mod tests {
             "{text}"
         );
         assert!(text.contains("- Automatic reports: on"), "{text}");
+        assert!(
+            text.contains("- Google Play Integrity check: attached when Play provides one"),
+            "{text}"
+        );
         assert!(
             text.contains("NVIDIA SHIELD Android TV (mdarcy), Android 11 (SDK 30)"),
             "{text}"
@@ -516,6 +527,7 @@ mod tests {
                     phone_model: None,
                     reports_enabled: false,
                     test_build: Some("4f156e4"),
+                    play_integrity: false,
                     tv,
                     history: &[],
                 },
@@ -528,6 +540,7 @@ mod tests {
         assert!(none.contains("- Phone: android, model unknown"), "{none}");
         assert!(none.contains("- No TV connected"), "{none}");
         assert!(none.contains("- None recorded"), "{none}");
+        assert!(!none.contains("Integrity"), "{none}");
         let unreadable = summary(MobileTv::Unreadable(
             "error: device '192.168.1.20:5555' not found",
         ));

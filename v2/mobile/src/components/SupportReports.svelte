@@ -213,6 +213,11 @@
           Reports go to a server the app's developer runs; raw reports are kept for 30 days.
           Turning reports back on starts a new random install ID.
         </p>
+        <p class="card-desc">
+          The Google Play version adds a Google Play Integrity check to one report a day, Google's
+          verdict on whether this app and phone are genuine. It is only recorded and never changes
+          what the app does.
+        </p>
       </HelpSheet>
       {#if telemetry.support_id}
         <p class="card-desc">Support ID: <code class="support-id">{telemetry.support_id}</code></p>

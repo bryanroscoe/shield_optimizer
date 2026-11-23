@@ -1,5 +1,5 @@
 "$schema" = "schemas/schema.json"
 
 [default]
-description = "ATV Optimizer Google Play Billing adapter. Exposes no JS-invokable commands; the app's billing commands call it from Rust and verify every purchase there."
+description = "ATV Optimizer Google Play Billing and Play Integrity adapter. Exposes no JS-invokable commands; the app's billing commands call it from Rust and verify every purchase there, and integrity tokens go only to the developer's server."
 permissions = []
