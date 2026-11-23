@@ -22,7 +22,7 @@ export const SCREENS = [
   { name: "optimize", open: ["optimize"] },
   // `?billing=free` switches the demo to a Free Play build (see demo-mock.ts).
   { name: "paywall", query: "?billing=free", open: ["optimize"], then: openPaywall },
-  { name: "diagnostics", open: ["diagnostics"], then: turnOnLive },
+  { name: "diagnostics", open: ["diagnostics"] },
   { name: "launcher", open: ["launcher"] },
   { name: "snapshots", open: ["snapshots"] },
   { name: "devices", open: ["devices"] },
@@ -38,6 +38,7 @@ export const SCREENS = [
   { name: "add-tv", open: ["addtv"] },
   { name: "catalog", open: ["catalog"], then: openCatalogProfile },
   // Variants for the store listing. `npm run screenshots` skips them unless named.
+  { name: "diagnostics-live", open: ["diagnostics"], then: turnOnLive, extra: true },
   { name: "diagnostics-playback", open: ["diagnostics"], then: readPlaybackReport, extra: true },
   { name: "remote-text", open: ["remote"], then: typeRemoteText, extra: true },
 ];

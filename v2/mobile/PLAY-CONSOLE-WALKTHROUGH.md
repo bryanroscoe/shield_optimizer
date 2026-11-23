@@ -234,9 +234,9 @@ Message to Ko-fi supporters (paste into Ko-fi messages or email; fill the placeh
 > Thanks,
 > `<<OWNER: name>>`
 
-Replace `<<REPORTS SENTENCE>>` here with this line (the store listing's Privacy paragraph is in
-`store-listing/listing.json`), which matches the
-telemetry consent decision in 0.3 (on by default, opt-out):
+Replace `<<REPORTS SENTENCE>>` here with this line, which matches the telemetry consent decision
+in 0.3 (on by default, opt-out). The store listing's Privacy paragraph lives in
+`store-listing/listing.json`.
 "It sends anonymous device and error reports by default (TV model, Android version, whether an
 action worked; never serial numbers, IP addresses, TV names or app lists). You can turn that off
 in More."

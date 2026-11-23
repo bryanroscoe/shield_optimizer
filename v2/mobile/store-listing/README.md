@@ -10,12 +10,12 @@ command writes:
 | `screenshots/01-….png` … `08-….png` | 1242×2208 (9:16), 24-bit PNG, no alpha | A caption over the real app screen, shown as a rounded card that runs off the bottom edge |
 | `feature-graphic.png` | 1024×500, 24-bit PNG, no alpha | App name, small icon mark and `featureGraphic.tagline` on brand green beside two real app screens (Dashboard and Optimize) |
 | `icon.png` | 512×512 32-bit RGBA, at most 1024 KB | The app icon's glyph from `src-tauri/icons/icon.svg` on a full-bleed square: every pixel opaque, no rounded corners. Play applies its own mask, so baked-in rounding shows as a white rim. The app's own icon files are not changed |
-| `preview.png` | review sheet | Feature graphic, title, short description, the eight screenshots and the first paragraphs of the full description, laid out roughly like the Play page. For review only; don't upload it |
+| `preview.png` | review sheet | Feature graphic, title, short description, the eight screenshots and the first paragraphs of the full description, laid out roughly like the Play page. Generated locally for review, gitignored and not committed; don't upload it |
 
 Each screenshot entry in `listing.json` is
 `{ "file", "screen", "headline", "subline"?, "accent"?, "alt" }`. `screen` names an entry in
 `../screenshots/screens.mjs` (the same list `npm run screenshots` uses, plus store-only variants
-such as `diagnostics-playback` and `remote-text`). `accent` is an optional word or phrase from the
+such as `diagnostics-live`, `diagnostics-playback` and `remote-text`). `accent` is an optional word or phrase from the
 headline drawn in the lime accent color. Headlines wrap to at most two lines; `subline` is
 optional.
 
@@ -24,7 +24,9 @@ evidence from a phone or TV. The fixture is gated behind `VITE_DEMO=1`; never se
 shipping build. The captured UI has no Android status bar, and none is faked. No image model,
 device frames or third-party logos are used; type is the bundled Geist font.
 
-The command fails before writing if a rule breaks:
+Everything is rendered and checked in a temporary directory first; only a fully passing run
+replaces the files in `store-listing/` (and removes screenshots no longer listed). A failed run
+leaves the committed files untouched. The checks:
 
 - Captions: Google asks that taglines take no more than **20% of the image**. The caption block
   (headline, subline and padding) is 440 px of the 2208 px canvas; the script measures it and
@@ -38,7 +40,9 @@ The command fails before writing if a rule breaks:
   with the long side at most 2.3× the short side, icon ≤ 1024 KB with all four corners opaque and
   equal to its background color.
 
-`tests/store-listing.test.mjs` (part of `npm test`) runs the same checks on the committed files.
+`tests/store-listing.test.mjs` (part of `npm test`) checks the committed `listing.json` and image
+files: sizes, alpha, aspect, file size, icon corners, text lengths and wording. The caption-area and
+line-wrap checks need rendering, so they run only during `npm run store-assets`.
 
 Before uploading:
 

@@ -55,7 +55,7 @@
     },
     {
       "file": "screenshots/07-diagnostics.png",
-      "screen": "diagnostics",
+      "screen": "diagnostics-live",
       "headline": "Live temps, RAM & storage",
       "subline": "Plus HDR and codec support reports",
       "alt": "Diagnostics screen with live toggle, RAM bar at 64%, storage bar at 64% and highest reported CPU temperature at 78 C with thresholds."

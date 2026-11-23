@@ -4,10 +4,11 @@
 // this captures the real app screen (VITE_DEMO=1 fixtures, see
 // screenshots/screens.mjs) and composes it under its caption on a
 // 1242x2208 canvas. It also renders the 1024x500 feature graphic, the
-// full-bleed 512x512 store icon, and writes store-listing/preview.png, a review sheet laid out
-// roughly like the Play listing. Raw captures go to a temp dir and are removed.
+// full-bleed 512x512 store icon, and store-listing/preview.png, a gitignored
+// review sheet laid out roughly like the Play listing. Raw captures go to a
+// temp dir and are removed; outputs are written only after every check passes.
 
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -196,15 +197,16 @@ fail(validateListing(listing, { knownScreens: SCREENS.map((s) => s.name) }));
 const font = await readFile(join(ROOT, "src/fonts/Geist-Variable.woff2"));
 const iconSvg = await readFile(join(ROOT, "src-tauri/icons/icon.svg"), "utf8");
 
-const keep = new Set(listing.screenshots.map((s) => s.file.replace(/^screenshots\//, "")));
-for (const f of await readdir(SHOTS).catch(() => [])) {
-  if (f.endsWith(".png") && !keep.has(f)) await rm(join(SHOTS, f));
-}
-
-const temp = await mkdtemp(join(tmpdir(), "atvopt-store-"));
-const server = await startDemoServer();
-const browser = await chromium.launch();
+// Everything is rendered and checked before store-listing/ is touched, so a
+// failed run leaves the committed files as they were.
+const outputs = new Map();
+let temp;
+let server;
+let browser;
 try {
+  temp = await mkdtemp(join(tmpdir(), "atvopt-store-"));
+  server = await startDemoServer();
+  browser = await chromium.launch();
   console.log(`Capturing ${listing.screenshots.length} screens at ${CAPTURE_W}x${CAPTURE_H}@${CAPTURE_SCALE}x`);
   const frames = {};
   for (const shot of listing.screenshots) {
@@ -223,8 +225,8 @@ try {
   const page = await browser.newPage({ viewport: ICON_SIZE, deviceScaleFactor: 1 });
   await page.setContent(`<!doctype html><style>html,body{margin:0;background:#c9f24e}svg{display:block;width:${ICON_SIZE.width}px;height:${ICON_SIZE.height}px}</style>${square}`);
   const iconPng = toRgbaPng(await page.screenshot());
-  await writeFile(join(OUT, "icon.png"), iconPng);
   fail(validateImage("icon.png", iconPng, "icon"));
+  outputs.set("icon.png", iconPng);
   console.log("  icon.png");
 
   await page.setViewportSize({ width: W, height: H });
@@ -253,10 +255,9 @@ try {
     if (m.lines > 2) errors.push(`${shot.file}: headline wraps to ${m.lines} lines (max 2)`);
     if (m.subLines > 2) errors.push(`${shot.file}: subline wraps to ${m.subLines} lines (max 2)`);
     fail(errors);
-    const out = join(OUT, shot.file);
-    await page.screenshot({ path: out });
-    const buf = await readFile(out);
+    const buf = await page.screenshot();
     fail(validateImage(shot.file, buf, "screenshot"));
+    outputs.set(shot.file, buf);
     composites.push(buf);
     console.log(`  ${shot.file}  headline ${m.lines}, subline ${m.subLines} line(s), text ${Math.round(m.textTop)}-${Math.round(m.textBottom)}px of a ${m.caption}px caption (${((m.caption / H) * 100).toFixed(1)}%)`);
   }
@@ -266,23 +267,30 @@ try {
   await page.setViewportSize(FEATURE_GRAPHIC_SIZE);
   await page.setContent(featureHtml(listing, featureFrames, iconSvg, font), { waitUntil: "load" });
   await page.evaluate(() => document.fonts.ready);
-  const featurePath = join(OUT, "feature-graphic.png");
-  await page.screenshot({ path: featurePath });
-  const feature = await readFile(featurePath);
+  const feature = await page.screenshot();
   fail(validateImage("feature-graphic.png", feature, "featureGraphic"));
+  outputs.set("feature-graphic.png", feature);
   console.log("  feature-graphic.png");
 
+  // Review sheet only: gitignored, never uploaded.
   await page.setViewportSize({ width: 2320, height: 1200 });
   await page.setContent(previewHtml(listing, feature, composites, iconPng, font), { waitUntil: "load" });
   await page.evaluate(() => document.fonts.ready);
-  await page.screenshot({ path: join(OUT, "preview.png"), fullPage: true });
+  outputs.set("preview.png", await page.screenshot({ fullPage: true }));
   console.log("  preview.png");
   await page.close();
 } finally {
-  await browser.close();
-  await server.close();
-  await rm(temp, { recursive: true, force: true });
+  await browser?.close();
+  await server?.close();
+  if (temp) await rm(temp, { recursive: true, force: true });
 }
 
-const sizes = await Promise.all(listing.screenshots.map(async (s) => (await stat(join(OUT, s.file))).size));
+const keep = new Set(listing.screenshots.map((s) => s.file.replace(/^screenshots\//, "")));
+for (const f of await readdir(SHOTS).catch(() => [])) {
+  if (f.endsWith(".png") && !keep.has(f)) await rm(join(SHOTS, f));
+}
+await mkdir(SHOTS, { recursive: true });
+for (const [file, buf] of outputs) await writeFile(join(OUT, file), buf);
+
+const sizes = listing.screenshots.map((s) => outputs.get(s.file).length);
 console.log(`Store assets → ${OUT} (largest screenshot ${(Math.max(...sizes) / 1024 / 1024).toFixed(2)} MB)`);
