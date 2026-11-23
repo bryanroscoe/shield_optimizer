@@ -489,6 +489,34 @@ Starting state: Free (the account doesn't own `atvopt_pro`).
    answers. Include user-initiated external navigation and review the resolved SDK graph.
 4. Promote internal → closed → production once a real device has been exercised end to end.
 
+## Publish the store listing
+
+`v2/mobile/store-listing/` (`listing.json`, `icon.png`, `feature-graphic.png`, `screenshots/`) is
+the source of the en-US store page. `play-publish.py listing` compares it with Play and applies it.
+The local credential is `~/.config/atv-optimizer/play-service-account.json`; its service account
+needs the Play Console permission to edit the store listing (Users and permissions → the account →
+App permissions → Store presence: "Edit store listing, pricing & distribution").
+
+```bash
+# Read-only: opens an edit, prints what differs (or "in sync"), discards the edit.
+python3 v2/mobile/scripts/play-publish.py listing diff \
+  --service-account ~/.config/atv-optimizer/play-service-account.json
+
+# Applies only what differs, in one edit, then commits it.
+python3 v2/mobile/scripts/play-publish.py listing publish \
+  --service-account ~/.config/atv-optimizer/play-service-account.json \
+  --confirm com.atvoptimizer.mobile
+```
+
+Always run `diff` first and read it. `publish` validates everything before it sends anything
+(title ≤ 30, short description ≤ 80, full description ≤ 4000 characters, 2-8 PNG phone
+screenshots, a 512×512 icon, a 1024×500 feature graphic), refuses unless `--confirm` is the
+package name, updates the text (keeping any promo video) only if it changed, and replaces an image
+type (all its images, in `listing.json` order) only if any of them changed. Any failure discards
+the edit, so nothing is half-applied. After the commit it re-reads Play through a fresh edit and
+fails if the text or any image SHA-256 still differs. A committed listing change goes through
+Google's review before the public page shows it.
+
 ## Testing-candidate gates
 
 This is a preparation checklist, not approval to create credentials, upload or install a build.

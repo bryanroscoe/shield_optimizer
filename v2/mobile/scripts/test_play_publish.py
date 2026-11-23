@@ -280,5 +280,243 @@ class Publish(unittest.TestCase):
             play.Play.from_file(path)
 
 
+def png(width, height, tag=b''):
+    return (play.PNG_SIGNATURE + (13).to_bytes(4, 'big') + b'IHDR' + width.to_bytes(4, 'big')
+            + height.to_bytes(4, 'big') + b'\x08\x06\x00\x00\x00' + tag)
+
+
+def sha(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+TEXT = {'title': 'ATV Optimizer', 'shortDescription': 'Tune your TV.', 'fullDescription': 'Line one\nLine two'}
+
+
+class FakeStore:
+    """Stateful Android Publisher listing endpoints: edits copy the live state, commit applies it."""
+
+    def __init__(self, listing, images, fail=None):
+        self.live = {'listing': dict(listing), 'images': {k: list(v) for k, v in images.items()}}
+        self.edits, self.requests, self.fail, self.commits, self.opened = {}, [], fail, 0, 0
+
+    def __call__(self, method, url, headers, body, timeout):
+        self.requests.append((method, url, headers, body))
+        if url == play.TOKEN_URL:
+            return 200, json.dumps({'access_token': 'token'}).encode()
+        assert headers['Authorization'] == 'Bearer token'
+        path = url.split('/applications/com.atvoptimizer.mobile/')[1].split('?')[0]
+        if self.fail and self.fail(method, url):
+            return 500, json.dumps({'error': {'message': 'backend error'}}).encode()
+        if method == 'POST' and path == 'edits':
+            self.opened += 1
+            edit = f'e{self.opened}'
+            self.edits[edit] = json.loads(json.dumps(self.live))
+            return 200, json.dumps({'id': edit}).encode()
+        edit = path.split('/')[1]
+        if ':' in edit:
+            edit, action = edit.split(':')
+            if action == 'commit':
+                self.live = self.edits.pop(edit)
+                self.commits += 1
+            return 200, b'{}'
+        state = self.edits.get(edit)
+        if method == 'DELETE' and path.count('/') == 1:
+            self.edits.pop(path.split('/')[1], None)
+            return 204, b''
+        parts = path.split('/')
+        if parts[2] != 'listings':
+            return 200, b'{}'
+        if len(parts) == 4:
+            if method == 'GET':
+                if not state['listing']:
+                    return 404, json.dumps({'error': {'message': 'not found'}}).encode()
+                return 200, json.dumps(state['listing']).encode()
+            state['listing'] = json.loads(body)
+            return 200, body
+        kind = parts[4]
+        if method == 'GET':
+            return 200, json.dumps({'images': [{'sha256': h} for h in state['images'].get(kind, [])]}
+                                   if state['images'].get(kind) else {}).encode()
+        if method == 'DELETE':
+            state['images'][kind] = []
+            return 200, b'{}'
+        assert headers['Content-Type'] == 'image/png' and url.startswith(play.UPLOAD_API)
+        state['images'].setdefault(kind, []).append(sha(body))
+        return 200, json.dumps({'image': {'sha256': sha(body)}}).encode()
+
+    def calls(self):
+        return [(m, u.split('/applications/com.atvoptimizer.mobile/')[-1]) for m, u, _, _ in self.requests
+                if u != play.TOKEN_URL]
+
+
+class Listing(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.dir = Path(directory.name)
+        self.icon, self.feature = png(512, 512), png(1024, 500)
+        self.shots = [png(1080, 1920, bytes([n])) for n in range(3)]
+        self.write()
+
+    def write(self, text=TEXT, shots=None, icon=None, feature=None):
+        shots = self.shots if shots is None else shots
+        (self.dir / 'screenshots').mkdir(exist_ok=True)
+        (self.dir / 'icon.png').write_bytes(icon or self.icon)
+        (self.dir / 'feature-graphic.png').write_bytes(feature or self.feature)
+        for n, data in enumerate(shots):
+            (self.dir / f'screenshots/{n}.png').write_bytes(data)
+        (self.dir / 'listing.json').write_text(json.dumps(
+            {'language': 'en-US', **text, 'screenshots': [{'file': f'screenshots/{n}.png'} for n in range(len(shots))]}))
+
+    def store(self, text=TEXT, shots=None, **kwargs):
+        shots = self.shots if shots is None else shots
+        images = {'icon': [sha(self.icon)], 'featureGraphic': [sha(self.feature)],
+                  'phoneScreenshots': [sha(s) for s in shots]}
+        return FakeStore({'language': 'en-US', **text}, images, **kwargs)
+
+    def local(self):
+        return play.load_listing(self.dir)
+
+    def test_diff_in_sync_reads_only_and_discards(self):
+        fake = self.store()
+        differences, lines = play.listing_diff(client(fake), self.local())
+        self.assertEqual(lines[-1], 'in sync')
+        self.assertEqual(differences['text'], {})
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+        self.assertTrue(all(m in ('GET', 'POST') for m, _ in fake.calls()[:-1]))
+        self.assertEqual(fake.commits, 0)
+
+    def test_diff_reports_text_and_image_changes(self):
+        live_shots = [self.shots[0], png(1080, 1920, b'old')]
+        fake = self.store(text={**TEXT, 'title': 'Old', 'fullDescription': 'Line one\nOld two'}, shots=live_shots)
+        fake.live['images']['icon'] = []
+        _, lines = play.listing_diff(client(fake), self.local())
+        report = '\n'.join(lines)
+        self.assertIn('title: changed (3 -> 13 characters)', report)
+        self.assertIn('    -Old two\n    +Line two', report)
+        self.assertIn('shortDescription: same', report)
+        self.assertIn('icon: differs\n    1. icon.png: added', report)
+        self.assertIn('featureGraphic: same (1)', report)
+        self.assertIn('1. screenshots/0.png: same\n    2. screenshots/1.png: changed\n    3. screenshots/2.png: added', report)
+        self.assertNotIn('in sync', report)
+        self.assertEqual(fake.commits, 0)
+
+    def test_diff_reports_removed_images(self):
+        fake = self.store(shots=self.shots + [png(1080, 1920, b'extra')])
+        _, lines = play.listing_diff(client(fake), self.local())
+        self.assertIn('    4. live image 4: removed', lines)
+
+    def test_publish_applies_only_changes_in_order_and_verifies(self):
+        fake = self.store(text={**TEXT, 'shortDescription': 'Old'}, shots=self.shots[:2])
+        lines, result = play.listing_publish(client(fake), self.local(), 'com.atvoptimizer.mobile')
+        self.assertIn('fresh edit matches', result)
+        calls = [(m, u.split('?')[0].split('/androidpublisher/v3/applications/')[-1]) for m, u in fake.calls()]
+        writes = [c for c in calls if c[0] in ('PUT', 'DELETE', 'POST') and c[1] != 'edits']
+        self.assertEqual(writes, [
+            ('PUT', 'edits/e1/listings/en-US'),
+            ('DELETE', 'edits/e1/listings/en-US/phoneScreenshots'),
+            ('POST', 'edits/e1/listings/en-US/phoneScreenshots'),
+            ('POST', 'edits/e1/listings/en-US/phoneScreenshots'),
+            ('POST', 'edits/e1/listings/en-US/phoneScreenshots'),
+            ('POST', 'edits/e1:validate'), ('POST', 'edits/e1:commit'),
+            ('DELETE', 'edits/e2')])
+        uploads = [b for m, u, _, b in fake.requests if m == 'POST' and 'uploadType=media' in u]
+        self.assertEqual(uploads, self.shots)
+        self.assertEqual(fake.live['listing'], {'language': 'en-US', **TEXT})
+        self.assertEqual(fake.live['images']['phoneScreenshots'], [sha(s) for s in self.shots])
+        self.assertEqual(fake.commits, 1)
+
+    def test_publish_in_sync_commits_nothing(self):
+        fake = self.store()
+        _, result = play.listing_publish(client(fake), self.local(), 'com.atvoptimizer.mobile')
+        self.assertEqual(result, 'nothing to publish')
+        self.assertEqual(fake.commits, 0)
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+
+    def test_publish_preserves_video(self):
+        fake = self.store(text={**TEXT, 'title': 'Old'})
+        fake.live['listing']['video'] = 'https://www.youtube.com/watch?v=abc'
+        play.listing_publish(client(fake), self.local(), 'com.atvoptimizer.mobile')
+        put = next(json.loads(b) for m, u, _, b in fake.requests if m == 'PUT')
+        self.assertEqual(put, {'language': 'en-US', **TEXT, 'video': 'https://www.youtube.com/watch?v=abc'})
+        self.assertFalse(any('phoneScreenshots' in u and m != 'GET' for m, u in fake.calls()))
+
+    def test_publish_refuses_without_the_package_as_confirm(self):
+        for confirm in [None, '', 'yes', 'com.atvoptimizer']:
+            fake = self.store(text={**TEXT, 'title': 'Old'})
+            with self.assertRaisesRegex(play.PlayError, '--confirm'):
+                play.listing_publish(client(fake), self.local(), confirm)
+            self.assertEqual(fake.requests, [])
+        original = play.Play.from_file
+        play.Play.from_file = classmethod(lambda cls, path, **kw: self.fail('opened the service account'))
+        self.addCleanup(setattr, play.Play, 'from_file', original)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = play.main(['listing', 'publish', '--service-account', 'unused.json', '--listing-dir', str(self.dir)])
+        self.assertEqual(code, 1)
+        self.assertIn('needs --confirm com.atvoptimizer.mobile', err.getvalue())
+
+    def test_failing_upload_discards_and_does_not_commit(self):
+        fake = self.store(text={**TEXT, 'title': 'Old'}, shots=[],
+                          fail=lambda m, u: m == 'POST' and 'uploadType=media' in u)
+        with self.assertRaisesRegex(play.PlayError, 'HTTP 500.*backend error'):
+            play.listing_publish(client(fake), self.local(), 'com.atvoptimizer.mobile')
+        self.assertEqual(fake.commits, 0)
+        self.assertFalse(any(u.endswith(':commit') for _, u in fake.calls()))
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+        self.assertEqual(fake.live['listing']['title'], 'Old')
+
+    def test_verification_failure_is_reported(self):
+        fake = self.store(text={**TEXT, 'title': 'Old'})
+        original = fake.__call__
+
+        def drop_title_on_commit(method, url, headers, body, timeout):
+            status, payload = original(method, url, headers, body, timeout)
+            if url.endswith(':commit'):
+                fake.live['listing']['title'] = 'Old'
+            return status, payload
+        with self.assertRaisesRegex(play.PlayError, 'Committed, but a fresh edit still differs.*title'):
+            play.listing_publish(play.Play(ACCOUNT, http=drop_title_on_commit, sign=lambda k, m: b's',
+                                           clock=lambda: 1000), self.local(), 'com.atvoptimizer.mobile')
+
+    def test_missing_live_listing_counts_as_empty(self):
+        fake = self.store()
+        fake.live['listing'] = {}
+        differences, _ = play.listing_diff(client(fake), self.local())
+        self.assertEqual(set(differences['text']), set(TEXT))
+
+    def test_validation(self):
+        cases = [
+            (dict(text={**TEXT, 'title': 'x' * 31}), 'title is 31 characters, over the 30 limit'),
+            (dict(text={**TEXT, 'shortDescription': 'x' * 81}), 'shortDescription is 81'),
+            (dict(text={**TEXT, 'fullDescription': 'x' * 4001}), 'fullDescription is 4001'),
+            (dict(shots=self.shots[:1]), '1 phone screenshots; Play takes 2 to 8'),
+            (dict(shots=self.shots * 3), '9 phone screenshots'),
+            (dict(icon=png(512, 511)), 'icon must be 512x512'),
+            (dict(feature=png(1024, 512)), 'feature graphic must be 1024x500'),
+            (dict(icon=b'GIF89a not a png at all'), 'icon.png is not a PNG'),
+            (dict(shots=[self.shots[0], png(1000, 2100)]), 'at most 2:1'),
+        ]
+        for kwargs, pattern in cases:
+            for leftover in (self.dir / 'screenshots').glob('*.png'):
+                leftover.unlink()
+            self.write(**kwargs)
+            with self.subTest(pattern), self.assertRaisesRegex(play.PlayError, pattern):
+                play.load_listing(self.dir)
+        self.write()
+        (self.dir / 'screenshots/1.png').unlink()
+        with self.assertRaisesRegex(play.PlayError, 'screenshots/1.png does not exist'):
+            play.load_listing(self.dir)
+
+    def test_bundle_upload_keeps_octet_stream(self):
+        fake = FakePlay(uploaded_code=1002)
+        aab = self.dir / 'app.aab'
+        aab.write_bytes(b'bundle')
+        play.upload(client(fake), aab, 'internal', 'draft', 1002, 'x')
+        upload = next((u, h) for m, u, h, _ in fake.requests if 'uploadType=media' in u)
+        self.assertTrue(upload[0].startswith(play.UPLOAD_API + '/com.atvoptimizer.mobile/edits/e1/bundles'))
+        self.assertEqual(upload[1]['Content-Type'], 'application/octet-stream')
+
+
 if __name__ == '__main__':
     unittest.main()

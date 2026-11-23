@@ -8,6 +8,8 @@ Subcommands:
             as a draft unless told otherwise, in a single edit. Refuses a track whose country
             list leaves out an EU state.
   geo-check Read-only: fail when a track or an active one-time product leaves out an EU state.
+  listing   Compare the store listing in v2/mobile/store-listing with Play (`listing diff`, read-only),
+            or apply only what differs and commit it (`listing publish --confirm PACKAGE`).
 
 EU Geo-blocking Regulation (EU) 2018/302: Play asks that an app distributed in the EU be
 accessible EU-wide, so every track with a country list and every active Pro product must
@@ -19,6 +21,7 @@ message, which never contains them.
 """
 import argparse
 import base64
+import difflib
 import hashlib
 import json
 import os
@@ -43,7 +46,9 @@ EU_COUNTRIES = frozenset('AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IT LT LU 
 
 
 class PlayError(Exception):
-    pass
+    def __init__(self, message, status=None):
+        super().__init__(message)
+        self.status = status
 
 
 def resolve_version(config_path, tag=None, override=None):
@@ -133,13 +138,13 @@ class Play:
                             f'{error_message(payload)}')
         self.token = json.loads(payload)['access_token']
 
-    def call(self, method, path, body=None, *, upload=None, timeout=120):
+    def call(self, method, path, body=None, *, upload=None, content_type='application/octet-stream', timeout=120):
         if self.token is None:
             self.authorize()
         headers = {'Authorization': f'Bearer {self.token}'}
         if upload is not None:
             url = f'{UPLOAD_API}/{self.package}/{path}?uploadType=media'
-            headers['Content-Type'] = 'application/octet-stream'
+            headers['Content-Type'] = content_type
             data = upload
         else:
             url = f'{API}/{self.package}/{path}'
@@ -148,7 +153,7 @@ class Play:
                 headers['Content-Type'] = 'application/json'
         status, payload = self.http(method, url, headers, data, timeout)
         if not 200 <= status < 300:
-            raise PlayError(f'{method} {path.split("?")[0]} failed (HTTP {status}): {error_message(payload)}')
+            raise PlayError(f'{method} {path.split("?")[0]} failed (HTTP {status}): {error_message(payload)}', status)
         return json.loads(payload) if payload else {}
 
     def open_edit(self):
@@ -305,6 +310,187 @@ def geo_check(play):
     return lines, problems
 
 
+LISTING_DIR = MOBILE_DIR / 'store-listing'
+TEXT_LIMITS = {'title': 30, 'shortDescription': 80, 'fullDescription': 4000}
+IMAGE_TYPES = ['icon', 'featureGraphic', 'phoneScreenshots']
+PNG_SIGNATURE = b'\x89PNG\r\n\x1a\n'
+
+
+def png_size(data):
+    """(width, height) from a PNG's IHDR chunk, or None when the bytes aren't a PNG."""
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b'IHDR':
+        return None
+    return int.from_bytes(data[16:20], 'big'), int.from_bytes(data[20:24], 'big')
+
+
+def load_listing(listing_dir=LISTING_DIR, language=None):
+    """Read and validate listing.json and its images. Raises PlayError listing every problem."""
+    listing_dir = Path(listing_dir)
+    try:
+        data = json.loads((listing_dir / 'listing.json').read_text())
+    except (OSError, ValueError) as error:
+        raise PlayError(f'Cannot read {listing_dir / "listing.json"}: {error}') from None
+    problems = []
+    text = {}
+    for field, limit in TEXT_LIMITS.items():
+        value = data.get(field)
+        if not isinstance(value, str) or not value.strip():
+            problems.append(f'{field} is missing')
+            continue
+        if len(value) > limit:
+            problems.append(f'{field} is {len(value)} characters, over the {limit} limit')
+        text[field] = value
+    shots = data.get('screenshots')
+    if not isinstance(shots, list):
+        shots = []
+    if not 2 <= len(shots) <= 8:
+        problems.append(f'{len(shots)} phone screenshots; Play takes 2 to 8')
+    wanted = [('icon', 'icon.png'), ('featureGraphic', 'feature-graphic.png')]
+    wanted += [('phoneScreenshots', shot.get('file') if isinstance(shot, dict) else None) for shot in shots]
+    images = {kind: [] for kind in IMAGE_TYPES}
+    for kind, name in wanted:
+        if not isinstance(name, str) or not name:
+            problems.append(f'a {kind} entry has no file')
+            continue
+        path = listing_dir / name
+        try:
+            content = path.read_bytes()
+        except OSError:
+            problems.append(f'{name} does not exist')
+            continue
+        size = png_size(content)
+        if size is None:
+            problems.append(f'{name} is not a PNG')
+            continue
+        width, height = size
+        if kind == 'icon' and size != (512, 512):
+            problems.append(f'{name} is {width}x{height}; the icon must be 512x512')
+        elif kind == 'featureGraphic' and size != (1024, 500):
+            problems.append(f'{name} is {width}x{height}; the feature graphic must be 1024x500')
+        elif kind == 'phoneScreenshots' and not (320 <= min(size) and max(size) <= 3840 and max(size) <= 2 * min(size)):
+            problems.append(f'{name} is {width}x{height}; screenshots need sides of 320-3840 px and at most 2:1')
+        images[kind].append({'file': name, 'data': content, 'sha256': hashlib.sha256(content).hexdigest()})
+    if problems:
+        raise PlayError('Store listing is not valid:\n  ' + '\n  '.join(problems))
+    return {'language': language or data.get('language') or 'en-US', 'text': text, 'images': images}
+
+
+def read_live_listing(play, edit, language):
+    try:
+        listing = play.call('GET', f'edits/{edit}/listings/{language}')
+    except PlayError as error:
+        if error.status != 404:
+            raise
+        listing = {}
+    images = {kind: play.call('GET', f'edits/{edit}/listings/{language}/{kind}').get('images', [])
+              for kind in IMAGE_TYPES}
+    return {'listing': listing, 'images': images}
+
+
+def compare_listing(local, live):
+    """Fields and image types that differ, each with what a person needs to read about it."""
+    text = {}
+    for field in TEXT_LIMITS:
+        old, new = live['listing'].get(field, ''), local['text'][field]
+        if old != new:
+            text[field] = (old, new)
+    images = {}
+    for kind in IMAGE_TYPES:
+        remote = [(image.get('sha256') or '').lower() for image in live['images'].get(kind, [])]
+        mine = local['images'][kind]
+        rows = []
+        for index in range(max(len(remote), len(mine))):
+            name = mine[index]['file'] if index < len(mine) else f'live image {index + 1}'
+            if index >= len(remote):
+                rows.append((name, 'added'))
+            elif index >= len(mine):
+                rows.append((name, 'removed'))
+            else:
+                rows.append((name, 'same' if remote[index] == mine[index]['sha256'] else 'changed'))
+        if any(state != 'same' for _, state in rows):
+            images[kind] = rows
+        else:
+            images[kind] = None
+    return {'text': text, 'images': images}
+
+
+def describe_differences(play, local, differences, max_diff_lines=24):
+    lines = [f'Store listing {local["language"]} for {play.package} (live on Play vs local):']
+    for field in TEXT_LIMITS:
+        if field not in differences['text']:
+            lines.append(f'{field}: same')
+            continue
+        old, new = differences['text'][field]
+        lines.append(f'{field}: changed ({len(old)} -> {len(new)} characters)')
+        diff = list(difflib.unified_diff(old.splitlines(), new.splitlines(), 'live', 'local', n=0, lineterm=''))
+        shown = [line for line in diff if not line.startswith('@@')]
+        for line in shown[:max_diff_lines]:
+            lines.append('    ' + (line if len(line) <= 160 else line[:157] + '...'))
+        if len(shown) > max_diff_lines:
+            lines.append(f'    ... {len(shown) - max_diff_lines} more diff lines')
+    for kind in IMAGE_TYPES:
+        rows = differences['images'][kind]
+        if rows is None:
+            lines.append(f'{kind}: same ({len(local["images"][kind])})')
+            continue
+        lines.append(f'{kind}: differs')
+        for index, (name, state) in enumerate(rows, 1):
+            lines.append(f'    {index}. {name}: {state}')
+    if not differences['text'] and not any(differences['images'].values()):
+        lines.append('in sync')
+    return lines
+
+
+def listing_diff(play, local):
+    edit = play.open_edit()
+    try:
+        live = read_live_listing(play, edit, local['language'])
+    finally:
+        play.discard_edit(edit)
+    differences = compare_listing(local, live)
+    return differences, describe_differences(play, local, differences)
+
+
+def listing_publish(play, local, confirm):
+    """Apply only what differs in one edit, commit it, then verify through a fresh edit."""
+    if confirm != play.package:
+        raise PlayError(f'--confirm must be the package name ({play.package}); nothing was sent to Play')
+    language = local['language']
+    edit = play.open_edit()
+    committed = False
+    try:
+        live = read_live_listing(play, edit, language)
+        differences = compare_listing(local, live)
+        lines = describe_differences(play, local, differences)
+        changed_images = [kind for kind in IMAGE_TYPES if differences['images'][kind] is not None]
+        if not differences['text'] and not changed_images:
+            return lines, 'nothing to publish'
+        if differences['text']:
+            body = {'language': language, **local['text']}
+            if live['listing'].get('video'):
+                body['video'] = live['listing']['video']
+            play.call('PUT', f'edits/{edit}/listings/{language}', body)
+        for kind in changed_images:
+            play.call('DELETE', f'edits/{edit}/listings/{language}/{kind}')
+            for image in local['images'][kind]:
+                uploaded = play.call('POST', f'edits/{edit}/listings/{language}/{kind}', upload=image['data'],
+                                     content_type='image/png', timeout=300)
+                sha = (uploaded.get('image', {}).get('sha256') or '').lower()
+                if sha and sha != image['sha256']:
+                    raise PlayError(f'Play reports a different SHA-256 for {image["file"]}')
+        play.call('POST', f'edits/{edit}:validate')
+        play.call('POST', f'edits/{edit}:commit')
+        committed = True
+    finally:
+        if not committed:
+            play.discard_edit(edit)
+    after, _ = listing_diff(play, local)
+    if after['text'] or any(after['images'].values()):
+        left = list(after['text']) + [kind for kind, rows in after['images'].items() if rows]
+        raise PlayError('Committed, but a fresh edit still differs from local in: ' + ', '.join(left))
+    return lines, 'committed; a fresh edit matches local text and image SHA-256s'
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -324,8 +510,27 @@ def main(argv=None):
     up.add_argument('--release-name', required=True)
     up.add_argument('--notes-file', type=Path)
     up.add_argument('--expected-aab-sha256', help='Reject changed bytes before opening a Play edit')
+    store = commands.add_parser('listing', help='diff (default, read-only) or publish the store listing')
+    store.add_argument('action', nargs='?', choices=['diff', 'publish'], default='diff')
+    store.add_argument('--service-account', type=Path, required=True)
+    store.add_argument('--package', default=PACKAGE)
+    store.add_argument('--listing-dir', type=Path, default=LISTING_DIR)
+    store.add_argument('--language', help="Default: listing.json's language, else en-US")
+    store.add_argument('--confirm', help='publish only: the package name, to show you mean the live store page')
     args = parser.parse_args(argv)
     try:
+        if args.command == 'listing':
+            if args.action == 'publish' and args.confirm != args.package:
+                raise PlayError(f'listing publish needs --confirm {args.package}; nothing was sent to Play')
+            local = load_listing(args.listing_dir, args.language)
+            store_play = Play.from_file(args.service_account, package=args.package)
+            if args.action == 'diff':
+                print('\n'.join(listing_diff(store_play, local)[1]))
+            else:
+                lines, result = listing_publish(store_play, local, args.confirm)
+                print('\n'.join(lines))
+                print(f'Publish: {result}')
+            return 0
         if args.command == 'version':
             print(json.dumps(resolve_version(args.config, args.tag, args.version_code)))
         elif args.command == 'highest':
