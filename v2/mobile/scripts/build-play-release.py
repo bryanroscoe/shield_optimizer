@@ -33,6 +33,9 @@ def main():
                         help='Refuse to build below this much free disk (CI runners pass less)')
     parser.add_argument('--build-jobs', type=int, default=1,
                         help='Cargo/CMake/Gradle parallelism; stays 1 on workstations')
+    parser.add_argument('--version-name',
+                        help="Android versionName instead of tauri.conf.json's version, so a mobile-internal "
+                             'build reads differently from the release it follows (semver, e.g. 0.1.5+internal.1006)')
     args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     env = os.environ.copy()
@@ -85,6 +88,9 @@ def main():
         raise ValueError(f'Less than {args.min_free_gib} GiB free: inspect owned output and expected build growth before continuing')
     if args.build_jobs < 1:
         raise ValueError('--build-jobs must be at least 1')
+    if args.version_name is not None and not re.fullmatch(
+            r'\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?', args.version_name):
+        raise ValueError(f'--version-name {args.version_name!r} is not semver')
     listing = json.loads((root / 'store-listing/listing.json').read_text())
     policy = run(['curl', '--fail', '--silent', '--show-error', '--max-time', '30',
                   listing['privacyPolicyUrl']], capture_output=True).stdout
@@ -104,6 +110,7 @@ def main():
     receipt = {
         'source_sha': subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=root, text=True).strip(),
         'version_code': args.version_code,
+        'version_name': args.version_name,
         'previous_version_code': args.previous_version_code,
         'previous_version_code_source': args.previous_version_source,
         'targets': args.target,
@@ -114,7 +121,10 @@ def main():
     print('Play release preflight passed. No private credentials were printed.', flush=True)
     if args.preflight_only:
         return
-    config = json.dumps({'bundle': {'android': {'versionCode': args.version_code}}})
+    overrides = {'bundle': {'android': {'versionCode': args.version_code}}}
+    if args.version_name:
+        overrides['version'] = args.version_name
+    config = json.dumps(overrides)
     run(['npm', 'run', 'tauri', '--', 'android', 'build', '--aab', '--apk', '--ci',
          '--config', config, '--target', *args.target], cwd=root, env=env, timeout=7200)
     output = root / 'src-tauri/gen/android/app/build/outputs'

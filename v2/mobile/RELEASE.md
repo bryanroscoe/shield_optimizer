@@ -23,8 +23,11 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
    from the version, see §2) and checks that every secret and variable below is set;
 2. installs the Android toolchain and npm dependencies before writing any credential, then checks
    the keystore's certificate against the recorded upload certificate;
-3. asks Play for the highest versionCode it holds across every bundle, APK and track release; a
-   code that is not above it fails here, before anything is built;
+3. asks Play for the highest versionCode it holds across every bundle, APK and track release. A
+   code derived from the version that is not above it becomes the next free code (internal
+   builds take codes between releases); a code set in `bundle.android.versionCode` or the
+   dispatch form must already be above it. A tag whose version a tester track already carries
+   fails here, before anything is built;
 4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
 5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
    validate`, R8 metadata and obfuscation mapping, manifest package and versionCode, then the
@@ -38,6 +41,31 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
    managed publishing is off (owner decision, 2026-11-21). To stop a closed release still in
    review: Play Console → Publishing overview → **Remove changes**. Pushing the tag is the release
    decision; merging to `main` is not.
+
+### Internal builds: the `mobile-internal` branch
+
+To try `main` on the owner's phone before a tag sends it to testers, push a `main` commit to the
+`mobile-internal` branch:
+
+```sh
+git fetch origin && git push origin origin/main:mobile-internal
+```
+
+The same `release` job builds, verifies and releases it as **completed on Internal testing only**.
+Internal testing's tester list is the owner's own account (by email, not the closed-test Google
+Group), so it reaches the phone within minutes of the ~20-minute build, as an ordinary Play
+update that keeps saved TVs and the Pro purchase. It never touches the closed track. Agents
+advance the branch after merging an Android change.
+
+- Only commits already on `main` are built; anything else fails the revision check. The branch
+  only moves forward, so never force-push it.
+- Builds queue: one runs at a time, and the newest push replaces one still waiting.
+- versionCode is the next free code on Play, and versionName is the release it follows plus that
+  code (`0.1.5+internal.1006`), which is what Play Store and Android's App info show. The app's own
+  About and its reports still say the Cargo version (`0.1.5`).
+- A tag release afterwards takes the next free code too, so internal builds never block it. A
+  tag whose version a tester track already carries is refused, so re-running a tag can't ship
+  the same version twice.
 
 **Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
 and verified, no upload), `publish` (one track or several comma-separated: `internal`, `alpha` for the default

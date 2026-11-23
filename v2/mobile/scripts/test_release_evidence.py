@@ -107,6 +107,20 @@ class WorkflowCoverage(unittest.TestCase):
         self.assertIn('UPLOAD_OUTCOME: ${{ steps.upload.outcome }}', release)
         self.assertIn('release-evidence.py publish', release)
 
+    def test_mobile_internal_reaches_internal_testing_only(self):
+        root = Path(__file__).resolve().parents[3]
+        workflow = (root / '.github/workflows/mobile-play-release.yml').read_text()
+        self.assertIn('    branches: [main, mobile-internal]\n', workflow)
+        smoke = workflow.split('  smoke:\n', 1)[1].split('  release:\n', 1)[0]
+        release = workflow.split('  release:\n', 1)[1]
+        self.assertNotIn('refs/heads/mobile-internal', smoke)
+        self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/mobile-internal')", release)
+        self.assertIn("TRACK: ${{ github.event_name != 'push' && inputs.track || "
+                      "(startsWith(github.ref, 'refs/tags/') && 'internal,alpha' || 'internal') }}", release)
+        self.assertIn('git merge-base --is-ancestor HEAD FETCH_HEAD', release)
+        self.assertIn('play-publish.py next-code', release)
+        self.assertIn('--version-name "${{ steps.play.outputs.name }}"', release)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -26,9 +26,11 @@
 #
 # (tauri-utils AndroidConfig::version_code doc comment; verified against the
 # current tauri.properties: 0.1.0 -> 1000). Pre-release identifiers are ignored,
-# so 0.2.0-beta.1 and 0.2.0 both derive 2000 — Play rejects a re-used
-# versionCode, so for a pre-release track set an explicit code in
-# mobile/src-tauri/tauri.conf.json:
+# so 0.2.0-beta.1 and 0.2.0 both derive 2000. Play rejects a re-used versionCode;
+# CI handles that by moving a derived code that Play already holds (or passed,
+# through mobile-internal builds) to the next free one. For a hand-built upload,
+# or to pin a code, set it in mobile/src-tauri/tauri.conf.json, which CI then
+# uses unchanged and refuses if Play is already past it:
 #
 #     "bundle": { "android": { "versionCode": 2001 } }
 #

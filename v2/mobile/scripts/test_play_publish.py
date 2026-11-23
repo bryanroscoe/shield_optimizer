@@ -111,6 +111,54 @@ class Version(unittest.TestCase):
             play.resolve_version(self.config({'version': '1.0.0'}), override='0')
 
 
+class NextCode(unittest.TestCase):
+    def released(self, *tracks):
+        return FakePlay(bundles=[1007], tracks=[{'track': t, 'releases': [{'name': n, 'versionCodes': [c]}]}
+                                                for t, n, c in tracks])
+
+    def test_derived_code_moves_past_internal_builds(self):
+        fake = self.released(('internal', '0.1.5+internal.1007 (1007)', '1007'))
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
+        self.assertEqual(result, {'highest': 1007, 'version_code': 1008, 'version_code_source': 'next free code on Play'})
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+
+    def test_derived_code_above_play_is_kept(self):
+        result = play.choose_version_code(client(self.released()), '0.2.0', 2000, play.DERIVED)
+        self.assertEqual(result, {'highest': 1007, 'version_code': 2000, 'version_code_source': play.DERIVED})
+
+    def test_a_set_code_never_moves(self):
+        for source in ['override', 'tauri.conf.json bundle.android.versionCode']:
+            with self.assertRaisesRegex(play.PlayError, 'not above 1007'):
+                play.choose_version_code(client(self.released()), '0.1.6', 1007, source)
+        result = play.choose_version_code(client(self.released()), '0.1.6', 1010, 'override')
+        self.assertEqual(result['version_code'], 1010)
+
+    def test_tag_refuses_a_version_a_tester_track_already_has(self):
+        fake = self.released(('alpha', '0.1.6 (1006)', '1006'))
+        with self.assertRaisesRegex(play.PlayError, "alpha already has release '0.1.6 \\(1006\\)'"):
+            play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
+        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
+        self.assertEqual(play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED)['version_code'], 1008)
+
+    def test_internal_builds_and_other_versions_do_not_block_a_tag(self):
+        fake = self.released(('internal', '0.1.6 (1006)', '1006'), ('alpha', '0.1.60 (1007)', '1007'),
+                             ('beta', None, '1005'))
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
+        self.assertEqual(result['version_code'], 1008)
+
+    def test_command_prints_the_choice(self):
+        fake = self.released()
+        original = play.Play.from_file
+        play.Play.from_file = classmethod(lambda cls, path, **kw: client(fake))
+        self.addCleanup(setattr, play.Play, 'from_file', original)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            code = play.main(['next-code', '--service-account', 'unused.json', '--version', '0.1.5',
+                              '--version-code', '1005', '--version-code-source', play.DERIVED])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())['version_code'], 1008)
+
+
 class Publish(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()

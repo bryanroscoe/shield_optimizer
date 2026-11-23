@@ -82,6 +82,9 @@ def verify(args, run=subprocess.run):
         raise ValueError('AAB package is not ' + PACKAGE)
     if int(manifest('/manifest/@android:versionCode')) != args.version_code:
         raise ValueError(f'AAB versionCode is not {args.version_code}')
+    version_name = getattr(args, 'version_name', None)
+    if version_name is not None and manifest('/manifest/@android:versionName') != version_name:
+        raise ValueError(f'AAB versionName is not {version_name}')
 
     passwords = {name: os.environ.get(name, '') for name in [args.ks_pass_env, args.key_pass_env]}
     if not all(passwords.values()):
@@ -120,6 +123,7 @@ def main():
     parser.add_argument('--aab', required=True)
     parser.add_argument('--apk', action='append', default=[], help='Gradle-built APKs to check as well')
     parser.add_argument('--version-code', type=int, required=True)
+    parser.add_argument('--version-name', help='Also require this manifest versionName')
     parser.add_argument('--expected-cert-sha256', required=True)
     parser.add_argument('--bundletool', type=Path, required=True)
     parser.add_argument('--keystore', type=Path, required=True)
