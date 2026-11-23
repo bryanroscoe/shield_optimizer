@@ -1396,6 +1396,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     // tests/pairing-flow.mjs overrides this for the success and timeout paths.
     case "probe_paired_connect":
       return { state: "waiting" };
+    case "restart_adb":
+      return { ok: true, server_ready: true, message: "ADB server restarted." };
     case "local_address_for":
       return "192.168.1.10";
     case "reprompt_device":

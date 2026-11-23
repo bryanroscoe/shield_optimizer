@@ -9,12 +9,16 @@ process.env.VITE_DEMO = '1';
 const evidence = process.env.RESTART_EVIDENCE;
 if (evidence) await mkdir(evidence, { recursive: true });
 const target = '192.0.2.1:5555';
+// Add by IP and its retry, not the demo's saved TVs being dialled again after the restart.
+const isRetryDial = c => c.command === 'connect_device' && c.args.address.startsWith('192.0.2.');
 let server, browser;
 try {
   server = await createServer({ root: resolve(import.meta.dirname, '..'), server: { host: '127.0.0.1', port: await freePort(), strictPort: true, hmr: false } });
   await server.listen();
   browser = await chromium.launch();
   const context = await browser.newContext({ viewport: { width: 1400, height: 1000 }, ...(evidence ? { recordVideo: { dir: `${evidence}/raw` } } : {}) });
+  // Each scenario starts with nothing saved, so a TV saved by an earlier one isn't dialled.
+  await context.addInitScript(() => localStorage.removeItem('shieldopt.savedDevices.v1'));
   const page = await context.newPage();
   for (const scenario of ['auth', 'success', 'failure', 'partial', 'restart-fails', 'cancel', 'edited', 'unattempted']) {
     await page.goto(`http://127.0.0.1:${server.httpServer.address().port}`, { waitUntil: 'networkidle' });
@@ -70,14 +74,14 @@ try {
     await page.getByRole('button', { name: 'Restart ADB', exact: true }).click();
     if (scenario !== 'cancel') await page.getByText(scenario === 'restart-fails' ? 'Simulated start-server failure' : 'ADB server restarted.', { exact: true }).waitFor();
     const retry = ['auth', 'success', 'failure', 'partial'].includes(scenario);
-    if (retry) await page.waitForFunction(() => window.recoveryCalls.filter(c => c.command === 'connect_device').length === 2, null, { timeout: 3000 });
+    if (retry) await page.waitForFunction(() => window.recoveryCalls.filter(c => c.command === 'connect_device' && c.args.address.startsWith('192.0.2.')).length === 2, null, { timeout: 3000 });
     const calls = await page.evaluate(() => window.recoveryCalls);
-    assert.equal(calls.filter(c => c.command === 'connect_device').length, scenario === 'unattempted' ? 0 : retry ? 2 : 1, scenario);
+    assert.equal(calls.filter(isRetryDial).length, scenario === 'unattempted' ? 0 : retry ? 2 : 1, scenario);
     assert.equal(calls.filter(c => c.command === 'restart_adb').length, scenario === 'cancel' ? 0 : 1, scenario);
     if (evidence) await writeFile(`${evidence}/${scenario}-calls.json`, JSON.stringify({ prompt, calls }, null, 2));
     if (retry) {
       assert.ok(prompt.includes(`retry Add by IP for ${target} once`));
-      assert.equal(calls.filter(c => c.command === 'connect_device')[1].args.address, target);
+      assert.equal(calls.filter(isRetryDial)[1].args.address, target);
     }
     if (scenario === 'success' || scenario === 'partial') {
       await page.getByText('connected to 192.0.2.1:5555', { exact: true }).waitFor();

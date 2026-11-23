@@ -387,8 +387,10 @@ async function exerciseRemount(browser, base) {
       get: () => wrapped,
       set(bridge) {
         const original = bridge.invoke;
+        window.__boxDials = 0;
         bridge.invoke = (cmd, args = {}) => {
-          if (cmd === "connect_device" && args.address === "192.168.1.64:5555") {
+          if (cmd === "connect_device" && args.address === "192.168.1.64:5555") window.__boxDials += 1;
+          if (cmd === "connect_device" && args.address === "192.168.1.64:5555" && window.__boxDials === 1) {
             // Wakes and answers 2.5 s later.
             return new Promise((resolve) => setTimeout(() => {
               localStorage.setItem("shieldopt.demo.savedBoxAwake", "1");
@@ -412,6 +414,17 @@ async function exerciseRemount(browser, base) {
   await box().locator("a.device-row").waitFor({ timeout: 20000 });
   assert.equal(await box().getByText("Didn't answer", { exact: true }).count(), 0);
   assert.equal(await page.evaluate(() => localStorage.getItem("shieldopt.demo.savedBoxAwake")), "1");
+  assert.equal(await page.evaluate(() => window.__boxDials), 1, "coming back to Devices doesn't redial");
+
+  // A restart drops every connection, so saved devices that aren't
+  // connected are dialled again. (The demo's restart drops nothing, so the
+  // box is disconnected first.)
+  await page.evaluate(() => localStorage.removeItem("shieldopt.demo.savedBoxAwake"));
+  await box().getByRole("button", { name: "Forget" }).click();
+  await box().getByText("Not connected", { exact: true }).waitFor();
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.locator(".connect-form").getByRole("button", { name: "Restart ADB", exact: true }).click();
+  await page.waitForFunction(() => window.__boxDials === 2);
   await context.close();
 }
 
