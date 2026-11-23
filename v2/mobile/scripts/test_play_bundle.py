@@ -112,11 +112,12 @@ class BundleGate(unittest.TestCase):
                 self.values[key] = saved
 
     def test_version_name_is_checked_only_when_given(self):
-        gate.verify(self.args(version_name='0.1.5+internal.1002'), run=self.fake_run)
+        result = gate.verify(self.args(version_name='0.1.5+internal.1002'), run=self.fake_run)
+        self.assertIn('manifest-versionName', result['verified'])
         with self.assertRaisesRegex(ValueError, 'versionName is not 0.1.5'):
             gate.verify(self.args(version_name='0.1.5'), run=self.fake_run)
         self.calls.clear()
-        gate.verify(self.args(), run=self.fake_run)
+        self.assertNotIn('manifest-versionName', gate.verify(self.args(), run=self.fake_run)['verified'])
         self.assertFalse(any('versionName' in ' '.join(map(str, call)) for call in self.calls))
 
     def test_gradle_apk_version_mismatch(self):

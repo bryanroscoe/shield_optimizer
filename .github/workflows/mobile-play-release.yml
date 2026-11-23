@@ -8,7 +8,9 @@
 #                                     on Internal testing and the Closed testing track `alpha`
 #   - push to `mobile-internal`    -> release job, publish mode: Internal testing only (completed),
 #                                     the owner's own phone, never the closed-test group; a newer
-#                                     push waits for the running build and replaces one still waiting
+#                                     push waits for the running build and replaces one still waiting.
+#                                     Run workflow on that branch (mode publish) rebuilds it on demand,
+#                                     also Internal testing only and completed
 #   - workflow_dispatch            -> mode `build` (signed + verified, no upload), `publish`
 #                                     (choose track and draft/completed) or `smoke`
 #   - pull_request or main push    -> smoke job for mobile inputs: the full build and
@@ -20,10 +22,11 @@
 # closed release that is still in review, Play Console > Publishing overview > Remove changes.
 # The release job refuses revisions that are not on main (mobile-internal included: advance it to
 # a main commit, `git push origin origin/main:mobile-internal`), a tag that disagrees with
-# tauri.conf.json, a tag whose version a tester track already has, a keystore whose certificate is
-# not the recorded upload certificate, and the production track. A versionCode derived from the
-# version moves up to the next free code when Play already holds it (internal builds take codes
-# between releases); a code someone set must already be above every upload on Play. Credentials
+# tauri.conf.json, a publish to a tester track whose version is not above every release active on
+# one, a keystore whose certificate is not the recorded upload certificate, and the production
+# track. A versionCode derived from the version moves up to the next free code when Play already
+# holds it (internal builds take codes between releases); a code someone set must already be above
+# every upload on Play, except on mobile-internal. Credentials
 # are written only after the toolchain and npm dependencies are installed, and each step gets only
 # the secrets it uses.
 #
@@ -97,7 +100,7 @@ concurrency:
     && format('pr-{0}-{1}', github.event.pull_request.number,
        ((github.event.action == 'labeled' || github.event.action == 'unlabeled') && github.event.label.name != 'skip-ci') && github.run_id || 'ci')
     || (github.event_name == 'push' && github.ref == 'refs/heads/main' && 'main-smoke')
-    || (github.event_name == 'push' && github.ref == 'refs/heads/mobile-internal' && 'mobile-internal') || 'release' }}
+    || (github.ref == 'refs/heads/mobile-internal' && 'mobile-internal') || 'release' }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
 
 env:
@@ -230,9 +233,9 @@ jobs:
     environment: google-play
     env:
       MODE: ${{ github.event_name == 'push' && 'publish' || inputs.mode }}
-      TRACK: ${{ github.event_name != 'push' && inputs.track || (startsWith(github.ref, 'refs/tags/') && 'internal,alpha' || 'internal') }}
-      STATUS: ${{ github.event_name == 'push' && 'completed' || inputs.status }}
-      INTERNAL_BUILD: ${{ github.event_name == 'push' && github.ref == 'refs/heads/mobile-internal' }}
+      TRACK: ${{ github.ref == 'refs/heads/mobile-internal' && 'internal' || (github.event_name == 'push' && 'internal,alpha' || inputs.track) }}
+      STATUS: ${{ (github.event_name == 'push' || github.ref == 'refs/heads/mobile-internal') && 'completed' || inputs.status }}
+      INTERNAL_BUILD: ${{ github.ref == 'refs/heads/mobile-internal' }}
       VERSION_CODE_OVERRIDE: ${{ inputs.version_code }}
     steps:
       - uses: actions/checkout@v5
@@ -327,7 +330,7 @@ jobs:
             echo "UPLOAD_CERT_SHA256=$expected"
           } >> "$GITHUB_ENV"
 
-      # Internal builds are named for the release they follow plus their code (0.1.5+internal.1006),
+      # Internal builds are named tauri.conf.json's version plus their code (0.1.5+internal.1006),
       # so the phone and Play Console tell them apart from that release.
       - name: Choose the versionCode against Play
         id: play
@@ -342,7 +345,11 @@ jobs:
           trap 'rm -f "$account"' EXIT
           printf '%s' "$SERVICE_ACCOUNT" > "$account"
           args=()
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then args+=(--refuse-released); fi
+          IFS=',' read -ra tracks <<< "$TRACK"
+          for track in "${tracks[@]}"; do
+            if [[ "$MODE" == publish && "$track" != internal ]]; then args+=(--newer-than-testers); break; fi
+          done
+          if [[ "$INTERNAL_BUILD" == true && -z "$VERSION_CODE_OVERRIDE" ]]; then args+=(--movable); fi
           python3 v2/mobile/scripts/play-publish.py next-code --service-account "$account" \
             --version "$VERSION" --version-code "$CODE" --version-code-source "$SOURCE" "${args[@]}" \
             > "$RUNNER_TEMP/next-code.json"

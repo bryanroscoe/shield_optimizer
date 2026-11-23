@@ -115,8 +115,10 @@ class WorkflowCoverage(unittest.TestCase):
         release = workflow.split('  release:\n', 1)[1]
         self.assertNotIn('refs/heads/mobile-internal', smoke)
         self.assertIn("(github.event_name == 'push' && github.ref == 'refs/heads/mobile-internal')", release)
-        self.assertIn("TRACK: ${{ github.event_name != 'push' && inputs.track || "
-                      "(startsWith(github.ref, 'refs/tags/') && 'internal,alpha' || 'internal') }}", release)
+        self.assertIn("TRACK: ${{ github.ref == 'refs/heads/mobile-internal' && 'internal' || "
+                      "(github.event_name == 'push' && 'internal,alpha' || inputs.track) }}", release)
+        self.assertIn("|| (github.ref == 'refs/heads/mobile-internal' && 'mobile-internal') || 'release' }}", workflow)
+        self.assertIn('--newer-than-testers', release)
         self.assertIn('git merge-base --is-ancestor HEAD FETCH_HEAD', release)
         self.assertIn('play-publish.py next-code', release)
         self.assertIn('--version-name "${{ steps.play.outputs.name }}"', release)

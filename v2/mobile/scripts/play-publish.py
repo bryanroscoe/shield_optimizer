@@ -234,29 +234,46 @@ def highest(play):
         play.discard_edit(edit)
 
 
-def choose_version_code(play, version, code, source, refuse_released=False):
+def semver_key(version):
+    """Sort key for a semver string (build metadata ignored), or None when it isn't one."""
+    match = re.fullmatch(r'(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?', version)
+    if not match:
+        return None
+    major, minor, patch, pre = match.groups()
+    core = (int(major), int(minor), int(patch))
+    if pre is None:
+        return core + ((1,),)
+    return core + ((0,) + tuple((0, int(p), '') if p.isdigit() else (1, 0, p) for p in pre.split('.')),)
+
+
+def choose_version_code(play, version, code, source, newer_than_testers=False, movable=False):
     """Return the versionCode to build with, checked against Play in a throwaway edit.
 
     Builds pushed to the mobile-internal branch take versionCodes between releases, so a code
     derived from the version can already be taken; it then moves to the next free code. A code
     someone set (bundle.android.versionCode or a dispatch override) never moves and must already
-    be above Play. With refuse_released (tag pushes), a tester track that already carries a
-    release of this version stops the run, so re-running a tag can't ship the version twice.
-    Internal testing doesn't count: an internal build of the version doesn't block its release.
+    be above Play, unless movable (internal builds, where only the newest code matters).
+
+    Moving codes means the code no longer stops an old version from going out, so a release for
+    testers (newer_than_testers) must carry a version above every release active on a track
+    other than Internal testing: re-running a tag, or tagging an older commit, is refused.
     """
     edit = play.open_edit()
     try:
         current = play.highest(edit)
-        if refuse_released:
+        if newer_than_testers:
+            key = semver_key(version)
             for track, name in play.release_names(edit):
-                if track != 'internal' and name.startswith(f'{version} ('):
-                    raise PlayError(f'Track {track} already has release {name!r}. Bump the version '
-                                    '(mobile/scripts/bump-version.sh) for a new release')
+                match = re.fullmatch(r'(\S+) \(\d+\)', name)
+                released = semver_key(match.group(1)) if match else None
+                if track != 'internal' and released is not None and key <= released:
+                    raise PlayError(f'Track {track} already has release {name!r}, which is not older than '
+                                    f'{version}. Bump the version (mobile/scripts/bump-version.sh) for a new release')
     finally:
         play.discard_edit(edit)
     if code > current:
         chosen = code
-    elif source == DERIVED:
+    elif source == DERIVED or movable:
         chosen, source = current + 1, 'next free code on Play'
     else:
         raise PlayError(f'versionCode {code} ({source}) is not above {current}, the highest on Play. '
@@ -560,8 +577,10 @@ def main(argv=None):
     nxt.add_argument('--version', required=True)
     nxt.add_argument('--version-code', type=int, required=True)
     nxt.add_argument('--version-code-source', required=True)
-    nxt.add_argument('--refuse-released', action='store_true',
-                     help='Fail when a tester track already has a release of --version')
+    nxt.add_argument('--newer-than-testers', action='store_true',
+                     help='Fail unless --version is above every release on a track other than internal')
+    nxt.add_argument('--movable', action='store_true',
+                     help='Let a set code move to the next free one too (internal builds)')
     up = commands.choices['upload']
     up.add_argument('--aab', type=Path, required=True)
     up.add_argument('--track', required=True)
@@ -602,7 +621,7 @@ def main(argv=None):
         elif args.command == 'next-code':
             print(json.dumps(choose_version_code(Play.from_file(args.service_account, package=args.package),
                                                  args.version, args.version_code, args.version_code_source,
-                                                 args.refuse_released)))
+                                                 args.newer_than_testers, args.movable)))
         elif args.command == 'geo-check':
             lines, problems = geo_check(Play.from_file(args.service_account, package=args.package))
             print('\n'.join(lines))

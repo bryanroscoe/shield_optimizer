@@ -114,6 +114,7 @@ def verify(args, run=subprocess.run):
             'package': PACKAGE, 'version_code': args.version_code, 'upload_certificate_sha256': expected,
             'verified': ['aab-jar-signature', 'upload-certificate', 'bundletool-validate',
                          'r8-obfuscation', 'manifest-package-and-versionCode',
+                         *(['manifest-versionName'] if version_name is not None else []),
                          'generated-universal-apk', 'apk-signer-certificate'],
             'dex': dex, 'apks': results}
 

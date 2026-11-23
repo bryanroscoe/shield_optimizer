@@ -26,8 +26,8 @@ The `release` job of `mobile-play-release.yml` then, in the `google-play` enviro
 3. asks Play for the highest versionCode it holds across every bundle, APK and track release. A
    code derived from the version that is not above it becomes the next free code (internal
    builds take codes between releases); a code set in `bundle.android.versionCode` or the
-   dispatch form must already be above it. A tag whose version a tester track already carries
-   fails here, before anything is built;
+   dispatch form must already be above it. A publish to a tester track whose version is not
+   above every release active on one fails here, before anything is built;
 4. builds with `scripts/build-play-release.py` (all four ABIs, Play mode, telemetry URL);
 5. runs `scripts/verify-play-bundle.py`: AAB JAR signature and upload certificate, `bundletool
    validate`, R8 metadata and obfuscation mapping, manifest package and versionCode, then the
@@ -60,12 +60,22 @@ advance the branch after merging an Android change.
 - Only commits already on `main` are built; anything else fails the revision check. The branch
   only moves forward, so never force-push it.
 - Builds queue: one runs at a time, and the newest push replaces one still waiting.
-- versionCode is the next free code on Play, and versionName is the release it follows plus that
-  code (`0.1.5+internal.1006`), which is what Play Store and Android's App info show. The app's own
-  About and its reports still say the Cargo version (`0.1.5`).
-- A tag release afterwards takes the next free code too, so internal builds never block it. A
-  tag whose version a tester track already carries is refused, so re-running a tag can't ship
-  the same version twice.
+- The workflow's path filter applies, so a push that changes nothing the app builds from (or
+  creates the branch at an existing commit) may start no run. **Run workflow** on the
+  `mobile-internal` branch with mode `publish` rebuilds it on demand, also Internal-only and
+  completed.
+- versionCode is the next free code on Play, even when `bundle.android.versionCode` is set (a
+  dispatch override is used as given). versionName is `tauri.conf.json`'s version plus that code
+  (`0.1.5+internal.1006`, or the upcoming version once a bump has merged), which is what Play
+  Store and Android's App info show. The app's own About and its reports still say the Cargo
+  version.
+- A tag release afterwards takes the next free code too, so internal builds never block it.
+  Because codes move, any publish to a track other than Internal testing must carry a version
+  above every release active on such a track: re-running a tag, or tagging an older commit, is
+  refused.
+- The `google-play` environment must allow the branch (`setup-play-ci.sh` adds it, or on its own:
+  `gh api -X POST repos/bryanroscoe/shield_optimizer/environments/google-play/deployment-branch-policies -f type=branch -f name=mobile-internal`);
+  without it every push fails the environment gate.
 
 **Run workflow** (Actions → Mobile Play release) offers the same job by hand: mode `build` (signed
 and verified, no upload), `publish` (one track or several comma-separated: `internal`, `alpha` for the default

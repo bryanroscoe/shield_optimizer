@@ -118,7 +118,7 @@ class NextCode(unittest.TestCase):
 
     def test_derived_code_moves_past_internal_builds(self):
         fake = self.released(('internal', '0.1.5+internal.1007 (1007)', '1007'))
-        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, newer_than_testers=True)
         self.assertEqual(result, {'highest': 1007, 'version_code': 1008, 'version_code_source': 'next free code on Play'})
         self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
 
@@ -133,17 +133,34 @@ class NextCode(unittest.TestCase):
         result = play.choose_version_code(client(self.released()), '0.1.6', 1010, 'override')
         self.assertEqual(result['version_code'], 1010)
 
-    def test_tag_refuses_a_version_a_tester_track_already_has(self):
+    def test_tester_release_refuses_a_version_a_tester_track_has_or_passed(self):
+        for version in ['0.1.6', '0.1.5', '0.1.6-beta.3']:
+            fake = self.released(('alpha', '0.1.6 (1006)', '1006'))
+            with self.subTest(version=version), self.assertRaisesRegex(
+                    play.PlayError, "alpha already has release '0.1.6 \\(1006\\)', which is not older than"):
+                play.choose_version_code(client(fake), version, 1006, play.DERIVED, newer_than_testers=True)
+            self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
         fake = self.released(('alpha', '0.1.6 (1006)', '1006'))
-        with self.assertRaisesRegex(play.PlayError, "alpha already has release '0.1.6 \\(1006\\)'"):
-            play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
-        self.assertEqual(fake.calls()[-1], ('DELETE', 'edits/e1'))
         self.assertEqual(play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED)['version_code'], 1008)
 
-    def test_internal_builds_and_other_versions_do_not_block_a_tag(self):
-        fake = self.released(('internal', '0.1.6 (1006)', '1006'), ('alpha', '0.1.60 (1007)', '1007'),
-                             ('beta', None, '1005'))
-        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, refuse_released=True)
+    def test_internal_builds_and_odd_names_do_not_block_a_newer_version(self):
+        fake = self.released(('internal', '0.1.9+internal.1007 (1007)', '1007'), ('alpha', '0.1.5 (1005)', '1005'),
+                             ('beta', None, '1004'), ('qa', 'hand upload', '1003'))
+        result = play.choose_version_code(client(fake), '0.1.6', 1006, play.DERIVED, newer_than_testers=True)
+        self.assertEqual(result['version_code'], 1008)
+
+    def test_semver_order(self):
+        ordered = ['0.1.5', '0.1.10', '0.2.0-alpha', '0.2.0-alpha.2', '0.2.0-alpha.10', '0.2.0-beta',
+                   '0.2.0-beta.1', '0.2.0', '0.2.1+internal.9', '1.0.0']
+        keys = [play.semver_key(v) for v in ordered]
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(len(set(keys)), len(keys))
+        self.assertEqual(play.semver_key('0.2.0+internal.5'), play.semver_key('0.2.0'))
+        self.assertIsNone(play.semver_key('hand upload'))
+
+    def test_movable_lets_a_pinned_code_take_the_next_free_one(self):
+        result = play.choose_version_code(client(self.released()), '0.1.6', 1003,
+                                          'tauri.conf.json bundle.android.versionCode', movable=True)
         self.assertEqual(result['version_code'], 1008)
 
     def test_command_prints_the_choice(self):
