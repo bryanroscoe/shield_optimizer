@@ -3,7 +3,7 @@
 
   // A Play Console sale on Pro: the full price, percentage and end date all
   // come from Play. Nothing shows once the sale has ended or for no sale.
-  let { offer }: { offer: PlayOffer | null | undefined } = $props();
+  let { offer, centered = false }: { offer: PlayOffer | null | undefined; centered?: boolean } = $props();
 
   const sale = $derived.by(() => {
     const s = offer?.sale;
@@ -19,7 +19,7 @@
 </script>
 
 {#if sale}
-  <p class="sale-note">
+  <p class="sale-note" class:centered>
     <span class="sale-badge">Sale</span>
     {#if sale.full_formatted_price}
       <s aria-label="Regular price {sale.full_formatted_price}">{sale.full_formatted_price}</s>
@@ -37,6 +37,9 @@
     gap: 6px;
     margin: 0;
     color: var(--text-soft);
+  }
+  .sale-note.centered {
+    justify-content: center;
   }
   .sale-badge {
     padding: 1px 8px;

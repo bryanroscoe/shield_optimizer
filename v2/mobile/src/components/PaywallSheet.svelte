@@ -150,7 +150,7 @@
               Purchase pending. Pro unlocks as soon as Google Play confirms the payment.
             </p>
           {/if}
-          <SaleNote {offer} />
+          <SaleNote {offer} centered />
           <button
             class="primary"
             disabled={!offer || billing.purchasing || billing.restoring || billing.pending}
