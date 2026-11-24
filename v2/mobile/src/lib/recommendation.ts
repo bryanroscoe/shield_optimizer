@@ -107,7 +107,7 @@ export function recommendation(
   if (state === null) return { kind: "unavailable", label: "State unavailable" };
   if (state === "missing") {
     if (a.default_restore) return { kind: "restore", label: "Reinstall" };
-    if (a.default_optimize && a.method === "uninstall") {
+    if (a.default_optimize && (a.method === "uninstall" || a.uninstall_recommended)) {
       return { kind: "done", label: "Already uninstalled" };
     }
     return { kind: "keep", label: NO_CHANGE_LABEL };

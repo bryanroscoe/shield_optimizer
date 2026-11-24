@@ -12,9 +12,11 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const V2 = join(HERE, "..");
 
-// Catalog method "uninstall", no Play Store listing, not defunct, enabled in
+// Was catalog method "uninstall"; no Play Store listing, not defunct, enabled in
 // the demo and inside the Optimize plan. Uninstalling it is unrecoverable.
 const NOT_REINSTALLABLE = "com.philo.philo";
+// Catalog uninstall_recommended: starts on Disable, Uninstall stays one click away.
+const UNINSTALL_RECOMMENDED = "com.google.android.videos";
 // Installed catalog app in Top memory users whose recommendation is an
 // action (Disable), so a match is not two screens agreeing on "nothing".
 const HEALTH_APP = "com.nvidia.tegrazone3";
@@ -203,6 +205,11 @@ async function exercise({ browser, base }) {
   assert.equal(await reviewRec(apps, USER_STORE_APP), "Review: disable if unused", "a third-party store-listed app still suggests Disable");
   await checkRemovalHelp(page, apps, "App List");
 
+  // An app we'd uninstall starts on Disable, and the App List still offers Uninstall.
+  const recRow = apps.locator("tr", { has: page.locator(".pkg-id", { hasText: UNINSTALL_RECOMMENDED }) }).first();
+  assert.equal(await recRow.locator("[data-rec]").first().getAttribute("data-rec"), "Disable", `${UNINSTALL_RECOMMENDED} starts on Disable`);
+  assert.equal(await recRow.getByRole("button", { name: "Uninstall", exact: true }).count(), 1, `${UNINSTALL_RECOMMENDED} still offers Uninstall in the App List`);
+
   // Optimize.
   await page.getByRole("tab", { name: "Optimize" }).click();
   await page.getByRole("button", { name: "Optimize", exact: true }).click();
@@ -232,6 +239,26 @@ async function exercise({ browser, base }) {
   assert.ok(
     !options.includes("Uninstall"),
     `${NOT_REINSTALLABLE} has no Play Store listing, so Optimize must not offer Uninstall: ${JSON.stringify(options)}`,
+  );
+
+  // Optimize starts it on Disable and labels Uninstall as the recommendation.
+  const recOptRow = opt.locator("tr", { has: page.locator(".pkg-id", { hasText: UNINSTALL_RECOMMENDED }) }).first();
+  const recOptions = await recOptRow.locator(".action-radio .radio-pill").evaluateAll((els) =>
+    els.map((el) => ({
+      label: el.querySelector(".radio-label")?.textContent?.trim(),
+      recommended: !!el.querySelector(".plan-caption"),
+      active: el.classList.contains("active"),
+    })),
+  );
+  assert.deepEqual(
+    recOptions.filter((o) => o.recommended).map((o) => o.label),
+    ["Uninstall"],
+    `${UNINSTALL_RECOMMENDED} marks only Uninstall as recommended: ${JSON.stringify(recOptions)}`,
+  );
+  assert.deepEqual(
+    recOptions.filter((o) => o.active).map((o) => o.label),
+    ["Disable"],
+    `${UNINSTALL_RECOMMENDED} starts on Disable: ${JSON.stringify(recOptions)}`,
   );
 
   // There is no bulk arm. By default a review row ("remove only if unused")

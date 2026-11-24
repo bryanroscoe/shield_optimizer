@@ -180,3 +180,15 @@ test("review rows suggest Disable regardless of source or catalog flags", () => 
   assert.equal(rec.installSource("com.example.app", new Set(["com.example.app"])), "user");
   assert.equal(rec.installSource("com.example.app", new Set(["com.other"])), "preinstalled");
 });
+
+test("an app we'd uninstall starts on Disable and reads Already uninstalled once gone", () => {
+  const stadia = entry({ method: "disable", defunct: true, uninstall_recommended: true });
+  assert.deepEqual(rec.recommendation(stadia, "enabled", ready("safe")), {
+    kind: "act",
+    label: "Disable",
+    action: "disable",
+  });
+  assert.equal(rec.canOfferUninstall(stadia), true);
+  assert.equal(rec.recommendation(stadia, "missing", ready("safe")).label, "Already uninstalled");
+  assert.equal(rec.recommendation(entry({ method: "disable" }), "missing", ready("safe")).label, rec.NO_CHANGE_LABEL);
+});
