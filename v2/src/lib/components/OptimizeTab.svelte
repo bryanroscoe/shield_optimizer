@@ -311,14 +311,20 @@
     cytvError = "";
     setListedRows([]);
     if (!catalog || lists.length === 0) return;
-    const stale = () => !contextIsCurrent(context) || request !== cytvRequest || load !== loadRequest || !optimizePlan
-      || optimizeRunning || !!runConfirm;
+    const invalid = () => !contextIsCurrent(context) || request !== cytvRequest || load !== loadRequest || !optimizePlan;
+    /// Still current, but a run or its confirmation opened meanwhile: the rows
+    /// wait for it to close rather than change the plan under it.
+    const blocked = () => {
+      if (!optimizeRunning && !runConfirm) return false;
+      cytvRefreshPending = true;
+      return true;
+    };
     try {
       const [installed, texts] = await Promise.all([
         api.listInstalledPackages(context.serial),
         Promise.all(lists.map((profile) => loadSourceText(profile))),
       ]);
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       const covered = new Set(optimizePlan!.items.map((item) => item.entry.package));
       const candidates = rankedPlanItems(
         lists.map((profile, index) => ({ profile, text: texts[index], url: sourceUrl(catalog.upstream_commit, profile) })),
@@ -327,7 +333,7 @@
         mode,
       );
       const verdicts = await Promise.allSettled(candidates.map((item) => api.safetyInfo(item.entry.package)));
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       const rows: OptimizePlanItem[] = [];
       const safety: Record<string, SafetyStatus> = {};
       let unchecked = 0;
@@ -347,7 +353,7 @@
         cytvError = `Couldn't check ${unchecked} ${unchecked === 1 ? "app" : "apps"} from CleanYourTV, so ${unchecked === 1 ? "it isn't" : "they aren't"} listed. Reload the plan to try again.`;
       }
     } catch (error) {
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       cytvError = `Couldn't read this TV's apps for CleanYourTV. ${error}`;
     }
   }

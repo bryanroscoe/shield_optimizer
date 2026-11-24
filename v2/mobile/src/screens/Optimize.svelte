@@ -254,13 +254,20 @@
     cytvError = "";
     setListedRows([]);
     if (!catalog || lists.length === 0) return;
-    const stale = () => request !== cytvRequest || !planCurrent(identity) || !plan || applying || !!applyIntent;
+    const invalid = () => request !== cytvRequest || !planCurrent(identity) || !plan;
+    /// Still current, but an apply or its confirmation opened meanwhile: the
+    /// rows wait for it to close rather than change the plan under it.
+    const blocked = () => {
+      if (!applying && !applyIntent) return false;
+      cytvRefreshPending = true;
+      return true;
+    };
     try {
       const [installed, texts] = await Promise.all([
         api.listInstalledPackages(identity.serial),
         Promise.all(lists.map((profile) => loadSourceText(profile))),
       ]);
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       const covered = new Set(plan!.items.map((item) => item.entry.package));
       const candidates = rankedPlanItems(
         lists.map((profile, index) => ({ profile, text: texts[index], url: sourceUrl(catalog.upstream_commit, profile) })),
@@ -269,7 +276,7 @@
         identity.mode,
       );
       const verdicts = await Promise.allSettled(candidates.map((item) => api.safetyInfo(item.entry.package)));
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       const rows: OptimizePlanItem[] = [];
       const map = { ...safetyMap };
       let unchecked = 0;
@@ -289,7 +296,7 @@
         cytvError = `Couldn't check ${unchecked} ${unchecked === 1 ? "app" : "apps"} from CleanYourTV, so ${unchecked === 1 ? "it isn't" : "they aren't"} listed. Reload to try again.`;
       }
     } catch (e) {
-      if (stale()) return;
+      if (invalid() || blocked()) return;
       cytvError = `Couldn't read this TV's apps for CleanYourTV. ${String(e)}`;
     }
   }
@@ -474,7 +481,9 @@
     const device = session.connectedDevice;
     const liveness = session.liveness;
     const generation = session.generation;
-    const key = `${device?.serial ?? ""}|${generation}|${liveness}`;
+    // The hardware id too: a TV that reads its id later may be another TV, and
+    // the CleanYourTV choice is filed under it.
+    const key = `${device?.serial ?? ""}|${device?.properties?.serial_number ?? ""}|${generation}|${liveness}`;
     if (key === observedSession) return;
     observedSession = key;
     untrack(() => {
@@ -937,6 +946,7 @@
         applyDone = 0;
         applyTotal = 0;
       }
+      if (cytvRefreshPending && !applying && !applyIntent) void refreshListedRows();
     }
   }
 </script>

@@ -30,7 +30,14 @@ export interface ListedApp {
   line: number;
 }
 
-const tokens = (text: string) => new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
+/// Words of a label, split at every separator and also kept whole across
+/// underscores and hyphens, so `BRAVIA_VH2` and its parts are both words.
+const tokens = (text: string) => {
+  const lower = text.toLowerCase();
+  return new Set([...lower.split(/[^a-z0-9]+/), ...lower.split(/[^a-z0-9_-]+/)].filter(Boolean));
+};
+/// A label as space-separated words, for whole-word phrase matching.
+const words = (text: string) => ` ${text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).join(" ")} `;
 const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 /// Lists that may be this TV's, best first. A list that names the TV's device
@@ -47,19 +54,18 @@ export function candidateProfiles(
   const codename = (tv.device_codename ?? "").trim().toLowerCase();
   const codenameKey = codename.length >= 3 ? codename : "";
   const codenameSquashed = squash(codenameKey);
-  const model = squash(tv.model ?? "");
-  const modelKey = model.length >= 5 ? model : "";
+  const modelKey = squash(tv.model ?? "").length >= 5 ? words(tv.model ?? "") : "";
   const makers = [tv.manufacturer, tv.brand]
     .map((value) => (value ?? "").trim().toLowerCase())
     .filter((value) => value.length >= 2);
   const scored: { candidate: ProfileCandidate; score: number }[] = [];
   for (const profile of profiles) {
     const context = profile.upstream_context;
-    const words = new Set([...tokens(context.tv), ...tokens(profile.profile)]);
-    const codenameHit = !!codenameKey && (words.has(codenameKey) || words.has(codenameSquashed));
-    const modelHit = !!modelKey && squash(context.tv).includes(modelKey);
+    const labelWords = new Set([...tokens(context.tv), ...tokens(profile.profile)]);
+    const codenameHit = !!codenameKey && (labelWords.has(codenameKey) || labelWords.has(codenameSquashed));
+    const modelHit = !!modelKey && words(context.tv).includes(modelKey);
     const brandHit = makers.some(
-      (maker) => context.brand.trim().toLowerCase() === maker || words.has(maker),
+      (maker) => context.brand.trim().toLowerCase() === maker || labelWords.has(maker),
     );
     if (!codenameHit && !(modelHit && brandHit)) continue;
     const reasons: MatchReason[] = [];

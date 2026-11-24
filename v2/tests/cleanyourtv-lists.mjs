@@ -31,6 +31,16 @@ const boreal = { manufacturer: "Google", brand: "google", model: "Chromecast", d
 assert.deepEqual(ids(lists.candidateProfiles(data.profiles, boreal)), ["google-chromecast-gtv-hd"], "the 4K list's model name doesn't make it the HD's");
 const sabrina = { ...boreal, device_codename: "sabrina" };
 assert.deepEqual(ids(lists.candidateProfiles(data.profiles, sabrina)), ["google-chromecast-gtv-4k"]);
+// A codename with an underscore is one word: BRAVIA_VH2 is not BRAVIA_VH21.
+const vh2 = { manufacturer: "Sony", brand: "Sony", model: "BRAVIA 4K VH2", device_codename: "BRAVIA_VH2" };
+const vh2Lists = ids(lists.activeLists(data.profiles, vh2, null));
+assert.ok(vh2Lists.length > 0, "an underscore codename matches");
+assert.ok(vh2Lists.includes("sony-bravia-4k-vh2"));
+assert.ok(!vh2Lists.some((id) => id.includes("vh21")), `VH21 lists don't name a VH2: ${vh2Lists}`);
+assert.ok(
+  !ids(lists.candidateProfiles(data.profiles, { ...vh2, device_codename: "" })).some((id) => id.includes("vh21")),
+  "a model name matches whole words only",
+);
 // With no codename match, model matches from the same maker are suggestions only.
 const modelOnly = { manufacturer: "Google", brand: "google", model: "Chromecast", device_codename: "" };
 assert.ok(lists.candidateProfiles(data.profiles, modelOnly).length >= 2);
@@ -227,8 +237,16 @@ try {
   await page.getByRole("radio", { name: /SHIELD TV 2017 \(darcy\)/i }).check();
   if (evidence) await card.screenshot({ path: join(evidence, "desktop-sources-choosing.png") });
   await card.getByRole("button", { name: "Use this list" }).click();
-  await opt.locator('[data-cleanyourtv-rows="nvidia-shield-tv-2017"], [data-cleanyourtv-card]').first().waitFor();
-  await page.waitForTimeout(500);
+  const group2017 = opt.locator('[data-cleanyourtv-rows="nvidia-shield-tv-2017"]');
+  await group2017.waitFor();
+  assert.equal(await group.count(), 0, "the replaced list's group is gone");
+  const row2017 = group2017.locator("tr", { has: page.locator(".pkg-id", { hasText: "android.autoinstalls.config.nvidia" }) }).first();
+  await row2017.waitFor();
+  assert.deepEqual(
+    await row2017.locator(".action-radio .radio-pill.active .radio-label").allInnerTexts(),
+    ["Keep"],
+    "a row that moves to another list starts on Keep again",
+  );
   assert.deepEqual(await stored(), { "0323220012345": "nvidia-shield-tv-2017" });
   assert.match(await card.innerText(), /CleanYourTV's list for NVIDIA SHIELD TV 2017/);
   await card.getByRole("button", { name: "Use suggested" }).click();

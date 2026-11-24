@@ -1044,8 +1044,9 @@
     // Launcher and Health caches stale so they reload fresh on next visit.
     invalidateDeviceCaches();
     // Rows from a CleanYourTV list are apps outside the catalog, so a run can
-    // change Everything else too: read it again rather than offer stale actions.
-    if (othersLoaded) void loadOtherPackages();
+    // change Everything else too: read it again, superseding a read still in
+    // flight, rather than offer stale actions.
+    if (othersLoaded || othersLoading) void loadOtherPackages();
   }
 
   type RemovalSource = "catalog" | "other";
