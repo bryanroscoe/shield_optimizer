@@ -187,13 +187,16 @@ Apart from your TVs on your local network, these are the only other connections 
 
 - **While reports are on**, the app also downloads the list of supported TVs from the same server.
 - **Report a bug** (and **Send logs** on desktop) uploads what the dialog shows you to the same
-  server, only when you press Send, whether reports are on or off. Reports are kept for 30 days.
-- **Desktop updates**: the app checks GitHub for a new version and downloads updates from this
-  repository's releases.
+  server, only when you press Send, whether reports are on or off. What you send is deleted after
+  30 days.
+- **Desktop updates**: the app checks GitHub for a new version when it starts and, except in the
+  Flatpak build, downloads updates from this repository's releases.
 - **Google platform-tools** (desktop) are downloaded from Google only if you choose them in
   **Settings → ADB**.
 - **Android**: buying Pro or leaving a tip goes through Google Play. The app asks for internet,
   network and Wi-Fi state, Wi-Fi multicast (to find TVs) and Google Play billing.
+
+Links you tap, such as GitHub issues, Ko-fi or an app's source, open in your browser.
 
 ## Known limitations
 
