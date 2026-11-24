@@ -183,6 +183,18 @@ desktop or on the **More** screen on Android. Turning it off stops sending immed
 back on starts over under a new random ID. Builds made without a report server configured send
 nothing.
 
+Apart from your TVs on your local network, these are the only other connections the apps make:
+
+- **While reports are on**, the app also downloads the list of supported TVs from the same server.
+- **Report a bug** (and **Send logs** on desktop) uploads what the dialog shows you to the same
+  server, only when you press Send, whether reports are on or off. Reports are kept for 30 days.
+- **Desktop updates**: the app checks GitHub for a new version and downloads updates from this
+  repository's releases.
+- **Google platform-tools** (desktop) are downloaded from Google only if you choose them in
+  **Settings → ADB**.
+- **Android**: buying Pro or leaving a tip goes through Google Play. The app asks for internet,
+  network and Wi-Fi state, Wi-Fi multicast (to find TVs) and Google Play billing.
+
 ## Known limitations
 
 **Shield discovery on macOS.** If your Shield goes offline or is missing from **Scan LAN** on
