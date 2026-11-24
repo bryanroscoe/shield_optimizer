@@ -51,6 +51,24 @@ fields exactly match. The imported profiles have unknown verified context, so
 these queries remain unknown and return no package observations. Researching an
 explicit source profile without device arguments remains available.
 
+## In Optimize
+
+Optimize on desktop and Android ranks profiles after the app's own catalog, as a
+fallback for apps the catalog has no record of (`v2/shared/cleanyourtv-lists.ts`).
+By default it uses the profiles whose upstream TV label or name contains the TV's
+device codename as a word, best match first. Profiles that only contain its model
+name from the same maker are offered as suggestions, never used unasked. The
+person can pick one profile or turn profiles off; that choice is stored per TV
+under the verified hardware id. The first profile that mentions a package
+decides it: an active disable entry there adds a row when the package is
+installed and its `safety_info` verdict has source `no_record`, and an entry it
+keeps commented out adds none. Anything the app already has a verdict for keeps
+it and keeps its own row. These rows start on Keep, offer Disable only, carry the
+line's upstream comment as the list author's note, and sit under the profile's
+name with a link to the pinned file. Restore offers the same profiles' disabled
+apps. The catalog itself stays unreviewed and non-actionable; the do-not-disable
+list and every other safety authority still apply to each disable.
+
 ## Review boundary
 
 The catalog is separate from the app's embedded app lists, friendly-name lookup,

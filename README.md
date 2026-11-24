@@ -126,7 +126,7 @@ click **Request approval**, then on the TV check **Always allow from this comput
 | **Playback** | What the TV is actually outputting: resolution, refresh rate, HDR and audio passthrough. |
 | **Launcher** | Install a supported launcher, make it the default, and, where the firmware allows it, disable the stock launcher after you confirm. |
 | **App List** | Disable, enable or uninstall any app, or install one from the Play Store. |
-| **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, uncheck anything you want to keep, then **Run**. Undo it later with Restore. |
+| **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, uncheck anything you want to keep, then **Run**. Undo it later with Restore. For apps our catalog doesn't cover, it also lists what owners of your exact model turned off, from their [CleanYourTV](https://cleanyour.tv) list, under that list's name. |
 | **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough, Private DNS. |
 | **Remote** | An on-screen D-pad and live typing over a low-latency channel. Paste a long URL or password instead of typing it on the TV. |
 | **Files** | Browse `/sdcard`, copy files to and from your computer, and find an app's exported backups. |
@@ -295,4 +295,5 @@ Building from source, architecture and release process: [`v2/README.md`](v2/READ
 ## Credits
 
 - Debloat research from community guides including [florisse.nl/shield-debloat](https://florisse.nl/shield-debloat/)
+- Per-model TV lists from [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT), bundled as a pinned copy: browse them in Catalog; Optimize ranks your TV's list after our own catalog
 - Built with AI assistance (Gemini Pro and Claude) by an actual software engineer, tested on real devices
