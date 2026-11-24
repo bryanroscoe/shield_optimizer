@@ -1,11 +1,12 @@
 # ATV Optimizer
 
-Debloat and tune your Android TV from a desktop app: disable bloat, switch launchers,
-sideload APKs, adjust HDMI-CEC and frame-rate matching, and check device health.
+**Manage your Android TV from your phone.** ATV Optimizer for Android lets you use your phone
+as a remote, manage TV apps, switch launchers, adjust settings and check device health over Wi-Fi.
+No computer needed.
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
-Android TV devices.
+Android TV devices. The mobile app does not support Fire TV.
 
-## TL;DR — try the Android app
+## TL;DR — get the mobile app
 
 **[ATV Optimizer for Android](#atv-optimizer-for-android)** lets you manage your TV over Wi-Fi
 from an Android phone or tablet. To join the Google Play closed test, use the **same Google
@@ -16,7 +17,36 @@ account** for all three steps:
 3. **[Install from Google Play](https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile)** on your Android phone or tablet.
 
 Please stay opted in for at least **14 consecutive days**. For TV setup and what to try, see the
-**[tester guide](https://bryanroscoe.com/atv-optimizer/testing/)**. Desktop downloads are under [Install](#install).
+**[tester guide](https://bryanroscoe.com/atv-optimizer/testing/)**.
+
+Prefer a computer? The **[free desktop app for macOS, Windows and Linux](#atv-optimizer-for-desktop)**
+is available too.
+
+## ATV Optimizer for Android
+
+<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
+
+The walkthrough shows demo data, not a live device.
+
+**Help test it.** Join using the three steps above, then follow the
+**[tester guide](https://bryanroscoe.com/atv-optimizer/testing/)** to connect your TV and try the app.
+
+- Everything the test asks for is free, apart from the optional app change: connecting, the
+  remote, the app list, diagnostics, files and backups, re-enabling apps and Emergency recovery. Don't buy Pro to help test; Google Play
+  charges real money even during the test.
+- **The first 12 testers get Pro free.** After you join and install, email
+  bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
+  code. Redeem it, then open the app within three days, and Pro stays on that account for good,
+  including after the public release. If Pro doesn't show up right away, tap **Restore purchases**
+  in More. Ko-fi supporters don't use up one of the 12.
+
+The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching,
+changing tweaks, snapshots and the Shell) as a one-time Google Play purchase: US $4.99. Once you own
+Pro, you can leave an optional tip in the app; a tip doesn't unlock anything extra.
+
+Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
+
+## ATV Optimizer for desktop
 
 <img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
@@ -27,7 +57,7 @@ Please stay opted in for at least **14 consecutive days**. For TV setup and what
 
 </details>
 
-It's a native app for macOS, Windows and Linux. It connects to your TVs directly with its own
+The desktop app runs on macOS, Windows and Linux. It connects to your TVs directly with its own
 built-in ADB, finds them on your network, and updates itself. You don't need a terminal, Google's
 `adb` or any scripting. Google platform-tools are still one click away in **Settings → ADB** if a
 TV doesn't get along with the built-in engine, or for a TV connected by USB.
@@ -225,31 +255,6 @@ settings, snapshots and logs over and leaves the old copies in place.
   to the Trash.
 - **Homebrew:** the cask is now `atv-optimizer`; `shield-optimizer` keeps working and
   `brew upgrade` moves you over.
-
-## ATV Optimizer for Android
-
-Use the Android app to manage apps, switch launchers and adjust settings on your TV over Wi-Fi.
-
-**Help test it.** It's in a Google Play closed test. You need an Android phone and an Android TV,
-Google TV or Nvidia Shield (not Fire TV). The guide covers joining, installing, connecting your TV
-and what to try: **[bryanroscoe.com/atv-optimizer/testing](https://bryanroscoe.com/atv-optimizer/testing/)**.
-
-- Everything the test asks for is free, apart from the optional app change: connecting, the
-  remote, the app list, diagnostics, files and backups, re-enabling apps and Emergency recovery. Don't buy Pro to help test; Google Play
-  charges real money even during the test.
-- **The first 12 testers get Pro free.** After you join and install, email
-  bryanroscoe+atv@gmail.com from the Google account you joined with, and you'll get a Google Play
-  code. Redeem it, then open the app within three days, and Pro stays on that account for good,
-  including after the public release. If Pro doesn't show up right away, tap **Restore purchases**
-  in More. Ko-fi supporters don't use up one of the 12.
-
-<img alt="ATV Optimizer for Android walkthrough" src="v2/mobile/screenshots/gallery.gif" width="300" />
-
-The walkthrough shows demo data, not a live device. Developer notes are in [`v2/mobile/`](v2/mobile/README.md).
-
-The Android app is free, with Pro (Optimize, disabling and uninstalling apps, launcher switching,
-changing tweaks, snapshots and the Shell) as a one-time Google Play purchase: US $4.99. Once you own
-Pro, you can leave an optional tip in the app; a tip doesn't unlock anything extra.
 
 ## Support the project
 
