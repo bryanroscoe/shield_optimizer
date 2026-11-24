@@ -20,6 +20,17 @@
     SnapshotSaveOutcome,
   } from "$lib/types";
   import AppRow from "$lib/components/AppRow.svelte";
+  import { openUrl } from "@tauri-apps/plugin-opener";
+  import CleanYourTvListCard from "../../../shared/components/CleanYourTvListCard.svelte";
+  import {
+    LIST_OFF,
+    listedPlanItems,
+    savedListChoice,
+    saveListChoice,
+    type TvIdentity,
+  } from "../../../shared/cleanyourtv-lists";
+  import { loadCleanYourTvCatalog, loadSourceText } from "../../../shared/cleanyourtv-source";
+  import { sourceUrl, type ProfileCatalog } from "../../../shared/profile-catalog";
   import type { AppDetailInputs } from "$lib/app-details";
   import {
     CHECKING_LABEL,
@@ -50,6 +61,8 @@
     onPlanLoaded,
     onSaveSnapshot = null,
     support = null,
+    hardwareId = null,
+    tv = null,
   }: {
     serial: string;
     deviceType: DeviceType;
@@ -74,6 +87,11 @@
     /// The TV's support tier: adds a warning before an Optimize run on an
     /// unsupported TV. Never applied to Restore.
     support?: SupportInfo | null;
+    /// The TV's verified hardware id: its CleanYourTV list choice is filed
+    /// under it and nothing else.
+    hardwareId?: string | null;
+    /// What the TV reports about itself, for suggesting its CleanYourTV list.
+    tv?: TvIdentity | null;
   } = $props();
 
   /// The first failure of the last run, shown through ErrorNotice.
@@ -118,6 +136,18 @@
   /// tells you to review safety before choosing, so the reason has to be
   /// reachable here.
   let expandedSafety = $state<string | null>(null);
+
+  /// CleanYourTV's lists, the fallback for apps our catalog has no record of.
+  /// The catalog loads the first time the tab shows; the chosen list's rows are
+  /// appended to the loaded plan, marked by `entry.listed_by`.
+  let cytvCatalog = $state<ProfileCatalog | null>(null);
+  let cytvLoadError = $state("");
+  let cytvChoice = $state<string | null>(null);
+  /// Rows the chosen list added to the plan; null while they load.
+  let cytvRowCount = $state<number | null>(null);
+  let cytvError = $state("");
+  let cytvRequest = 0;
+  let cytvHardwareSeen: string | null | undefined = undefined;
 
   let componentEpoch = 0;
   let loadRequest = 0;
@@ -166,6 +196,9 @@
       optimizeCurrent = null;
       safetyByPackage = {};
       appliedInPlan = new Map();
+      cytvRequest++;
+      cytvRowCount = null;
+      cytvError = "";
       resetSnapshotOffer();
     }
     seenContext = contextKey;
@@ -190,6 +223,121 @@
     optimizeAbort = true;
     answerRun(false);
   });
+
+  $effect(() => {
+    const id = hardwareId;
+    if (id === cytvHardwareSeen) return;
+    cytvHardwareSeen = id;
+    untrack(() => {
+      try {
+        cytvChoice = savedListChoice(localStorage, id);
+      } catch {
+        cytvChoice = null;
+      }
+    });
+  });
+
+  $effect(() => {
+    if (!active || cytvCatalog || cytvLoadError) return;
+    untrack(() => {
+      loadCleanYourTvCatalog()
+        .then((catalog) => {
+          if (destroyed) return;
+          cytvCatalog = catalog;
+          if (optimizePlan && !optimizePlanLoading) void refreshListedRows();
+        })
+        .catch((error) => {
+          if (!destroyed) cytvLoadError = String(error);
+        });
+    });
+  });
+
+  function chosenListProfile() {
+    if (!cytvCatalog || !cytvChoice || cytvChoice === LIST_OFF) return null;
+    return cytvCatalog.profiles.find((profile) => profile.profile === cytvChoice) ?? null;
+  }
+
+  function chooseList(choice: string | null) {
+    if (optimizeRunning) return;
+    cytvChoice = choice;
+    try {
+      saveListChoice(localStorage, hardwareId, choice);
+    } catch {
+      /* storage unavailable: the choice lasts for this screen */
+    }
+    void refreshListedRows();
+  }
+
+  /// Swaps the plan's CleanYourTV rows for the current choice's. Overrides on
+  /// rows that leave are dropped, so a hidden row can't stay armed.
+  function setListedRows(rows: OptimizePlanItem[]) {
+    if (!optimizePlan) return;
+    for (const item of optimizePlan.items) {
+      if (item.entry.listed_by) delete optimizeOverrides[item.entry.package];
+    }
+    optimizePlan = {
+      ...optimizePlan,
+      items: [...optimizePlan.items.filter((item) => !item.entry.listed_by), ...rows],
+    };
+  }
+
+  /// The chosen list's apps that are on this TV and that the app's own safety
+  /// check has no record of. Anything it does know keeps its own verdict and its
+  /// own row, or none; the list never overrides it.
+  async function refreshListedRows() {
+    if (!optimizePlan) return;
+    const context = captureContext();
+    const request = ++cytvRequest;
+    const load = loadRequest;
+    const mode = optimizeMode;
+    const profile = chosenListProfile();
+    const catalog = cytvCatalog;
+    cytvError = "";
+    setListedRows([]);
+    if (!profile || !catalog) {
+      cytvRowCount = 0;
+      return;
+    }
+    cytvRowCount = null;
+    const stale = () => !contextIsCurrent(context) || request !== cytvRequest || load !== loadRequest || !optimizePlan;
+    try {
+      const [installed, text] = await Promise.all([
+        api.listInstalledPackages(context.serial),
+        loadSourceText(profile),
+      ]);
+      if (stale()) return;
+      const covered = new Set(optimizePlan!.items.map((item) => item.entry.package));
+      const candidates = listedPlanItems(
+        profile,
+        text,
+        (line) => sourceUrl(catalog.upstream_commit, profile, line),
+        installed,
+        covered,
+        mode,
+      );
+      const verdicts = await Promise.allSettled(candidates.map((item) => api.safetyInfo(item.entry.package)));
+      if (stale()) return;
+      const rows: OptimizePlanItem[] = [];
+      const safety: Record<string, SafetyStatus> = {};
+      candidates.forEach((item, index) => {
+        const result = verdicts[index];
+        if (result.status === "fulfilled") {
+          if (result.value.source !== "no_record") return;
+          safety[item.entry.package] = { status: "ready", verdict: result.value };
+        } else {
+          safety[item.entry.package] = { status: "unavailable", reason: String(result.reason) };
+        }
+        rows.push(item);
+      });
+      safetyByPackage = { ...safetyByPackage, ...safety };
+      setListedRows(rows);
+      cytvRowCount = rows.length;
+    } catch (error) {
+      if (stale()) return;
+      cytvRowCount = 0;
+      cytvError = `Couldn't read this TV's apps for the CleanYourTV list. ${error}`;
+    }
+  }
 
   async function loadOptimizePlan(mode: OptimizeMode) {
     if (optimizeRunning) return;
@@ -235,6 +383,7 @@
           : [pkg, { status: "unavailable", reason: String(result.reason) } satisfies SafetyStatus];
       }));
       onPlanLoaded();
+      void refreshListedRows();
     } catch (e) {
       if (!contextIsCurrent(context) || request !== loadRequest) return;
       optimizePlanErr = String(e);
@@ -651,6 +800,9 @@
         )
       : [],
   );
+  let visibleCatalogItems = $derived(visibleOptimizeItems.filter((i) => !i.entry.listed_by));
+  let visibleListedItems = $derived(visibleOptimizeItems.filter((i) => !!i.entry.listed_by));
+  let listedProfile = $derived(cytvRowCount ? chosenListProfile() : null);
 
   /// What the plan is made of, in the safety vocabulary — the first thing the
   /// guided header says, because "N safe, M caution, K protected" is the shape
@@ -686,6 +838,130 @@
     }
   }
 </script>
+
+{#snippet planRow(item: OptimizePlanItem)}
+{@const skip = skipReasonLabel(item)}
+{@const progress = optimizeProgress[item.entry.package]}
+{@const eff = effectiveAction(item)}
+<AppRow
+  name={item.entry.name}
+  description={item.entry.optimize_description}
+  package={item.entry.package}
+  review={item.entry.review}
+  reviewedAt={item.entry.reviewed_at}
+  state={rowState(item)}
+  mb={(() => {
+    const d = appDetails(item.entry.package);
+    return d.measures.memory.status === "ready" ? d.memoryMb : (item.memory_mb ?? undefined);
+  })()}
+  usage={appUsage[item.entry.package]}
+  showUsage={naturalAction(item) !== null}
+  safety={readySafety(item.entry.package)}
+  safetyStatus={safetyByPackage[item.entry.package]?.status ?? "unavailable"}
+  safetyUnavailableReason={(() => {
+    const st = safetyByPackage[item.entry.package];
+    return st?.status === "unavailable" ? st.reason : undefined;
+  })()}
+  columns={6}
+  detailOpen={expandedSafety === item.entry.package}
+  onToggleDetail={() =>
+    (expandedSafety =
+      expandedSafety === item.entry.package ? null : item.entry.package)}
+  details={appDetails(item.entry.package)}
+  rowClass={!skip && isReviewRow(item)
+    ? eff === "skip" ? "review-flag" : "review-flag acting"
+    : eff === "skip"
+      ? "dim"
+      : !skip
+        ? "acting"
+        : undefined}
+>
+  {#snippet actions()}
+  <td>
+    {#if progress}
+      <!-- The run's outcome sits with the choice it acted on: a
+           separate Result column scrolled off narrow windows. -->
+      <div class="row-result">
+        {#if progress === "done"}
+          <span class="tag installed"><Icon name="check" size={14} /> DONE</span>
+        {:else if progress === "pending"}
+          <span class="muted small">…</span>
+        {:else if progress === "skipped"}
+          <span class="muted small">skipped</span>
+        {:else if progress === "failed"}
+          <span
+            class="tag"
+            style="background:var(--danger-surface); color:var(--danger-text)"
+            data-tip={shortTip(optimizeFailureMessages[item.entry.package])}
+            data-tip-align="end"
+            title={optimizeFailureMessages[item.entry.package] ?? ""}
+          >FAILED</span>
+        {/if}
+      </div>
+    {/if}
+    {#if skip}
+      <span class="terminal-reason">{skip}</span>
+    {:else}
+      {@const opts = actionOptions(item)}
+      {#if opts.length === 1}
+        <!-- One option is not a choice, so instead of a lone greyed-out
+             "Keep" pill the sentence says why the row has no choice. -->
+        <span class="terminal-reason">{singleOptionReason(item)}</span>
+      {:else}
+        <!-- One pill per option with a radio mark, so the armed state
+             is legible before you read the fill colour — a segmented
+             control relies on the fill alone, and on a table of
+             sixteen rows that is a lot of colour to decode. -->
+        <div class="action-radio" role="group" aria-label={`Action for ${item.entry.name}`}>
+          {#each opts as opt (opt)}
+            <button
+              class="radio-pill"
+              class:active={eff === opt}
+              class:will-remove={opt === "uninstall"}
+              class:will-keep={opt === "skip"}
+              aria-pressed={eff === opt}
+              disabled={optimizeRunning}
+              onclick={() => setOptimizeAction(item.entry.package, opt)}
+            >
+              <Icon
+                name={eff === opt ? "radio_button_checked" : "radio_button_unchecked"}
+                size={15}
+                fill={eff === opt}
+              />
+              <span class="radio-label">{actionLabel(item, opt)}</span>
+              {#if isRecommended(item, opt)}
+                <span class="plan-caption mono" data-tip="What we recommend for this app">Recommended</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+      {/if}
+      {#if isReviewRow(item)}
+        <span
+          class="review-pill mono"
+          data-tip="Check Last used — remove only if nobody here uses it"
+        >{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
+      {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
+        <div class="muted small review-hint">Reload the plan to retry safety.</div>
+      {/if}
+      {#if item.entry.listed_by}
+        {@const listedBy = item.entry.listed_by}
+        <button
+          class="listed-source small"
+          data-tip="Open this line of the CleanYourTV list"
+          onclick={() => void openUrl(listedBy.url)}
+        >Line {listedBy.line} of the list</button>
+      {/if}
+      {#if eff === "uninstall"}
+        <!-- Whether an uninstall can be taken back depends on the
+             app, so the row armed with it says which case it is. -->
+        <div class="small uninstall-note">{uninstallOutcome(item.entry.package, item.entry).short}</div>
+      {/if}
+    {/if}
+  </td>
+  {/snippet}
+</AppRow>
+{/snippet}
 
 <div class="card" role="tabpanel" tabindex={0} id="tabpanel-optimize" aria-labelledby="tab-optimize" bind:this={panelEl}>
   <div class="card-header">
@@ -731,7 +1007,7 @@
   </p>
   {#if optimizeMode === "restore"}
     <HelpDetails label="What Restore covers">
-      <p>Restore lists the apps in our catalog that are disabled on this TV. It never reinstalls an app that was uninstalled.</p>
+      <p>Restore lists the apps in our catalog that are disabled on this TV, and, with a CleanYourTV list chosen, the disabled apps from that list. It never reinstalls an app that was uninstalled.</p>
       <p>To re-enable a disabled app that isn't in the catalog, use Enable on its row under Everything else in the App List. Emergency recovery on the Overview tab re-enables every disabled app on the TV at once.</p>
     </HelpDetails>
   {/if}
@@ -804,6 +1080,21 @@
       </div>
     {/if}
 
+    <CleanYourTvListCard
+      catalog={cytvCatalog}
+      loadError={cytvLoadError}
+      tv={tv ?? {}}
+      choice={cytvChoice}
+      rowCount={cytvRowCount}
+      busy={optimizeRunning}
+      mode={optimizeMode}
+      onChoose={chooseList}
+      openSource={(url) => openUrl(url)}
+    />
+    {#if cytvError}
+      <p class="error small" role="alert">{cytvError}</p>
+    {/if}
+
     <div class="app-toolbar">
       <label class="inline-check">
         <input type="checkbox" bind:checked={optimizeHideNotInstalled} />
@@ -828,122 +1119,25 @@
         </tr>
       </thead>
       <tbody>
-        {#each visibleOptimizeItems as item (item.entry.package)}
-          {@const skip = skipReasonLabel(item)}
-          {@const progress = optimizeProgress[item.entry.package]}
-          {@const eff = effectiveAction(item)}
-          <AppRow
-            name={item.entry.name}
-            description={item.entry.optimize_description}
-            package={item.entry.package}
-            review={item.entry.review}
-            reviewedAt={item.entry.reviewed_at}
-            state={rowState(item)}
-            mb={(() => {
-              const d = appDetails(item.entry.package);
-              return d.measures.memory.status === "ready" ? d.memoryMb : (item.memory_mb ?? undefined);
-            })()}
-            usage={appUsage[item.entry.package]}
-            showUsage={naturalAction(item) !== null}
-            safety={readySafety(item.entry.package)}
-            safetyStatus={safetyByPackage[item.entry.package]?.status ?? "unavailable"}
-            safetyUnavailableReason={(() => {
-              const st = safetyByPackage[item.entry.package];
-              return st?.status === "unavailable" ? st.reason : undefined;
-            })()}
-            columns={6}
-            detailOpen={expandedSafety === item.entry.package}
-            onToggleDetail={() =>
-              (expandedSafety =
-                expandedSafety === item.entry.package ? null : item.entry.package)}
-            details={appDetails(item.entry.package)}
-            rowClass={!skip && isReviewRow(item)
-              ? eff === "skip" ? "review-flag" : "review-flag acting"
-              : eff === "skip"
-                ? "dim"
-                : !skip
-                  ? "acting"
-                  : undefined}
-          >
-            {#snippet actions()}
-            <td>
-              {#if progress}
-                <!-- The run's outcome sits with the choice it acted on: a
-                     separate Result column scrolled off narrow windows. -->
-                <div class="row-result">
-                  {#if progress === "done"}
-                    <span class="tag installed"><Icon name="check" size={14} /> DONE</span>
-                  {:else if progress === "pending"}
-                    <span class="muted small">…</span>
-                  {:else if progress === "skipped"}
-                    <span class="muted small">skipped</span>
-                  {:else if progress === "failed"}
-                    <span
-                      class="tag"
-                      style="background:var(--danger-surface); color:var(--danger-text)"
-                      data-tip={shortTip(optimizeFailureMessages[item.entry.package])}
-                      data-tip-align="end"
-                      title={optimizeFailureMessages[item.entry.package] ?? ""}
-                    >FAILED</span>
-                  {/if}
-                </div>
-              {/if}
-              {#if skip}
-                <span class="terminal-reason">{skip}</span>
-              {:else}
-                {@const opts = actionOptions(item)}
-                {#if opts.length === 1}
-                  <!-- One option is not a choice, so instead of a lone greyed-out
-                       "Keep" pill the sentence says why the row has no choice. -->
-                  <span class="terminal-reason">{singleOptionReason(item)}</span>
-                {:else}
-                  <!-- One pill per option with a radio mark, so the armed state
-                       is legible before you read the fill colour — a segmented
-                       control relies on the fill alone, and on a table of
-                       sixteen rows that is a lot of colour to decode. -->
-                  <div class="action-radio" role="group" aria-label={`Action for ${item.entry.name}`}>
-                    {#each opts as opt (opt)}
-                      <button
-                        class="radio-pill"
-                        class:active={eff === opt}
-                        class:will-remove={opt === "uninstall"}
-                        class:will-keep={opt === "skip"}
-                        aria-pressed={eff === opt}
-                        disabled={optimizeRunning}
-                        onclick={() => setOptimizeAction(item.entry.package, opt)}
-                      >
-                        <Icon
-                          name={eff === opt ? "radio_button_checked" : "radio_button_unchecked"}
-                          size={15}
-                          fill={eff === opt}
-                        />
-                        <span class="radio-label">{actionLabel(item, opt)}</span>
-                        {#if isRecommended(item, opt)}
-                          <span class="plan-caption mono" data-tip="What we recommend for this app">Recommended</span>
-                        {/if}
-                      </button>
-                    {/each}
-                  </div>
-                {/if}
-                {#if isReviewRow(item)}
-                  <span
-                    class="review-pill mono"
-                    data-tip="Check Last used — remove only if nobody here uses it"
-                  >{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
-                {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
-                  <div class="muted small review-hint">Reload the plan to retry safety.</div>
-                {/if}
-                {#if eff === "uninstall"}
-                  <!-- Whether an uninstall can be taken back depends on the
-                       app, so the row armed with it says which case it is. -->
-                  <div class="small uninstall-note">{uninstallOutcome(item.entry.package, item.entry).short}</div>
-                {/if}
-              {/if}
-            </td>
-            {/snippet}
-          </AppRow>
+        {#each visibleCatalogItems as item (item.entry.package)}
+          {@render planRow(item)}
         {/each}
       </tbody>
+      {#if listedProfile && visibleListedItems.length > 0}
+        <!-- The list's rows sit under their own heading, so where a suggestion
+             came from is never in doubt. -->
+        <tbody class="listed-group" data-cleanyourtv-rows>
+          <tr class="listed-heading">
+            <th colspan="6" scope="colgroup">
+              <span>From the CleanYourTV list for <strong>{listedProfile.upstream_context.tv}</strong></span>
+              <span class="muted small">Not reviewed by ATV Optimizer · Disable only</span>
+            </th>
+          </tr>
+          {#each visibleListedItems as item (item.entry.package)}
+            {@render planRow(item)}
+          {/each}
+        </tbody>
+      {/if}
     </table>
     </div>
 
@@ -957,7 +1151,7 @@
         <span>Undo Disable with Restore mode. Uninstall can't always be undone, so check each app's note before you run.</span>
       </p>
       <HelpDetails label="Undoing a run">
-        <p><strong>Disable:</strong> switch Mode to Restore, choose Re-enable all disabled or Enable on the apps you want, then click Run plan. Restore covers catalog apps only; Emergency recovery on the Overview tab re-enables every disabled app on the TV.</p>
+        <p><strong>Disable:</strong> switch Mode to Restore, choose Re-enable all disabled or Enable on the apps you want, then click Run plan. Restore covers catalog apps and the apps from a CleanYourTV list you chose; Emergency recovery on the Overview tab re-enables every disabled app on the TV.</p>
         <p><strong>Uninstall:</strong> removes the app for this TV's user, and Restore can't bring it back. A row set to Uninstall says how to get it back: from the Play Store, from the site a sideloaded app came from, or not at all for a discontinued service.</p>
       </HelpDetails>
     {/if}
@@ -1407,6 +1601,32 @@
     letter-spacing: 0.06em;
     opacity: 0.8;
   }
+  /* The CleanYourTV group's heading row and each row's link to its line. */
+  .listed-heading th {
+    text-align: left;
+    padding: 0.9rem 0.75rem 0.5rem;
+    border-top: 1px solid var(--border);
+    font-weight: 500;
+    font-size: 0.9rem;
+    text-transform: none;
+    letter-spacing: normal;
+    color: var(--fg-primary);
+  }
+  .listed-heading th span { display: block; overflow-wrap: anywhere; }
+  .listed-heading th span + span { margin-top: 0.15rem; }
+  .listed-source {
+    display: block;
+    margin-top: 0.3rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.74rem;
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  .listed-source:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   /* The review advice, in the same amber as the row it tints. */
   .review-pill {
     display: inline-block;

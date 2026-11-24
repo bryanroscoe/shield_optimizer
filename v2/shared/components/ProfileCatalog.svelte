@@ -72,10 +72,10 @@
     </div>
     <span class="evidence-status">Unreviewed source</span>
   </header>
-  <p class="scope-note">Source profiles have no verified match to your TV or firmware. Removal safety stays with the app’s reviewed checks.</p>
+  <p class="scope-note">Source profiles have no verified match to your TV or firmware. Removal safety stays with the app’s reviewed checks. In Optimize you can choose one as your TV's list.</p>
   <details class="catalog-help">
     <summary>How to read this catalog</summary>
-    <p>Choose an upstream profile to inspect its original observations. An upstream disable entry records that author's choice. A commented entry may be kept, optional or absent. Source notes retain warnings and dependencies. These observations don't change safety verdicts or select apps for removal.</p>
+    <p>Choose an upstream profile to inspect its original observations. An upstream disable entry records that author's choice. A commented entry may be kept, optional or absent. Source notes retain warnings and dependencies. These observations don't change safety verdicts. Once you choose a profile as your TV's list in Optimize, its disable entries for apps the app's catalog has no record of appear there as optional rows, never selected for you.</p>
     <p>Model, OS and firmware statements belong to the selected source. They have not been independently verified for your device.</p>
   </details>
 

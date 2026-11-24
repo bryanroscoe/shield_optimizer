@@ -391,6 +391,10 @@ jobs:
         working-directory: v2
         run: npm run test:profile-catalog
 
+      - name: CleanYourTV lists in Optimize
+        working-directory: v2
+        run: npm run test:cleanyourtv-lists
+
       - name: Catalog review queue
         run: python3 -m unittest discover -s v2/tools/catalog-review -p 'test_*.py'
 

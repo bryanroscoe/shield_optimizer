@@ -85,6 +85,9 @@ export interface AppEntry {
   sources?: string[];
   /// Device families the entry applies to; absent means the list decides.
   device_scope?: string[];
+  /// Set only on a row built from the chosen CleanYourTV list, never on a
+  /// catalog entry: which list and line suggested it.
+  listed_by?: import("../../shared/cleanyourtv-lists").ListedBy;
 }
 
 /// When an app was last opened (from dumpsys usagestats).

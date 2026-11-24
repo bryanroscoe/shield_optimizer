@@ -1054,6 +1054,9 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         { package: "com.android.vending", system: true, enabled: true, name: null },
         { package: "com.android.providers.media", system: true, enabled: true, name: null },
         { package: "com.nvidia.ota", system: true, enabled: false, name: null },
+        // On the demo Shield's CleanYourTV list and in no catalog of ours, so
+        // Optimize shows one row from the list once it is chosen.
+        { package: "android.autoinstalls.config.nvidia", system: true, enabled: true, name: null },
       ];
     case "list_other_packages":
       return [

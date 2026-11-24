@@ -3969,6 +3969,8 @@
         onPlanLoaded={loadAppMemory}
         onSaveSnapshot={saveSnapshot}
         support={device.support ?? null}
+        {hardwareId}
+        tv={device.properties}
       />
     </div>
   {/if}

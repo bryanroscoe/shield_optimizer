@@ -39,6 +39,10 @@
   import { sendTelemetry } from "../lib/api";
   import { recordAction } from "../../../shared/telemetry";
   import { destructiveWarning } from "../../../shared/support";
+  import CleanYourTvListCard from "../../../shared/components/CleanYourTvListCard.svelte";
+  import { LIST_OFF, listedPlanItems, savedListChoice, saveListChoice } from "../../../shared/cleanyourtv-lists";
+  import { loadCleanYourTvCatalog, loadSourceText } from "../../../shared/cleanyourtv-source";
+  import { sourceUrl, type ProfileCatalog } from "../../../shared/profile-catalog";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -122,6 +126,19 @@
   let safetyFailed = $state(false);
   let safetyRequest = 0;
 
+  /// CleanYourTV's lists, the fallback for apps our catalog has no record of.
+  /// The chosen list's rows are appended to the loaded plan, marked by
+  /// `entry.listed_by`, and land on Optional apps (Restore: All catalog).
+  let cytvCatalog = $state<ProfileCatalog | null>(null);
+  let cytvLoadError = $state("");
+  let cytvChoice = $state<string | null>(null);
+  /// Rows the chosen list added to the plan; null while they load.
+  let cytvRowCount = $state<number | null>(null);
+  let cytvError = $state("");
+  let cytvRequest = 0;
+  let cytvHardwareSeen: string | null | undefined = undefined;
+  const hardwareId = $derived(session.connectedDevice?.properties?.serial_number ?? null);
+
   let toast = $state("");
   let toastType = $state<"success" | "error" | "info">("info");
   let toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -149,6 +166,116 @@
   $effect(() => {
     if (locked && session.isPro) untrack(() => void loadPlan(mode));
   });
+
+  $effect(() => {
+    const id = hardwareId;
+    if (id === cytvHardwareSeen) return;
+    cytvHardwareSeen = id;
+    untrack(() => {
+      try {
+        cytvChoice = savedListChoice(localStorage, id);
+      } catch {
+        cytvChoice = null;
+      }
+    });
+  });
+
+  loadCleanYourTvCatalog()
+    .then((catalog) => {
+      if (destroyed) return;
+      cytvCatalog = catalog;
+      if (plan && !loading && !safetyLoading) void refreshListedRows();
+    })
+    .catch((e) => {
+      if (!destroyed) cytvLoadError = String(e);
+    });
+
+  function chosenListProfile() {
+    if (!cytvCatalog || !cytvChoice || cytvChoice === LIST_OFF) return null;
+    return cytvCatalog.profiles.find((profile) => profile.profile === cytvChoice) ?? null;
+  }
+
+  function chooseList(choice: string | null) {
+    if (applying) return;
+    cytvChoice = choice;
+    try {
+      saveListChoice(localStorage, hardwareId, choice);
+    } catch {
+      /* storage unavailable: the choice lasts for this screen */
+    }
+    void refreshListedRows();
+  }
+
+  /// Swaps the plan's CleanYourTV rows for the current choice's. A row that
+  /// leaves takes its selection with it, so a hidden row can't stay armed.
+  function setListedRows(rows: OptimizePlanItem[]) {
+    if (!plan) return;
+    const leaving = plan.items.filter((item) => item.entry.listed_by).map((item) => item.entry.package);
+    if (leaving.length > 0) {
+      const next = new Set(selected);
+      for (const pkg of leaving) {
+        next.delete(pkg);
+        selectionTouched.delete(pkg);
+      }
+      selected = next;
+      applyIntent = null;
+      ++selectionVersion;
+    }
+    plan = { ...plan, items: [...plan.items.filter((item) => !item.entry.listed_by), ...rows] };
+  }
+
+  /// The chosen list's apps that are on this TV and that the safety check has
+  /// no record of. Anything it does know keeps its own verdict and its own row,
+  /// or none; the list never overrides it.
+  async function refreshListedRows(identity: PlanIdentity | null = planIdentity) {
+    if (!plan || !identity || !planCurrent(identity)) return;
+    const request = ++cytvRequest;
+    const profile = chosenListProfile();
+    const catalog = cytvCatalog;
+    cytvError = "";
+    setListedRows([]);
+    if (!profile || !catalog) {
+      cytvRowCount = 0;
+      return;
+    }
+    cytvRowCount = null;
+    const stale = () => request !== cytvRequest || !planCurrent(identity) || !plan;
+    try {
+      const [installed, text] = await Promise.all([
+        api.listInstalledPackages(identity.serial),
+        loadSourceText(profile),
+      ]);
+      if (stale()) return;
+      const covered = new Set(plan!.items.map((item) => item.entry.package));
+      const candidates = listedPlanItems(
+        profile,
+        text,
+        (line) => sourceUrl(catalog.upstream_commit, profile, line),
+        installed,
+        covered,
+        identity.mode,
+      );
+      const verdicts = await Promise.allSettled(candidates.map((item) => api.safetyInfo(item.entry.package)));
+      if (stale()) return;
+      const rows: OptimizePlanItem[] = [];
+      const map = { ...safetyMap };
+      candidates.forEach((item, index) => {
+        const result = verdicts[index];
+        if (result.status === "fulfilled") {
+          if (result.value.source !== "no_record") return;
+          map[item.entry.package] = result.value;
+        }
+        rows.push(item);
+      });
+      safetyMap = map;
+      setListedRows(rows);
+      cytvRowCount = rows.length;
+    } catch (e) {
+      if (stale()) return;
+      cytvRowCount = 0;
+      cytvError = `Couldn't read this TV's apps for the CleanYourTV list. ${String(e)}`;
+    }
+  }
 
   async function loadPlan(nextMode: OptimizeMode = mode) {
     const device = session.connectedDevice;
@@ -240,6 +367,7 @@
     if (pkgs.length === 0) {
       safetyLoading = false;
       chooseInitialTab(p, identity);
+      void refreshListedRows(identity);
       return;
     }
     safetyLoading = true;
@@ -280,6 +408,7 @@
     } finally {
       if (request === safetyRequest && planCurrent(identity)) safetyLoading = false;
     }
+    if (request === safetyRequest && planCurrent(identity) && !safetyFailed) void refreshListedRows(identity);
   }
 
   function chooseInitialTab(p: OptimizePlan, identity: PlanIdentity) {
@@ -904,16 +1033,31 @@
           <p><b>RAM in play</b> is the RAM the selected apps use right now, not a guaranteed saving: Android frees memory and restarts apps on its own.</p>
         </HelpSheet>
         <HelpSheet title="Undoing a run">
-          <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers catalog apps only; Emergency recovery in More re-enables every disabled app on the TV.</p>
+          <p><b>Disable:</b> switch to Restore, choose Re-enable all disabled or the apps you want, then Apply restore. Restore covers catalog apps and the apps from a CleanYourTV list you chose; Emergency recovery in More re-enables every disabled app on the TV.</p>
           <p><b>Uninstall:</b> removes the app for the TV's current user, and Restore can't bring it back. Each row set to Uninstall says how to get it back: from the Play Store, or not at all for a discontinued service. If it came with the TV, Reinstall in its app sheet may bring it back while its APK is still on the TV.</p>
         </HelpSheet>
       {:else}
         <HelpSheet title="What Restore covers">
-          <p>Restore re-enables catalog apps that are disabled on this TV. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest.</p>
+          <p>Restore re-enables catalog apps that are disabled on this TV, and, with a CleanYourTV list chosen, the disabled apps from that list. Only the ones we recommend bringing back start selected; Re-enable all disabled selects the rest.</p>
           <p>It never reinstalls an app that was uninstalled. To re-enable a disabled app that isn't in the catalog, use Enable on it in the Apps tab. Emergency recovery in More re-enables every disabled app on the TV at once.</p>
         </HelpSheet>
       {/if}
     </div>
+
+    <CleanYourTvListCard
+      catalog={cytvCatalog}
+      loadError={cytvLoadError}
+      tv={session.connectedDevice?.properties ?? {}}
+      choice={cytvChoice}
+      rowCount={cytvRowCount}
+      busy={applying}
+      {mode}
+      onChoose={chooseList}
+      openSource={(url) => api.openUrl(url)}
+    />
+    {#if cytvError}
+      <p class="row-reason" role="alert">{cytvError}</p>
+    {/if}
 
     <div class="optimize-summary-card">
       <span class="summary-text">
@@ -957,8 +1101,18 @@
         </p>
       {/if}
     {:else}
+      {@const firstListed = visibleItems.find((it) => it.entry.listed_by)?.entry.package}
+      {@const listedTv = chosenListProfile()?.upstream_context.tv}
       <div class="optimize-list">
         {#each visibleItems as item (item.entry.package)}
+          {#if item.entry.package === firstListed && listedTv}
+            <!-- The list's rows follow the catalog's under their own heading,
+                 so where a suggestion came from is never in doubt. -->
+            <div class="listed-heading" data-cleanyourtv-rows>
+              <span>From the CleanYourTV list for <b>{listedTv}</b></span>
+              <span class="listed-sub">Not reviewed by ATV Optimizer · Disable only</span>
+            </div>
+          {/if}
           {@const tier = tierOf(safetyMap[item.entry.package])}
           {@const hardBlocked = isHardBlocked(item)}
           {@const shownReason = item.action.kind !== "enable" && tier ? reasonOf(safetyMap[item.entry.package]) : ""}
@@ -976,7 +1130,7 @@
                 aria-label="Details for {item.entry.name}"
               >
                 <span class="item-name">{item.entry.name}</span>
-                {#if mode === "optimize" && activeTab === "optional"}
+                {#if mode === "optimize" && activeTab === "optional" && item.entry.name !== item.entry.package}
                   <span class="mono item-package">{item.entry.package}</span>
                 {/if}
                 <div class="item-meta">
@@ -1050,6 +1204,12 @@
                 {#if shownReason}<p class="row-reason" id={consequenceId(item, tier)}>{shownReason}</p>{/if}
                 {#if unavailable}<p class="row-reason">Couldn't load safety details. Retry before selecting this action.</p>{/if}
                 {#if purpose}<p class="row-purpose">{purpose}</p>{/if}
+                {#if item.entry.listed_by}
+                  {@const listedBy = item.entry.listed_by}
+                  <button class="list-line" onclick={() => void api.openUrl(listedBy.url)}>
+                    Line {listedBy.line} of the CleanYourTV list
+                  </button>
+                {/if}
               </Unfurl>
             {/if}
           </div>
@@ -1454,6 +1614,7 @@
   .item-name {
     font-size: 14px;
     font-weight: 600;
+    overflow-wrap: anywhere;
   }
   .item-package {
     color: var(--muted);
@@ -1602,5 +1763,32 @@
     height: 100%;
     background: var(--accent);
     transition: width 0.2s ease;
+  }
+  .listed-heading {
+    display: grid;
+    gap: 2px;
+    padding: 14px 4px 4px;
+    border-top: 1px solid var(--line);
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+  }
+  .listed-sub {
+    color: var(--text-soft);
+    font-size: 0.8rem;
+  }
+  .list-line {
+    display: block;
+    width: auto;
+    align-self: flex-start;
+    justify-content: flex-start;
+    text-align: left;
+    margin-top: 6px;
+    padding: 6px 0;
+    border: 0;
+    background: none;
+    color: var(--accent);
+    font: inherit;
+    font-size: 0.85rem;
+    text-decoration: underline;
   }
 </style>
