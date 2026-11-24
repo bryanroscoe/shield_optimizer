@@ -1,9 +1,10 @@
-// CleanYourTV's per-model lists as a fallback for apps our own catalog has no
-// record of. Pure functions shared by desktop and Android: matching a TV to the
-// lists that name it, reading which apps a list turns off, and pulling the
-// author's note for a line. Nothing here decides safety or picks an action; the
-// screens offer what this returns as "remove if unused" rows, off by default,
-// and only after the person has said which list is theirs.
+// CleanYourTV's per-model lists, ranked after the app's own catalog for apps it
+// has no record of. Pure functions shared by desktop and Android: matching a TV
+// to the lists that name it, choosing which lists to use, reading which apps a
+// list turns off and which list decides, and pulling the author's note for a
+// line. Nothing here decides safety or picks an action: the screens offer what
+// this returns as "remove if unused" rows that start on Keep and can only be
+// disabled, under the name of the list they came from.
 
 import type { SourceProfile } from "./profile-catalog";
 
@@ -32,12 +33,12 @@ export interface ListedApp {
 const tokens = (text: string) => new Set(text.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean));
 const squash = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
 
-/// Lists that name this TV, best first. A list qualifies when it names the
-/// TV's device codename as a word, or contains its full model name and is from
-/// the same maker. A model name alone across makers ("Box R 4K Plus") is too
-/// common to mean anything, and nothing matches on brand alone. Several lists
-/// can name one platform (a TV family shares a codename), so the person picks;
-/// this only narrows the choice.
+/// Lists that may be this TV's, best first. A list that names the TV's device
+/// codename as a word is a match; when any list does, those are the only ones,
+/// because a shared model name ("Chromecast") also fits sibling devices with
+/// another codename. With no codename match, lists containing the full model
+/// name from the same maker are offered as suggestions to pick from. A model
+/// name across makers ("Box R 4K Plus") and a brand alone match nothing.
 export function candidateProfiles(
   profiles: SourceProfile[],
   tv: TvIdentity,
@@ -70,7 +71,8 @@ export function candidateProfiles(
       score: (codenameHit ? 2 : 0) + (modelHit ? 1 : 0) + (brandHit ? 1 : 0),
     });
   }
-  return scored
+  const byCodename = scored.filter((entry) => entry.candidate.reasons.includes("codename"));
+  return (byCodename.length > 0 ? byCodename : scored)
     .sort((a, b) => b.score - a.score || a.candidate.profile.profile.localeCompare(b.candidate.profile.profile))
     .slice(0, limit)
     .map((entry) => entry.candidate);
@@ -114,7 +116,7 @@ export function sourceNote(sourceText: string, line: number): string {
     const trailing = clip(own.slice(hash + 1));
     if (trailing) return trailing;
   }
-  let index = line - 2;
+  let index = Math.min(line - 2, lines.length - 1);
   while (index >= 0 && lines[index].trim() && !lines[index].trim().startsWith("#")) index--;
   const comment: string[] = [];
   while (index >= 0) {
@@ -186,20 +188,20 @@ export interface InstalledApp {
   name?: string | null;
 }
 
-/// Where a suggested row came from, carried on its catalog entry so the row
-/// can say so and link the exact line.
+/// Which CleanYourTV list a row came from, carried on its entry so the row
+/// and its group can say so.
 export interface ListedBy {
   profile: string;
   tv: string;
-  line: number;
+  /// The list file at the pinned commit.
   url: string;
 }
 
-/// The entry a suggested row is built from. It has the shape of a catalog
-/// entry so Optimize treats it like any other "remove if unused" row: never
-/// pre-selected (`review`, no `default_optimize`), Disable only (`method`, no
-/// store listing so Uninstall is never offered), and the verdict still comes
-/// from the app's own safety check.
+/// The entry a list row is built from. It has the shape of a catalog entry so
+/// Optimize treats it like any other "remove if unused" row: never pre-selected
+/// (`review`, no `default_optimize`), Disable only (`method`, no store listing
+/// so Uninstall is never offered), and the verdict still comes from the app's
+/// own safety check.
 export interface ListedEntry {
   package: string;
   name: string;
@@ -219,43 +221,80 @@ export interface ListedPlanItem {
   action: { kind: "disable" } | { kind: "enable" };
 }
 
-/// Rows for the apps on the chosen list that are installed on this TV and that
-/// `covered` (everything the app's own catalog already has a row or a verdict
-/// for) doesn't include. Optimize gets the enabled ones to disable; Restore
-/// gets the disabled ones to turn back on, so a run can always be undone the
-/// same way it was made.
-export function listedPlanItems(
-  profile: SourceProfile,
-  sourceText: string,
-  sourceUrlFor: (line: number) => string,
+/// The CleanYourTV lists Optimize uses for this TV, in rank order, after the
+/// app's own catalog: none when the person turned them off, the one they picked
+/// when they picked one, otherwise every list that names the TV's device
+/// codename, best match first. A model-name match is only ever a suggestion.
+export function activeLists(
+  profiles: SourceProfile[],
+  tv: TvIdentity,
+  choice: string | null,
+): SourceProfile[] {
+  if (choice === LIST_OFF) return [];
+  if (choice) {
+    const picked = profiles.find((profile) => profile.profile === choice);
+    if (picked) return [picked];
+  }
+  return candidateProfiles(profiles, tv)
+    .filter((candidate) => candidate.reasons.includes("codename"))
+    .map((candidate) => candidate.profile);
+}
+
+/// Rows from a stack of lists, ranked: the app's own catalog first (`covered`:
+/// everything it already has a row or a verdict for), then each list in order.
+/// The first list that mentions an app decides it: a disable line there makes
+/// a row, and a line it keeps commented out means no row, whatever a lower list
+/// says. Optimize gets the installed apps that are on; Restore gets the ones
+/// that are off, so a run can be undone the way it was made.
+export function rankedPlanItems(
+  lists: { profile: SourceProfile; text: string; url: string }[],
   installed: InstalledApp[],
   covered: ReadonlySet<string>,
   mode: "optimize" | "restore",
 ): ListedPlanItem[] {
   const byPackage = new Map(installed.map((app) => [app.package, app]));
+  const decided = new Set(covered);
   const items: ListedPlanItem[] = [];
-  for (const { package: packageId, line } of listedForDisable(profile)) {
-    const app = byPackage.get(packageId);
-    if (!app || covered.has(packageId)) continue;
-    if (mode === "optimize" ? !app.enabled : app.enabled) continue;
-    const note = sourceNote(sourceText, line);
-    const tv = profile.upstream_context.tv;
-    items.push({
-      entry: {
-        package: packageId,
-        name: app.name?.trim() || packageId,
-        method: "disable",
-        risk: "medium",
-        optimize_description: note || `On the CleanYourTV list for ${tv}.`,
-        restore_description: note || `On the CleanYourTV list for ${tv}.`,
-        default_optimize: false,
-        default_restore: false,
-        play_store: false,
-        review: true,
-        listed_by: { profile: profile.profile, tv, line, url: sourceUrlFor(line) },
-      },
-      action: { kind: mode === "optimize" ? "disable" : "enable" },
-    });
+  for (const { profile, text, url } of lists) {
+    const listed = new Map(listedForDisable(profile).map((app) => [app.package, app.line]));
+    const mentioned = new Set(
+      [...profile.entries]
+        .sort((x, y) => x.line - y.line)
+        .filter((entry) => entry.upstream_form !== "comment_reference")
+        .map((entry) => entry.package),
+    );
+    for (const packageId of mentioned) {
+      if (decided.has(packageId)) continue;
+      decided.add(packageId);
+      const line = listed.get(packageId);
+      const app = byPackage.get(packageId);
+      if (line === undefined || !app) continue;
+      if (mode === "optimize" ? !app.enabled : app.enabled) continue;
+      const note = sourceNote(text, line);
+      const tv = profile.upstream_context.tv;
+      items.push({
+        entry: {
+          package: packageId,
+          name: app.name?.trim() || packageId,
+          method: "disable",
+          risk: "medium",
+          optimize_description: note ? `List author's note: ${note}` : `On the CleanYourTV list for ${tv}.`,
+          restore_description: note ? `List author's note: ${note}` : `On the CleanYourTV list for ${tv}.`,
+          default_optimize: false,
+          default_restore: false,
+          play_store: false,
+          review: true,
+          listed_by: { profile: profile.profile, tv, url },
+        },
+        action: { kind: mode === "optimize" ? "disable" : "enable" },
+      });
+    }
   }
   return items;
 }
+
+/// The plan-sources help, in each app's own help control.
+export const PLAN_SOURCES_HELP: readonly string[] = [
+  "The plan comes from ATV Optimizer's own catalog first. For apps the catalog has no record of, it uses CleanYourTV, a community project where TV owners share the apps they turned off on their exact model, starting with the list that best matches this TV. The first list that mentions an app decides it.",
+  "Apps from a CleanYourTV list sit under that list's name. None is selected for you, they can only be disabled, never uninstalled, and the do-not-disable list still refuses anything on it. Each note is the list author's, not reviewed by us. The lists are a pinned copy, used under the MIT license.",
+];

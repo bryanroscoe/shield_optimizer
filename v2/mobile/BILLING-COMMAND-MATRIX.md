@@ -53,7 +53,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `package_states` | Free | `../crates/core/src/commands/apps.rs` | `src/lib/session.svelte.ts`, `src/screens/Apps.svelte`, `src/screens/Tweaks.svelte` |
 | `list_other_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Apps.svelte` |
 | `user_installed_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Apps.svelte` |
-| `list_installed_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Backups.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Launcher.svelte` |
+| `list_installed_packages` | Free | `../crates/core/src/commands/apps.rs` | `src/screens/Backups.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Launcher.svelte`, `src/screens/Optimize.svelte` |
 | `app_memory_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |
 | `app_storage_map` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppSheetHost.svelte`, `src/screens/Apps.svelte` |
 | `app_apk_size` | Free | `../crates/core/src/commands/apps.rs` | `src/components/AppDetailSheet.svelte` |
@@ -108,7 +108,7 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `upload_imported` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Files.svelte` |
 | `inspect_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
 | `install_imported_apks` | Free | `src-tauri/src/import_commands.rs` | `src/screens/Sideload.svelte` |
-| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte`, `src/screens/Sideload.svelte` |
+| `plugin:opener|open_url` | Free | `src/lib/api.ts (scoped opener plugin)` | `src/components/AppReportSheet.svelte`, `src/components/BugReportSheet.svelte`, `src/components/SupportReports.svelte`, `src/screens/Catalog.svelte`, `src/screens/Launcher.svelte`, `src/screens/More.svelte`, `src/screens/Optimize.svelte`, `src/screens/Sideload.svelte` |
 
 ## UI and recovery findings
 

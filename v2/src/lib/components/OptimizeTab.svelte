@@ -23,8 +23,9 @@
   import { openUrl } from "@tauri-apps/plugin-opener";
   import CleanYourTvListCard from "../../../shared/components/CleanYourTvListCard.svelte";
   import {
-    LIST_OFF,
-    listedPlanItems,
+    activeLists,
+    PLAN_SOURCES_HELP,
+    rankedPlanItems,
     savedListChoice,
     saveListChoice,
     type TvIdentity,
@@ -143,10 +144,13 @@
   let cytvCatalog = $state<ProfileCatalog | null>(null);
   let cytvLoadError = $state("");
   let cytvChoice = $state<string | null>(null);
-  /// Rows the chosen list added to the plan; null while they load.
-  let cytvRowCount = $state<number | null>(null);
   let cytvError = $state("");
   let cytvRequest = 0;
+  /// A refresh asked for while a run or its confirmation was open: it would
+  /// change the plan under them, so it waits until they close.
+  let cytvRefreshPending = false;
+  /// The CleanYourTV lists in use, in rank order after the catalog.
+  let cytvLists = $derived(cytvCatalog ? activeLists(cytvCatalog.profiles, tv ?? {}, cytvChoice) : []);
   let cytvHardwareSeen: string | null | undefined = undefined;
 
   let componentEpoch = 0;
@@ -157,6 +161,7 @@
 
   type Context = {
     serial: string;
+    hardwareId: string | null;
     deviceType: DeviceType;
     resetToken: number;
     pageEpoch: number;
@@ -164,12 +169,13 @@
   };
 
   function captureContext(): Context {
-    return { serial, deviceType, resetToken, pageEpoch, componentEpoch };
+    return { serial, hardwareId, deviceType, resetToken, pageEpoch, componentEpoch };
   }
 
   function contextIsCurrent(context: Context): boolean {
     return !destroyed
       && context.serial === serial
+      && context.hardwareId === hardwareId
       && context.deviceType === deviceType
       && context.resetToken === resetToken
       && context.pageEpoch === pageEpoch
@@ -182,7 +188,7 @@
   // First run just records the baseline; only a later change clears the plan.
   let seenContext: string | undefined;
   $effect(() => {
-    const contextKey = `${serial}\u0000${deviceType}\u0000${resetToken}\u0000${pageEpoch}`;
+    const contextKey = `${serial}\u0000${hardwareId ?? ""}\u0000${deviceType}\u0000${resetToken}\u0000${pageEpoch}`;
     if (seenContext !== undefined && contextKey !== seenContext) {
       componentEpoch++;
       loadRequest++;
@@ -197,7 +203,7 @@
       safetyByPackage = {};
       appliedInPlan = new Map();
       cytvRequest++;
-      cytvRowCount = null;
+      cytvRefreshPending = false;
       cytvError = "";
       resetSnapshotOffer();
     }
@@ -252,11 +258,6 @@
     });
   });
 
-  function chosenListProfile() {
-    if (!cytvCatalog || !cytvChoice || cytvChoice === LIST_OFF) return null;
-    return cytvCatalog.profiles.find((profile) => profile.profile === cytvChoice) ?? null;
-  }
-
   function chooseList(choice: string | null) {
     if (optimizeRunning) return;
     cytvChoice = choice;
@@ -268,12 +269,21 @@
     void refreshListedRows();
   }
 
-  /// Swaps the plan's CleanYourTV rows for the current choice's. Overrides on
-  /// rows that leave are dropped, so a hidden row can't stay armed.
+  /// Swaps the plan's CleanYourTV rows for new ones. Overrides and verdicts of
+  /// rows that leave go with them, so a hidden row can't stay armed and a
+  /// verdict is never reused for a list that didn't ask for it. Nothing to
+  /// swap is a no-op, so the plan a run confirmation holds stays the same.
   function setListedRows(rows: OptimizePlanItem[]) {
     if (!optimizePlan) return;
-    for (const item of optimizePlan.items) {
-      if (item.entry.listed_by) delete optimizeOverrides[item.entry.package];
+    const leaving = optimizePlan.items.filter((item) => item.entry.listed_by);
+    if (leaving.length === 0 && rows.length === 0) return;
+    if (leaving.length > 0) {
+      const safety = { ...safetyByPackage };
+      for (const item of leaving) {
+        delete optimizeOverrides[item.entry.package];
+        delete safety[item.entry.package];
+      }
+      safetyByPackage = safety;
     }
     optimizePlan = {
       ...optimizePlan,
@@ -281,36 +291,37 @@
     };
   }
 
-  /// The chosen list's apps that are on this TV and that the app's own safety
-  /// check has no record of. Anything it does know keeps its own verdict and its
-  /// own row, or none; the list never overrides it.
+  /// Rows from the CleanYourTV lists in use, ranked after the catalog: apps on
+  /// this TV that the app's own safety check has no record of. Anything it does
+  /// know keeps its own verdict and its own row, or none. An app whose check
+  /// fails gets no row: without the check there is no telling it is unrecorded.
   async function refreshListedRows() {
     if (!optimizePlan) return;
+    if (optimizeRunning || runConfirm) {
+      cytvRefreshPending = true;
+      return;
+    }
+    cytvRefreshPending = false;
     const context = captureContext();
     const request = ++cytvRequest;
     const load = loadRequest;
     const mode = optimizeMode;
-    const profile = chosenListProfile();
     const catalog = cytvCatalog;
+    const lists = catalog ? activeLists(catalog.profiles, tv ?? {}, cytvChoice) : [];
     cytvError = "";
     setListedRows([]);
-    if (!profile || !catalog) {
-      cytvRowCount = 0;
-      return;
-    }
-    cytvRowCount = null;
-    const stale = () => !contextIsCurrent(context) || request !== cytvRequest || load !== loadRequest || !optimizePlan;
+    if (!catalog || lists.length === 0) return;
+    const stale = () => !contextIsCurrent(context) || request !== cytvRequest || load !== loadRequest || !optimizePlan
+      || optimizeRunning || !!runConfirm;
     try {
-      const [installed, text] = await Promise.all([
+      const [installed, texts] = await Promise.all([
         api.listInstalledPackages(context.serial),
-        loadSourceText(profile),
+        Promise.all(lists.map((profile) => loadSourceText(profile))),
       ]);
       if (stale()) return;
       const covered = new Set(optimizePlan!.items.map((item) => item.entry.package));
-      const candidates = listedPlanItems(
-        profile,
-        text,
-        (line) => sourceUrl(catalog.upstream_commit, profile, line),
+      const candidates = rankedPlanItems(
+        lists.map((profile, index) => ({ profile, text: texts[index], url: sourceUrl(catalog.upstream_commit, profile) })),
         installed,
         covered,
         mode,
@@ -319,23 +330,25 @@
       if (stale()) return;
       const rows: OptimizePlanItem[] = [];
       const safety: Record<string, SafetyStatus> = {};
+      let unchecked = 0;
       candidates.forEach((item, index) => {
         const result = verdicts[index];
-        if (result.status === "fulfilled") {
-          if (result.value.source !== "no_record") return;
-          safety[item.entry.package] = { status: "ready", verdict: result.value };
-        } else {
-          safety[item.entry.package] = { status: "unavailable", reason: String(result.reason) };
+        if (result.status !== "fulfilled") {
+          unchecked++;
+          return;
         }
+        if (result.value.source !== "no_record") return;
+        safety[item.entry.package] = { status: "ready", verdict: result.value };
         rows.push(item);
       });
       safetyByPackage = { ...safetyByPackage, ...safety };
       setListedRows(rows);
-      cytvRowCount = rows.length;
+      if (unchecked > 0) {
+        cytvError = `Couldn't check ${unchecked} ${unchecked === 1 ? "app" : "apps"} from CleanYourTV, so ${unchecked === 1 ? "it isn't" : "they aren't"} listed. Reload the plan to try again.`;
+      }
     } catch (error) {
       if (stale()) return;
-      cytvRowCount = 0;
-      cytvError = `Couldn't read this TV's apps for the CleanYourTV list. ${error}`;
+      cytvError = `Couldn't read this TV's apps for CleanYourTV. ${error}`;
     }
   }
 
@@ -567,6 +580,7 @@
     const open = runConfirm;
     runConfirm = null;
     open?.resolve(ok);
+    if (!ok && cytvRefreshPending && !destroyed) void refreshListedRows();
     if (open && !destroyed) void tick().then(() => (ok || runButton?.disabled ? panelEl : runButton)?.focus());
   }
 
@@ -696,6 +710,7 @@
     if (!contextIsCurrent(context) || request !== runRequest) return;
     optimizeCurrent = null;
     optimizeRunning = false;
+    if (cytvRefreshPending) void refreshListedRows();
     optimizeSummary = safetyStopped
       ? `Stopped before further removals. ${done} applied, ${failed} failed, ${skipped} skipped. Reload and review safety.`
       : optimizeAbort
@@ -782,6 +797,8 @@
   /// StateBadge renders meaningfully here: a not-installed skip ⇒ missing, an
   /// already-disabled skip ⇒ disabled, everything else ⇒ enabled.
   function rowState(item: OptimizePlanItem): "enabled" | "disabled" | "missing" {
+    // Restore only offers Enable on an app that is off.
+    if (item.action.kind === "enable") return "disabled";
     if (item.action.kind === "skip") {
       if (item.action.reason === "not_installed") return "missing";
       if (item.action.reason === "already_disabled") return "disabled";
@@ -802,7 +819,16 @@
   );
   let visibleCatalogItems = $derived(visibleOptimizeItems.filter((i) => !i.entry.listed_by));
   let visibleListedItems = $derived(visibleOptimizeItems.filter((i) => !!i.entry.listed_by));
-  let listedProfile = $derived(cytvRowCount ? chosenListProfile() : null);
+  /// The list rows grouped under their list, in rank order.
+  let listedGroups = $derived(
+    cytvLists
+      .map((profile) => ({
+        profile,
+        url: cytvCatalog ? sourceUrl(cytvCatalog.upstream_commit, profile) : "",
+        items: visibleListedItems.filter((item) => item.entry.listed_by?.profile === profile.profile),
+      }))
+      .filter((group) => group.items.length > 0),
+  );
 
   /// What the plan is made of, in the safety vocabulary — the first thing the
   /// guided header says, because "N safe, M caution, K protected" is the shape
@@ -944,14 +970,6 @@
       {:else if safetyByPackage[item.entry.package]?.status === "unavailable"}
         <div class="muted small review-hint">Reload the plan to retry safety.</div>
       {/if}
-      {#if item.entry.listed_by}
-        {@const listedBy = item.entry.listed_by}
-        <button
-          class="listed-source small"
-          data-tip="Open this line of the CleanYourTV list"
-          onclick={() => void openUrl(listedBy.url)}
-        >Line {listedBy.line} of the list</button>
-      {/if}
       {#if eff === "uninstall"}
         <!-- Whether an uninstall can be taken back depends on the
              app, so the row armed with it says which case it is. -->
@@ -1085,12 +1103,16 @@
       loadError={cytvLoadError}
       tv={tv ?? {}}
       choice={cytvChoice}
-      rowCount={cytvRowCount}
+      lists={cytvLists}
       busy={optimizeRunning}
-      mode={optimizeMode}
       onChoose={chooseList}
-      openSource={(url) => openUrl(url)}
-    />
+    >
+      {#snippet help()}
+        <HelpDetails label="About plan sources">
+          {#each PLAN_SOURCES_HELP as paragraph (paragraph)}<p>{paragraph}</p>{/each}
+        </HelpDetails>
+      {/snippet}
+    </CleanYourTvListCard>
     {#if cytvError}
       <p class="error small" role="alert">{cytvError}</p>
     {/if}
@@ -1119,25 +1141,37 @@
         </tr>
       </thead>
       <tbody>
+        {#if listedGroups.length > 0}
+          <tr class="listed-heading">
+            <th colspan="6" scope="colgroup">
+              <div class="listed-heading-inner"><strong>ATV Optimizer catalog</strong></div>
+            </th>
+          </tr>
+        {/if}
         {#each visibleCatalogItems as item (item.entry.package)}
           {@render planRow(item)}
         {/each}
       </tbody>
-      {#if listedProfile && visibleListedItems.length > 0}
-        <!-- The list's rows sit under their own heading, so where a suggestion
-             came from is never in doubt. -->
-        <tbody class="listed-group" data-cleanyourtv-rows>
+      {#each listedGroups as group (group.profile.profile)}
+        <!-- Each CleanYourTV list's rows sit under its name, in rank order
+             after the catalog, so where a row came from is never in doubt. -->
+        <tbody class="listed-group" data-cleanyourtv-rows={group.profile.profile}>
           <tr class="listed-heading">
             <th colspan="6" scope="colgroup">
-              <span>From the CleanYourTV list for <strong>{listedProfile.upstream_context.tv}</strong></span>
-              <span class="muted small">Not reviewed by ATV Optimizer · Disable only</span>
+              <div class="listed-heading-inner">
+                <span>CleanYourTV list for <strong>{group.profile.upstream_context.tv}</strong></span>
+                <span class="muted small">
+                  Community list, not reviewed by ATV Optimizer · Disable only ·
+                  <button class="listed-source" onclick={() => void openUrl(group.url)}>View list</button>
+                </span>
+              </div>
             </th>
           </tr>
-          {#each visibleListedItems as item (item.entry.package)}
+          {#each group.items as item (item.entry.package)}
             {@render planRow(item)}
           {/each}
         </tbody>
-      {/if}
+      {/each}
     </table>
     </div>
 
@@ -1271,6 +1305,7 @@
     min-width: 0;
     max-width: 100%;
     overflow-x: auto;
+    container-type: inline-size;
   }
   .plan-table-scroll:focus-visible {
     outline: 2px solid var(--accent);
@@ -1604,7 +1639,7 @@
   /* The CleanYourTV group's heading row and each row's link to its line. */
   .listed-heading th {
     text-align: left;
-    padding: 0.9rem 0.75rem 0.5rem;
+    padding: 0.9rem 0 0.5rem;
     border-top: 1px solid var(--border);
     font-weight: 500;
     font-size: 0.9rem;
@@ -1612,11 +1647,18 @@
     letter-spacing: normal;
     color: var(--fg-primary);
   }
-  .listed-heading th span { display: block; overflow-wrap: anywhere; }
-  .listed-heading th span + span { margin-top: 0.15rem; }
+  /* The heading spans the table's full scroll width, so its text is held to
+     the visible width and stays put while the table scrolls sideways. */
+  .listed-heading-inner {
+    position: sticky;
+    left: 0.75rem;
+    max-width: calc(100cqi - 1.5rem);
+    display: grid;
+    gap: 0.15rem;
+    overflow-wrap: anywhere;
+  }
   .listed-source {
-    display: block;
-    margin-top: 0.3rem;
+    display: inline;
     padding: 0;
     border: 0;
     background: none;

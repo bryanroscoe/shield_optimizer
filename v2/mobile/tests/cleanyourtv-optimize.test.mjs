@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
 
-// The phone's Optimize offers the TV's CleanYourTV list the same way desktop
-// does: suggested, not used until chosen, its rows on Optional apps under
-// their own heading, starting on Keep with Disable as the only removal.
-test("a chosen CleanYourTV list adds unselected Disable-only rows under their own heading", async () => {
+// The phone's Optimize ranks the TV's CleanYourTV list after the catalog the
+// same way desktop does: its rows on Optional apps under the list's name,
+// after the catalog's, starting on Keep with Disable as the only removal.
+test("the TV's CleanYourTV list adds unselected Disable-only rows under its name", async () => {
   const previousDemo = process.env.VITE_DEMO;
   process.env.VITE_DEMO = "1";
   let server, browser;
@@ -39,29 +39,28 @@ test("a chosen CleanYourTV list adds unselected Disable-only rows under their ow
       router.navigate("optimize");
     });
     const card = page.locator("[data-cleanyourtv-card]");
-    await card.getByRole("button", { name: "Use this list" }).waitFor();
-    assert.match(await card.innerText(), /NVIDIA SHIELD TV Pro 2019/);
-    assert.equal(await page.locator("[data-cleanyourtv-rows]").count(), 0, "nothing from the list before it is chosen");
-    if (evidence) await card.screenshot({ path: join(evidence, "mobile-card-suggested.png") });
-
-    await card.getByRole("button", { name: "Use this list" }).click();
-    await card.getByText(/1 more app from/).waitFor();
+    const heading = page.locator('[data-cleanyourtv-rows="nvidia-shield-tv-pro-2019"]');
+    // The codename's list is used without asking, ranked after the catalog.
+    await page.waitForFunction(() =>
+      document.querySelector("[data-cleanyourtv-card]")?.textContent?.replace(/\s+/g, " ")
+        .includes("Sources: ATV Optimizer catalog, then CleanYourTV's list for NVIDIA SHIELD TV Pro 2019"));
+    if (evidence) await card.screenshot({ path: join(evidence, "mobile-sources.png") });
     await page.getByRole("button", { name: /^Optional/ }).click();
-    const heading = page.locator("[data-cleanyourtv-rows]");
     await heading.waitFor();
-    assert.match(await heading.innerText(), /From the CleanYourTV list for NVIDIA SHIELD TV Pro/);
+    assert.match(await heading.innerText(), /CleanYourTV list for NVIDIA SHIELD TV Pro 2019/);
+    assert.match(await heading.innerText(), /Community list, not reviewed by ATV Optimizer · Disable only/);
+    assert.match(await page.locator(".listed-heading").first().innerText(), /^ATV Optimizer catalog/, "the catalog comes first");
     const row = page.locator(".optimize-item").filter({ has: page.getByText("android.autoinstalls.config.nvidia", { exact: true }) });
     await row.scrollIntoViewIfNeeded();
     assert.equal(await row.getByRole("button", { name: "Keep", exact: true }).getAttribute("aria-pressed"), "true");
     assert.equal(await row.getByRole("button", { name: "Disable", exact: true }).count(), 1);
     assert.equal(await row.getByRole("button", { name: /Uninstall/ }).count(), 0, "a list row never offers Uninstall");
-    await row.locator(".tier-chip.unknown, .tier-chip").first().waitFor();
     const explain = row.getByRole("button", { name: /^If you remove it/ });
     if ((await explain.getAttribute("aria-expanded")) !== "true") await explain.click();
-    assert.ok((await row.innerText()).includes("Play auto-installs of partner apps"), "the list author's note shows");
-    await row.getByRole("button", { name: /^Line \d+ of the CleanYourTV list$/ }).click();
+    assert.ok((await row.innerText()).includes("List author's note: Play auto-installs of partner apps"), "the list author's note shows");
+    await heading.getByRole("button", { name: "View list" }).click();
     const opened = await page.evaluate(() => window.openedUrls);
-    assert.match(opened.at(-1) ?? "", /examples\/nvidia-shield-tv-pro-2019\/debloat\.txt#L\d+$/);
+    assert.match(opened.at(-1) ?? "", /examples\/nvidia-shield-tv-pro-2019\/debloat\.txt$/);
     for (const width of [412, 320]) {
       await page.setViewportSize({ width, height: 900 });
       await page.waitForTimeout(200);
@@ -72,8 +71,6 @@ test("a chosen CleanYourTV list adds unselected Disable-only rows under their ow
       await heading.scrollIntoViewIfNeeded();
       await page.waitForTimeout(300);
       await page.screenshot({ path: join(evidence, "mobile-optional-list-rows.png") });
-      await card.scrollIntoViewIfNeeded();
-      await card.screenshot({ path: join(evidence, "mobile-card-chosen.png") });
     }
     assert.deepEqual(errors, []);
   } finally {

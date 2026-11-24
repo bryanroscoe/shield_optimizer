@@ -392,7 +392,8 @@
       "callers": [
         "src/screens/Backups.svelte",
         "src/screens/Diagnostics.svelte",
-        "src/screens/Launcher.svelte"
+        "src/screens/Launcher.svelte",
+        "src/screens/Optimize.svelte"
       ]
     },
     {
@@ -908,6 +909,7 @@
         "src/screens/Catalog.svelte",
         "src/screens/Launcher.svelte",
         "src/screens/More.svelte",
+        "src/screens/Optimize.svelte",
         "src/screens/Sideload.svelte"
       ]
     },
