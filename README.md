@@ -5,8 +5,18 @@ sideload APKs, adjust HDMI-CEC and frame-rate matching, and check device health.
 Works on **Nvidia Shield TV, Onn 4K Pro, Chromecast with Google TV, Google TV Streamer** and other
 Android TV devices.
 
-> **[ATV Optimizer for Android](#atv-optimizer-for-android)** lets you manage your TV over Wi-Fi
-> from an Android phone or tablet. [See how to join the Google Play closed test](https://bryanroscoe.com/atv-optimizer/testing/).
+## TL;DR — try the Android app
+
+**[ATV Optimizer for Android](#atv-optimizer-for-android)** lets you manage your TV over Wi-Fi
+from an Android phone or tablet. To join the Google Play closed test, use the **same Google
+account** for all three steps:
+
+1. **[Join the tester group](https://groups.google.com/g/atv-optimizer-testers)** — click **Join group**.
+2. **[Opt in to the test](https://play.google.com/apps/testing/com.atvoptimizer.mobile)** — click **Become a tester**.
+3. **[Install from Google Play](https://play.google.com/store/apps/details?id=com.atvoptimizer.mobile)** on your Android phone or tablet.
+
+Please stay opted in for at least **14 consecutive days**. For TV setup and what to try, see the
+**[tester guide](https://bryanroscoe.com/atv-optimizer/testing/)**. Desktop downloads are under [Install](#install).
 
 <img alt="ATV Optimizer walkthrough (dark)" src="v2/screenshots/gallery.gif" />
 
