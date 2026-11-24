@@ -2,7 +2,7 @@
   {
     "package": "com.walmart.otto",
     "name": "Walmart App",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Walmart shopping app preinstalled on Onn devices. Nothing on the TV depends on it; disabling it removes it from your app list.",
     "restore_description": "Restores the preinstalled Walmart app.",

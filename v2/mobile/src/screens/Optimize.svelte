@@ -6,7 +6,7 @@
   import { session } from "../lib/session.svelte";
   import { router, type Screen } from "../lib/router.svelte";
   import { isBlocked, reasonOf, tierOf, type SafetyStatus, type SafetyTier } from "../lib/safety";
-  import { reviewLabel, suggestedMethod, uninstallOutcome } from "../lib/recommendation";
+  import { canOfferUninstall, reviewLabel, suggestedMethod, uninstallOutcome } from "../lib/recommendation";
   import {
     applyConfirmation,
     isPlanRecommended,
@@ -991,6 +991,10 @@
                   {/if}
                   {#if mode === "optimize" && isReviewRow(item, statusOf(item))}
                     <span class="tier-chip review">{reviewLabel(suggestedMethod(item.entry, item.install_source ?? "unknown"))}</span>
+                  {/if}
+                  {#if mode === "optimize" && naturalAction(item) === "disable" && item.entry.uninstall_recommended && canOfferUninstall(item.entry) && !isHardBlocked(item)}
+                    <!-- Disable stays the default; Uninstall is in the app's sheet. -->
+                    <span class="tier-chip review">Uninstall recommended</span>
                   {/if}
                   <span class="mono meta-text">
                     {actionLabel(item)}{item.memory_mb != null

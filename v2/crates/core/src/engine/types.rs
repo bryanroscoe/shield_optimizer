@@ -176,6 +176,12 @@ pub struct AppEntry {
     /// back. Feeds the uninstall-safety gate via `reinstallable`.
     #[serde(default)]
     pub defunct: bool,
+    /// We'd suggest uninstalling this app rather than disabling it, but the
+    /// default stays Disable, which can always be undone: the Optimize wizard
+    /// labels Uninstall as recommended and leaves the choice to the person.
+    /// Only offered where uninstall is (`reinstallable`, or a named sideload).
+    #[serde(default)]
+    pub uninstall_recommended: bool,
     /// Surface this app for the user to review and remove *if they don't use it*
     /// — any app people install or use by choice (streaming services, media
     /// players, game streaming, screensavers, file and ADB tools, VPNs, …) —

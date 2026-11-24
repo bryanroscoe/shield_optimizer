@@ -47,7 +47,8 @@
   {
     "package": "com.google.android.videos",
     "name": "Google Play Movies",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Discontinued service (replaced by YouTube).",
     "restore_description": "Restores this discontinued app.",
@@ -63,7 +64,8 @@
   {
     "package": "com.google.android.music",
     "name": "Google Play Music",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Discontinued service (replaced by YouTube Music).",
     "restore_description": "Restores this discontinued app.",
@@ -79,7 +81,8 @@
   {
     "package": "com.Funimation.FunimationNow.androidtv",
     "name": "Funimation",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Service shut down April 2024 (merged into Crunchyroll).",
     "restore_description": "Restores this discontinued app.",
@@ -95,7 +98,8 @@
   {
     "package": "com.google.stadia.android",
     "name": "Stadia",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Service shut down January 2023.",
     "restore_description": "Restores this discontinued app.",
@@ -111,7 +115,8 @@
   {
     "package": "com.google.stadia.androidtv",
     "name": "Stadia (Android TV)",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Service shut down January 2023.",
     "restore_description": "Restores this discontinued app.",
@@ -127,7 +132,8 @@
   {
     "package": "com.quibi.qlient",
     "name": "Quibi",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Service shut down December 2020.",
     "restore_description": "Restores this discontinued app.",
@@ -143,7 +149,8 @@
   {
     "package": "com.hbo.hbonow",
     "name": "HBO Now (legacy)",
-    "method": "uninstall",
+    "method": "disable",
+    "uninstall_recommended": true,
     "risk": "safe",
     "optimize_description": "Discontinued legacy HBO app, replaced by HBO Max.",
     "restore_description": "Restores this discontinued app.",
@@ -159,7 +166,7 @@
   {
     "package": "com.netflix.ninja",
     "name": "Netflix",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Netflix's Android TV app. Disable or uninstall it if nobody here watches Netflix \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Netflix app.",
@@ -175,7 +182,7 @@
   {
     "package": "com.amazon.amazonvideo.livingroom",
     "name": "Amazon Prime Video",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Amazon's Prime Video app. Disable or uninstall it if you watch Prime elsewhere \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Prime Video app.",
@@ -191,7 +198,7 @@
   {
     "package": "com.wbd.stream",
     "name": "HBO Max",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The HBO Max app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the HBO Max app.",
@@ -207,7 +214,7 @@
   {
     "package": "com.disney.disneyplus",
     "name": "Disney+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Disney+ app. Disable or uninstall it if nobody here uses it \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Disney+ app.",
@@ -223,7 +230,7 @@
   {
     "package": "com.hulu.livingroomplus",
     "name": "Hulu",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Hulu's TV app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Hulu app.",
@@ -239,7 +246,7 @@
   {
     "package": "com.spotify.tv.android",
     "name": "Spotify",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Spotify's TV app, for music and podcasts on the big screen. Disable or uninstall it if you listen on a phone or a speaker instead \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Spotify app.",
@@ -255,7 +262,7 @@
   {
     "package": "com.apple.atve.androidtv.appletv",
     "name": "Apple TV",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Apple TV app \u2014 Apple TV+ plus anything bought on iTunes. Disable or uninstall it if you use neither \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Apple TV app.",
@@ -271,7 +278,7 @@
   {
     "package": "com.crunchyroll.crunchyroid",
     "name": "Crunchyroll",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Crunchyroll's anime streaming app. Disable or uninstall it if nobody here watches anime \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Crunchyroll app.",
@@ -287,7 +294,7 @@
   {
     "package": "com.google.android.youtube.tv",
     "name": "YouTube",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The official YouTube app. Removing it leaves the TV with no YouTube unless you've sideloaded another client like SmartTube; you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the official YouTube app.",
@@ -303,7 +310,7 @@
   {
     "package": "com.google.android.youtube.tvmusic",
     "name": "YouTube Music",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The YouTube Music app. Disable or uninstall it if you stream music elsewhere \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the YouTube Music app.",
@@ -319,7 +326,7 @@
   {
     "package": "com.peacocktv.peacockandroid",
     "name": "Peacock",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "NBC's Peacock app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Peacock app.",
@@ -335,7 +342,7 @@
   {
     "package": "com.plexapp.android",
     "name": "Plex",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Plex player app, for watching media from a Plex server elsewhere on your network. Disable or uninstall it if you don't have one \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Plex client.",
@@ -351,7 +358,7 @@
   {
     "package": "com.cbs.ott",
     "name": "Paramount+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Paramount+ app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Paramount+ app.",
@@ -367,7 +374,7 @@
   {
     "package": "tv.twitch.android.app",
     "name": "Twitch",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Twitch's live-streaming app. Disable or uninstall it if nobody here watches streams \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Twitch app.",
@@ -459,7 +466,7 @@
   {
     "package": "com.discovery.discoveryplus.androidtv",
     "name": "Discovery+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Discovery+ app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Discovery+ app.",
@@ -475,7 +482,7 @@
   {
     "package": "com.disney.disneyplus.prod",
     "name": "Disney+ (Alt)",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "A second Disney+ app that some devices ship preinstalled. It's disabled instead of uninstalled because the Play Store can't reinstall this build.",
     "restore_description": "Restores the preinstalled Disney+ build.",
@@ -491,7 +498,7 @@
   {
     "package": "com.google.android.youtube.tvkids",
     "name": "YouTube Kids",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Dedicated TV app discontinued July 2024 \u2014 kids profiles now in the main YouTube app.",
     "restore_description": "Restores this discontinued app.",
@@ -508,7 +515,7 @@
   {
     "package": "ca.bellmedia.crave",
     "name": "Crave",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Crave, Bell's Canadian streaming service, preinstalled on Bell devices. It's disabled instead of uninstalled because it can't be reinstalled here.",
     "restore_description": "Restores the Crave app.",
@@ -524,7 +531,7 @@
   {
     "package": "ca.bell.tv",
     "name": "Bell Fibe TV",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Bell's Fibe TV app, which only works with a Bell TV subscription. It's disabled instead of uninstalled because it can't be reinstalled here.",
     "restore_description": "Restores the Bell Fibe TV app.",
@@ -540,7 +547,7 @@
   {
     "package": "com.sling",
     "name": "Sling TV",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Sling TV's live-TV streaming app. Disable or uninstall it if you're not a Sling subscriber \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Sling TV app.",
@@ -556,7 +563,7 @@
   {
     "package": "com.philo.philo",
     "name": "Philo",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Philo's low-cost live TV app. It's disabled instead of uninstalled because the Play Store can't reinstall it on this device.",
     "restore_description": "Restores the Philo app.",
@@ -572,7 +579,7 @@
   {
     "package": "com.fubo.firetv.screen",
     "name": "fuboTV",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "fuboTV's live sports and TV app. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the fuboTV app.",
@@ -588,7 +595,7 @@
   {
     "package": "com.haystack.android",
     "name": "Haystack News",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Haystack News \u2014 free, ad-supported news video. Disable or uninstall it if you get your news elsewhere \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the Haystack News app.",
@@ -604,7 +611,7 @@
   {
     "package": "air.com.vudu.air.DownloaderTablet",
     "name": "Fandango: Movies & Series",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Fandango: Movies & Series (formerly Vudu) \u2014 films you rented or bought there. Disable or uninstall it if you have no purchases to watch \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores Fandango: Movies & Series.",
@@ -620,7 +627,7 @@
   {
     "package": "com.starz.starzplay.android",
     "name": "LIONSGATE+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "The Starz / LIONSGATE+ app. Disable it if you don't subscribe \u2014 it's disabled instead of uninstalled because it can't be reinstalled here.",
     "restore_description": "Restores the LIONSGATE+ app.",
@@ -636,7 +643,7 @@
   {
     "package": "com.showtime.standalone",
     "name": "Showtime",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Service shut down April 2024 (merged into Paramount+).",
     "restore_description": "Restores this discontinued app.",
@@ -653,7 +660,7 @@
   {
     "package": "com.amcplus.amcfiretv",
     "name": "AMC+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "AMC+'s streaming app, in the build shipped for Fire TV. It's disabled instead of uninstalled because the Play Store can't reinstall this build.",
     "restore_description": "Restores the AMC+ app.",
@@ -669,7 +676,7 @@
   {
     "package": "com.britbox.us",
     "name": "BritBox",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "BritBox, the British TV subscription service. Disable or uninstall it if you don't subscribe \u2014 you can reinstall it from the Play Store anytime.",
     "restore_description": "Restores the BritBox app.",
@@ -685,7 +692,7 @@
   {
     "package": "com.epix.epixnow.google",
     "name": "MGM+",
-    "method": "uninstall",
+    "method": "disable",
     "risk": "safe",
     "optimize_description": "Discontinued Epix Now app, replaced by the current MGM+ app.",
     "restore_description": "Restores this discontinued app.",
