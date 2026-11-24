@@ -416,6 +416,40 @@ mod tests {
         assert!(!bundle.googletv.is_empty(), "googletv list empty");
     }
 
+    /// Optimize starts every catalog app on Disable, which Restore can undo.
+    /// Uninstall stays a choice the person makes: `uninstall_recommended` only
+    /// labels it, and only on apps the store can give back.
+    #[test]
+    fn catalog_defaults_to_disable_and_recommends_only_reinstallable_uninstalls() {
+        let bundle = load_embedded_app_lists().expect("parse");
+        let all = bundle
+            .common
+            .iter()
+            .chain(&bundle.shield)
+            .chain(&bundle.googletv);
+        let mut recommended = 0;
+        for e in all {
+            assert_eq!(
+                e.method,
+                crate::engine::ActionMethod::Disable,
+                "{} must default to Disable",
+                e.package
+            );
+            if e.uninstall_recommended {
+                recommended += 1;
+                assert!(
+                    e.reinstallable(),
+                    "{} recommends an uninstall the store can't undo",
+                    e.package
+                );
+            }
+        }
+        assert!(
+            recommended > 0,
+            "the uninstall recommendations went missing"
+        );
+    }
+
     #[test]
     fn embedded_data_includes_known_defunct_apps() {
         let bundle = load_embedded_app_lists().expect("parse");

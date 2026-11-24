@@ -3444,10 +3444,11 @@
                       data-tip="pm disable-user --user 0"
                     >Disable</button>
                   {/if}
-                  <!-- Ordinary store apps (not once Kept) and the named
-                       sideload recovery path. Defunct alone is not evidence
-                       of a working store route. -->
-                  {#if canRemove && ((canOfferStoreUninstall(a) && !keptPackages.has(a.package)) || (!isReinstallable(a) && canOfferUninstall(a))) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
+                  <!-- Ordinary store apps (not once Kept), apps the catalog
+                       recommends uninstalling (the default is still Disable),
+                       and the named sideload recovery path. Defunct alone is
+                       not evidence of a working store route. -->
+                  {#if canRemove && (((canOfferStoreUninstall(a) || (a.uninstall_recommended && isReinstallable(a))) && !keptPackages.has(a.package)) || (!isReinstallable(a) && canOfferUninstall(a))) && !((rec.kind === "act" || rec.kind === "review") && rec.action === "uninstall")}
                     <button
                       class="small-action subtle danger"
                       onclick={() => uninstallApp(a.package)}

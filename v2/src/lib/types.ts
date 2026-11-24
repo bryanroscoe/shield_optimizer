@@ -75,6 +75,8 @@ export interface AppEntry {
   play_store: boolean;
   /// Discontinued service — safe to uninstall despite no Play Store listing.
   defunct?: boolean;
+  /// Suggest Uninstall over the default Disable; the person chooses.
+  uninstall_recommended?: boolean;
   /// "Remove if unused" tier — surfaced as a candidate with a usage signal.
   review?: boolean;
   /// When a person last reviewed this classification, `YYYY-MM-DD`.

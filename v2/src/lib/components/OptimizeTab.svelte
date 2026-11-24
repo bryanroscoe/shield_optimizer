@@ -341,7 +341,16 @@
   /// whole of the advice and "Recommended" would overstate it.
   function isRecommended(item: OptimizePlanItem, action: RowAction): boolean {
     if (isReviewRow(item)) return false;
+    if (uninstallIsRecommended(item)) return action === "uninstall";
     return action === defaultAction(item);
+  }
+
+  /// The catalog suggests Uninstall for this app, but the row still starts on
+  /// Disable, which can always be undone: the person decides.
+  function uninstallIsRecommended(item: OptimizePlanItem): boolean {
+    return !!item.entry.uninstall_recommended
+      && defaultAction(item) === "disable"
+      && actionOptions(item).includes("uninstall");
   }
 
   function isReviewRow(item: OptimizePlanItem): boolean {

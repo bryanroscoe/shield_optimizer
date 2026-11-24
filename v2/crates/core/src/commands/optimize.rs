@@ -241,6 +241,7 @@ mod tests {
             restore_description: String::new(),
             default_optimize: true,
             default_restore: false,
+            uninstall_recommended: false,
             play_store: false,
             defunct: false,
             review: false,

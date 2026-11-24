@@ -497,6 +497,7 @@ mod tests {
             restore_description: String::new(),
             default_optimize: false,
             default_restore,
+            uninstall_recommended: false,
             play_store: true,
             defunct: false,
             review: true,
