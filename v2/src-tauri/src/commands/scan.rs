@@ -422,13 +422,16 @@ fn held_transport_for<'a>(
         })
 }
 
-/// Ask the adb daemon what it has seen advertised over mDNS. Requires
-/// platform-tools 30+; older binaries print usage text to stderr, which
-/// parses to no services rather than an error.
-async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
+/// Ask the adb daemon what it has seen advertised over mDNS. A failed
+/// enumeration is not a successful one that saw no advertisements.
+async fn discover_mdns_services(adb: &dyn AdbDriver) -> Result<Vec<MdnsService>, String> {
     match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
+        Ok(out) if out.success() => Ok(parse_mdns_services(&out.stdout)),
+        Ok(out) => Err(bounded_detail(&format!(
+            "adb mdns services exited unsuccessfully: {}",
+            out.combined()
+        ))),
+        Err(error) => Err(bounded_detail(&error.to_string())),
     }
 }
 
@@ -860,8 +863,12 @@ async fn scan_command_stage_with_attempts(
             }
         }
     };
+    let mut mdns_error = None;
     let services = if host_server {
-        discover_mdns_services(adb).await
+        discover_mdns_services(adb).await.unwrap_or_else(|error| {
+            mdns_error = Some(error);
+            Vec::new()
+        })
     } else {
         native_snapshot
             .as_ref()
@@ -1153,6 +1160,12 @@ async fn scan_command_stage_with_attempts(
             &failure_details,
             startup_error.as_deref(),
         );
+        if let Some(error) = mdns_error {
+            message.push_str(&format!(
+                " Network advertisement discovery failed: {error}. Port 5555 scan results are \
+                 still included. Try Scan LAN again or Add by IP."
+            ));
+        }
         (message, Vec::new())
     } else {
         let mut details = failure_details;
@@ -1995,6 +2008,42 @@ mod command_stage_tests {
         async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
             panic!("Scan command stage must not query a TV profile")
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mdns_failure_preserves_sweep_results_and_is_not_empty_discovery() {
+        for nonzero in [false, true] {
+            let fake = ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]);
+            let fake = if nonzero {
+                fake.nonzero(&["mdns", "services"], "enumeration unavailable")
+            } else {
+                fake.on(&["mdns", "services"], &[Err("enumeration unavailable")])
+            };
+            let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+                .await
+                .unwrap();
+            assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+            assert!(result.failed.is_empty());
+            assert!(result
+                .message
+                .contains("Network advertisement discovery failed"));
+            assert!(result.message.contains("enumeration unavailable"));
+            assert_eq!(fake.count("mdns services"), 1);
+        }
+        let fake = ScanFake::default();
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        assert!(result.found.is_empty());
+        assert!(!result.message.contains("discovery failed"));
+        assert_eq!(fake.count("mdns services"), 1);
+        let fake = ScanFake::default().on(&["mdns", "services"], &[Err("enumeration unavailable")]);
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        assert!(result.found.is_empty());
+        assert!(result.message.contains("discovery failed"));
     }
 
     #[tokio::test(start_paused = true)]
