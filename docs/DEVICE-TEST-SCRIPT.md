@@ -7,7 +7,8 @@ prompts, installer upgrades, and the Android runtime lifecycle of the mobile app
 
 Step IDs are stable so other docs can cite them: **D1–D12** desktop basics, **A1–A10** upgrade,
 launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **N1–N18** the
-built-in (native Rust) ADB engine, **M1–M8** the mobile app.
+built-in (native Rust) ADB engine, **S1–S9** desktop features new in 2.6.0, **M1–M8** the
+mobile app.
 
 Abort rule for every section: if a step leaves the TV without a launcher or with an unexpected
 disabled app, use Restore / Emergency Recovery (desktop) or More → Emergency recovery (mobile),
@@ -33,13 +34,13 @@ stop, and record the step.
 | D3 | On the TV enable Wireless debugging → Pair device with pairing code; in the app click Pair PIN, enter that IP:port and PIN | Message says paired; the PIN field clears; the app does not report a device on port 5555. Connect IP is pre-filled with the paired host plus a trailing colon and takes focus, with a one-line prompt for the separate port |
 | D4 | Enter the port from the main Wireless debugging screen in Connect IP | Device becomes `device`, row clickable |
 | D5 | Open the device → Apps. Find an app that is not in the catalog (a sideloaded APK) and a known bloat entry | The sideloaded app shows Unknown with a reason; catalog bloat shows Caution; nothing Unknown is pre-ticked in Optimize |
-| D6 | Optimize tab: leave defaults, click Apply, read the confirmation | Confirmation lists only Caution items; Unknown items are absent unless you ticked them; apply completes; disabled apps re-enable from the Restore path |
+| D6 | Optimize tab: nothing is selected at first (every row starts on Keep). Choose Disable on one harmless Caution app, click Run plan, read the confirmation. Then switch Mode to Restore and re-enable it | The in-app confirmation lists that app once, under its safety tier; Unknown apps are absent unless you chose them; the run completes and the row reads Done. Restore lists the disabled app and re-enables it |
 | D7 | Launchers: switch the default launcher to another installed launcher, then switch back | Each attempt reports its stage; on any failure the previous launcher is restored and the report says so; Home on the TV matches the app's report |
 | D8 | Sideload: pick a folder with APKs, quit and relaunch the app | The folder is remembered; nothing scans until Scan folder is clicked; on macOS no repeated volume prompt |
 | D9 | Files → App file backups for SmartTube (if installed) after SmartTube's Settings → Backup/Restore → Local backup | The `.zip` under `Documents/SmartTubeBackup` is found |
-| D10 | macOS 15+ only, bundled app opened from Finder or `open` (not `tauri dev`, which macOS credits to Terminal). Start with no Local Network decision for ATV Optimizer: a fresh install in a new macOS user account, or on macOS 27.2+ remove ATV Optimizer from System Settings → Privacy & Security → Local Network with the − button. (1) Launch. (2) Choose Don't Allow. (3) Click Open Privacy & Security, then Local Network; turn ATV Optimizer on and return to the app | (1) The Local Network alert appears at launch, before any scan, naming ATV Optimizer and showing its usage string ("…connects to your TV over your local network using ADB…"). (2) Devices shows "macOS is blocking ATV Optimizer from your local network." with Open Privacy & Security, and its ? help explains turning it off and on again (every entry, if listed more than once) and then Restart ADB. (3) The button opens System Settings at Privacy & Security (macOS 26.6 has no deeper link to Local Network; on a version that has one it lands there); within a few seconds of returning, the notice clears and Scan LAN finds the TV. Record the macOS version |
+| D10 | macOS 15+ only, bundled app opened from Finder or `open` (not `tauri dev`, which macOS credits to Terminal). Start with no Local Network decision for ATV Optimizer: a fresh install in a new macOS user account, or on macOS 27.2+ remove ATV Optimizer from System Settings → Privacy & Security → Local Network with the − button. (1) Launch. (2) Choose Don't Allow. (3) Click Open Privacy & Security, then Local Network; turn ATV Optimizer on and return to the app | (1) The Local Network alert appears at launch, before any scan, naming ATV Optimizer and showing its usage string ("…connects to your TV over your local network using ADB…"). (2) Devices shows "macOS is blocking ATV Optimizer from your local network." with Open Privacy & Security, and its ? help explains turning it off and on again (every entry, if listed more than once), then "Try again" (Built-in) or "Restart ADB" (Google platform-tools). (3) The button opens System Settings at Privacy & Security (macOS 26.6 has no deeper link to Local Network; on a version that has one it lands there); within a few seconds of returning, the notice clears and Scan LAN finds the TV. Record the macOS version |
 | D11 | macOS 15+, after D10 with Local Network granted: quit it, install the next build (a newer staging or release DMG) over it and launch it | No new Local Network alert; no blocked notice on Devices; Scan LAN still finds the TV |
-| D12 | macOS 15+: with the previous version running and connected to a TV over the network, install the new build over it (DMG or Homebrew) and launch it, without restarting ADB by hand. Depends on the adb auto-repair in #286 (restart a cut-off adb server once and retry) | The TVs are found and connect with no manual steps; no blocked notice. Without the auto-repair, expect "No route to host" on every TV while the app itself is allowed: the connect error then suggests Restart ADB (not Local Network settings), and Restart ADB fixes it |
+| D12 | Google platform-tools engine only (Settings › ADB › ADB engine; for Built-in, N16 covers this). macOS 15+: with the previous version running and connected to a TV over the network, install the new build over it (DMG or Homebrew) and launch it, without restarting ADB by hand. Depends on the adb auto-repair in #286 (restart a cut-off adb server once and retry) | The TVs are found and connect with no manual steps; no blocked notice. Without the auto-repair, expect "No route to host" on every TV while the app itself is allowed: the connect error then suggests Restart ADB (not Local Network settings), and Restart ADB fixes it |
 
 ## Upgrade, launcher and device-type checks (A1–A10)
 
@@ -172,6 +173,23 @@ debugging; the devtest APKs or any small APK you are willing to install and remo
 | N16 | Upgrade from 2.5.0 (platform-tools) to the native build with an adb server still running | TVs that 2.5.0 already used connect through Built-in with no prompt; a TV that allows neither key shows nothing and is listed Not allowed yet until Request approval; the old server doesn't interfere |
 | N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. If Windows Firewall asks about ATV Optimizer (mDNS discovery listens for TV announcements), allow private networks. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
 | N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
+
+## New in 2.6.0 (S1–S9, about 30 minutes)
+
+Desktop features merged after the N steps were written. Run them on the build under test, on
+Built-in unless a step says otherwise.
+
+| Step | Action | Expected |
+|------|--------|----------|
+| S1 | Connect a network TV (Scan LAN or Add by IP), then quit and relaunch the app without scanning | The TV is listed under **Saved** at the top of Devices, above Other devices, with its name and when it last connected. At launch its row shows **Connecting…**, then Online, before or without a scan finding it |
+| S2 | Turn the TV fully off (or unplug its network), then relaunch the app | The saved row says **Didn't answer** with **Connect**; no second card appears for the same TV. Turn the TV back on and click Connect: it comes back Online on the same row |
+| S3 | Put the TV to sleep from its remote, wait two minutes, then click **Connect** on its saved row. Repeat on Wi-Fi and on Ethernet if you can | The row shows **Waking…** and keeps dialling for about 30 seconds. Record whether the TV woke on each network (Wake-on-LAN is best effort; many TVs ignore it asleep, especially on Wi-Fi). Launch and Restart ADB never wake a TV |
+| S4 | Click the bookmark on the saved row to unsave it, then disconnect and reconnect the TV | It moves to Other devices and is not saved again on reconnecting. Click the bookmark again to save it |
+| S5 | Plug a USB drive set up as portable storage into the TV, open Files | The drive is listed next to the TV's storage. Upload a small file to it (button and drag-and-drop), download it back (same bytes), delete it. On a FAT32 drive, a file of 4 GB or more is refused before anything is sent. Deleting the drive itself is refused |
+| S6 | Optimize on a TV with apps the catalog doesn't cover (a Google TV, or a Shield with sideloaded apps) | A card at the top names the CleanYourTV lists in use. Their apps sit under each list's name after the catalog, start on Keep and offer only Disable (never Uninstall). Picking another list changes those rows; turning the lists off for that TV removes them. Restore mode offers the lists' disabled apps |
+| S7 | Shield only: Remote tab → **Find remote** | The Shield remote beeps. The button is absent on a TV that isn't a Shield |
+| S8 | App List → open a running app's details → **Force stop** | The app stops on the TV and its RAM reads "Not running" after the re-measure |
+| S9 | Snapshots: if you have a snapshot saved by 2.5.1 or earlier, open Preview restore. Then save a new snapshot | The old snapshot loads and previews normally. The new one saves (format 4, which 2.5.1 and earlier refuse) and its preview lists any recorded apps that are absent from the TV as skipped |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)
 
