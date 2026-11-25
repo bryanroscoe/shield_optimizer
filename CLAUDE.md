@@ -38,10 +38,11 @@ device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unver
 **Next desktop release: 2.6.0, prepared and waiting for Bryan to tag it.** It ships built-in Rust
 ADB as the default desktop engine (PR #268), with Settings › ADB › ADB engine switching to Google
 platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md)). Its notes are cut as `## v2-2.6.0` in
-`v2/CHANGELOG.md`. **Until `v2-2.6.0` is tagged, a desktop change merged to `main` ships in it:
-add its entry to that section, not to `## Unreleased`.** Before tagging: `docs/DEVICE-TEST-SCRIPT.md`
-N1–N18 and S1–S9 on hardware, then `cd v2 && ./release.sh --minor`. Snapshot schema is 4 (#353),
-which 2.5.1 and earlier refuse.
+`v2/CHANGELOG.md`. **Until `v2-2.6.0` is tagged, an entry for anything merged to `main` goes in
+that section (Android-only ones under its Android app group), not under `## Unreleased`.** Before
+tagging: the whole of `docs/DEVICE-TEST-SCRIPT.md` on hardware (N1–N18 and S1–S9 are new for
+2.6.0) and `npm run e2e`, set the section's date to the tag day, then
+`cd v2 && ./release.sh --minor`. Snapshot schema is 4 (#353), which 2.5.1 and earlier refuse.
 
 Shipped in 2.5.0 or live on the server side:
 

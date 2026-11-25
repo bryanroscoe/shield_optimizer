@@ -14,9 +14,10 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 ## Unreleased on `main`: 2.6.0
 
 The next release is 2.6.0 (`./release.sh --minor`). Its notes are cut as `## v2-2.6.0` in
-`v2/CHANGELOG.md`, and desktop changes merged before the tag add their entries there. Before
-tagging: `../docs/DEVICE-TEST-SCRIPT.md` N1–N18 and S1–S9 on hardware. The changes with
-consequences for this release:
+`v2/CHANGELOG.md`, and changes merged before the tag add their entries there (Android-only ones
+under its Android app group). Before tagging: the whole of `../docs/DEVICE-TEST-SCRIPT.md` on
+hardware (N1–N18 and S1–S9 are new for 2.6.0) and `npm run e2e`, and set the section's date to the
+tag day. The changes with consequences for this release:
 
 - **Built-in ADB is the default desktop engine** (PR #268, merged 2026-11-09); Settings › ADB ›
   ADB engine switches to platform-tools. See below and `DIRECT-ADB.md`.
@@ -54,7 +55,7 @@ ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its han
 `../docs/DEVICE-TEST-SCRIPT.md` N1–N18 and S1–S9. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
 `server_repair.rs` stays for the platform-tools path and its fallback even once native is the
 default. Reporter #235 has not
-confirmed a fix. Until `v2-2.6.0` is tagged, put a desktop change's entry in the `## v2-2.6.0`
+confirmed a fix. Until `v2-2.6.0` is tagged, put a change's entry in the `## v2-2.6.0`
 section of `v2/CHANGELOG.md`, and after it under `## Unreleased`; `tests/notes-seen.mjs` expects
 that heading to stay. Before tagging, run the physical script in
 [`../docs/DEVICE-TEST-SCRIPT.md`](../docs/DEVICE-TEST-SCRIPT.md) and `npm run e2e`.

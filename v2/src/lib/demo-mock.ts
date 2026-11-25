@@ -12,6 +12,8 @@
 // real build.
 
 import demoApps from "./demo-apps.json";
+import safetySource from "../../crates/core/src/engine/safety.rs?raw";
+import { rustSafetyTable } from "./rust-safety-tables";
 import pkg from "../../package.json";
 import type {
   AdbEngine,
@@ -872,6 +874,15 @@ function demoShellOutput(command: string): string {
   return "ok";
 }
 
+const PROTECTED = rustSafetyTable(safetySource, "NEVER_DISABLE");
+const CAUTION = rustSafetyTable(safetySource, "CAUTION");
+
+function ruleVerdict(pkg: string) {
+  if (PROTECTED[pkg]) return { kind: "never_disable", reason: PROTECTED[pkg], source: "protected_list" };
+  if (CAUTION[pkg]) return { kind: "caution", reason: CAUTION[pkg], source: "caution_list" };
+  return null;
+}
+
 // Map of command name → handler. Unlisted commands fall through to a benign
 // success so a stray click during capture never throws. Exported so the mobile
 // app's demo layer answers the commands both apps share from the same fixtures.
@@ -1115,12 +1126,12 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
         "com.Funimation.FunimationNow.androidtv": { last_used: null, launch_count: 0 },
       };
     // Process names from a memory report never consult the catalog — an
-    // unverified string must not inherit a curated verdict.
+    // unverified string must not inherit a curated verdict. The rule tables
+    // still apply, to the package before any `:name` suffix.
     case "process_safety_info": {
       const proc = String(args.process ?? "");
-      if (proc === "com.android.systemui" || proc === "com.google.android.gms") {
-        return handle("safety_info", { package: proc });
-      }
+      const rule = ruleVerdict(proc.split(":")[0]);
+      if (rule) return rule;
       return {
         kind: "unknown",
         reason:
@@ -1134,24 +1145,8 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       // demo layer paints a picture of the product that isn't true: a
       // catalog-blind mock shows every curated app as "Unknown".
       const pkg = String(args.package ?? "");
-      const protectedList: Record<string, string> = {
-        "com.android.systemui":
-          "System UI — the launcher's host process. Disabling makes the device unusable.",
-        "com.google.android.gms":
-          "Google Play Services. Disabling breaks every Google app and most third-party apps.",
-      };
-      const cautionList: Record<string, string> = {
-        "com.android.providers.tv":
-          "Live Channels provider — disabling breaks Watch Next / Continue Watching rows (Netflix, Apple TV, Disney+ and others) and the Live Channels app.",
-        "com.android.vending":
-          "Google Play Store. Disabling removes your way to install apps that aren't already on the device.",
-      };
-      if (protectedList[pkg]) {
-        return { kind: "never_disable", reason: protectedList[pkg], source: "protected_list" };
-      }
-      if (cautionList[pkg]) {
-        return { kind: "caution", reason: cautionList[pkg], source: "caution_list" };
-      }
+      const rule = ruleVerdict(pkg);
+      if (rule) return rule;
       const entry = (demoApps as AppEntry[]).find((a) => a.package === pkg);
       if (entry) {
         const detail = entry.optimize_description?.trim();

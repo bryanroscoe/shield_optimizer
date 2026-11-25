@@ -140,3 +140,6 @@ reddit-post.md
 
 # PR evidence captures are attached to the PR, never committed.
 /docs/evidence/
+
+# Python bytecode (scripts run without -B)
+__pycache__/

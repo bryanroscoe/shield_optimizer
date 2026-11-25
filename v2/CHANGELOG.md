@@ -24,7 +24,7 @@ this file and shows the newest few sections, dated, from its version button.
 
 ## v2-2.6.0 — 2026-11-25
 
-ATV Optimizer now connects to your TVs with its own built-in ADB instead of Google's platform-tools, and scanning never puts a prompt on a TV. TVs that already allow this computer connect without asking again. Google platform-tools is still there under Settings › ADB › ADB engine: switch to it for a TV connected by USB, or if a TV doesn't work well with the built-in engine. Snapshots saved by this version can't be opened by 2.5.1 or earlier; older snapshots still load.
+ATV Optimizer now connects to your TVs with its own built-in ADB instead of Google's platform-tools. With it, scanning never puts a prompt on a TV, and TVs that already allow this computer connect without asking again. Google platform-tools is still there under Settings › ADB › ADB engine: switch to it for a TV connected by USB, or if a TV doesn't work well with the built-in engine. Snapshots saved by this version can't be opened by 2.5.1 or earlier; older snapshots still load.
 
 ### Built-in ADB
 
@@ -43,6 +43,9 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - File downloads that the TV refuses no longer leave a damaged file or drop the connection, and uploads and installs report success only when the TV confirms it.
 - Built-in engine: uploading a file to a TV no longer freezes the device list, or that TV, until the upload ends. Uploads use their own identity-checked connection, as downloads and installs do, and a TV busy with a long command is listed as connected instead of waiting for it. Like downloads and installs, an upload needs a TV that always allows this computer, and fails rather than waits if the TV is busy with another command for more than 5 seconds.
 - macOS: with the built-in engine, a "No route to host" no longer suggests Restart ADB; a Local Network block says to turn ATV Optimizer on and try again.
+- Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
+- Desktop: downloading platform-tools has a timeout, and the new copy is installed only once it is complete, so a failed or interrupted download leaves the working adb in place.
+- Desktop: a platform-tools download that finishes after a switch to Built-in no longer switches the app back to platform-tools; it is kept for when you choose platform-tools. Settings › ADB engine can't be switched while Settings is downloading it.
 
 ### Saved devices and connections
 
@@ -53,9 +56,6 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - Desktop: Scan LAN no longer port-sweeps the network behind a VPN or other tunnel when that is where the default route goes; it says why it skipped the sweep.
 - Desktop and Android: a pairing code that didn't match is reported as a wrong code, and a network search that can't get its port (an mDNS bind failure) says so and suggests entering the TV's IP address. Raw diagnostic text such as OS error numbers, exit statuses and exceptions stays under Details and Copy details. Anonymous reports use the same codes.
 - Desktop: refreshing one TV's profile, and previewing, applying or saving a snapshot, no longer waits on the Cast name of every other TV that hasn't allowed this computer. Only the TV being profiled is named; the device list still names them all.
-- Desktop: ADB status now distinguishes missing platform-tools from timeout and startup errors, keeping the actual diagnostic and Restart recovery.
-- Desktop: downloading platform-tools has a timeout, and the new copy is installed only once it is complete, so a failed or interrupted download leaves the working adb in place.
-- Desktop: a platform-tools download that finishes after a switch to Built-in no longer switches the app back to platform-tools; it is kept for when you choose platform-tools. Settings › ADB engine can't be switched while Settings is downloading it.
 
 ### Optimize and the app catalog
 
@@ -74,7 +74,6 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - Expand Optimize with eighteen reviewed optional apps from the imported catalog, including TCL Channel and TCL Live, backed by two-agent source checks. New entries start at Keep and use reversible Disable, with package-specific consequences.
 - **Device and package source catalog** — browse 427 attributed source profiles with original keep/comment/disable context and pinned links. Source observations alone do not select apps or change removal verdicts.
 - Desktop and Android: Projectivy's **Source site** opens its Google Play listing again, with its GitHub releases as a second link beside it for people who install that build (#161).
-- Desktop and Android: 16 more TVs show **Beta** instead of Not verified, each matched on its exact manufacturer, model and codename from anonymous reports: Google TV Streamer, Chromecast with Google TV (4K), Google W2, three onn. boxes, two Sony BRAVIA models, the SEI Robotics Box R 4K Plus and seven Xiaomi Mi Box and Mi TV models.
 - Keep Optimize app names readable at narrow widths and enlarged text, with a keyboard-scrollable choices table and wrapping device-header actions.
 
 ### Snapshots, restore and Home
@@ -103,10 +102,10 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - Desktop: **Find remote** on the Remote tab for a Shield makes its remote beep. It appears only for a TV that reported itself as a Shield.
 - Desktop: **Cmd+Left / Cmd+Right** (or Ctrl, or Alt on Windows and Linux, or Cmd+[ / Cmd+]) go back and forward between screens, as in a browser. Text fields keep their usual caret keys, and nothing moves while a dialog is open.
 - Desktop and Android: use the Remote **Tab** button to move focus between fields on the TV.
-- Desktop and Android: **Reinstall** restores the app for the same TV profile shown in App List, even when another profile is active (#233).
 - Linux: each release now includes a **Flatpak** bundle (`ATV.Optimizer_<version>_x86_64.flatpak`). It doesn't update itself, so the Auto-update switch is hidden there; the header and Settings say when a newer version is out. Install the next release's bundle the same way.
 - Desktop and Android: a new app icon. The TV is now an outline on flat-bottomed feet, with three solid fader tracks and rounded knobs, on a lime gradient. The launcher icons, the desktop icon set and the in-app logo all use it.
 - Lift the TV artwork slightly to balance the launcher icon and in-app brand marks, including the legs.
+- Desktop and Android: 16 more TVs show **Beta** instead of Not verified, each matched on its exact manufacturer, model and codename from anonymous reports: Google TV Streamer, Chromecast with Google TV (4K), Google W2, three onn. boxes, two Sony BRAVIA models, the SEI Robotics Box R 4K Plus and seven Xiaomi Mi Box and Mi TV models.
 
 ### Fixes and polish
 
@@ -120,6 +119,8 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - Desktop: APK backup file names are cleaned of anything that isn't a plain file-name character, and every backup stays inside the folder you chose.
 - Desktop: Disable and Uninstall on a protected app say Protected and why.
 - Desktop: on a kept app in the App List, **Change** (which undoes Keep) is always shown. It used to appear only while the pointer was over the row or the button had keyboard focus, so on touch screens, or at a glance, Keep looked permanent (#324).
+- Desktop and Android: **Reinstall** restores the app for the same TV profile shown in App List, even when another profile is active (#233).
+- Desktop: an app the TV gives no name for shows its package ID once in App List and Optimize, not twice.
 - Desktop and Android: App List shows catalog apps meant for another TV family (a Shield-only app on a Google TV, say) under the other installed apps, instead of in neither section.
 - Desktop: fixed clipped and squeezed text. The snapshot restore preview keeps a readable Item column, wraps package ids after their dots, and wraps long values such as the screensaver component instead of cutting off "Will become". A long App List name wraps onto a second line instead of being cut off (past two lines it ends in "…", with the full name on hover). Health's memory table breaks process names at dots and colons.
 - Desktop: on narrow Launcher screens, status and actions wrap below the launcher name so takeover feedback stays readable at larger text sizes.
