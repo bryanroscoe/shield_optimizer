@@ -40,7 +40,7 @@ ADB as the default desktop engine (PR #268), with Settings › ADB › ADB engin
 platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md)). Its notes are cut as `## v2-2.6.0` in
 `v2/CHANGELOG.md`. **Until `v2-2.6.0` is tagged, an entry for anything merged to `main` goes in
 that section (Android-only ones under its Android app group), not under `## Unreleased`.** Before
-tagging: the whole of `docs/DEVICE-TEST-SCRIPT.md` on hardware (N1–N18 and S1–S9 are new for
+tagging: the whole of `docs/DEVICE-TEST-SCRIPT.md` on hardware (N1–N18 and S1–S10 are new for
 2.6.0) and `npm run e2e`, set the section's date to the tag day, then
 `cd v2 && ./release.sh --minor`. Snapshot schema is 4 (#353), which 2.5.1 and earlier refuse.
 

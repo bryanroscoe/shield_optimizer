@@ -57,6 +57,7 @@ impl WirelessAdb {
         let operation = self.work().map_err(AdbError::Transport)?;
         let conn = self.conn.clone();
         let identity = self.identity.clone();
+        let lanes = self.lanes.clone();
         let serial = serial.to_owned();
         crate::bounded_shell::run_worker(operation, control, move |control| {
             let mut guard = lock_within(&conn, control.remaining()?).ok_or_else(|| {
@@ -76,6 +77,7 @@ impl WirelessAdb {
                     if is_fatal_transport_error(&error) {
                         *guard = None;
                         *lock_recovering(&identity) = None;
+                        lanes.clear();
                     }
                     return Err(AdbError::Transport(format!("Upload hardware identity query failed: {error}")));
                 }

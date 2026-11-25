@@ -1645,3 +1645,217 @@ async fn upload_rejects_stale_frontend_hardware_identity_before_dedicated_connec
     );
     connected.peer.join().unwrap();
 }
+
+const HARDWARE_ID: &[u8] = b"1324619053514\n";
+
+/// A driver allowed one extra connection, connected to a loopback TV that
+/// reports `reported` as its hardware id at connect and then runs `serve`.
+async fn parallel_driver<F>(reported: &'static [u8], serve: F) -> Connected
+where
+    F: FnOnce(TcpStream, TcpListener) + Send + 'static,
+{
+    let key = fixture_key();
+    let driver =
+        WirelessAdb::with_existing_key(key.path().into(), Leases::new()).with_parallel_commands(1);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let peer = std::thread::spawn(move || {
+        let mut socket = accept(&listener);
+        assert_eq!(receive(&mut socket).0, b"CNXN");
+        send(&mut socket, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+        serve_shell(
+            &mut socket,
+            "getprop ro.serialno",
+            &[(1, reported), (3, &[0])],
+        );
+        serve(socket, listener);
+    });
+    driver.begin_request(1).unwrap();
+    driver.connect("127.0.0.1", port, 1).await.unwrap();
+    Connected {
+        driver,
+        serial: format!("127.0.0.1:{port}"),
+        peer,
+        _key: key,
+    }
+}
+
+/// Accept an extra connection and answer its identity check with `reported`.
+fn accept_extra(listener: &TcpListener, reported: &[u8]) -> TcpStream {
+    let mut extra = accept(listener);
+    assert_eq!(receive(&mut extra).0, b"CNXN");
+    send(&mut extra, b"CNXN", 0x01000000, 1048576, SHELL_V2_DEVICE);
+    serve_shell(
+        &mut extra,
+        "getprop ro.serialno",
+        &[(1, reported), (3, &[0])],
+    );
+    extra
+}
+
+/// Take `command`'s OPEN and accept it, leaving the stream waiting.
+fn hold_shell(socket: &mut TcpStream, command: &str) -> u32 {
+    let (kind, local, payload) = receive(socket);
+    assert_eq!(kind, b"OPEN");
+    assert_eq!(payload, format!("shell,v2,raw:{command}\0").as_bytes());
+    send(socket, b"OKAY", 1, local, &[]);
+    local
+}
+
+/// Finish a stream [`hold_shell`] left waiting with `stdout` and exit 0.
+fn finish_shell(socket: &mut TcpStream, local: u32, stdout: &[u8]) {
+    for (channel, payload) in [(1u8, stdout), (3, &[0])] {
+        let mut frame = vec![channel];
+        frame.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        frame.extend_from_slice(payload);
+        send(socket, b"WRTE", 1, local, &frame);
+        assert_eq!(receive(socket).0, b"OKAY");
+    }
+    send(socket, b"CLSE", 1, local, &[]);
+}
+
+fn assert_no_new_connection(listener: &TcpListener) {
+    listener.set_nonblocking(true).unwrap();
+    match listener.accept() {
+        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {}
+        other => panic!("an extra connection was opened: {other:?}"),
+    }
+}
+
+/// Run `dumpsys meminfo` (held by the TV until it finishes the others) and,
+/// once the TV holds it, `commands` one after another.
+async fn beside_a_slow_command(
+    tv: &Connected,
+    held: std::sync::mpsc::Receiver<()>,
+    commands: &[&str],
+) -> (String, Vec<String>) {
+    let slow = tv.driver.shell(&tv.serial, "dumpsys meminfo");
+    let others = async {
+        tokio::task::spawn_blocking(move || held.recv().unwrap())
+            .await
+            .unwrap();
+        let mut outputs = Vec::new();
+        for command in commands {
+            outputs.push(tv.driver.shell(&tv.serial, command).await.unwrap().stdout);
+        }
+        outputs
+    };
+    let (slow, others) = tokio::join!(slow, others);
+    (slow.unwrap().stdout, others)
+}
+
+#[tokio::test]
+async fn commands_run_beside_a_slow_one_on_an_extra_connection_that_is_reused() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(HARDWARE_ID, move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        // Both commands finish on one extra connection while the slow one
+        // still holds the main connection.
+        let mut extra = accept_extra(&listener, HARDWARE_ID);
+        serve_shell(&mut extra, "echo fast", &[(1, b"fast\n"), (3, &[0])]);
+        serve_shell(&mut extra, "echo again", &[(1, b"again\n"), (3, &[0])]);
+        assert_no_new_connection(&listener);
+        finish_shell(&mut main, slow, b"slow\n");
+    })
+    .await;
+    let (slow, others) = beside_a_slow_command(&tv, holding, &["echo fast", "echo again"]).await;
+    assert_eq!(slow, "slow\n");
+    assert_eq!(others, ["fast\n", "again\n"]);
+    tv.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn an_extra_connection_reaching_another_tv_is_closed_and_the_command_waits() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(HARDWARE_ID, move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        let mut extra = accept_extra(&listener, b"0323716101827\n");
+        assert_closed(&mut extra);
+        finish_shell(&mut main, slow, b"slow\n");
+        serve_shell(&mut main, "echo fast", &[(1, b"fast\n"), (3, &[0])]);
+    })
+    .await;
+    let (slow, others) = beside_a_slow_command(&tv, holding, &["echo fast"]).await;
+    assert_eq!(slow, "slow\n");
+    assert_eq!(others, ["fast\n"]);
+    tv.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn a_tv_without_a_hardware_id_gets_no_extra_connections() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(b"unknown\n", move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        std::thread::sleep(Duration::from_millis(200));
+        assert_no_new_connection(&listener);
+        finish_shell(&mut main, slow, b"slow\n");
+        serve_shell(&mut main, "echo fast", &[(1, b"fast\n"), (3, &[0])]);
+    })
+    .await;
+    let (slow, others) = beside_a_slow_command(&tv, holding, &["echo fast"]).await;
+    assert_eq!(slow, "slow\n");
+    assert_eq!(others, ["fast\n"]);
+    tv.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn disconnecting_closes_the_extra_connections() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(HARDWARE_ID, move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        let mut extra = accept_extra(&listener, HARDWARE_ID);
+        serve_shell(&mut extra, "echo fast", &[(1, b"fast\n"), (3, &[0])]);
+        finish_shell(&mut main, slow, b"slow\n");
+        assert_closed(&mut extra);
+        assert_closed(&mut main);
+    })
+    .await;
+    let (_, others) = beside_a_slow_command(&tv, holding, &["echo fast"]).await;
+    assert_eq!(others, ["fast\n"]);
+    tv.driver
+        .raw(&["disconnect", tv.serial.as_str()])
+        .await
+        .unwrap();
+    tv.peer.join().unwrap();
+}
+
+#[tokio::test]
+async fn an_extra_connection_that_dies_leaves_the_tv_connected() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(HARDWARE_ID, move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        let mut extra = accept_extra(&listener, HARDWARE_ID);
+        hold_shell(&mut extra, "echo fast");
+        drop(extra);
+        finish_shell(&mut main, slow, b"slow\n");
+        serve_shell(&mut main, "echo after", &[(1, b"after\n"), (3, &[0])]);
+    })
+    .await;
+    let slow = tv.driver.shell(&tv.serial, "dumpsys meminfo");
+    let fast = async {
+        tokio::task::spawn_blocking(move || holding.recv().unwrap())
+            .await
+            .unwrap();
+        tv.driver.shell(&tv.serial, "echo fast").await
+    };
+    let (slow, fast) = tokio::join!(slow, fast);
+    assert_eq!(slow.unwrap().stdout, "slow\n");
+    let error = fast.unwrap_err().to_string();
+    assert!(error.contains("outcome is unknown"), "{error}");
+    assert!(!error.contains(CONNECTION_LOST_PREFIX), "{error}");
+    assert_eq!(
+        tv.driver
+            .shell(&tv.serial, "echo after")
+            .await
+            .unwrap()
+            .stdout,
+        "after\n",
+        "the main connection was kept"
+    );
+    tv.peer.join().unwrap();
+}

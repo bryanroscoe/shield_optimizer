@@ -7,7 +7,7 @@ prompts, installer upgrades, and the Android runtime lifecycle of the mobile app
 
 Step IDs are stable so other docs can cite them: **D1–D12** desktop basics, **A1–A10** upgrade,
 launcher and device-type checks, **R1–R9** upgrades across the 2.5.0 rename, **N1–N18** the
-built-in (native Rust) ADB engine, **S1–S9** desktop features new in 2.6.0, **M1–M8** the
+built-in (native Rust) ADB engine, **S1–S10** desktop features new in 2.6.0, **M1–M8** the
 mobile app.
 
 Abort rule for every section: if a step leaves the TV without a launcher or with an unexpected
@@ -174,7 +174,7 @@ debugging; the devtest APKs or any small APK you are willing to install and remo
 | N17 | Windows, packaged build: first launch, approve one TV, scan, Files download, install | Works as on macOS. If Windows Firewall asks about ATV Optimizer (mDNS discovery listens for TV announcements), allow private networks. The key is created under `%LOCALAPPDATA%\ATVOptimizer\native-adb` and only your account can read it |
 | N18 | Linux, packaged build (.deb or AppImage): same as N17 | Works as on macOS; the key is under `~/.local/share/ATVOptimizer/native-adb` with mode 700/600 |
 
-## New in 2.6.0 (S1–S9, about 30 minutes)
+## New in 2.6.0 (S1–S10, about 30 minutes)
 
 Desktop features merged after the N steps were written. Run them on the build under test, on
 Built-in unless a step says otherwise.
@@ -190,6 +190,7 @@ Built-in unless a step says otherwise.
 | S7 | Shield with the 2019 remote (earlier Shield remotes have no buzzer): Remote tab → **Find remote** | The remote beeps. The button is absent on a TV that isn't a Shield |
 | S8 | App List → open a running app's details → **Force stop** | The app stops on the TV and its RAM reads "Not running" after the re-measure |
 | S9 | Snapshots: if you have a snapshot saved by 2.5.1 or earlier, open Preview restore. Then save a new snapshot | The old snapshot loads and previews normally. The new one saves (format 4, which 2.5.1 and earlier refuse) and its preview lists any recorded apps that are absent from the TV as skipped |
+| S10 | Built-in: open a Shield's Apps tab, then Tweaks, then the App List; then switch to platform-tools and do the same | Usage and storage columns fill in without waiting the few seconds RAM takes, and each screen loads about as fast as under platform-tools. The log (Settings → Open logs folder) says "opened an extra connection to the TV" and never shows a prompt on the TV. Disconnecting or forgetting the TV logs "closed extra connections to the TV" |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)
 

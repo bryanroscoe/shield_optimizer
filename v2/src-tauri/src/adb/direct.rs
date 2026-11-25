@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use atv_direct_adb::{ConnectAuth, ConnectFailure, Paired, PreferredKeys, WirelessAdb};
+use atv_direct_adb::{
+    ConnectAuth, ConnectFailure, Paired, PreferredKeys, WirelessAdb, PARALLEL_COMMANDS,
+};
 use atv_optimizer_core::adb::{
     native_mdns_services, render_mdns_services, AdbByteStream, AdbDriver, AdbError, AdbOutput,
     AdbResult, ApprovalRequestOutcome, Leases, NativeDiscoveryReport, ScanConnectOutcome,
@@ -172,7 +174,8 @@ impl DirectNetworkAdb {
             Arc::new(|key, operations| {
                 Arc::new(
                     WirelessAdb::with_existing_key(key, operations)
-                        .with_dedicated_connections(ConnectAuth::SignaturesOnly),
+                        .with_dedicated_connections(ConnectAuth::SignaturesOnly)
+                        .with_parallel_commands(PARALLEL_COMMANDS),
                 )
             }),
         )
@@ -197,7 +200,8 @@ impl DirectNetworkAdb {
                 Arc::new(
                     WirelessAdb::with_existing_key(key, operations)
                         .with_preferred_keys(preferred.clone())
-                        .with_dedicated_connections(ConnectAuth::SignaturesOnly),
+                        .with_dedicated_connections(ConnectAuth::SignaturesOnly)
+                        .with_parallel_commands(PARALLEL_COMMANDS),
                 )
             }),
             operations,

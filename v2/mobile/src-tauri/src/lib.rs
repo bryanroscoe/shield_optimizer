@@ -291,7 +291,10 @@ pub fn run() {
             let entitlement = billing.effective();
             tracing::info!(?entitlement, "startup entitlement");
 
-            let wireless = Arc::new(WirelessAdb::new(data_dir.join("adb_key")));
+            let wireless = Arc::new(
+                WirelessAdb::new(data_dir.join("adb_key"))
+                    .with_parallel_commands(atv_direct_adb::PARALLEL_COMMANDS),
+            );
             // Anonymous reports: a complete no-op unless this build was compiled
             // with ATVOPT_TELEMETRY_URL, and the user can turn them off in More.
             let telemetry = Telemetry::new(

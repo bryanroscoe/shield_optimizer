@@ -16,7 +16,7 @@ Installers for macOS/Linux/Windows are built on every `v2-*` tag push via
 The next release is 2.6.0 (`./release.sh --minor`). Its notes are cut as `## v2-2.6.0` in
 `v2/CHANGELOG.md`, and changes merged before the tag add their entries there (Android-only ones
 under its Android app group). Before tagging: the whole of `../docs/DEVICE-TEST-SCRIPT.md` on
-hardware (N1–N18 and S1–S9 are new for 2.6.0) and `npm run e2e`, and set the section's date to the
+hardware (N1–N18 and S1–S10 are new for 2.6.0) and `npm run e2e`, and set the section's date to the
 tag day. The changes with consequences for this release:
 
 - **Built-in ADB is the default desktop engine** (PR #268, merged 2026-11-09); Settings › ADB ›
@@ -52,7 +52,7 @@ was the desktop default through 2.5.0. PR #268 (merged 2026-11-09) made the buil
 mobile transport, `crates/direct-adb` and vendored `adb_client`) the default engine, with Settings ›
 ADB › ADB engine switching back to platform-tools (Bryan, 2026-11-05). Its handoff is
 `NATIVE-ADB-HANDOFF.md`; 2.6.0, the release that ships it, waits for Bryan's hardware batch,
-`../docs/DEVICE-TEST-SCRIPT.md` N1–N18 and S1–S9. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
+`../docs/DEVICE-TEST-SCRIPT.md` N1–N18 and S1–S10. Bryan's decisions (2026-11-05): 2.5.0 shipped without #268 on purpose, and
 `server_repair.rs` stays for the platform-tools path and its fallback even once native is the
 default. Reporter #235 has not
 confirmed a fix. Until `v2-2.6.0` is tagged, put a change's entry in the `## v2-2.6.0`
