@@ -617,6 +617,9 @@ jobs:
       - name: Connection setup by brand
         working-directory: v2
         run: npm run test:connection-setup
+      - name: Home screen offer after Optimize
+        working-directory: v2
+        run: npm run test:home-screen-offer
       - name: Direct backend status
         working-directory: v2
         run: npm run test:direct-adb-status
