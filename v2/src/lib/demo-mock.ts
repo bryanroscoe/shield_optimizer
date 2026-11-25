@@ -1462,6 +1462,21 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
       (w.__SAVED_APP_REPORTS__ ??= []).push({ path: args.path, contents: args.contents });
       return null;
     }
+    case "list_launchable_apps":
+      // What the Remote's Apps key lists: named where the catalog knows the
+      // app, one sideload the lists don't know, and a phone-only app.
+      return [
+        { package: "com.amazon.amazonvideo.livingroom", name: "Amazon Prime Video", tv: true },
+        { package: "com.crunchyroll.crunchyroid", name: "Crunchyroll", tv: true },
+        { package: "com.netflix.ninja", name: "Netflix", tv: true },
+        { package: "com.plexapp.android", name: "Plex", tv: true },
+        { package: "org.videolan.vlc", name: "VLC", tv: true },
+        { package: "com.google.android.youtube.tv", name: "YouTube", tv: true },
+        { package: "com.example.homecam", name: null, tv: true },
+        { package: "com.example.phoneonly", name: null, tv: false },
+      ];
+    case "launch_app":
+      return { ok: true, message: `Opened ${String(args.package)}.`, transport: "shell" };
     case "remote_open":
       return { generation: "1" };
     case "remote_close":

@@ -159,6 +159,15 @@ export interface ScreenshotResult {
   base64: string;
 }
 
+/// An app the Remote's Apps key can open (core `engine::launch`).
+export interface LaunchableApp {
+  package: string;
+  /// From the catalog or known-names list; null when neither knows the app.
+  name: string | null;
+  /// Has a TV (Leanback) launch activity.
+  tv: boolean;
+}
+
 export interface SendTextResult {
   ok: boolean;
   message: string;

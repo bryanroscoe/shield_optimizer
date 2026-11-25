@@ -390,6 +390,8 @@ pub fn run() {
             input::send_text,
             input::send_key,
             input::open_settings,
+            input::list_launchable_apps,
+            input::launch_app,
             input::remote_warm,
             recovery::panic_recovery,
             reboot::reboot_device,

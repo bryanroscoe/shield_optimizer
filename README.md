@@ -128,7 +128,7 @@ click **Request approval**, then on the TV check **Always allow from this comput
 | **App List** | Disable, enable or uninstall any app, or install one from the Play Store. |
 | **Optimize** | The debloat wizard. Review each app's recommended action and RAM use, uncheck anything you want to keep, then **Run**. Undo it later with Restore. For apps our catalog doesn't cover, it also lists what owners of your exact model turned off, from their [CleanYourTV](https://cleanyour.tv) list, under that list's name. |
 | **Tweaks** | HDMI-CEC, match-content frame rate, long-press timeout, animation speed, display scaling, audio passthrough, Private DNS. |
-| **Remote** | An on-screen D-pad and live typing over a low-latency channel. Paste a long URL or password instead of typing it on the TV. |
+| **Remote** | An on-screen D-pad and live typing over a low-latency channel. Paste a long URL or password instead of typing it on the TV. **Open app** lists the TV's apps by name and opens one; pin up to three as shortcuts on the remote for that TV. |
 | **Files** | Browse `/sdcard`, copy files to and from your computer, and find an app's exported backups. |
 | **Install APK** | Sideload an `.apk` from a folder. |
 | **Snapshot** | Save a device's state and re-apply it later, to the same device (rollback) or a different one (clone). |

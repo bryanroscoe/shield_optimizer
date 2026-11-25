@@ -66,6 +66,7 @@ import type {
   ScanResult,
   ScreenshotResult,
   SendTextResult,
+  LaunchableApp,
   SetHomeAnyResult,
   SetLauncherResult,
   SettingNamespace,
@@ -285,6 +286,9 @@ export const api = {
     invoke<SendTextResult>("send_key", { serial, key, forceShell, generation }),
   openSettings: (serial: string, generation?: string) =>
     invoke<SendTextResult>("open_settings", { serial, generation }),
+  listLaunchableApps: (serial: string) => invoke<LaunchableApp[]>("list_launchable_apps", { serial }),
+  launchApp: (serial: string, pkg: string, generation?: string) =>
+    invoke<SendTextResult>("launch_app", { serial, package: pkg, generation }),
   findRemote: (serial: string) => invoke<ActionResult>("find_remote", { serial }),
 
   installApk: (serial: string, apkPath: string, reinstall = true) =>

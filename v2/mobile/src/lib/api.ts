@@ -58,6 +58,7 @@ import type {
   Safety,
   ScreenshotResult,
   SendTextResult,
+  LaunchableApp,
   SetHomeAnyResult,
   SetLauncherResult,
   SnapshotApplyPlan,
@@ -198,6 +199,10 @@ export const api = {
     call<SendTextResult>("send_text", { serial, text, forceShell }),
   openSettings: (serial: string) =>
     call<SendTextResult>("open_settings", { serial }),
+  listLaunchableApps: (serial: string) =>
+    call<LaunchableApp[]>("list_launchable_apps", { serial }),
+  launchApp: (serial: string, pkg: string) =>
+    call<SendTextResult>("launch_app", { serial, package: pkg }),
   /// Nvidia-Shield-only remote locator (gated on device_type in the UI).
   findRemote: (serial: string) =>
     call<ConnectResult>("find_remote", { serial }),

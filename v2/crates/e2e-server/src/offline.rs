@@ -82,6 +82,10 @@ pub fn allowed(command: &str) -> bool {
             | "send_text"
             | "send_key"
             | "open_settings"
+            // One query-activities read, and an `am start` of a listed app,
+            // against the simulator.
+            | "list_launchable_apps"
+            | "launch_app"
             | "find_remote"
             | "install_apk"
             | "list_apks_in_folder"
