@@ -21,7 +21,7 @@ aTV Tools is a **phone/tablet companion app** (Android 8.1+/iOS 14+) controlling
 | **File manager (browse / push / pull)** | ✅ | ✅ |
 | **Screenshots of the TV** | ✅ | ✅ |
 | Screen recording | ✅ (Pro, no DRM content) | ❌ |
-| Remote control / D-pad / mouse | ✅ (Pro) | partial (D-pad, typing and Tab, no mouse) |
+| Remote control / D-pad / mouse | ✅ (Pro) | partial (D-pad, typing and Tab, app launching with pinned shortcuts, no mouse) |
 | **Send text to TV (type from keyboard)** | ✅ | ✅ |
 | Permissions grant/revoke | ✅ | ✅ |
 | Bulk cache clear | ✅ | ✅ |

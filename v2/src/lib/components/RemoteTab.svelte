@@ -1,16 +1,19 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import { onDestroy, untrack } from "svelte";
-  import type { DeviceType, SendTextResult } from "$lib/types";
+  import type { DeviceType, LaunchableApp, SendTextResult } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
+  import ErrorNotice from "$lib/components/ErrorNotice.svelte";
   import { api } from "$lib/api";
   import { getRemoteForceShell, setRemoteForceShell } from "$lib/prefs";
+  import { appLabel, filterApps, MAX_PINS, pinnedApps, togglePin } from "../../../shared/remote-shortcuts";
 
   let {
     serial,
     active = true,
     deviceType = "unknown",
-  }: { serial: string; active?: boolean; deviceType?: DeviceType } = $props();
+    hardwareId = null,
+  }: { serial: string; active?: boolean; deviceType?: DeviceType; hardwareId?: string | null } = $props();
 
   // The locator activity exists only on Shield builds, so the control appears
   // only for a device that reported itself as a Shield, as on the phone.
@@ -227,6 +230,100 @@
     remoteEnqueue((target, _mode, generation) => api.openSettings(target, generation));
   }
 
+  // The Apps key: the TV's launchable apps by name, and up to three pinned
+  // shortcuts filed under the TV's hardware id (never its address).
+  let appsOpen = $state(false);
+  let apps = $state<LaunchableApp[] | null>(null);
+  let appsLoading = $state(false);
+  let appsError = $state("");
+  let appsQuery = $state("");
+  let appsMessage = $state("");
+  let appsRequest = 0;
+  let pins = $state<string[]>([]);
+  let pinNote = $state("");
+  let filteredApps = $derived(apps ? filterApps(apps, appsQuery) : []);
+
+  function labelFor(pkg: string): string {
+    const app = apps?.find((a) => a.package === pkg);
+    return app ? appLabel(app) : pkg;
+  }
+
+  async function loadApps() {
+    const target = serial;
+    const request = ++appsRequest;
+    appsLoading = true;
+    appsError = "";
+    try {
+      const list = await api.listLaunchableApps(target);
+      if (serial !== target || request !== appsRequest) return;
+      apps = list;
+    } catch (error) {
+      if (serial !== target || request !== appsRequest) return;
+      appsError = String(error);
+    } finally {
+      if (serial === target && request === appsRequest) appsLoading = false;
+    }
+  }
+
+  function toggleApps() {
+    appsOpen = !appsOpen;
+    appsMessage = "";
+    if (appsOpen && !apps && !appsLoading) void loadApps();
+  }
+
+  function launch(pkg: string) {
+    const label = labelFor(pkg);
+    appsMessage = "";
+    remoteFlushBuffer();
+    remoteEnqueue(async (target, _mode, generation) => {
+      const result = await api.launchApp(target, pkg, generation);
+      if (result.ok) {
+        if (serial === target) appsMessage = `Opened ${label}.`;
+        return result;
+      }
+      const said = result.message.split("\n").find((line) => /Error|Exception/.test(line)) ?? result.message;
+      return { ...result, message: `Couldn't open ${label}. ${said}`.trim() };
+    });
+  }
+
+  function storage(): Storage | null {
+    try {
+      return localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  function pin(pkg: string) {
+    const store = storage();
+    const result = store ? togglePin(store, hardwareId, pins, pkg) : { pins, saved: false };
+    pins = result.pins;
+    pinNote = !result.saved && hardwareId === null ? "This TV has no hardware id, so pins last until you leave this page." : "";
+  }
+
+  // Pins belong to one TV: reload them whenever the TV changes.
+  $effect(() => {
+    const id = hardwareId;
+    void serial;
+    untrack(() => {
+      const store = storage();
+      pins = store ? pinnedApps(store, id) : [];
+      pinNote = "";
+      appsRequest++;
+      apps = null;
+      appsLoading = false;
+      appsError = "";
+      appsMessage = "";
+      appsQuery = "";
+      appsOpen = false;
+    });
+  });
+
+  // Pinned shortcuts show names, so read the list once the tab is in use.
+  $effect(() => {
+    if (active && pins.length > 0 && apps === null && !appsLoading && !appsError) untrack(() => void loadApps());
+  });
+
   // Hold-to-repeat for the D-pad: first repeat after 400 ms, then ~7/s. Only
   // armed on the instant channel — on the slow shell transport the queue
   // would pile up far behind the finger, so a hold is just one press there.
@@ -434,6 +531,17 @@
         <button class="power" onclick={() => sendRemoteKey("power")} title="Power toggle (sleep / wake)"><Icon name="power_settings_new" size={16} /> Power</button>
       </div>
       </div>
+      <div class="shortcut-row" data-shortcuts>
+        {#each pins as pkg (pkg)}
+          <button class="shortcut" onclick={() => launch(pkg)} title={`Open ${labelFor(pkg)}`}>{labelFor(pkg)}</button>
+        {/each}
+        <button
+          class="apps-key"
+          onclick={toggleApps}
+          aria-expanded={appsOpen}
+          aria-controls="remote-apps-panel"
+        ><Icon name="play_circle" size={16} /> Open app</button>
+      </div>
       <!-- A setting about how this remote talks to the TV, so it sits with the
            remote and with the caption it changes — not in the card header,
            where it would look like a page-level control. -->
@@ -443,6 +551,54 @@
       </label>
     </div>
   </div>
+  {#if appsOpen}
+    <section class="apps-panel" id="remote-apps-panel" aria-labelledby="remote-apps-heading">
+      <div class="apps-head">
+        <h3 id="remote-apps-heading">Apps on this TV</h3>
+        <span class="muted small">{pins.length} of {MAX_PINS} pinned</span>
+        <div class="apps-head-actions">
+          <button class="small-action" onclick={loadApps} disabled={appsLoading}><Icon name="refresh" size={14} /> Refresh</button>
+          <button class="small-action" onclick={toggleApps}>Close</button>
+        </div>
+      </div>
+      <input class="apps-search" type="search" placeholder="Search apps" aria-label="Search apps" bind:value={appsQuery} />
+      {#if appsLoading && !apps}
+        <p class="muted small" role="status">Reading the TV's apps…</p>
+      {:else if appsError}
+        <ErrorNotice error={appsError} action="List apps" />
+      {:else if apps && apps.length === 0}
+        <p class="muted small">The TV didn't list any apps it can open.</p>
+      {:else if apps}
+        {#if filteredApps.length === 0}
+          <p class="muted small">No app matches "{appsQuery.trim()}".</p>
+        {/if}
+        <ul class="apps-list">
+          {#each filteredApps as app (app.package)}
+            {@const pinned = pins.includes(app.package)}
+            <li class="app-item" data-app={app.package}>
+              <div class="app-text">
+                <span class="app-name">{appLabel(app)}</span>
+                {#if app.name}<span class="mono muted small">{app.package}</span>{/if}
+              </div>
+              <div class="app-actions">
+                <button class="small-action" onclick={() => launch(app.package)} aria-label={`Open ${appLabel(app)}`}>Open</button>
+                <button
+                  class="small-action"
+                  onclick={() => pin(app.package)}
+                  aria-pressed={pinned}
+                  aria-label={`${pinned ? "Unpin" : "Pin"} ${appLabel(app)}`}
+                  disabled={!pinned && pins.length >= MAX_PINS}
+                  title={!pinned && pins.length >= MAX_PINS ? `Unpin one first: the remote holds ${MAX_PINS}` : undefined}
+                ><Icon name="bookmark" size={14} /> {pinned ? "Unpin" : "Pin"}</button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+      {#if pinNote}<p class="muted small">{pinNote}</p>{/if}
+      <p class="small apps-status" role="status">{appsMessage}</p>
+    </section>
+  {/if}
 </div>
 
 <style>
@@ -710,5 +866,88 @@
     padding: 0.6rem 0.3rem;
     white-space: nowrap;
     border-radius: var(--radius-lg);
+  }
+  /* Pinned names wrap rather than clip: an app's name is the only label. */
+  .shortcut-row {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 0.4rem;
+    width: 100%;
+  }
+  .shortcut-row button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    max-width: 100%;
+    padding: 0.5rem 0.8rem;
+    border-radius: var(--radius-lg);
+    overflow-wrap: break-word;
+  }
+  .apps-panel {
+    max-width: 900px;
+    margin: 1.5rem auto 0;
+    padding-top: 1rem;
+    border-top: 1px solid var(--border);
+  }
+  .apps-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.8rem;
+  }
+  .apps-head h3 {
+    margin: 0;
+  }
+  .apps-head-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
+  }
+  .apps-head-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .apps-search {
+    width: 100%;
+    max-width: 420px;
+    margin: 0.7rem 0 0.5rem;
+  }
+  .apps-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    max-height: 420px;
+    overflow-y: auto;
+  }
+  .app-item {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.3rem 0.8rem;
+    padding: 0.45rem 0.2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .app-text {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 14rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .app-actions {
+    display: flex;
+    gap: 0.4rem;
+    margin-left: auto;
+  }
+  .app-actions button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+  }
+  .apps-status:empty {
+    margin: 0;
   }
 </style>

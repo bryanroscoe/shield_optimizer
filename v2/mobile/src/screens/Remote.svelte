@@ -1,6 +1,6 @@
 <script lang="ts">
   import HelpSheet from "../components/HelpSheet.svelte";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import { api } from "../lib/api";
   import { session } from "../lib/session.svelte";
   import { sameTv } from "../lib/tvTarget";
@@ -8,7 +8,10 @@
   import BottomTabs from "../components/BottomTabs.svelte";
   import ConfirmDialog from "../components/ConfirmDialog.svelte";
   import FindRemoteButton from "../components/FindRemoteButton.svelte";
+  import AppsSheet from "../components/AppsSheet.svelte";
   import { modal } from "../lib/modal";
+  import type { LaunchableApp } from "../lib/types";
+  import { appLabel, pinnedApps, togglePin } from "../../../shared/remote-shortcuts";
 
   let { navigate }: { navigate: (screen: Screen) => void } = $props();
 
@@ -268,6 +271,95 @@
     });
   }
 
+  // The Apps key: the TV's launchable apps by name, and up to three pinned
+  // shortcuts filed under the TV's hardware id (never its address).
+  const hardwareId = $derived(session.connectedDevice?.properties?.serial_number ?? null);
+  let appsOpen = $state(false);
+  let apps = $state<LaunchableApp[] | null>(null);
+  let appsLoading = $state(false);
+  let appsError = $state("");
+  let appsMessage = $state("");
+  let appsRequest = 0;
+  let pins = $state<string[]>([]);
+
+  function labelFor(pkg: string): string {
+    const app = apps?.find((a) => a.package === pkg);
+    return app ? appLabel(app) : pkg;
+  }
+
+  function storage(): Storage | null {
+    try {
+      return localStorage;
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadApps() {
+    if (!session.isConnected) return;
+    const target = { serial: session.serial, generation: session.generation };
+    const request = ++appsRequest;
+    appsLoading = true;
+    appsError = "";
+    try {
+      const list = await api.listLaunchableApps(target.serial);
+      if (request !== appsRequest || !onConnection(target)) return;
+      apps = list;
+    } catch (e) {
+      if (request !== appsRequest || !onConnection(target)) return;
+      appsError = String(e);
+    } finally {
+      if (request === appsRequest) appsLoading = false;
+    }
+  }
+
+  function openApps() {
+    appsOpen = true;
+    appsMessage = "";
+    if (!apps && !appsLoading) void loadApps();
+  }
+
+  function launch(pkg: string) {
+    if (!session.isConnected || destroyed || queuedWork >= 8) return;
+    const target = { serial: session.serial, generation: session.generation };
+    const label = labelFor(pkg);
+    appsMessage = "";
+    enqueue(async () => {
+      if (!onConnection(target)) return;
+      const r = await api.launchApp(target.serial, pkg);
+      if (!onConnection(target)) return;
+      const said = r.message.split("\n").find((line) => /Error|Exception/.test(line)) ?? r.message;
+      appsMessage = r.ok ? `Opened ${label}.` : `Couldn't open ${label}. ${said}`.trim();
+      remoteMessage = r.ok ? "" : appsMessage;
+    });
+  }
+
+  function pin(pkg: string) {
+    const store = storage();
+    pins = store ? togglePin(store, hardwareId, pins, pkg).pins : pins;
+  }
+
+  // Pins belong to one TV: reload them, and drop the list, when it changes.
+  $effect(() => {
+    const id = hardwareId;
+    void session.serial;
+    untrack(() => {
+      const store = storage();
+      pins = store ? pinnedApps(store, id) : [];
+      appsRequest++;
+      apps = null;
+      appsLoading = false;
+      appsError = "";
+      appsMessage = "";
+      appsOpen = false;
+    });
+  });
+
+  // Pinned shortcuts show names, so read the list once the screen has a TV.
+  $effect(() => {
+    if (session.isConnected && pins.length > 0 && apps === null && !appsLoading && !appsError) untrack(() => void loadApps());
+  });
+
   onDestroy(() => {
     destroyed = true;
     stopRepeat();
@@ -373,6 +465,15 @@
       </button>
     </div>
 
+    <div class="shortcut-row" data-shortcuts>
+      {#each pins as pkg (pkg)}
+        <button class="shortcut-btn" onclick={() => launch(pkg)} aria-label={`Open ${labelFor(pkg)}`}>{labelFor(pkg)}</button>
+      {/each}
+      <button class="shortcut-btn apps-key" onclick={openApps} aria-haspopup="dialog" aria-expanded={appsOpen}>
+        <span class="msr" aria-hidden="true">smart_display</span>Open app
+      </button>
+    </div>
+
     <label class="compat-toggle">
       <input type="checkbox" checked={forceShell} onchange={toggleForceShell} />
       Compatibility mode (slower, universal)
@@ -382,6 +483,20 @@
       <p class="remote-message mono">{remoteMessage}</p>
     {/if}
   </div>
+
+  {#if appsOpen}
+    <AppsSheet
+      {apps}
+      loading={appsLoading}
+      error={appsError}
+      {pins}
+      message={appsMessage}
+      onOpen={launch}
+      onPin={pin}
+      onRefresh={loadApps}
+      onClose={() => (appsOpen = false)}
+    />
+  {/if}
 
   {#if showKeyboardModal}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
@@ -641,6 +756,41 @@
     gap: 10px;
     margin-top: 10px;
     width: 100%;
+  }
+  /* Pinned names wrap rather than clip: an app's name is the only label. */
+  .shortcut-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+    width: 100%;
+  }
+  .shortcut-btn {
+    flex: 1 1 auto;
+    min-width: min(100%, 88px);
+    max-width: 100%;
+    min-height: 48px;
+    padding: 6px 10px;
+    border: 1px solid var(--line);
+    border-radius: 15px;
+    background: var(--surface);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 0.875rem;
+    font-weight: 600;
+    overflow-wrap: break-word;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    cursor: pointer;
+  }
+  .shortcut-btn .msr {
+    font-size: 20px;
+  }
+  .shortcut-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
   }
   @media (max-width: 310px) {
     .keyboard-controls {

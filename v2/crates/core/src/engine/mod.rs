@@ -12,6 +12,7 @@ pub mod cast_name;
 pub mod detection;
 pub mod diagnostics;
 pub mod install_outcome;
+pub mod launch;
 pub mod launcher;
 pub mod log_redact;
 pub mod logcat;

@@ -75,6 +75,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `send_text` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `send_key` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `open_settings` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
+| `list_launchable_apps` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
+| `launch_app` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `remote_warm` | Free | `../crates/core/src/commands/input.rs` | `src/screens/Remote.svelte` |
 | `panic_recovery` | Free | `../crates/core/src/commands/recovery.rs` | `src/screens/More.svelte` |
 | `reboot_device` | conditional: normal Free; recovery/bootloader AdvancedReboot | `../crates/core/src/commands/reboot.rs` | `src/screens/Dashboard.svelte`, `src/screens/More.svelte` |

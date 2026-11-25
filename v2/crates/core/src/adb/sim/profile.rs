@@ -11,7 +11,9 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use super::device::{Device, HomeComponent, HomePolicy, Network, Package, Wireless};
+use super::device::{
+    Device, HomeComponent, HomePolicy, LaunchActivity, Network, Package, Wireless,
+};
 
 /// `device.json`.
 #[derive(Debug, Deserialize)]
@@ -363,7 +365,56 @@ pub fn captured_transports(dir: &Path) -> Vec<String> {
 
 /// Fill everything a capture is not allowed to read with generic, parseable
 /// output. Values are deliberately unremarkable.
+/// Preinstalled apps that have a TV launch activity on real TVs. Captures
+/// don't record launch activities, so everything else with one is a
+/// user-installed app.
+const KNOWN_TV_LAUNCH: &[(&str, &str)] = &[
+    (
+        "com.google.android.youtube.tv",
+        "com.google.android.apps.youtube.tv.activity.ShellActivity",
+    ),
+    (
+        "com.android.vending",
+        "com.google.android.finsky.tvmainactivity.TvMainActivity",
+    ),
+    ("com.netflix.ninja", ".MainActivity"),
+    (
+        "com.amazon.amazonvideo.livingroom",
+        "com.amazon.ignition.IgnitionActivity",
+    ),
+    (
+        "com.google.android.youtube.tvmusic",
+        ".activities.MainActivity",
+    ),
+    ("com.nvidia.tegrazone3", ".TegraZoneActivity"),
+];
+
 pub fn synthesize(d: &mut Device) {
+    // A phone's apps answer LAUNCHER only; a TV's sideloads answer both.
+    let tv_device = d.leanback == Some(true) || d.prop("ro.build.characteristics").contains("tv");
+    if d.launch.is_empty() {
+        let launch: Vec<LaunchActivity> = d
+            .packages
+            .iter()
+            .filter_map(|(name, p)| {
+                if let Some((_, class)) = KNOWN_TV_LAUNCH.iter().find(|(k, _)| k == name) {
+                    return Some(LaunchActivity {
+                        package: name.clone(),
+                        class: class.to_string(),
+                        tv: true,
+                    });
+                }
+                (!p.system && !d.home.components.iter().any(|h| &h.package == name)).then(|| {
+                    LaunchActivity {
+                        package: name.clone(),
+                        class: ".MainActivity".to_string(),
+                        tv: tv_device,
+                    }
+                })
+            })
+            .collect();
+        d.launch = launch;
+    }
     let is_tv = d.leanback == Some(true) || d.prop("ro.build.characteristics").contains("tv");
     let (w, h) = d
         .wm_size

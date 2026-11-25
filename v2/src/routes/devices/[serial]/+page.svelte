@@ -3930,7 +3930,7 @@
   {/if}
   {#if visited.remote}
     <div hidden={activeTab !== "remote"}>
-      <RemoteTab {serial} active={activeTab === "remote"} deviceType={device?.device_type} />
+      <RemoteTab {serial} active={activeTab === "remote"} deviceType={device?.device_type} {hardwareId} />
     </div>
   {/if}
   {#if visited.media}

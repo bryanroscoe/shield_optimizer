@@ -160,6 +160,74 @@ async fn launcher_rows_are_home_handlers_and_switching_moves_home() {
 }
 
 #[tokio::test]
+async fn launchable_apps_list_and_open_without_gaps() {
+    use crate::commands::input;
+    let sim = shield_world();
+    let st = state(&sim);
+    let apps = input::list_launchable_apps_impl(&st, "192.0.2.1:5555")
+        .await
+        .unwrap();
+    let find = |pkg: &str| apps.iter().find(|a| a.package == pkg);
+    assert!(find("com.plexapp.android").is_some_and(|a| a.tv));
+    assert!(find("com.google.android.youtube.tv").is_some_and(|a| a.tv));
+    assert!(
+        find("com.spocky.projengmenu").is_none(),
+        "Home apps aren't modelled as launchable"
+    );
+    assert!(
+        find("com.nvidia.tegrazone3").is_none(),
+        "a disabled app isn't listed"
+    );
+
+    let generation = st.begin_remote_generation("192.0.2.1:5555").await.unwrap();
+    let opened = input::launch_app_impl(
+        &st,
+        "192.0.2.1:5555",
+        "com.plexapp.android",
+        Some(generation),
+    )
+    .await
+    .unwrap();
+    assert!(opened.ok, "{}", opened.message);
+    sim.world()
+        .setup_shell(
+            "1324619053514",
+            "pm disable-user --user 0 com.plexapp.android",
+        )
+        .unwrap();
+    let refused = input::launch_app_impl(
+        &st,
+        "192.0.2.1:5555",
+        "com.plexapp.android",
+        Some(generation),
+    )
+    .await
+    .unwrap();
+    assert!(!refused.ok);
+    assert!(
+        refused.message.contains("unable to resolve"),
+        "{}",
+        refused.message
+    );
+    let started = sim
+        .world()
+        .devices
+        .get("1324619053514")
+        .unwrap()
+        .started
+        .clone();
+    assert_eq!(
+        started
+            .iter()
+            .filter(|s| s.ends_with("com.plexapp.android"))
+            .count(),
+        3,
+        "one start that worked, then the TV and phone attempts that didn't: {started:?}"
+    );
+    assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
+}
+
+#[tokio::test]
 async fn faults_fire_on_one_batched_section() {
     let sim = shield_world();
     sim.world().faults.push(FaultRule {
