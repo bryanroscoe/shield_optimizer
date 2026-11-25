@@ -609,6 +609,10 @@ jobs:
       - name: Progressive help
         working-directory: v2
         run: npm run test:progressive-help
+
+      - name: Connection setup by brand
+        working-directory: v2
+        run: npm run test:connection-setup
       - name: Direct backend status
         working-directory: v2
         run: npm run test:direct-adb-status

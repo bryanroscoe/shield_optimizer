@@ -59,6 +59,7 @@
     "test:tvrecommendations-safety": "node tests/tvrecommendations-safety.mjs",
     "test:launcher-feedback": "node tests/launcher-feedback.mjs",
     "test:progressive-help": "node tests/progressive-help.mjs",
+    "test:connection-setup": "node tests/connection-setup.mjs",
     "test:restart-onboarding": "node tests/restart-onboarding.mjs",
     "test:direct-adb-status": "node tests/direct-adb-status.mjs",
     "test:native-discovery": "node tests/native-discovery.mjs",

@@ -20,6 +20,7 @@
   import BrandMark from "../components/BrandMark.svelte";
   import ErrorNotice from "../components/ErrorNotice.svelte";
   import HelpSheet from "../components/HelpSheet.svelte";
+  import BrandSetupGuide from "../components/BrandSetupGuide.svelte";
   import SupportReports from "../components/SupportReports.svelte";
   import SupportStatus from "../components/SupportStatus.svelte";
   import TelemetryNotice from "../components/TelemetryNotice.svelte";
@@ -506,10 +507,12 @@
     <h1>Find your TV</h1>
     <p class="lede">
       On the TV, turn on <span class="soft">Wireless debugging</span> (Android 11 and later) or
-      <span class="soft">Network debugging</span> (Shield and older TVs). Both are in
-      <span class="soft">Developer options</span>: Settings › System on Google TV, or Settings ›
-      Device Preferences on Shield and older Android TVs.
+      <span class="soft">Network debugging</span> (Shield and older TVs) in
+      <span class="soft">Developer options</span>.
     </p>
+    <HelpSheet title="How to turn on debugging">
+      <BrandSetupGuide />
+    </HelpSheet>
 
     <div class="radar" class:compact={scanned} aria-hidden="true">
       <span class="ring"></span>
