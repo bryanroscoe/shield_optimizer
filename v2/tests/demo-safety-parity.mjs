@@ -25,6 +25,12 @@ assert.equal(Object.keys(cautionList).length, entries("CAUTION"), "every caution
 assert.ok(protectedList["com.android.systemui"]);
 assert.match(cautionList["com.google.android.feedback"], /crash reports/);
 assert.throws(() => rustSafetyTable("", "CAUTION"), /no CAUTION table/);
+// Rust string escapes are read as Rust reads them.
+const escaped = rustSafetyTable(
+  'const CAUTION: &[(&str, &str)] = &[\n    (\n        "a.b",\n        "Say \\"no\\" \\u{2014} twice.\\nThen \\\n         stop.",\n    ),\n];',
+  "CAUTION",
+);
+assert.deepEqual(escaped, { "a.b": 'Say "no" — twice.\nThen stop.' });
 
 const priorDemo = process.env.VITE_DEMO;
 process.env.VITE_DEMO = "1";

@@ -163,7 +163,7 @@ try {
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   const deviceUrl = `${base}/devices/${encodeURIComponent("192.168.1.42:5555")}`;
   browser = await chromium.launch();
-  context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
+  context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -198,8 +198,8 @@ try {
     1,
     "an app with no label is named by its package id once, not twice",
   );
-  await listedRow.hover();
-  assert.ok(await listedRow.getByRole("button", { name: "Copy package name android.autoinstalls.config.nvidia" }).isVisible(), "its id can still be copied");
+  await listedRow.getByRole("button", { name: "Copy package name android.autoinstalls.config.nvidia" }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "android.autoinstalls.config.nvidia", "its id can still be copied");
   const options = await listedRow.locator(".action-radio .radio-pill").evaluateAll((els) =>
     els.map((el) => ({ label: el.querySelector(".radio-label")?.textContent?.trim(), active: el.classList.contains("active") })),
   );

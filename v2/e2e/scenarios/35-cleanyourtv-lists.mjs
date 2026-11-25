@@ -103,19 +103,23 @@ export const scenarios = [
       await group(page, OLD).waitFor();
       ctx.assert.equal(await group(page, PRO).count(), 0, "the replaced list's rows are gone");
       const oldRows = await listed(page, OLD);
-      for (const pkg of oldRows) {
-        ctx.assert.equal(await source(ctx, pkg), "no_record", `${pkg} from the 2017 list has no verdict of the app's own`);
-      }
       const profile = catalog.profiles.find((p) => p.profile === OLD);
+      const kept = new Set(profile.entries.filter((e) => e.upstream_form === "commented_out").map((e) => e.package));
       const on = new Set(restored.enabled);
+      const expected = [];
       const judged = [];
-      for (const entry of profile.entries.filter((e) => e.upstream_form === "active_disable" && on.has(e.package))) {
-        if ((await source(ctx, entry.package)) !== "no_record") judged.push(entry.package);
+      for (const entry of profile.entries) {
+        if (entry.upstream_form !== "active_disable" || kept.has(entry.package) || !on.has(entry.package)) continue;
+        if (expected.includes(entry.package) || judged.includes(entry.package)) continue;
+        ((await source(ctx, entry.package)) === "no_record" ? expected : judged).push(entry.package);
       }
+      ctx.assert.ok(expected.length > 1, "the 2017 list has more than the row the lists share");
       ctx.assert.ok(judged.length > 0, "the 2017 list names installed apps the app already judges");
-      for (const pkg of judged) {
-        ctx.assert.ok(!oldRows.includes(pkg), `${pkg} keeps the app's own verdict, not a list row`);
-      }
+      ctx.assert.deepEqual(
+        [...oldRows].sort(),
+        expected.sort(),
+        "every installed, enabled app the 2017 list disables and the app has no verdict for is a row, and nothing else",
+      );
       await ctx.step(`the 2017 list: ${oldRows.length} rows, ${judged.length} left to the catalog`);
 
       // Turning the lists off is filed under the hardware id and survives a reload.

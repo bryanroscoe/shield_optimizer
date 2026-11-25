@@ -3,6 +3,7 @@
     "10-devices.mjs",
     "20-health.mjs",
     "30-apps-optimize.mjs",
+    "35-cleanyourtv-lists.mjs",
     "40-launcher.mjs",
     "42-setup-wraith.mjs",
     "50-snapshot.mjs",
