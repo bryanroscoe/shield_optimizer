@@ -296,4 +296,5 @@ Building from source, architecture and release process: [`v2/README.md`](v2/READ
 
 - Debloat research from community guides including [florisse.nl/shield-debloat](https://florisse.nl/shield-debloat/)
 - Per-model TV lists from [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT), bundled as a pinned copy: browse them in Catalog; Optimize ranks your TV's list after our own catalog
+- Brand-by-brand steps for turning on debugging, adapted from TV owners' notes in [CleanYourTV](https://github.com/Gathin23/cleanyourtv) (MIT; notice in `v2/catalogs/connection-setup/`)
 - Built with AI assistance (Gemini Pro and Claude) by an actual software engineer, tested on real devices

@@ -1,6 +1,7 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
   import HelpTip from "$lib/components/HelpTip.svelte";
+  import BrandSetupHelp from "$lib/components/BrandSetupHelp.svelte";
   import ApprovalDialog, { type ApprovalPhase } from "$lib/components/ApprovalDialog.svelte";
   import { goto } from "$app/navigation";
   import { onMount, tick, untrack } from "svelte";
@@ -1695,10 +1696,7 @@
       {/if}
     </ol>
     <HelpDetails label="Help with pairing">
-      <p>
-        Developer options is under Settings → System on Google TV and phones, and under
-        Settings → Device Preferences on older Android TV and Shield.
-      </p>
+      <BrandSetupHelp />
       {#if adbBackend !== null}
         <p data-pair-fallback>
           If the TV doesn't appear, enter the IP:port from the main Wireless debugging screen and
@@ -2259,6 +2257,8 @@
             </li>
           {/if}
         </ul>
+        <p class="brand-setup-intro"><strong>Turning on debugging</strong></p>
+        <BrandSetupHelp />
       </div>
     </div>
   </HelpDetails>
@@ -2556,6 +2556,9 @@
   }
   .connection-checklist li + li {
     margin-top: 0.25rem;
+  }
+  .brand-setup-intro {
+    margin: 0.8rem 0 0;
   }
   .local-network-action {
     margin-top: 0.4rem;

@@ -26,6 +26,7 @@ test("mobile type check, production and demo builds need no desktop generated fi
   }
   await cp(join(desktop, "shared"), join(isolatedDesktop, "shared"), { recursive: true });
   await cp(join(desktop, "catalogs/cleanyourtv"), join(isolatedDesktop, "catalogs/cleanyourtv"), { recursive: true });
+  await cp(join(desktop, "catalogs/connection-setup"), join(isolatedDesktop, "catalogs/connection-setup"), { recursive: true });
   await mkdir(join(isolatedDesktop, "src"), { recursive: true });
   await cp(join(desktop, "src/lib"), join(isolatedDesktop, "src/lib"), { recursive: true });
   // The demo layer reads the protected and caution tables from the Rust source.

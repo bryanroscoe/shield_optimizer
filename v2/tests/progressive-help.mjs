@@ -92,7 +92,7 @@ async function emptyConnectionHelp(browser, base) {
       document.body.append(label);
     });
     const help = page.locator('.help-details').filter({ has: page.locator('summary', { hasText: 'Connection help' }) });
-    const summary = help.locator('summary');
+    const summary = help.locator(':scope > summary');
     const restart = help.getByRole('button', { name: 'Restart ADB from connection help', exact: true });
     assert.equal(await help.evaluate(el => el.open), true, 'completed empty discovery opens help');
     assert.ok(await restart.isVisible());
@@ -214,11 +214,11 @@ try {
   if (!before) {
     await toggleHelp('Connection help');
     const connectionHelp = page.locator('.help-details').filter({ has: page.locator('summary', { hasText: 'Connection help' }) });
-    await connectionHelp.locator('summary').click();
+    await connectionHelp.locator(':scope > summary').click();
     await connectionHelp.getByRole('button', { name: 'Pair PIN' }).focus();
     await page.keyboard.press('Escape');
     assert.equal(await connectionHelp.evaluate(e => e.open), false);
-    assert.equal(await connectionHelp.locator('summary').evaluate(e => e === document.activeElement), true);
+    assert.equal(await connectionHelp.locator(':scope > summary').evaluate(e => e === document.activeElement), true);
   }
   if (evidence) await page.screenshot({ path: `${evidence}/${before ? 'before' : 'after'}-devices.png` });
   await page.getByText('NVIDIA SHIELD', { exact: false }).first().click();
