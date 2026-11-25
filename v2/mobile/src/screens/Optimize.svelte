@@ -1329,6 +1329,14 @@
         <span class="msr">{mode === "optimize" ? "auto_fix_high" : "restore"}</span>
         {mode === "optimize" ? "Apply optimization" : "Apply restore"}{session.isPro ? "" : " (Pro)"}
       </button>
+      {#if mode === "optimize" && homeOffer}
+        <div class="home-offer" role="status">
+          <span class="msr" aria-hidden="true">home</span>
+          <span class="home-offer-text">Still on the stock home screen.</span>
+          <button class="home-offer-link" onclick={() => navigate("launcher")}>Get a better home screen</button>
+          <button class="home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
+        </div>
+      {/if}
       {#if mode === "optimize" && lastOptimizeChanged > 0}
         <!-- Offered after the run, not before: a snapshot records the result,
              so it can set the TV up this way again but never take this run back. -->
@@ -1345,14 +1353,6 @@
             <p>Restoring disables every app it recorded, with no per-app choice, on whichever TV you restore it to. Don't restore it to another TV unless nobody there uses those apps.</p>
             <p>It can't undo this run: it never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To re-enable apps, use Restore here.</p>
           </HelpSheet>
-        </div>
-      {/if}
-      {#if mode === "optimize" && homeOffer}
-        <div class="home-offer" role="status">
-          <span class="msr" aria-hidden="true">home</span>
-          <span class="home-offer-text">Still on the stock home screen.</span>
-          <button class="home-offer-link" onclick={() => navigate("launcher")}>Get a better home screen</button>
-          <button class="home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
         </div>
       {/if}
     {/if}
@@ -1632,7 +1632,7 @@
     font-size: 18px;
   }
   .home-offer-text {
-    flex: 1 1 12em;
+    flex: 1 1 calc(100% - 26px);
   }
   .home-offer-link,
   .home-offer-dismiss {

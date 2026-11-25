@@ -119,12 +119,16 @@ for (const [width, scale] of [[412, 1], [320, 1], [320, 2]]) {
     const clipped = await offer.evaluate((el) => [...el.querySelectorAll("span, button")]
       .filter((n) => n.scrollWidth > n.clientWidth + 1).map((n) => n.textContent.trim()));
     assert.deepEqual(clipped, [], "nothing is clipped");
+    const covered = await link.evaluate((el) => {
+      el.scrollIntoView({ block: "center" });
+      const r = el.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return hit && !el.contains(hit) ? hit.className : null;
+    });
+    assert.equal(covered, null, "scrolled into view, the link isn't under the run's toast");
     if (evidence) {
-      for (const theme of ["dark", "light"]) {
-        await page.evaluate((th) => document.documentElement.setAttribute("data-theme", th), theme);
-        await offer.scrollIntoViewIfNeeded();
-        await page.screenshot({ path: `${evidence}/offer-${width}-${scale * 100}-${theme}.png` });
-      }
+      // The phone app has one (dark) theme.
+      await page.screenshot({ path: `${evidence}/offer-${width}-${scale * 100}.png` });
     }
     await link.tap();
     await page.waitForFunction(() => router.current === "launcher");

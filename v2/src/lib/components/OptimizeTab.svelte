@@ -1283,6 +1283,14 @@
     {#if optimizeSummary}
       <p class="muted small mono action-message">{optimizeSummary}</p>
     {/if}
+    {#if homeOffer && onOpenLauncher && optimizeMode === "optimize" && !optimizeRunning}
+      <div class="home-offer" role="status">
+        <Icon name="home" size={16} />
+        <span>Still on the stock home screen.</span>
+        <button class="inline-link" onclick={onOpenLauncher}>Get a better home screen</button>
+        <button class="row-action home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
+      </div>
+    {/if}
     {#if onSaveSnapshot && optimizeMode === "optimize" && lastOptimizeChanged > 0 && !optimizeRunning}
       <!-- Offered after the run, not before: a snapshot records the result,
            so it can set the TV up this way again but never take this run back. -->
@@ -1299,14 +1307,6 @@
           <p>Restoring disables every app it recorded, with no per-app choice, on whichever TV you apply it to. Only apply it to another TV if nobody there uses those apps.</p>
           <p>A snapshot can't undo this run. It never re-enables or reinstalls an app, and apps this run uninstalled aren't in it. To re-enable apps, use Restore mode here.</p>
         </HelpDetails>
-      </div>
-    {/if}
-    {#if homeOffer && onOpenLauncher && optimizeMode === "optimize" && !optimizeRunning}
-      <div class="home-offer" role="status">
-        <Icon name="home" size={16} />
-        <span>Still on the stock home screen.</span>
-        <button class="inline-link" onclick={onOpenLauncher}>Get a better home screen</button>
-        <button class="row-action home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
       </div>
     {/if}
     {#if runFailure && !optimizeRunning}
