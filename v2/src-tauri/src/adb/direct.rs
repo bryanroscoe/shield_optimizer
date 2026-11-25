@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
-use atv_direct_adb::{ConnectAuth, ConnectFailure, Paired, PreferredKeys, WirelessAdb};
+use atv_direct_adb::{
+    ConnectAuth, ConnectFailure, Paired, PreferredKeys, WirelessAdb, PARALLEL_COMMANDS,
+};
 use atv_optimizer_core::adb::{
     native_mdns_services, render_mdns_services, AdbByteStream, AdbDriver, AdbError, AdbOutput,
     AdbResult, ApprovalRequestOutcome, Leases, NativeDiscoveryReport, ScanConnectOutcome,
@@ -40,12 +42,6 @@ const NOT_ALLOWED_RECENT: Duration = Duration::from_secs(5 * 60);
 
 /// How long Add by IP waits for another connection to the same address.
 const FOREGROUND_LOCK_WAIT: Duration = QUIET_CONNECT_TIMEOUT;
-
-/// Commands that may run on one TV beside the one on its main connection,
-/// each over an extra connection, as platform-tools runs `adb shell`s side
-/// by side. Screens load several readings at once, and one of them
-/// (`dumpsys meminfo`) takes seconds.
-const PARALLEL_COMMANDS: usize = 3;
 
 /// What `adb connect` prints for a TV that refused every key, the way
 /// platform-tools words it, so the shared connect command reads it as

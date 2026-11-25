@@ -136,6 +136,12 @@ fn push_deadline(size: u64) -> Duration {
     PUSH_DEADLINE + Duration::from_secs(size / PUSH_FLOOR_BYTES_PER_SEC)
 }
 const POST_ERROR_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// How many commands the apps let run on one TV beside the one on its main
+/// connection, each over an extra connection (see the `lanes` module), as
+/// platform-tools runs `adb shell`s side by side. Screens load several
+/// readings at once, and one of them (`dumpsys meminfo`) takes seconds.
+pub const PARALLEL_COMMANDS: usize = 3;
+
 /// A command whose deadline passed before it reached a connection.
 pub(crate) const QUEUED_DEADLINE: &str =
     "Native command deadline reached while queued; no command was started.";

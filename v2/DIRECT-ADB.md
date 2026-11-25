@@ -197,8 +197,8 @@ there is a usable one, then the app's key (`<data folder>/native-adb/identity.pk
 ## Parallel commands
 
 Platform-tools' adb server runs commands to one TV side by side over one connection. The
-vendored client reads one stream at a time, so desktop gives each TV up to three extra
-connections (`PARALLEL_COMMANDS` in `src-tauri/src/adb/direct.rs`, `crates/direct-adb/src/lanes.rs`).
+vendored client reads one stream at a time, so both apps give each TV up to three extra
+connections (`PARALLEL_COMMANDS` and `crates/direct-adb/src/lanes.rs`).
 A shell command or screenshot that finds the main connection busy runs on a free extra
 connection, opens a new one if fewer than three are open, and otherwise takes whichever
 connection is freed first. Without them, a screen that loads several readings at once took the
@@ -224,8 +224,8 @@ platform-tools; five quick `settings get` reads took 160 ms, 56 ms and 85 ms.
   outcome is unknown and closes that connection; it does not mark the TV disconnected, which
   the main connection's own checks decide.
 - Reboot, the liveness probe, hardware-id checks and the dedicated connections (downloads,
-  installs, uploads, Device Logs, Expert shell, Remote) are unchanged. The Android app does not
-  use extra connections.
+  installs, uploads, Device Logs, Expert shell, Remote) are unchanged. The Android app uses the
+  same extra connections; they sign only, so its own approval flow is unchanged.
 
 ## Limits
 
