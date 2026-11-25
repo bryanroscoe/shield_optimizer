@@ -422,14 +422,49 @@ fn held_transport_for<'a>(
         })
 }
 
-/// Ask the adb daemon what it has seen advertised over mDNS. Requires
-/// platform-tools 30+; older binaries print usage text to stderr, which
-/// parses to no services rather than an error.
-async fn discover_mdns_services(adb: &dyn AdbDriver) -> Vec<MdnsService> {
-    match adb.raw(&["mdns", "services"]).await {
-        Ok(out) => parse_mdns_services(&out.stdout),
-        Err(_) => Vec::new(),
+/// Why `adb mdns services` gave no list. A failed enumeration is not a
+/// successful one that saw no advertisements.
+struct MdnsFailure {
+    detail: String,
+    /// adb older than platform-tools 30 has no `mdns` command, so trying
+    /// again can't help.
+    adb_too_old: bool,
+}
+
+impl MdnsFailure {
+    fn sentence(&self) -> String {
+        if self.adb_too_old {
+            "This adb is too old to look for TVs that announce themselves on the network. \
+             Choose Download platform-tools in Settings › ADB, or use Add by IP."
+                .into()
+        } else {
+            format!(
+                "Looking for TVs that announce themselves on the network failed ({}). Try Scan \
+                 LAN again, or use Add by IP.",
+                self.detail
+            )
+        }
     }
+}
+
+/// Ask the adb daemon what it has seen advertised over mDNS.
+async fn discover_mdns_services(adb: &dyn AdbDriver) -> Result<Vec<MdnsService>, MdnsFailure> {
+    let failure = match adb.raw(&["mdns", "services"]).await {
+        Ok(out) if out.success() => return Ok(parse_mdns_services(&out.stdout)),
+        Ok(out) => out.combined(),
+        Err(AdbError::NonZeroExit { stderr, .. }) => stderr,
+        Err(error) => error.to_string(),
+    };
+    let detail = bounded_detail(&failure);
+    Err(MdnsFailure {
+        adb_too_old: failure.contains("unknown command")
+            || failure.contains("Android Debug Bridge version"),
+        detail: if detail.is_empty() {
+            "adb exited with an error".into()
+        } else {
+            detail
+        },
+    })
 }
 
 async fn native_connect_attempt(
@@ -860,8 +895,12 @@ async fn scan_command_stage_with_attempts(
             }
         }
     };
+    let mut mdns_error = None;
     let services = if host_server {
-        discover_mdns_services(adb).await
+        discover_mdns_services(adb).await.unwrap_or_else(|error| {
+            mdns_error = Some(error);
+            Vec::new()
+        })
     } else {
         native_snapshot
             .as_ref()
@@ -1140,19 +1179,34 @@ async fn scan_command_stage_with_attempts(
         failure_details: failure_details.clone(),
     };
     let (message, details) = if host_server {
-        let mut message = summary_message(
-            subnet_label,
-            found.len(),
-            &connected,
-            &unauthorized,
-            &targets.needs_pairing,
-        );
+        // With discovery failed, finding nothing on port 5555 doesn't mean
+        // there is nothing to find: lead with the failure instead.
+        let mut message = match &mdns_error {
+            Some(failure) if found.is_empty() => format!(
+                "No device on {subnet_label}.x answered on the ADB port, and {}",
+                lowercase_first(&failure.sentence())
+            ),
+            _ => summary_message(
+                subnet_label,
+                found.len(),
+                &connected,
+                &unauthorized,
+                &targets.needs_pairing,
+            ),
+        };
         append_failures(
             &mut message,
             &failed,
             &failure_details,
             startup_error.as_deref(),
         );
+        if let Some(failure) = mdns_error.as_ref().filter(|_| !found.is_empty()) {
+            if !message.ends_with('.') {
+                message.push('.');
+            }
+            message.push(' ');
+            message.push_str(&failure.sentence());
+        }
         (message, Vec::new())
     } else {
         let mut details = failure_details;
@@ -1248,6 +1302,14 @@ fn native_summary_message(
         message.push_str(" Open your TV below.");
     }
     message
+}
+
+fn lowercase_first(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_lowercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 fn summary_message(
@@ -1994,6 +2056,88 @@ mod command_stage_tests {
         }
         async fn shell(&self, _: &str, _: &str) -> AdbResult<AdbOutput> {
             panic!("Scan command stage must not query a TV profile")
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mdns_failure_preserves_sweep_results_and_is_not_empty_discovery() {
+        const FAILED: &str = "Looking for TVs that announce themselves on the network failed";
+        for nonzero in [false, true] {
+            let fake = ScanFake::default()
+                .on(
+                    &["connect", "192.0.2.1:5555"],
+                    &[Ok("connected to 192.0.2.1:5555")],
+                )
+                .on(&["-s", "192.0.2.1:5555", "get-state"], &[Ok("device")]);
+            let fake = if nonzero {
+                fake.nonzero(&["mdns", "services"], "enumeration unavailable")
+            } else {
+                fake.on(&["mdns", "services"], &[Err("enumeration unavailable")])
+            };
+            let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+                .await
+                .unwrap();
+            assert_eq!(result.connected, vec!["192.0.2.1:5555"]);
+            assert!(result.failed.is_empty());
+            assert!(result.message.starts_with("Scanned 192.0.2.x"));
+            assert!(result.message.contains(FAILED));
+            assert!(result.message.contains("enumeration unavailable"));
+            assert_eq!(fake.count("mdns services"), 1);
+        }
+        // A clean scan that saw no advertisements is not a failure.
+        let fake = ScanFake::default();
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        assert!(result.found.is_empty());
+        assert!(!result.message.contains("announce themselves"));
+        assert_eq!(fake.count("mdns services"), 1);
+        // Nothing on port 5555 with discovery failed leads with the failure,
+        // not with "nothing found" advice.
+        let fake = ScanFake::default().on(&["mdns", "services"], &[Err("enumeration unavailable")]);
+        let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+        assert!(result.found.is_empty());
+        assert_eq!(
+            result.message,
+            "No device on 192.0.2.x answered on the ADB port, and looking for TVs that announce \
+             themselves on the network failed (transport error: enumeration unavailable). Try \
+             Scan LAN again, or use Add by IP."
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn mdns_failure_after_a_failed_endpoint_starts_a_new_sentence() {
+        let fake = ScanFake::default()
+            .on(&["connect", "192.0.2.1:5555"], &[Ok("failed to connect")])
+            .on(&["mdns", "services"], &[Err("enumeration unavailable")]);
+        let result = scan_command_stage(&fake, "192.0.2", &["192.0.2.1".into()])
+            .await
+            .unwrap();
+        assert_eq!(result.failed, vec!["192.0.2.1:5555"]);
+        assert!(
+            result
+                .message
+                .contains(". Looking for TVs that announce themselves on the network failed"),
+            "{}",
+            result.message
+        );
+        assert!(!result.message.contains(".. "), "{}", result.message);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn adb_without_mdns_says_it_is_too_old_instead_of_try_again() {
+        for reply in [
+            "adb: unknown command mdns",
+            "Android Debug Bridge version 1.0.39\nglobal options:",
+        ] {
+            let fake = ScanFake::default().nonzero(&["mdns", "services"], reply);
+            let result = scan_command_stage(&fake, "192.0.2", &[]).await.unwrap();
+            assert!(
+                result.message.contains("this adb is too old"),
+                "{}",
+                result.message
+            );
+            assert!(result.message.contains("Download platform-tools"));
+            assert!(!result.message.contains("Try Scan LAN again"));
+            assert!(!result.message.contains("global options"));
         }
     }
 
