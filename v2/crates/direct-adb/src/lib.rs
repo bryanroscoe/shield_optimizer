@@ -40,6 +40,7 @@ pub fn generate_identity_pem() -> Result<Vec<u8>, String> {
 
 mod bound_service;
 mod bounded_shell;
+mod lanes;
 mod limited_writer;
 mod streamed_install;
 mod upload;
@@ -265,6 +266,74 @@ fn lock_within<T>(mutex: &Mutex<T>, wait: Duration) -> Option<std::sync::MutexGu
     }
 }
 
+/// Run a controlled command on the main connection held by `guard`,
+/// evicting it when the command shows the socket is no longer usable.
+fn run_on_main<T, F>(
+    mut guard: std::sync::MutexGuard<'_, Option<Connection>>,
+    identity: &Mutex<Option<Identity>>,
+    lanes: &lanes::Lanes,
+    serial: &str,
+    control: &adb_client::tcp::BoundedShellControl,
+    run: F,
+) -> AdbResult<T>
+where
+    F: FnOnce(&mut ADBTcpDevice, adb_client::tcp::BoundedShellControl) -> Result<T, RustADBError>,
+{
+    control.remaining()?;
+    let active = guard
+        .as_mut()
+        .ok_or_else(|| AdbError::Transport("Not connected to a device.".into()))?;
+    validate_requested_serial(&active.serial, serial).map_err(AdbError::Transport)?;
+    let error = match run(&mut active.device, control.clone()) {
+        Ok(value) => return Ok(value),
+        Err(error) => error,
+    };
+    // Nothing reached the socket under this deadline, so the
+    // connection is as healthy as before the request.
+    if !control.was_registered() {
+        return Err(AdbError::Transport(request_error_message(&error)));
+    }
+    // As in `on_device`: an answer from the TV (a sync FAIL, a shell
+    // stream without an exit status) keeps it connected. Lost framing,
+    // a dead socket, or one the deadline or a cancel shut down (which
+    // the probe sees) is evicted so the next request reconnects.
+    if is_fatal_transport_error(&error) || !probe_alive(&mut active.device) {
+        *guard = None;
+        *lock_recovering(identity) = None;
+        lanes.clear();
+        tracing::warn!(error = %error, "wireless transport error — cleared connection");
+        Err(AdbError::Transport(format!(
+            "{CONNECTION_LOST_PREFIX}: {error}. The command's outcome is unknown; check the TV before retrying."
+        )))
+    } else {
+        Err(AdbError::Transport(request_error_message(&error)))
+    }
+}
+
+/// `getprop ro.serialno` on `device`: its verified hardware id, or `None`
+/// when the TV reported none, failed the query, or answered with something
+/// that is not one.
+fn query_hardware_id(
+    device: &mut ADBTcpDevice,
+    budget: Duration,
+) -> Result<Option<String>, RustADBError> {
+    let mut bytes = Vec::new();
+    let mut output = limited_writer::LimitedWriter::new(&mut bytes, 256);
+    let status = device.shell_command_with_timeout(
+        &"getprop ro.serialno",
+        Some(&mut output),
+        None,
+        budget,
+    )?;
+    if matches!(status, ShellExit::Code(code) if code != 0) {
+        return Ok(None);
+    }
+    let Ok(text) = limited_writer::bounded_text(&bytes, 256) else {
+        return Ok(None);
+    };
+    Ok(atv_optimizer_core::commands::devices::verified_hardware_id(&text).map(str::to_owned))
+}
+
 fn validate_requested_serial(active: &str, requested: &str) -> Result<(), String> {
     if active == requested {
         Ok(())
@@ -309,6 +378,9 @@ pub struct WirelessAdb {
     /// resurrect a connection after the user has explicitly disconnected.
     lifecycle: tokio::sync::Mutex<()>,
     requests: Arc<Mutex<ConnectionRequests>>,
+    /// Extra connections for commands that find `conn` busy; none unless
+    /// [`Self::with_parallel_commands`].
+    lanes: Arc<lanes::Lanes>,
 }
 
 impl WirelessAdb {
@@ -339,7 +411,18 @@ impl WirelessAdb {
             identity: Arc::new(Mutex::new(None)),
             lifecycle: tokio::sync::Mutex::new(()),
             requests: Arc::new(Mutex::new(ConnectionRequests::default())),
+            lanes: Arc::new(lanes::Lanes::new(0)),
         }
+    }
+
+    /// Let up to `extra` commands run beside the one on the main connection,
+    /// each on a connection of its own (see the `lanes` module). Connecting
+    /// then also reads the TV's hardware id, which every extra connection
+    /// must report. Without this, commands to one TV run one at a time.
+    #[must_use]
+    pub fn with_parallel_commands(mut self, extra: usize) -> Self {
+        self.lanes = Arc::new(lanes::Lanes::new(extra));
+        self
     }
 
     /// Offer `keys` before this driver's own key on every connection, as
@@ -387,6 +470,7 @@ impl WirelessAdb {
             .map_err(|_| "Direct ADB socket is busy.".to_string())?;
         *conn = None;
         *lock_recovering(&self.identity) = None;
+        self.lanes.clear();
         Ok(())
     }
 
@@ -426,6 +510,7 @@ impl WirelessAdb {
     {
         let conn = self.conn.clone();
         let identity = self.identity.clone();
+        let lanes = self.lanes.clone();
         let requested_serial = serial.to_string();
         let operation = self.work()?;
         tokio::task::spawn_blocking(move || {
@@ -453,6 +538,7 @@ impl WirelessAdb {
             if fatal {
                 *guard = None;
                 *lock_recovering(&identity) = None;
+                lanes.clear();
                 tracing::warn!(error = %error, "wireless transport error — cleared connection");
                 Err(format!("{CONNECTION_LOST_PREFIX}: {error}"))
             } else {
@@ -478,45 +564,90 @@ impl WirelessAdb {
             + Send
             + 'static,
     {
+        self.run_controlled(serial, budget, false, run).await
+    }
+
+    /// [`Self::on_device_controlled`], except that a command finding the
+    /// main connection busy runs on an extra connection when one can be had
+    /// (see the `lanes` module), and waits for the main one otherwise.
+    async fn on_any_connection<T, F>(&self, serial: &str, budget: Duration, run: F) -> AdbResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(
+                &mut ADBTcpDevice,
+                adb_client::tcp::BoundedShellControl,
+            ) -> Result<T, RustADBError>
+            + Send
+            + 'static,
+    {
+        self.run_controlled(serial, budget, true, run).await
+    }
+
+    async fn run_controlled<T, F>(
+        &self,
+        serial: &str,
+        budget: Duration,
+        parallel: bool,
+        run: F,
+    ) -> AdbResult<T>
+    where
+        T: Send + 'static,
+        F: FnOnce(
+                &mut ADBTcpDevice,
+                adb_client::tcp::BoundedShellControl,
+            ) -> Result<T, RustADBError>
+            + Send
+            + 'static,
+    {
         let deadline = tokio::time::Instant::now() + budget;
         let control = adb_client::tcp::BoundedShellControl::new(budget)?;
         let _cancel = crate::bounded_shell::CancelOnDrop(control.clone());
         let operation = self.work().map_err(AdbError::Transport)?;
         let conn = self.conn.clone();
         let identity = self.identity.clone();
+        let lanes = self.lanes.clone();
+        let parallel = parallel && lanes.enabled();
+        let key = self.key_path.clone();
+        let preferred = self.preferred_keys.clone();
         let serial = serial.to_owned();
         let observed = control.clone();
+        let on_lane = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let ran_on_lane = on_lane.clone();
         let worker = tokio::task::spawn_blocking(move || {
             let _operation = operation;
-            let mut guard = lock_recovering(&conn);
-            control.remaining()?;
-            let active = guard
-                .as_mut()
-                .ok_or_else(|| AdbError::Transport("Not connected to a device.".into()))?;
-            validate_requested_serial(&active.serial, &serial).map_err(AdbError::Transport)?;
-            let error = match run(&mut active.device, control.clone()) {
-                Ok(value) => return Ok(value),
-                Err(error) => error,
-            };
-            // Nothing reached the socket under this deadline, so the
-            // connection is as healthy as before the request.
-            if !control.was_registered() {
-                return Err(AdbError::Transport(request_error_message(&error)));
+            if parallel {
+                // Take whichever connection is free first: the main one, an
+                // extra one, or (with every one busy) the next to be freed.
+                loop {
+                    match conn.try_lock() {
+                        Ok(guard) => {
+                            let result =
+                                run_on_main(guard, &identity, &lanes, &serial, &control, run);
+                            lanes.main_released();
+                            return result;
+                        }
+                        Err(std::sync::TryLockError::Poisoned(error)) => {
+                            let guard = error.into_inner();
+                            let result =
+                                run_on_main(guard, &identity, &lanes, &serial, &control, run);
+                            lanes.main_released();
+                            return result;
+                        }
+                        Err(std::sync::TryLockError::WouldBlock) => {}
+                    }
+                    match lanes.acquire(&identity, &serial, &key, &preferred, &control) {
+                        lanes::Acquired::Lane(request_id, device) => {
+                            return lanes.run(request_id, *device, &control, &on_lane, run);
+                        }
+                        lanes::Acquired::Busy => lanes.wait_for_free(control.remaining()?),
+                        lanes::Acquired::Unavailable => break,
+                    }
+                }
             }
-            // As in `on_device`: an answer from the TV (a sync FAIL, a shell
-            // stream without an exit status) keeps it connected. Lost framing,
-            // a dead socket, or one the deadline or a cancel shut down (which
-            // the probe sees) is evicted so the next request reconnects.
-            if is_fatal_transport_error(&error) || !probe_alive(&mut active.device) {
-                *guard = None;
-                *lock_recovering(&identity) = None;
-                tracing::warn!(error = %error, "wireless transport error — cleared connection");
-                Err(AdbError::Transport(format!(
-                    "{CONNECTION_LOST_PREFIX}: {error}. The command's outcome is unknown; check the TV before retrying."
-                )))
-            } else {
-                Err(AdbError::Transport(request_error_message(&error)))
-            }
+            let guard = lock_recovering(&conn);
+            let result = run_on_main(guard, &identity, &lanes, &serial, &control, run);
+            lanes.main_released();
+            result
         });
         match tokio::time::timeout_at(deadline, worker).await {
             Ok(result) => result.map_err(|error| AdbError::Uncertain {
@@ -530,7 +661,11 @@ impl WirelessAdb {
                     // The cancel shuts the socket down; the worker evicts it.
                     Err(AdbError::Uncertain {
                         operation: "native command",
-                        detail: format!("{CONNECTION_LOST_PREFIX} at the total deadline after the command started; verify the outcome before retrying"),
+                        detail: if ran_on_lane.load(std::sync::atomic::Ordering::Acquire) {
+                            "the total deadline was reached after the command started; verify the outcome before retrying".into()
+                        } else {
+                            format!("{CONNECTION_LOST_PREFIX} at the total deadline after the command started; verify the outcome before retrying")
+                        },
                     })
                 } else {
                     Err(AdbError::Transport(
@@ -631,6 +766,7 @@ impl WirelessAdb {
         let conn = self.conn.clone();
         let identity = self.identity.clone();
         let requests = self.requests.clone();
+        let lanes = self.lanes.clone();
         let operation = self.work()?;
         tokio::task::spawn_blocking(move || {
             let _operation = operation;
@@ -643,6 +779,7 @@ impl WirelessAdb {
             {
                 *guard = None;
                 *lock_recovering(&identity) = None;
+                lanes.clear();
             }
         })
         .await
@@ -726,6 +863,7 @@ impl WirelessAdb {
         let conn = self.conn.clone();
         let identity = self.identity.clone();
         let requests = self.requests.clone();
+        let lanes = self.lanes.clone();
         let host_owned = host.to_string();
         let serial = format!("{host}:{port}");
 
@@ -794,26 +932,33 @@ impl WirelessAdb {
                     })
                 }
             })?;
-            if let Some(expected_id) = expected_id {
+            let hardware_id = if let Some(expected_id) = expected_id {
                 // The old socket remains published until the candidate proves
                 // its identity. A queued command must never reach a replacement TV.
-                let failure = ConnectFailure::IdentityMismatch { changed: false };
-                let mut bytes = Vec::new();
-                let mut output = limited_writer::LimitedWriter::new(&mut bytes, 256);
                 let budget = control.remaining()
                     .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
-                let status = device.shell_command_with_timeout(
-                    &"getprop ro.serialno", Some(&mut output), None, budget,
-                ).map_err(|error| ConnectFailure::Failed(connect_error_message(&error)))?;
-                let text = limited_writer::bounded_text(&bytes, 256).map_err(|_| failure.clone())?;
-                let actual_id = atv_optimizer_core::commands::devices::verified_hardware_id(&text);
-                if matches!(status, ShellExit::Code(code) if code != 0) || actual_id.is_none() {
-                    return Err(failure);
-                }
-                if actual_id != Some(expected_id.as_str()) {
+                let actual_id = query_hardware_id(&mut device, budget)
+                    .map_err(|error| ConnectFailure::Failed(connect_error_message(&error)))?
+                    .ok_or(ConnectFailure::IdentityMismatch { changed: false })?;
+                if actual_id != expected_id {
                     return Err(ConnectFailure::IdentityMismatch { changed: true });
                 }
-            }
+                Some(actual_id)
+            } else if lanes.enabled() {
+                // Extra connections must prove they reach this same TV. One
+                // that reports no id only keeps its commands one at a time.
+                let budget = control.remaining()
+                    .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
+                match query_hardware_id(&mut device, budget) {
+                    Ok(id) => id,
+                    Err(error) if is_fatal_transport_error(&error) => {
+                        return Err(ConnectFailure::Failed(connect_error_message(&error)));
+                    }
+                    Err(_) => None,
+                }
+            } else {
+                None
+            };
             if !preferred.is_empty() {
                 tracing::debug!(
                     serial = %serial,
@@ -850,6 +995,11 @@ impl WirelessAdb {
                 serial: serial.clone(),
                 request_id,
             });
+            lanes.bind(hardware_id.map(|hardware_id| lanes::Owner {
+                request_id,
+                address: addr,
+                hardware_id,
+            }));
             *lock_recovering(&identity) = Some(Identity {
                 request_id,
                 serial: serial.clone(),
@@ -884,6 +1034,7 @@ impl WirelessAdb {
         let conn = self.conn.clone();
         let identity = self.identity.clone();
         let requests = self.requests.clone();
+        let lanes = self.lanes.clone();
         let requested_serial = requested_serial.map(str::to_string);
         let operation = self.work()?;
         tokio::task::spawn_blocking(move || -> Result<(), String> {
@@ -898,6 +1049,7 @@ impl WirelessAdb {
             }
             *guard = None;
             *lock_recovering(&identity) = None;
+            lanes.clear();
             Ok(())
         })
         .await
@@ -1222,7 +1374,7 @@ impl AdbDriver for WirelessAdb {
         let command = command.to_string();
         let timeout = shell_timeout_for(&command);
         let (stdout, stderr, code) = self
-            .on_device_controlled(serial, timeout, move |dev, control| {
+            .on_any_connection(serial, timeout, move |dev, control| {
                 let mut out: Vec<u8> = Vec::new();
                 let mut err: Vec<u8> = Vec::new();
                 let mut bounded_out =
@@ -1264,7 +1416,7 @@ impl AdbDriver for WirelessAdb {
                 });
             }
         };
-        self.on_device_controlled(serial, SHELL_INACTIVITY_TIMEOUT, |dev, control| {
+        self.on_any_connection(serial, SHELL_INACTIVITY_TIMEOUT, |dev, control| {
             // Binary-safe either way: shell v2 when negotiated (stderr kept
             // apart, exit status), else `exec:`, which never runs under the
             // pty that would rewrite the PNG's line endings. The unbounded

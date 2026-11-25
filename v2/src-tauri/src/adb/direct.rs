@@ -41,6 +41,12 @@ const NOT_ALLOWED_RECENT: Duration = Duration::from_secs(5 * 60);
 /// How long Add by IP waits for another connection to the same address.
 const FOREGROUND_LOCK_WAIT: Duration = QUIET_CONNECT_TIMEOUT;
 
+/// Commands that may run on one TV beside the one on its main connection,
+/// each over an extra connection, as platform-tools runs `adb shell`s side
+/// by side. Screens load several readings at once, and one of them
+/// (`dumpsys meminfo`) takes seconds.
+const PARALLEL_COMMANDS: usize = 3;
+
 /// What `adb connect` prints for a TV that refused every key, the way
 /// platform-tools words it, so the shared connect command reads it as
 /// unauthorized.
@@ -172,7 +178,8 @@ impl DirectNetworkAdb {
             Arc::new(|key, operations| {
                 Arc::new(
                     WirelessAdb::with_existing_key(key, operations)
-                        .with_dedicated_connections(ConnectAuth::SignaturesOnly),
+                        .with_dedicated_connections(ConnectAuth::SignaturesOnly)
+                        .with_parallel_commands(PARALLEL_COMMANDS),
                 )
             }),
         )
@@ -197,7 +204,8 @@ impl DirectNetworkAdb {
                 Arc::new(
                     WirelessAdb::with_existing_key(key, operations)
                         .with_preferred_keys(preferred.clone())
-                        .with_dedicated_connections(ConnectAuth::SignaturesOnly),
+                        .with_dedicated_connections(ConnectAuth::SignaturesOnly)
+                        .with_parallel_commands(PARALLEL_COMMANDS),
                 )
             }),
             operations,

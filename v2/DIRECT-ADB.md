@@ -194,6 +194,35 @@ there is a usable one, then the app's key (`<data folder>/native-adb/identity.pk
   A server another tool started keeps its keys; nothing restarts one for this.
 - The Android app is unchanged: it offers only its own key.
 
+## Parallel commands
+
+Platform-tools' adb server runs commands to one TV side by side over one connection. The
+vendored client reads one stream at a time, so desktop gives each TV up to three extra
+connections (`PARALLEL_COMMANDS` in `src-tauri/src/adb/direct.rs`, `crates/direct-adb/src/lanes.rs`).
+A shell command or screenshot that finds the main connection busy runs on a free extra
+connection, opens a new one if fewer than three are open, and otherwise takes whichever
+connection is freed first. Without them, a screen that loads several readings at once took the
+sum of their times: `dumpsys meminfo` alone takes about 3 seconds on a Shield, and everything
+else waited behind it. On a 2019 Shield Pro (2026-11-25), the nine commands the Health tab sends
+at once took 7.6 s one at a time and 3.7 s with extra connections, as long as under
+platform-tools; five quick `settings get` reads took 160 ms, 56 ms and 85 ms.
+
+- **Same TV only.** Connecting reads the TV's hardware id (`getprop ro.serialno`). A new extra
+  connection must report that same verified id before anything runs on it; a TV that reports
+  none gets no extra connections, and its commands run one at a time.
+- **No prompts.** Extra connections sign with the keys the TV already allows and never offer a
+  public key. One the TV refuses, or that doesn't open within 2 seconds, is closed, the command
+  waits for the main connection, and no new one is tried for a minute.
+- **Owned by the main connection.** Replacing, dropping or disconnecting the main connection
+  closes them, and one that comes back from an older connection is closed instead of reused.
+  One idle for two minutes is closed rather than reused. Quit closes them with the rest.
+- **Failures stay local.** A command whose extra connection stops answering reports that its
+  outcome is unknown and closes that connection; it does not mark the TV disconnected, which
+  the main connection's own checks decide.
+- Reboot, the liveness probe, hardware-id checks and the dedicated connections (downloads,
+  installs, uploads, Device Logs, Expert shell, Remote) are unchanged. The Android app does not
+  use extra connections.
+
 ## Limits
 
 Built-in is network-only: a TV connected by USB needs Google platform-tools, and the
@@ -210,8 +239,8 @@ N1–N18; transport-level device results are in `vendor/adb_client/SHIELD-OPTIMI
 
 **Deadlines and size limits** (`crates/direct-adb/src/lib.rs`, `streamed_install.rs`,
 `bound_service.rs`). Ordinary shell output is capped at 512 KiB per stream and screenshots at
-64 MiB; hitting a cap is an error, never a silent truncation. Shell and screenshots on the owned
-connection have a 30-second budget that includes queue wait (180 seconds for slow shell).
+64 MiB; hitting a cap is an error, never a silent truncation. Shell and screenshots have a 30-second budget
+that includes waiting for a connection or opening an extra one (180 seconds for slow shell).
 Push, pull, limited downloads and installs have fifteen minutes, and identity-bound services a
 fifteen-minute stream lifetime. Device Logs and Expert shell use a dedicated shell-v2 stream
 with a 30-second deadline and 256 KiB kept per stream; a peer without shell v2 fails instead of
