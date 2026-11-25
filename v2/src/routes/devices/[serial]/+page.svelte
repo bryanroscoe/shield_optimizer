@@ -3975,6 +3975,9 @@
         support={device.support ?? null}
         {hardwareId}
         tv={device.properties}
+        onOpenLauncher={() => (activeTab = "launcher")}
+        homeNow={currentLauncher?.package ?? null}
+        launcherRows={launchers}
       />
     </div>
   {/if}

@@ -10,6 +10,7 @@
   import { runConfirmation, type RunConfirmSection } from "$lib/run-confirmation";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
+  import { dismissHomeOffer, homeOfferDismissed, onStockHome, type HomeRow } from "../../../shared/home-screen-offer";
   import type {
     DeviceType,
     OptimizeMode,
@@ -64,6 +65,9 @@
     support = null,
     hardwareId = null,
     tv = null,
+    onOpenLauncher = null,
+    homeNow = null,
+    launcherRows = null,
   }: {
     serial: string;
     deviceType: DeviceType;
@@ -93,6 +97,12 @@
     hardwareId?: string | null;
     /// What the TV reports about itself, for suggesting its CleanYourTV list.
     tv?: TvIdentity | null;
+    /// Opens the Launcher tab, offered after a run when Home is still stock.
+    onOpenLauncher?: (() => void) | null;
+    /// The page's latest read of the Home app and the launcher list, from the
+    /// Launcher tab. A newer read that isn't stock takes the offer back.
+    homeNow?: string | null;
+    launcherRows?: HomeRow[] | null;
   } = $props();
 
   /// The first failure of the last run, shown through ErrorNotice.
@@ -122,6 +132,12 @@
   let snapshotSaving = $state(false);
   let snapshotResult = $state<{ ok: boolean; message: string } | null>(null);
   let snapshotRequest = 0;
+  /// After a run that changed the TV, a TV still on its stock Home app gets a
+  /// quiet link to the Launcher tab. Dismissing it is remembered by hardware
+  /// id; a TV without one keeps it hidden until the page closes.
+  let homeOffer = $state(false);
+  let homeOfferHidden = $state(false);
+  let homeOfferRequest = 0;
   /// What each package was last changed to under the loaded plan. The plan is
   /// not reloaded after a run, so a row run twice reads "done" twice; only the
   /// first one changed the TV.
@@ -723,6 +739,7 @@
       ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
       : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
     if (mode === "optimize") lastOptimizeChanged = changed;
+    if (mode === "optimize" && changed > 0 && !optimizeAbort) void checkHomeOffer(context);
     const firstFailed = runItems.find((item) => optimizeProgress[item.package] === "failed");
     runFailure = firstFailed
       ? { name: firstFailed.name, message: optimizeFailureMessages[firstFailed.package] ?? "failed" }
@@ -763,13 +780,64 @@
     }
   }
 
-  /// Drops the offer and any save still in flight for it: a result that
-  /// lands after this belongs to an offer that is gone.
+  /// Drops the post-run offers and any work still in flight for them: a
+  /// result that lands after this belongs to an offer that is gone.
   function resetSnapshotOffer() {
     snapshotRequest++;
     lastOptimizeChanged = 0;
     snapshotSaving = false;
     snapshotResult = null;
+    homeOfferRequest++;
+    homeOffer = false;
+  }
+
+  function homeOfferWasDismissed(id: string | null): boolean {
+    try {
+      return homeOfferDismissed(localStorage, id);
+    } catch {
+      return false;
+    }
+  }
+
+  async function checkHomeOffer(context: Context) {
+    const request = ++homeOfferRequest;
+    homeOffer = false;
+    if (!onOpenLauncher || homeOfferHidden || homeOfferWasDismissed(context.hardwareId)) return;
+    try {
+      const [rows, current] = await Promise.all([
+        api.listLaunchers(context.serial),
+        api.currentLauncher(context.serial),
+      ]);
+      if (!contextIsCurrent(context) || request !== homeOfferRequest) return;
+      homeOffer = onStockHome(rows, current?.package) === true;
+    } catch {
+      // An unreadable Home app claims nothing, so there is no link.
+    }
+  }
+
+  // Home changed in the Launcher tab (the link leads there) while this tab
+  // stayed mounted: once the page reads a Home app that isn't stock, the
+  // offer and any lookup still in flight are stale.
+  $effect(() => {
+    const pkg = homeNow;
+    const rows = launcherRows;
+    untrack(() => {
+      if (pkg && onStockHome(rows, pkg) !== true) {
+        homeOfferRequest++;
+        homeOffer = false;
+      }
+    });
+  });
+
+  function dismissHome() {
+    homeOfferRequest++;
+    homeOffer = false;
+    homeOfferHidden = true;
+    try {
+      dismissHomeOffer(localStorage, hardwareId);
+    } catch {
+      /* storage unavailable: hidden until the page closes */
+    }
   }
 
   async function saveSetupSnapshot() {
@@ -1235,6 +1303,14 @@
     {#if optimizeSummary}
       <p class="muted small mono action-message">{optimizeSummary}</p>
     {/if}
+    {#if homeOffer && onOpenLauncher && optimizeMode === "optimize" && !optimizeRunning}
+      <div class="home-offer" role="status">
+        <Icon name="home" size={16} />
+        <span>Still on the stock home screen.</span>
+        <button class="inline-link" onclick={onOpenLauncher}>Get a better home screen</button>
+        <button class="row-action home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
+      </div>
+    {/if}
     {#if onSaveSnapshot && optimizeMode === "optimize" && lastOptimizeChanged > 0 && !optimizeRunning}
       <!-- Offered after the run, not before: a snapshot records the result,
            so it can set the TV up this way again but never take this run back. -->
@@ -1446,6 +1522,38 @@
   }
   .snapshot-offer :global(.help-details) {
     margin: 0.5rem 0 0;
+  }
+  .home-offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.6rem;
+    margin-top: 0.8rem;
+    color: var(--fg-secondary);
+    font-size: 0.85rem;
+  }
+  .home-offer .inline-link {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .home-offer .inline-link:hover {
+    text-decoration-thickness: 2px;
+  }
+  .home-offer .inline-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .home-offer-dismiss {
+    margin-left: auto;
+    padding: 0.2rem 0.6rem;
+    font-size: 0.8rem;
   }
   .snapshot-result {
     margin: 0.5rem 0 0;
