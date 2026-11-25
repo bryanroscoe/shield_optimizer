@@ -67,6 +67,8 @@ async function openRemote(page, base, { pins = null, launchFails = false } = {})
   await page.addInitScript(({ pins, launchFails, KEY, SHIELD_ID }) => {
     if (pins) localStorage.setItem(KEY, JSON.stringify({ [SHIELD_ID]: pins }));
     window.appCalls = [];
+    window.holdLaunch = false;
+    window.swapId = false;
     let internals;
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
       configurable: true, get: () => internals,
@@ -77,7 +79,12 @@ async function openRemote(page, base, { pins = null, launchFails = false } = {})
           if (command === "launch_app" && launchFails) {
             return { ok: false, transport: "shell", message: "Starting: Intent { … }\nError: Activity not started, unable to resolve Intent { … }" };
           }
-          return original(command, args);
+          if (command === "launch_app" && window.holdLaunch) await new Promise((resolve) => (window.releaseLaunch = resolve));
+          const result = await original(command, args);
+          if (command === "device_profile" && window.swapId) {
+            return { ...result, properties: { ...result.properties, serial_number: "SIMULATED-OTHER-TV" } };
+          }
+          return result;
         };
         internals = value;
       },
@@ -173,8 +180,15 @@ try {
     await page.waitForFunction(() => window.appCalls.filter((c) => c.command === "launch_app").length === 2);
     assert.equal((await calls(page, "launch_app"))[1].args.package, "com.google.android.youtube.tv", "a shortcut opens its app");
 
-    await apps.getByRole("button", { name: "Close", exact: true }).click();
+    await apps.getByRole("button", { name: "Close", exact: true }).focus();
+    await page.keyboard.press("Enter");
     assert.equal(await apps.count(), 0);
+    await page.waitForFunction(() => document.activeElement?.textContent?.includes("Open app"));
+    await page.keyboard.press("Enter");
+    await apps.getByRole("searchbox", { name: "Search apps" }).focus();
+    await page.keyboard.press("Escape");
+    assert.equal(await apps.count(), 0, "Escape closes the panel");
+    assert.equal(await appsKey.evaluate((el) => el === document.activeElement), true, "focus returns to Open app");
     if (evidence) {
       const video = page.video();
       await context.close();
@@ -203,6 +217,29 @@ try {
     const shortcuts = page.locator("#tabpanel-remote [data-shortcuts]");
     await shortcuts.waitFor();
     assert.deepEqual(await labels(shortcuts.getByRole("button")), ["Open app"], "pins never follow another TV");
+    await page.close();
+  }
+
+  // A refresh at the same address that reports another TV drops a queued launch.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const panel = await openRemote(page, base);
+    await panel.getByRole("button", { name: "Open app", exact: true }).click();
+    await panel.getByRole("button", { name: "Open Netflix", exact: true }).waitFor();
+    await page.evaluate(() => (window.holdLaunch = true));
+    await panel.getByRole("button", { name: "Open Netflix", exact: true }).click();
+    await page.waitForFunction(() => typeof window.releaseLaunch === "function");
+    await panel.getByRole("button", { name: "Open Plex", exact: true }).click();
+    const profiles = (await calls(page, "device_profile")).length;
+    await page.evaluate(() => (window.swapId = true));
+    await page.getByRole("button", { name: "Rename", exact: true }).click();
+    await page.locator(".rename-row input").fill("Den TV");
+    await page.locator(".rename-row").getByRole("button", { name: "Save", exact: true }).click();
+    await page.waitForFunction((n) => window.appCalls.filter((c) => c.command === "device_profile").length > n, profiles);
+    await page.evaluate(() => { window.holdLaunch = false; window.releaseLaunch(); });
+    await page.waitForTimeout(500);
+    assert.deepEqual((await calls(page, "launch_app")).map((c) => c.args.package), ["com.netflix.ninja"],
+      "the launch queued for the first TV never reaches the second");
     await page.close();
   }
 

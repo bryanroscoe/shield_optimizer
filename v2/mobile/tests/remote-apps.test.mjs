@@ -19,7 +19,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function open(t, { width = 412, scale = 1, pins = null, hardwareId = "default", launchFails = false, video = false } = {}) {
+async function open(t, { width = 412, scale = 1, pins = null, hardwareId = "default", launchFails = false, launchRejects = false, video = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: true, hasTouch: true,
     ...(video && evidence ? { recordVideo: { dir: `${evidence}/raw`, size: { width, height: 860 } } } : {}) });
   const page = await context.newPage();
@@ -31,7 +31,7 @@ async function open(t, { width = 412, scale = 1, pins = null, hardwareId = "defa
     if (pins) localStorage.setItem(KEY, JSON.stringify(pins));
   }, { pins, KEY });
   await page.goto(origin, { waitUntil: "networkidle" });
-  const id = await page.evaluate(async ({ scale, hardwareId, launchFails }) => {
+  const id = await page.evaluate(async ({ scale, hardwareId, launchFails, launchRejects }) => {
     const { session } = await import("/src/lib/session.svelte.ts");
     const { router } = await import("/src/lib/router.svelte.ts");
     window.session = session;
@@ -39,6 +39,7 @@ async function open(t, { width = 412, scale = 1, pins = null, hardwareId = "defa
     window.appCalls = [];
     window.__TAURI_INTERNALS__.invoke = async (command, args) => {
       window.appCalls.push({ command, args });
+      if (command === "launch_app" && launchRejects) throw new Error("SIMULATED transport dropped");
       if (command === "launch_app" && launchFails) {
         return { ok: false, transport: "shell", message: "Starting: Intent { … }\nError: Activity not started, unable to resolve Intent { … }" };
       }
@@ -56,7 +57,7 @@ async function open(t, { width = 412, scale = 1, pins = null, hardwareId = "defa
     label.style.cssText = "position:fixed;inset:0 0 auto;z-index:99999;background:#182238;color:white;padding:4px;font:10px sans-serif;text-align:center";
     document.body.append(label);
     return session.connectedDevice?.properties?.serial_number ?? null;
-  }, { scale, hardwareId, launchFails });
+  }, { scale, hardwareId, launchFails, launchRejects });
   await page.getByRole("heading", { name: "Remote", exact: true }).waitFor();
   return { page, id };
 }
@@ -175,4 +176,17 @@ test("a launch the TV refuses says so in words", async (t) => {
   const sheet = page.getByRole("dialog", { name: "Apps on this TV" });
   await sheet.getByRole("button", { name: "Open Plex", exact: true }).tap();
   await sheet.getByText("Couldn't open Plex. Error: Activity not started, unable to resolve Intent { … }").waitFor();
+});
+
+test("a launch that fails in transit says so in the sheet, and on the Remote from a shortcut", async (t) => {
+  const { page, id } = await open(t, { launchRejects: true });
+  await page.getByRole("button", { name: "Open app", exact: true }).tap();
+  const sheet = page.getByRole("dialog", { name: "Apps on this TV" });
+  await sheet.getByRole("button", { name: "Open Plex", exact: true }).tap();
+  await sheet.getByText("Couldn't open Plex. Error: SIMULATED transport dropped").waitFor();
+  await sheet.getByRole("button", { name: "Pin Plex", exact: true }).tap();
+  await sheet.getByRole("button", { name: "Done", exact: true }).tap();
+  await page.getByRole("button", { name: "Open Plex", exact: true }).tap();
+  await page.locator(".remote-message").getByText("Couldn't open Plex. Error: SIMULATED transport dropped").waitFor();
+  void id;
 });

@@ -18,8 +18,8 @@ use super::state::resolve_scrcpy_server_jar;
 use super::AppState;
 use crate::adb::AdbOutput;
 use crate::engine::launch::{
-    launch_command, launch_query, launch_succeeded, launchable_apps, LaunchableApp, LAUNCHER,
-    LEANBACK_LAUNCHER,
+    launch_command, launch_query, launch_query_for, launch_succeeded, launchable_apps,
+    pick_component, LaunchableApp, LAUNCHER, LEANBACK_LAUNCHER,
 };
 
 #[derive(Serialize)]
@@ -529,40 +529,58 @@ pub(crate) async fn launch_app_impl(
     package: &str,
     generation: Option<u64>,
 ) -> Result<SendTextResult, String> {
-    if launch_command(package, LEANBACK_LAUNCHER).is_none() {
+    let (Some(tv_query), Some(phone_query)) = (
+        launch_query_for(LEANBACK_LAUNCHER, package),
+        launch_query_for(LAUNCHER, package),
+    ) else {
         return Err("That isn't an app the TV can open.".to_string());
-    }
+    };
     let adb = state.adb_snapshot().await;
     let _generation_operation = state
         .lock_remote_generation_operation(serial, generation)
         .await?;
-    let mut last = String::new();
-    for category in [LEANBACK_LAUNCHER, LAUNCHER] {
-        let Some(cmd) = launch_command(package, category) else {
-            continue;
-        };
-        let out = adb
-            .shell(serial, &cmd)
-            .await
-            .map_err(|e| format!("am start: {e}"))?;
-        let combined = out.combined();
-        if launch_succeeded(out.success(), &combined) {
-            return Ok(SendTextResult {
-                ok: true,
-                message: format!("Opened {package}."),
-                transport: "shell",
-            });
+    // Open the named launch activity, as a launcher does. An implicit start of
+    // the package would also need CATEGORY_DEFAULT, and could show a chooser.
+    let read = adb
+        .shell(
+            serial,
+            &crate::adb::checked_batch_command(&[&tv_query, &phone_query]),
+        )
+        .await
+        .map_err(|e| format!("Couldn't read {package}'s launch activity: {e}"))?;
+    let sections = crate::adb::parse_checked_batch(&read.stdout, 2, &[])
+        .map_err(|e| format!("Couldn't read {package}'s launch activity: {e}"))?;
+    let Some(cmd) = pick_component(package, &sections[0], &sections[1])
+        .and_then(|(component, category)| launch_command(&component, category))
+    else {
+        return Ok(SendTextResult {
+            ok: false,
+            message: format!(
+                "The TV has no launch activity for {package}. It may be disabled or uninstalled."
+            ),
+            transport: "shell",
+        });
+    };
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("am start: {e}"))?;
+    let combined = out.combined();
+    Ok(if launch_succeeded(out.success(), &combined) {
+        SendTextResult {
+            ok: true,
+            message: format!("Opened {package}."),
+            transport: "shell",
         }
-        last = combined.trim().to_string();
-    }
-    Ok(SendTextResult {
-        ok: false,
-        message: if last.is_empty() {
-            format!("The TV didn't open {package}.")
-        } else {
-            last
-        },
-        transport: "shell",
+    } else {
+        SendTextResult {
+            ok: false,
+            message: match combined.trim() {
+                "" => format!("The TV didn't open {package}."),
+                text => text.to_string(),
+            },
+            transport: "shell",
+        }
     })
 }
 
@@ -742,25 +760,51 @@ mod tests {
         assert!(err.starts_with("Couldn't list the TV's apps"), "{err}");
     }
 
+    fn batch(tv: &str, phone: &str) -> String {
+        format!("{tv}\n__SHIELDOPT_STATUS__0\n__SHIELDOPT_SEP__\n{phone}\n__SHIELDOPT_STATUS__0\n")
+    }
+
     #[tokio::test]
-    async fn launch_app_opens_tv_activity_then_falls_back_to_the_phone_one() {
+    async fn launch_app_opens_the_named_tv_activity_then_the_phone_one() {
         use super::super::test_support::{state_with, MockAdb};
-        let tv = state_with(MockAdb::default().on_shell(
-            "LEANBACK_LAUNCHER com.netflix.ninja",
-            "Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LEANBACK_LAUNCHER] pkg=com.netflix.ninja }\n",
-        ));
+        let mock = MockAdb::default()
+            .on_shell(
+                "query-activities",
+                &batch("com.netflix.ninja/.MainActivity\ncom.netflix.ninja/.Other", "com.netflix.ninja/.Phone"),
+            )
+            .on_shell(
+                "am start -n com.netflix.ninja/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER",
+                "Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LEANBACK_LAUNCHER] cmp=com.netflix.ninja/.MainActivity }\n",
+            );
+        let shell = mock.shell_log();
+        let tv = state_with(mock);
         let generation = tv.begin_remote_generation("fixture-TV").await.unwrap();
         let r = launch_app_impl(&tv, "fixture-TV", "com.netflix.ninja", Some(generation))
             .await
             .unwrap();
         assert!(r.ok, "{}", r.message);
+        {
+            let calls = shell.lock().unwrap();
+            assert_eq!(calls.len(), 2, "one batched read, one start");
+            assert!(
+                calls[0].contains("-c android.intent.category.LEANBACK_LAUNCHER com.netflix.ninja")
+            );
+            assert!(
+                calls[1].starts_with("am start -n "),
+                "an explicit component, never an implicit package start: {}",
+                calls[1]
+            );
+        }
 
         let mock = MockAdb::default()
             .on_shell(
-                "LEANBACK_LAUNCHER com.example.phoneonly",
-                "Starting: Intent { … }\nError: Activity not started, unable to resolve Intent { … }\n",
+                "query-activities",
+                &batch("", "com.example.phoneonly/.Main"),
             )
-            .on_shell("category.LAUNCHER com.example.phoneonly", "Starting: Intent { … }\n");
+            .on_shell(
+                "am start -n com.example.phoneonly/.Main",
+                "Starting: Intent { … }\n",
+            );
         let shell = mock.shell_log();
         let phone = state_with(mock);
         let generation = phone.begin_remote_generation("fixture-TV").await.unwrap();
@@ -773,22 +817,37 @@ mod tests {
         .await
         .unwrap();
         assert!(r.ok);
-        assert_eq!(
-            shell.lock().unwrap().len(),
-            2,
-            "TV launcher first, then the phone one"
-        );
+        assert!(shell.lock().unwrap()[1].ends_with("-c android.intent.category.LAUNCHER"));
 
-        let missing = state_with(MockAdb::default().on_shell(
-            "com.example.gone",
-            "Starting: Intent { … }\nError: Activity not started, unable to resolve Intent { … }\n",
-        ));
+        let mock = MockAdb::default().on_shell("query-activities", &batch("", ""));
+        let shell = mock.shell_log();
+        let missing = state_with(mock);
         let generation = missing.begin_remote_generation("fixture-TV").await.unwrap();
         let r = launch_app_impl(&missing, "fixture-TV", "com.example.gone", Some(generation))
             .await
             .unwrap();
         assert!(!r.ok);
-        assert!(r.message.contains("unable to resolve"), "{}", r.message);
+        assert!(r.message.contains("no launch activity"), "{}", r.message);
+        assert_eq!(
+            shell.lock().unwrap().len(),
+            1,
+            "nothing is started without a launch activity"
+        );
+
+        let refused = state_with(
+            MockAdb::default()
+                .on_shell("query-activities", &batch("com.example.x/.Main", ""))
+                .on_shell(
+                    "am start",
+                    "Starting: Intent { … }\nError: Activity class {com.example.x/.Main} does not exist.\n",
+                ),
+        );
+        let generation = refused.begin_remote_generation("fixture-TV").await.unwrap();
+        let r = launch_app_impl(&refused, "fixture-TV", "com.example.x", Some(generation))
+            .await
+            .unwrap();
+        assert!(!r.ok);
+        assert!(r.message.contains("does not exist"), "{}", r.message);
     }
 
     #[tokio::test]

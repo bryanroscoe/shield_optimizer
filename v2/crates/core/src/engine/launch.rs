@@ -82,16 +82,60 @@ pub fn launchable_apps(
     apps
 }
 
-/// The `am start` that opens `package` through its `category` launch activity,
-/// or None when `package` isn't a valid package name (it is interpolated into
-/// a shell command, so nothing else may reach it).
-pub fn launch_command(package: &str, category: &str) -> Option<String> {
-    if !is_valid_package_name(package) || (category != LEANBACK_LAUNCHER && category != LAUNCHER) {
-        return None;
+/// `launch_query` narrowed to one package, or None for anything that isn't a
+/// package name (it is interpolated into a shell command).
+pub fn launch_query_for(category: &str, package: &str) -> Option<String> {
+    (is_launcher_category(category) && is_valid_package_name(package))
+        .then(|| format!("{} {package}", launch_query(category)))
+}
+
+fn is_launcher_category(category: &str) -> bool {
+    category == LEANBACK_LAUNCHER || category == LAUNCHER
+}
+
+/// An activity name as `--components` prints it (`.Main` or `com.x.Main`).
+/// Nested classes (`$`) are refused: the name goes into a shell command.
+fn is_valid_activity(activity: &str) -> bool {
+    activity.split('.').all(|seg| {
+        seg.is_empty()
+            || seg
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+    }) && activity
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        && activity.chars().any(|c| c.is_ascii_alphanumeric())
+        && !activity.ends_with('.')
+}
+
+/// The launch activity to open `package` with: its TV one when it has one,
+/// else its phone one, taken from those queries' `--components` output.
+/// Opening a named component never depends on the activity also declaring
+/// CATEGORY_DEFAULT, which an implicit `am start` of the package would.
+pub fn pick_component(
+    package: &str,
+    leanback: &str,
+    launcher: &str,
+) -> Option<(String, &'static str)> {
+    for (out, category) in [(leanback, LEANBACK_LAUNCHER), (launcher, LAUNCHER)] {
+        for line in out.lines().map(str::trim) {
+            if let Some((pkg, activity)) = line.split_once('/') {
+                if pkg == package && is_valid_activity(activity) {
+                    return Some((line.to_string(), category));
+                }
+            }
+        }
     }
-    Some(format!(
-        "am start -a android.intent.action.MAIN -c {category} {package}"
-    ))
+    None
+}
+
+/// The `am start` that opens `component` (`package/activity`) as a launcher
+/// would, or None for anything that isn't a valid component and category.
+pub fn launch_command(component: &str, category: &str) -> Option<String> {
+    let (pkg, activity) = component.split_once('/')?;
+    (is_launcher_category(category) && is_valid_package_name(pkg) && is_valid_activity(activity))
+        .then(|| format!("am start -n {component} -a android.intent.action.MAIN -c {category}"))
 }
 
 /// Whether `am start` reported that it opened something. It prints
@@ -161,26 +205,72 @@ mod tests {
     }
 
     #[test]
-    fn launch_command_accepts_only_package_names_and_launcher_categories() {
+    fn launch_command_accepts_only_components_and_launcher_categories() {
         assert_eq!(
-            launch_command("com.netflix.ninja", LEANBACK_LAUNCHER).as_deref(),
-            Some("am start -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER com.netflix.ninja")
+            launch_command("com.netflix.ninja/.MainActivity", LEANBACK_LAUNCHER).as_deref(),
+            Some("am start -n com.netflix.ninja/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER")
         );
-        assert!(launch_command("com.netflix.ninja", LAUNCHER).is_some());
+        assert!(launch_command("org.xbmc.kodi/org.xbmc.kodi.Splash", LAUNCHER).is_some());
         for bad in [
             "",
-            "netflix",
-            "com.netflix;reboot",
-            "com.x $(id)",
-            "com.x/.Main",
-            "-n com.x",
-            "com..x",
+            "com.netflix.ninja",
+            "com.netflix.ninja/",
+            "com.netflix.ninja/.Main$Inner",
+            "com.x;reboot/.Main",
+            "com.x/.Main;reboot",
+            "com.x/.Main $(id)",
+            "com.x/-n",
+            "com.x/.",
+            "com..x/.Main",
         ] {
             assert_eq!(launch_command(bad, LEANBACK_LAUNCHER), None, "{bad}");
         }
         assert_eq!(
-            launch_command("com.netflix.ninja", "android.intent.category.HOME"),
+            launch_command("com.x/.Main", "android.intent.category.HOME"),
             None
+        );
+    }
+
+    #[test]
+    fn queries_narrow_to_a_valid_package_only() {
+        assert_eq!(
+            launch_query_for(LEANBACK_LAUNCHER, "com.netflix.ninja").as_deref(),
+            Some("cmd package query-activities --components --user 0 -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER com.netflix.ninja")
+        );
+        assert_eq!(launch_query_for(LAUNCHER, "com.x; reboot"), None);
+        assert_eq!(
+            launch_query_for("android.intent.category.HOME", "com.x.y"),
+            None
+        );
+    }
+
+    #[test]
+    fn picks_the_tv_activity_then_the_phone_one_for_that_package_only() {
+        let tv =
+            "com.other.app/.Main\ncom.netflix.ninja/.MainActivity\ncom.netflix.ninja/.Second\n";
+        assert_eq!(
+            pick_component("com.netflix.ninja", tv, "com.netflix.ninja/.Phone\n"),
+            Some((
+                "com.netflix.ninja/.MainActivity".to_string(),
+                LEANBACK_LAUNCHER
+            ))
+        );
+        assert_eq!(
+            pick_component(
+                "com.example.phone",
+                "",
+                "com.example.phone/com.example.phone.Main\n"
+            ),
+            Some((
+                "com.example.phone/com.example.phone.Main".to_string(),
+                LAUNCHER
+            ))
+        );
+        assert_eq!(pick_component("com.example.gone", tv, ""), None);
+        assert_eq!(
+            pick_component("com.x.y", "com.x.y/.A$B\ncom.x.y/.Ok\n", ""),
+            Some(("com.x.y/.Ok".to_string(), LEANBACK_LAUNCHER)),
+            "an unsafe activity name is skipped, not launched"
         );
     }
 

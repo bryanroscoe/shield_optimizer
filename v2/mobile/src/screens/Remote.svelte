@@ -326,11 +326,21 @@
     appsMessage = "";
     enqueue(async () => {
       if (!onConnection(target)) return;
-      const r = await api.launchApp(target.serial, pkg);
+      let message: string;
+      let ok = false;
+      try {
+        const r = await api.launchApp(target.serial, pkg);
+        ok = r.ok;
+        const said = r.message.split("\n").find((line) => /Error|Exception/.test(line)) ?? r.message;
+        message = r.ok ? `Opened ${label}.` : `Couldn't open ${label}. ${said}`.trim();
+      } catch (e) {
+        // A dropped connection rejects: say so where the press was made (the
+        // sheet when it is open, the Remote otherwise), never on another TV.
+        message = `Couldn't open ${label}. ${String(e)}`;
+      }
       if (!onConnection(target)) return;
-      const said = r.message.split("\n").find((line) => /Error|Exception/.test(line)) ?? r.message;
-      appsMessage = r.ok ? `Opened ${label}.` : `Couldn't open ${label}. ${said}`.trim();
-      remoteMessage = r.ok ? "" : appsMessage;
+      appsMessage = message;
+      remoteMessage = ok ? "" : message;
     });
   }
 

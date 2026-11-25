@@ -28,9 +28,10 @@ export const scenarios = [
       await ctx.shell(SHIELD.serial, `pm disable-user --user 0 ${VLC}`);
       const refused = await ctx.invoke("launch_app", { serial: SHIELD.key, package: VLC, generation });
       ctx.assert.equal(refused.value.ok, false);
-      ctx.assert.match(refused.value.message, /unable to resolve/);
+      ctx.assert.match(refused.value.message, /no launch activity/, "a disabled app has nothing to open");
       const started = (await ctx.device(SHIELD.serial)).started;
-      ctx.assert.ok(started.some((s) => s.endsWith(PLEX) && s.includes("LEANBACK_LAUNCHER")), "Plex started through its TV launch activity");
+      ctx.assert.ok(started.some((s) => s.startsWith(`-n ${PLEX}/`) && s.includes("LEANBACK_LAUNCHER")), "Plex started by its named TV launch activity");
+      ctx.assert.ok(!started.some((s) => s.includes(`${VLC}/`)), "the disabled app was never started");
       ctx.assert.ok(!started.some((s) => s.includes("reboot")));
       ctx.assert.equal((await ctx.state()).gaps.length, 0, "no simulator gaps");
     },
@@ -47,7 +48,7 @@ export const scenarios = [
       await ctx.step("apps on the simulated Shield");
       await apps.getByRole("button", { name: /^Open Plex/ }).click();
       await apps.getByText(/^Opened Plex/).waitFor();
-      await ctx.waitFor(async () => (await ctx.device(SHIELD.serial)).started.some((s) => s.endsWith(PLEX)), { message: "Plex started" });
+      await ctx.waitFor(async () => (await ctx.device(SHIELD.serial)).started.some((s) => s.startsWith(`-n ${PLEX}/`)), { message: "Plex started" });
       await apps.getByRole("button", { name: /^Pin Plex/ }).click();
       await panel.locator("[data-shortcuts]").getByRole("button", { name: /^Plex/ }).waitFor();
       const pins = await ctx.page.evaluate(() => JSON.parse(localStorage.getItem("atvopt.remotePins") ?? "{}"));

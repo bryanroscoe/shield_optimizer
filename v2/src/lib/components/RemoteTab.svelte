@@ -1,6 +1,6 @@
 <script lang="ts">
   import HelpDetails from "$lib/components/HelpDetails.svelte";
-  import { onDestroy, untrack } from "svelte";
+  import { onDestroy, tick, untrack } from "svelte";
   import type { DeviceType, LaunchableApp, SendTextResult } from "$lib/types";
   import Icon from "$lib/components/Icon.svelte";
   import ErrorNotice from "$lib/components/ErrorNotice.svelte";
@@ -265,10 +265,26 @@
     }
   }
 
+  let appsKey = $state<HTMLButtonElement | null>(null);
+
   function toggleApps() {
     appsOpen = !appsOpen;
     appsMessage = "";
     if (appsOpen && !apps && !appsLoading) void loadApps();
+  }
+
+  /// Closing from inside the panel puts focus back on Open app, so keyboard
+  /// users aren't dropped at the top of the page.
+  function closeApps() {
+    appsOpen = false;
+    appsMessage = "";
+    void tick().then(() => appsKey?.focus());
+  }
+
+  function appsKeydown(event: KeyboardEvent) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    closeApps();
   }
 
   function launch(pkg: string) {
@@ -391,13 +407,16 @@
   $effect(() => {
     const target = serial;
     const visible = active;
+    // A same-address refresh that reports another TV drops queued presses and
+    // launches too, so nothing meant for one TV reaches the next.
+    const identity = hardwareId;
     untrack(() => {
       invalidate();
       remoteEcho = "";
       remoteMessage = "";
       remoteCaptureFocused = false;
     });
-    return () => { void target; void visible; invalidate(); };
+    return () => { void target; void visible; void identity; invalidate(); };
   });
 
   onDestroy(() => {
@@ -537,6 +556,7 @@
         {/each}
         <button
           class="apps-key"
+          bind:this={appsKey}
           onclick={toggleApps}
           aria-expanded={appsOpen}
           aria-controls="remote-apps-panel"
@@ -552,13 +572,14 @@
     </div>
   </div>
   {#if appsOpen}
-    <section class="apps-panel" id="remote-apps-panel" aria-labelledby="remote-apps-heading">
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <section class="apps-panel" id="remote-apps-panel" aria-labelledby="remote-apps-heading" onkeydown={appsKeydown}>
       <div class="apps-head">
         <h3 id="remote-apps-heading">Apps on this TV</h3>
         <span class="muted small">{pins.length} of {MAX_PINS} pinned</span>
         <div class="apps-head-actions">
           <button class="small-action" onclick={loadApps} disabled={appsLoading}><Icon name="refresh" size={14} /> Refresh</button>
-          <button class="small-action" onclick={toggleApps}>Close</button>
+          <button class="small-action" onclick={closeApps}>Close</button>
         </div>
       </div>
       <input class="apps-search" type="search" placeholder="Search apps" aria-label="Search apps" bind:value={appsQuery} />

@@ -296,39 +296,40 @@ impl Device {
     }
 
     /// Enabled, installed apps with a launch activity in the category, as
-    /// `--components` prints them. Every TV app also answers LAUNCHER here.
-    fn query_launch(&self, tv_only: bool) -> String {
+    /// `--components` prints them, optionally for one package. Every TV app
+    /// also answers LAUNCHER here.
+    fn query_launch(&self, tv_only: bool, package: Option<&str>) -> String {
         self.launch
             .iter()
             .filter(|a| (a.tv || !tv_only) && self.usable(&a.package))
+            .filter(|a| package.map_or(true, |p| p == a.package))
             .map(|a| format!("{}/{}\n", a.package, a.class))
             .collect()
     }
 
-    /// `am start -a MAIN -c <launcher category> <package>`: starts the app when
-    /// it has a launch activity in that category, and reports what a TV prints
-    /// when nothing resolves.
-    fn start_launch(&mut self, args: &[String]) -> Option<Out> {
-        let category = args
+    /// `am start -n <component>` of an app the simulator models a launch
+    /// activity for: starts it while the app is enabled, and answers as a TV
+    /// does for a disabled app or a class it doesn't have. Any other `-n` is
+    /// left to the generic `am start` answer.
+    fn start_component(&mut self, args: &[String]) -> Option<Out> {
+        let component = args
             .windows(2)
-            .find(|w| w[0] == "-c")
-            .map(|w| w[1].as_str())
-            .filter(|c| *c == LEANBACK_LAUNCHER || *c == LAUNCHER)?;
-        let pkg = args.last()?.as_str();
-        if pkg.starts_with('-') || pkg.contains('/') || pkg == category {
+            .find(|w| w[0] == "-n")
+            .map(|w| w[1].clone())?;
+        let (pkg, class) = component.split_once('/')?;
+        if !self.launch.iter().any(|a| a.package == pkg) {
             return None;
         }
-        let intent = format!("act=android.intent.action.MAIN cat=[{category}] pkg={pkg}");
-        let found = self
+        self.started.push(args[1..].join(" "));
+        let known = self
             .launch
             .iter()
-            .any(|a| a.package == pkg && (a.tv || category == LAUNCHER) && self.usable(&a.package));
-        self.started.push(args[1..].join(" "));
-        Some(if found {
-            Out::ok(format!("Starting: Intent {{ {intent} }}\n"))
+            .any(|a| a.package == pkg && a.class == class);
+        Some(if known && self.usable(pkg) {
+            Out::ok(format!("Starting: Intent {{ cmp={component} }}\n"))
         } else {
             Out::ok(format!(
-                "Starting: Intent {{ {intent} }}\nError: Activity not started, unable to resolve Intent {{ {intent} flg=0x10000000 }}\n"
+                "Starting: Intent {{ cmp={component} }}\nError: Activity class {{{component}}} does not exist.\n"
             ))
         })
     }
@@ -506,9 +507,9 @@ impl Device {
                 if rest.iter().any(|a| a == "android.intent.category.HOME") {
                     Out::ok(self.query_home(components))
                 } else if components && rest.iter().any(|a| a == LEANBACK_LAUNCHER) {
-                    Out::ok(self.query_launch(true))
+                    Out::ok(self.query_launch(true, launch_package(rest)))
                 } else if components && rest.iter().any(|a| a == LAUNCHER) {
-                    Out::ok(self.query_launch(false))
+                    Out::ok(self.query_launch(false, launch_package(rest)))
                 } else {
                     return None;
                 }
@@ -1031,7 +1032,7 @@ impl Device {
         let sub = args.first()?.as_str();
         Some(match sub {
             "start" => {
-                if let Some(out) = self.start_launch(args) {
+                if let Some(out) = self.start_component(args) {
                     return Some(out);
                 }
                 let intent = args[1..].join(" ");
@@ -1049,6 +1050,14 @@ impl Device {
             _ => return None,
         })
     }
+}
+
+/// The package a `query-activities` call is narrowed to: its last argument,
+/// when that isn't a flag, an action or a category.
+fn launch_package(args: &[String]) -> Option<&str> {
+    let last = args.last()?.as_str();
+    (!last.starts_with('-') && !last.starts_with("android.intent.") && args.len() > 1)
+        .then_some(last)
 }
 
 fn apk_path(name: &str, p: &Package) -> String {

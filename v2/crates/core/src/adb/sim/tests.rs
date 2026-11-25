@@ -205,9 +205,21 @@ async fn launchable_apps_list_and_open_without_gaps() {
     .unwrap();
     assert!(!refused.ok);
     assert!(
-        refused.message.contains("unable to resolve"),
-        "{}",
+        refused.message.contains("no launch activity"),
+        "a disabled app has no launch activity to open: {}",
         refused.message
+    );
+    let wrong_class = sim
+        .shell(
+            "192.0.2.1:5555",
+            "am start -n com.google.android.youtube.tv/.Missing",
+        )
+        .await
+        .unwrap();
+    assert!(
+        wrong_class.stdout.contains("does not exist"),
+        "{}",
+        wrong_class.stdout
     );
     let started = sim
         .world()
@@ -216,13 +228,18 @@ async fn launchable_apps_list_and_open_without_gaps() {
         .unwrap()
         .started
         .clone();
+    let plex: Vec<_> = started
+        .iter()
+        .filter(|s| s.contains("com.plexapp.android/"))
+        .collect();
     assert_eq!(
-        started
-            .iter()
-            .filter(|s| s.ends_with("com.plexapp.android"))
-            .count(),
-        3,
-        "one start that worked, then the TV and phone attempts that didn't: {started:?}"
+        plex.len(),
+        1,
+        "started once, and never once disabled: {started:?}"
+    );
+    assert!(
+        plex[0].starts_with("-n com.plexapp.android/.MainActivity"),
+        "an explicit component: {started:?}"
     );
     assert!(sim.world().gaps.is_empty(), "{:?}", sim.world().gaps);
 }
