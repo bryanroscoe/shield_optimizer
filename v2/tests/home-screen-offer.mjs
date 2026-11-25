@@ -64,9 +64,11 @@ async function moduleChecks(server) {
   console.log("Home screen offer module passed: stock/custom/unknown Home, per-id dismissal, no-id and storage failures.");
 }
 
-async function openOptimize(page, base, homeNow) {
-  await page.addInitScript(({ homeNow }) => {
+async function openOptimize(page, base, homeNow, { dismissed = null } = {}) {
+  await page.addInitScript(({ homeNow, dismissed, KEY }) => {
+    if (dismissed) localStorage.setItem(KEY, JSON.stringify(dismissed));
     window.homeNow = homeNow;
+    window.holdHome = false;
     window.offerCalls = [];
     let internals;
     Object.defineProperty(window, "__TAURI_INTERNALS__", {
@@ -76,15 +78,20 @@ async function openOptimize(page, base, homeNow) {
         value.invoke = async (command, args) => {
           window.offerCalls.push(command);
           if (command === "current_launcher") {
+            if (window.holdHome) await new Promise((resolve) => (window.releaseHome = resolve));
             if (window.homeNow === "error") throw new Error("SIMULATED unreadable Home app");
             return { package: window.homeNow, activity: ".Main" };
+          }
+          if (command === "set_default_launcher") {
+            window.homeNow = args.package;
+            return { ok: true, strategy: "role", last_error: null, diagnostics: [] };
           }
           return original(command, args);
         };
         internals = value;
       },
     });
-  }, { homeNow });
+  }, { homeNow, dismissed, KEY });
   await page.goto(base, { waitUntil: "networkidle" });
   await page.getByText("NVIDIA SHIELD", { exact: false }).first().click();
   await page.getByRole("tab", { name: "Optimize" }).click();
@@ -97,7 +104,9 @@ async function openOptimize(page, base, homeNow) {
   return panel;
 }
 
-async function runPlan(page, panel) {
+const homeReads = (page) => page.evaluate(() => window.offerCalls.filter((c) => c === "current_launcher").length);
+
+async function runPlan(page, panel, label = "Optimize") {
   const armed = await panel.evaluate((root) => [...root.querySelectorAll("table.optimize-table tbody tr")]
     .some((tr) => {
       const label = tr.querySelector(".action-radio .radio-pill.active .radio-label")?.textContent?.trim();
@@ -110,8 +119,8 @@ async function runPlan(page, panel) {
   await panel.getByRole("button", { name: /^Run plan/ }).click();
   const dialog = page.locator("[data-run-plan-dialog]");
   await dialog.waitFor();
-  await dialog.getByRole("button", { name: "Run Optimize", exact: true }).click();
-  await panel.getByText(/Optimize complete/).waitFor({ timeout: 15000 });
+  await dialog.getByRole("button", { name: `Run ${label}`, exact: true }).click();
+  await panel.getByText(new RegExp(`${label} complete`)).waitFor({ timeout: 15000 });
 }
 
 async function settle(page) {
@@ -183,21 +192,76 @@ try {
 
     await page.getByRole("tab", { name: "Optimize" }).click();
     await offer.waitFor();
+    assert.ok(await offer.isVisible(), "visiting Launcher without changing Home keeps the offer");
     await dismiss.click();
     assert.equal(await offer.count(), 0, "Dismiss hides it");
     assert.deepEqual(await page.evaluate((k) => JSON.parse(localStorage.getItem(k)), KEY), ["0323220012345"],
       "the dismissal is filed under the Shield's hardware id");
-
-    await page.evaluate(() => (window.offerCalls = []));
-    await runPlan(page, panel);
-    await page.waitForTimeout(500);
-    assert.equal(await offer.count(), 0, "a dismissed TV is not asked again");
-    assert.equal(await page.evaluate(() => window.offerCalls.includes("current_launcher")), false, "nor is its Home app read");
     if (evidence) {
       const video = page.video();
       await context.close();
       await video.saveAs(join(evidence, "home-offer-simulated.webm"));
     } else await context.close();
+  }
+
+  // A dismissed TV isn't asked again, nor is its Home app read.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const panel = await openOptimize(page, base, STOCK, { dismissed: ["0323220012345"] });
+    await runPlan(page, panel);
+    await page.waitForTimeout(500);
+    assert.equal(await panel.locator(".home-offer").count(), 0, "a dismissed TV is not asked again");
+    assert.equal(await homeReads(page), 0, "nor is its Home app read");
+    await page.close();
+  }
+
+  // Running the same plan again changes nothing, so it reads nothing; and a
+  // lookup still in flight when the second run starts never lands.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const panel = await openOptimize(page, base, STOCK);
+    await page.evaluate(() => (window.holdHome = true));
+    await runPlan(page, panel);
+    await page.waitForFunction(() => typeof window.releaseHome === "function");
+    await runPlan(page, panel);
+    await page.evaluate(() => { window.holdHome = false; window.releaseHome(); });
+    await page.waitForTimeout(500);
+    assert.equal(await panel.locator(".home-offer").count(), 0, "the first run's late lookup doesn't land on the second run");
+    assert.equal(await homeReads(page), 1, "a run that changed nothing reads nothing");
+    await page.close();
+  }
+
+  // Changing Home in the Launcher tab takes the offer back.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const panel = await openOptimize(page, base, STOCK);
+    await runPlan(page, panel);
+    await panel.locator(".home-offer").getByRole("button", { name: "Get a better home screen", exact: true }).click();
+    const launcher = page.locator("#tabpanel-launcher");
+    await launcher.waitFor();
+    const reads = await homeReads(page);
+    await launcher.locator("tr, li, .launcher-row").filter({ hasText: "Projectivy Launcher" }).first()
+      .getByRole("button", { name: /^Set as default$/ }).click();
+    await page.waitForFunction((n) => window.offerCalls.filter((c) => c === "current_launcher").length > n, reads);
+    await page.getByRole("tab", { name: "Optimize" }).click();
+    await panel.locator("table.optimize-table").waitFor();
+    assert.equal(await panel.locator(".home-offer").count(), 0, "a custom Home app retracts the offer");
+    await page.close();
+  }
+
+  // A Restore run never reads Home.
+  {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+    const panel = await openOptimize(page, base, STOCK);
+    await panel.locator(".mode-box").getByRole("button", { name: "Restore", exact: true }).click();
+    const enableRow = panel.locator("tr").filter({ has: page.locator(".radio-label", { hasText: /^Enable$/ }) }).first();
+    await enableRow.waitFor();
+    await enableRow.locator(".radio-pill", { has: page.locator(".radio-label", { hasText: /^Enable$/ }) }).click();
+    await runPlan(page, panel, "Restore");
+    await page.waitForTimeout(500);
+    assert.equal(await homeReads(page), 0, "Restore never reads Home");
+    assert.equal(await panel.locator(".home-offer").count(), 0);
+    await page.close();
   }
 
   // Another Home app, or an unreadable one: no link.
@@ -212,16 +276,7 @@ try {
     await page.close();
   }
 
-  // Restore mode never offers it.
-  {
-    const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
-    const panel = await openOptimize(page, base, STOCK);
-    await panel.locator(".mode-box").getByRole("button", { name: "Restore", exact: true }).click();
-    await page.waitForTimeout(500);
-    assert.equal(await panel.locator(".home-offer").count(), 0);
-    await page.close();
-  }
-  console.log("Home screen offer passed: shown only after a run on stock Home, opens Launcher by keyboard, fits 1280/720/larger text in both themes, Dismiss remembered per hardware id, none for a custom or unreadable Home.");
+  console.log("Home screen offer passed: shown only after a run that changed the TV on stock Home, opens Launcher by keyboard, fits 1280/720/larger text in both themes, Dismiss remembered per hardware id, no read for a dismissed TV, a no-op rerun or Restore, a late lookup never lands, a Home change in Launcher retracts it, none for a custom or unreadable Home.");
 } finally {
   await browser?.close();
   await server?.close();

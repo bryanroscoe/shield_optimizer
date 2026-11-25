@@ -10,7 +10,7 @@
   import { runConfirmation, type RunConfirmSection } from "$lib/run-confirmation";
   import { destructiveWarning, type SupportInfo } from "../../../shared/support";
   import { recordAction } from "../../../shared/telemetry";
-  import { dismissHomeOffer, homeOfferDismissed, onStockHome } from "../../../shared/home-screen-offer";
+  import { dismissHomeOffer, homeOfferDismissed, onStockHome, type HomeRow } from "../../../shared/home-screen-offer";
   import type {
     DeviceType,
     OptimizeMode,
@@ -66,6 +66,8 @@
     hardwareId = null,
     tv = null,
     onOpenLauncher = null,
+    homeNow = null,
+    launcherRows = null,
   }: {
     serial: string;
     deviceType: DeviceType;
@@ -97,6 +99,10 @@
     tv?: TvIdentity | null;
     /// Opens the Launcher tab, offered after a run when Home is still stock.
     onOpenLauncher?: (() => void) | null;
+    /// The page's latest read of the Home app and the launcher list, from the
+    /// Launcher tab. A newer read that isn't stock takes the offer back.
+    homeNow?: string | null;
+    launcherRows?: HomeRow[] | null;
   } = $props();
 
   /// The first failure of the last run, shown through ErrorNotice.
@@ -733,7 +739,7 @@
       ? `Aborted. ${done} applied, ${failed} failed, ${skipped} skipped.`
       : `${label} complete: ${done} applied, ${failed} failed, ${skipped} skipped.`;
     if (mode === "optimize") lastOptimizeChanged = changed;
-    if (mode === "optimize" && done > 0 && !optimizeAbort) void checkHomeOffer(context);
+    if (mode === "optimize" && changed > 0 && !optimizeAbort) void checkHomeOffer(context);
     const firstFailed = runItems.find((item) => optimizeProgress[item.package] === "failed");
     runFailure = firstFailed
       ? { name: firstFailed.name, message: optimizeFailureMessages[firstFailed.package] ?? "failed" }
@@ -808,6 +814,20 @@
       // An unreadable Home app claims nothing, so there is no link.
     }
   }
+
+  // Home changed in the Launcher tab (the link leads there) while this tab
+  // stayed mounted: once the page reads a Home app that isn't stock, the
+  // offer and any lookup still in flight are stale.
+  $effect(() => {
+    const pkg = homeNow;
+    const rows = launcherRows;
+    untrack(() => {
+      if (pkg && onStockHome(rows, pkg) !== true) {
+        homeOfferRequest++;
+        homeOffer = false;
+      }
+    });
+  });
 
   function dismissHome() {
     homeOfferRequest++;

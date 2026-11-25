@@ -32,14 +32,17 @@ const catalog = Array.from({ length: 3 }, (_, i) => ({
   play_store: true,
 }));
 
-async function openOptimize(t, { home = STOCK, hardwareId = "HW-HOME-1", width = 412, scale = 1, dismissed = null, video = false } = {}) {
+async function openOptimize(t, { home = STOCK, hardwareId = "HW-HOME-1", width = 412, scale = 1, dismissed = null, video = false, keeper = false } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 860 }, isMobile: true, hasTouch: true,
     ...(video && evidence ? { recordVideo: { dir: `${evidence}/raw`, size: { width, height: 860 } } } : {}) });
   const page = await context.newPage();
   page.setDefaultTimeout(10000);
   t.after(() => context.close());
+  const apps = keeper ? [...catalog, { ...catalog[0], package: "com.example.keeper", name: "Keeper", default_optimize: false }] : catalog;
   await page.addInitScript(({ catalog, home, hardwareId, dismissed, KEY }) => {
     localStorage.clear();
+    window.holdHome = false;
+    window.disableHook = null;
     if (dismissed) localStorage.setItem(KEY, JSON.stringify(dismissed));
     window.calls = [];
     window.home = home;
@@ -61,19 +64,23 @@ async function openOptimize(t, { home = STOCK, hardwareId = "HW-HOME-1", width =
             : (window.states[e.package] === "disabled" ? { kind: "enable" } : { kind: "skip", reason: "already_enabled" }), memory_mb: null })),
         };
         case "safety_info": return { kind: "safe", reason: "Reviewed and safe to remove.", source: "reviewed_catalog" };
-        case "disable_package": window.states[args.package] = "disabled"; return { ok: true, message: "" };
+        case "disable_package":
+          if (window.disableHook) await window.disableHook(args);
+          window.states[args.package] = "disabled";
+          return { ok: true, message: "" };
         case "enable_package": window.states[args.package] = "enabled"; return { ok: true, message: "" };
         case "list_launchers": return [
           { entry: { name: "Google TV Home", package: "com.google.android.tvlauncher", source_url: null }, installed: true, enabled: true, stock: true, other: false, setup_helper: false },
           { entry: { name: "Projectivy Launcher", package: "com.spocky.projengmenu", source_url: null }, installed: true, enabled: true, stock: false, other: false, setup_helper: false },
         ];
         case "current_launcher":
+          if (window.holdHome) await new Promise((resolve) => (window.releaseHome = resolve));
           if (window.home === "error") throw "SIMULATED unreadable Home app";
           return { package: window.home, activity: ".Main" };
         default: return { ok: true, message: "done" };
       }
     } };
-  }, { catalog, home, hardwareId, dismissed, KEY });
+  }, { catalog: apps, home, hardwareId, dismissed, KEY });
   await page.goto(origin);
   await page.evaluate(async (scale) => {
     const { session } = await import("/src/lib/session.svelte.ts");
@@ -189,4 +196,39 @@ test("switching to Restore drops it", async (t) => {
   await page.getByRole("button", { name: "Restore", exact: true }).click();
   await page.getByRole("button", { name: /Apply restore/ }).waitFor();
   assert.equal(await page.locator(".home-offer").count(), 0, "switching to Restore drops it");
+});
+
+test("a run stopped by Cancel or by losing Pro reads nothing", async (t) => {
+  const canceled = await openOptimize(t);
+  await canceled.evaluate(() => (window.disableHook = () => new Promise((r) => setTimeout(r, 400))));
+  await apply(canceled);
+  await canceled.getByRole("button", { name: "Cancel", exact: true }).click();
+  await canceled.getByText(/^Stopped after/).waitFor();
+  await canceled.waitForTimeout(300);
+  assert.equal(await launcherReads(canceled), 0, "Cancel: no Home read");
+  assert.equal(await canceled.locator(".home-offer").count(), 0);
+
+  const lost = await openOptimize(t);
+  await lost.evaluate(() => { let n = 0; window.disableHook = () => { if (++n === 1) window.session.entitlement = "free"; }; });
+  await apply(lost);
+  await lost.getByText(/Stopped — Pro is required/).waitFor();
+  await lost.waitForTimeout(300);
+  assert.equal(await launcherReads(lost), 0, "Pro lost: no Home read");
+});
+
+test("a plan reload from an app sheet drops a Home lookup still in flight", async (t) => {
+  const page = await openOptimize(t, { keeper: true });
+  await page.evaluate(() => (window.holdHome = true));
+  await apply(page);
+  await page.waitForFunction(() => typeof window.releaseHome === "function");
+  await page.getByRole("button", { name: "Optional apps", exact: true }).click().catch(() => {});
+  await page.getByRole("button", { name: "Details for Keeper", exact: true }).click();
+  const sheet = page.getByRole("dialog", { name: /App details for/ });
+  await sheet.getByRole("button", { name: "Disable", exact: true }).click();
+  await page.locator(".dialog-card").getByRole("button", { name: /^Disable/ }).click();
+  await page.waitForFunction(() => window.states["com.example.keeper"] === "disabled");
+  await page.waitForFunction(() => calls.filter((c) => c === "prepare_optimize").length >= 3);
+  await page.evaluate(() => { window.holdHome = false; window.releaseHome(); });
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator(".home-offer").count(), 0, "the stale lookup didn't land on the reloaded plan");
 });

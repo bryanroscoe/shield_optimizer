@@ -318,6 +318,10 @@
     const serial = session.serial;
     const generation = session.generation;
     const request = ++planRequest;
+    // A reload after the run (or after an app sheet changed something) makes
+    // any Home lookup still in flight stale; the run starts its own after.
+    ++homeOfferRequest;
+    homeOffer = false;
     mode = nextMode;
     activeTab = "recommended";
     tabTouched = false;
