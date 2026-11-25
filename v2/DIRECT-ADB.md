@@ -209,13 +209,17 @@ platform-tools; five quick `settings get` reads took 160 ms, 56 ms and 85 ms.
 
 - **Same TV only.** Connecting reads the TV's hardware id (`getprop ro.serialno`). A new extra
   connection must report that same verified id before anything runs on it; a TV that reports
-  none gets no extra connections, and its commands run one at a time.
+  none (or doesn't answer within 5 seconds) gets no extra connections, and its commands run one
+  at a time.
 - **No prompts.** Extra connections sign with the keys the TV already allows and never offer a
   public key. One the TV refuses, or that doesn't open within 2 seconds, is closed, the command
-  waits for the main connection, and no new one is tried for a minute.
+  waits for the main connection, and no new one is opened for a minute; the open ones stay in use.
 - **Owned by the main connection.** Replacing, dropping or disconnecting the main connection
-  closes them, and one that comes back from an older connection is closed instead of reused.
-  One idle for two minutes is closed rather than reused. Quit closes them with the rest.
+  closes the idle ones (logged as "closed extra connections to the TV"). A command already
+  running on one finishes and its connection is then closed; one taken or being opened when that
+  happens runs nothing. One idle for two minutes is closed rather than reused, and one idle for
+  more than 10 seconds is checked with `echo` first, so a connection the TV dropped meanwhile
+  never fails a command. Quit closes them with the rest.
 - **Failures stay local.** A command whose extra connection stops answering reports that its
   outcome is unknown and closes that connection; it does not mark the TV disconnected, which
   the main connection's own checks decide.

@@ -1822,3 +1822,40 @@ async fn disconnecting_closes_the_extra_connections() {
         .unwrap();
     tv.peer.join().unwrap();
 }
+
+#[tokio::test]
+async fn an_extra_connection_that_dies_leaves_the_tv_connected() {
+    let (held, holding) = std::sync::mpsc::channel();
+    let tv = parallel_driver(HARDWARE_ID, move |mut main, listener| {
+        let slow = hold_shell(&mut main, "dumpsys meminfo");
+        held.send(()).unwrap();
+        let mut extra = accept_extra(&listener, HARDWARE_ID);
+        hold_shell(&mut extra, "echo fast");
+        drop(extra);
+        finish_shell(&mut main, slow, b"slow\n");
+        serve_shell(&mut main, "echo after", &[(1, b"after\n"), (3, &[0])]);
+    })
+    .await;
+    let slow = tv.driver.shell(&tv.serial, "dumpsys meminfo");
+    let fast = async {
+        tokio::task::spawn_blocking(move || holding.recv().unwrap())
+            .await
+            .unwrap();
+        tv.driver.shell(&tv.serial, "echo fast").await
+    };
+    let (slow, fast) = tokio::join!(slow, fast);
+    assert_eq!(slow.unwrap().stdout, "slow\n");
+    let error = fast.unwrap_err().to_string();
+    assert!(error.contains("outcome is unknown"), "{error}");
+    assert!(!error.contains(CONNECTION_LOST_PREFIX), "{error}");
+    assert_eq!(
+        tv.driver
+            .shell(&tv.serial, "echo after")
+            .await
+            .unwrap()
+            .stdout,
+        "after\n",
+        "the main connection was kept"
+    );
+    tv.peer.join().unwrap();
+}

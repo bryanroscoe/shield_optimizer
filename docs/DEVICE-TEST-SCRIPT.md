@@ -190,7 +190,7 @@ Built-in unless a step says otherwise.
 | S7 | Shield with the 2019 remote (earlier Shield remotes have no buzzer): Remote tab → **Find remote** | The remote beeps. The button is absent on a TV that isn't a Shield |
 | S8 | App List → open a running app's details → **Force stop** | The app stops on the TV and its RAM reads "Not running" after the re-measure |
 | S9 | Snapshots: if you have a snapshot saved by 2.5.1 or earlier, open Preview restore. Then save a new snapshot | The old snapshot loads and previews normally. The new one saves (format 4, which 2.5.1 and earlier refuse) and its preview lists any recorded apps that are absent from the TV as skipped |
-| S10 | Built-in: open a Shield's Apps tab, then Tweaks, then the App List; then switch to platform-tools and do the same | Usage and storage columns fill in without waiting the few seconds RAM takes, and each screen loads about as fast as under platform-tools. The log (Settings → Open logs folder) says "opened an extra connection to the TV" and never shows a prompt on the TV. Disconnecting the TV closes them (no "extra connection" lines after) |
+| S10 | Built-in: open a Shield's Apps tab, then Tweaks, then the App List; then switch to platform-tools and do the same | Usage and storage columns fill in without waiting the few seconds RAM takes, and each screen loads about as fast as under platform-tools. The log (Settings → Open logs folder) says "opened an extra connection to the TV" and never shows a prompt on the TV. Disconnecting or forgetting the TV logs "closed extra connections to the TV" |
 
 ## Mobile (M1–M8, about 20 minutes, phone on the same LAN)
 

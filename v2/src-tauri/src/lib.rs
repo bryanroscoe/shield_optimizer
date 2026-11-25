@@ -716,7 +716,8 @@ mod builtin_key_tests {
     }
 
     /// One adbd connection that wants `signers` to sign its AUTH tokens in
-    /// that order, then answers the liveness `echo ok`.
+    /// that order, then answers the hardware id read at connect and the
+    /// liveness `echo ok`.
     fn adbd(listener: TcpListener, signers: Vec<rsa::RsaPrivateKey>) {
         let (mut socket, _) = listener.accept().unwrap();
         socket
@@ -741,18 +742,21 @@ mod builtin_key_tests {
             1 << 20,
             b"device::features=shell_v2\0",
         );
-        let (command, local, destination) = receive(&mut socket);
-        assert_eq!(&command, b"OPEN");
-        assert_eq!(destination, b"shell,v2,raw:echo ok\0");
-        send(&mut socket, b"OKAY", 1, local, &[]);
-        for packet in [
-            [&[1, 3, 0, 0, 0][..], b"ok\n"].concat(),
-            vec![3, 1, 0, 0, 0, 0],
+        for (shell, stdout) in [
+            ("getprop ro.serialno", &b"1324619053514\n"[..]),
+            ("echo ok", b"ok\n"),
         ] {
-            send(&mut socket, b"WRTE", 1, local, &packet);
-            assert_eq!(&receive(&mut socket).0, b"OKAY");
+            let (command, local, destination) = receive(&mut socket);
+            assert_eq!(&command, b"OPEN");
+            assert_eq!(destination, format!("shell,v2,raw:{shell}\0").as_bytes());
+            send(&mut socket, b"OKAY", 1, local, &[]);
+            let length = (stdout.len() as u32).to_le_bytes();
+            for packet in [[&[1][..], &length, stdout].concat(), vec![3, 1, 0, 0, 0, 0]] {
+                send(&mut socket, b"WRTE", 1, local, &packet);
+                assert_eq!(&receive(&mut socket).0, b"OKAY");
+            }
+            send(&mut socket, b"CLSE", 1, local, &[]);
         }
-        send(&mut socket, b"CLSE", 1, local, &[]);
         let _ = std::io::copy(&mut socket, &mut std::io::sink());
     }
 

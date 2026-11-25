@@ -34,6 +34,9 @@ const IDLE_LIMIT: Duration = Duration::from_secs(120);
 /// After the TV refuses or fails to open an extra connection, commands use
 /// the main connection alone for this long.
 const RETRY_AFTER: Duration = Duration::from_secs(60);
+/// An extra connection idle for longer is checked before it is reused, so
+/// one the TV closed meanwhile never fails a command that would have run.
+const CHECK_AFTER: Duration = Duration::from_secs(10);
 /// The longest a waiting command sleeps before looking again. A connection
 /// handed back wakes it at once; the main connection, which other code
 /// also holds, is noticed within this.
@@ -50,8 +53,8 @@ pub(crate) struct Owner {
 /// What a command finding the main connection busy may do.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Take<D> {
-    /// Run on this free extra connection.
-    Idle(D),
+    /// Run on this free extra connection, idle for the given time.
+    Idle(D, Duration),
     /// Open one more for `Owner`, then hand it back with
     /// [`Lanes::put_back`] or give the room up with [`Lanes::discard`] or
     /// [`Lanes::refused`].
@@ -114,7 +117,19 @@ impl<D> Lanes<D> {
             std::mem::take(&mut state.idle)
         };
         self.freed.notify_all();
+        if !closed.is_empty() {
+            tracing::info!(closed = closed.len(), "closed extra connections to the TV");
+        }
         drop(closed);
+    }
+
+    /// Whether connections taken for `request_id` still belong to the
+    /// current main connection.
+    pub(crate) fn owns(&self, request_id: u64) -> bool {
+        lock_recovering(&self.state)
+            .owner
+            .as_ref()
+            .is_some_and(|owner| owner.request_id == request_id)
     }
 
     pub(crate) fn clear(&self) {
@@ -129,26 +144,25 @@ impl<D> Lanes<D> {
             let mut state = lock_recovering(&self.state);
             match state.owner.clone() {
                 Some(owner) if owner.request_id == request_id && self.enabled() => {
-                    if state.retry_at.is_some_and(|at| now < at) {
-                        Take::Unavailable
-                    } else {
-                        let mut found = None;
-                        while let Some((device, since)) = state.idle.pop() {
-                            if now.saturating_duration_since(since) < IDLE_LIMIT {
-                                found = Some(device);
-                                break;
-                            }
-                            state.open = state.open.saturating_sub(1);
-                            expired.push(device);
+                    let mut found = None;
+                    while let Some((device, since)) = state.idle.pop() {
+                        let idle = now.saturating_duration_since(since);
+                        if idle < IDLE_LIMIT {
+                            found = Some((device, idle));
+                            break;
                         }
-                        match found {
-                            Some(device) => Take::Idle(device),
-                            None if state.open < self.limit => {
-                                state.open += 1;
-                                Take::Open(owner)
-                            }
-                            None => Take::Busy,
+                        state.open = state.open.saturating_sub(1);
+                        expired.push(device);
+                    }
+                    match found {
+                        Some((device, idle)) => Take::Idle(device, idle),
+                        // A recent refusal stops new ones, not the open ones.
+                        None if state.retry_at.is_some_and(|at| now < at) => Take::Unavailable,
+                        None if state.open < self.limit => {
+                            state.open += 1;
+                            Take::Open(owner)
                         }
+                        None => Take::Busy,
                     }
                 }
                 _ => Take::Unavailable,
@@ -222,14 +236,14 @@ impl<D> Lanes<D> {
 
 impl Lanes<ADBTcpDevice> {
     /// A connection to run on while the main one is busy: a free one, or a
-    /// new one opened within [`OPEN_LIMIT`] and the command's own deadline.
+    /// new one opened within [`OPEN_LIMIT`], for a command with `budget` left.
     pub(crate) fn acquire(
         &self,
         identity: &Mutex<Option<Identity>>,
         serial: &str,
         key: &Path,
         preferred: &PreferredKeys,
-        control: &BoundedShellControl,
+        budget: Duration,
     ) -> Acquired {
         if !self.enabled() {
             return Acquired::Unavailable;
@@ -241,34 +255,42 @@ impl Lanes<ADBTcpDevice> {
         else {
             return Acquired::Unavailable;
         };
-        let Ok(budget) = control.remaining() else {
-            return Acquired::Unavailable;
-        };
-        match self.take(request_id, Instant::now()) {
-            Take::Idle(device) => Acquired::Lane(request_id, Box::new(device)),
-            Take::Busy => Acquired::Busy,
-            Take::Unavailable => Acquired::Unavailable,
-            // A command too close to its deadline to open one waits instead,
-            // so a slow open is never mistaken for a refusal.
-            Take::Open(_) if budget < OPEN_LIMIT => {
-                self.discard(request_id);
-                Acquired::Busy
+        loop {
+            match self.take(request_id, Instant::now()) {
+                Take::Idle(mut device, idle) => {
+                    if idle < CHECK_AFTER || probe_alive(&mut device) {
+                        return Acquired::Lane(request_id, Box::new(device));
+                    }
+                    drop(device);
+                    self.discard(request_id);
+                    tracing::info!(serial = %serial, "an idle extra connection to the TV had closed");
+                }
+                Take::Busy => return Acquired::Busy,
+                Take::Unavailable => return Acquired::Unavailable,
+                // A command too close to its deadline to open one waits
+                // instead, so a slow open is never mistaken for a refusal.
+                Take::Open(_) if budget < OPEN_LIMIT => {
+                    self.discard(request_id);
+                    return Acquired::Busy;
+                }
+                Take::Open(owner) => {
+                    return match open(&owner, key, preferred, OPEN_LIMIT) {
+                        Ok(device) => {
+                            tracing::info!(serial = %serial, "opened an extra connection to the TV");
+                            Acquired::Lane(request_id, Box::new(device))
+                        }
+                        Err(reason) => {
+                            self.refused(request_id, Instant::now());
+                            tracing::info!(
+                                serial = %serial,
+                                reason = %reason,
+                                "extra connection to the TV refused; no new one for a minute"
+                            );
+                            Acquired::Unavailable
+                        }
+                    };
+                }
             }
-            Take::Open(owner) => match open(&owner, key, preferred, OPEN_LIMIT) {
-                Ok(device) => {
-                    tracing::info!(serial = %serial, "opened an extra connection to the TV");
-                    Acquired::Lane(request_id, Box::new(device))
-                }
-                Err(reason) => {
-                    self.refused(request_id, Instant::now());
-                    tracing::info!(
-                        serial = %serial,
-                        reason = %reason,
-                        "extra connection to the TV refused; commands wait for the main connection"
-                    );
-                    Acquired::Unavailable
-                }
-            },
         }
     }
 
@@ -286,9 +308,15 @@ impl Lanes<ADBTcpDevice> {
     where
         F: FnOnce(&mut ADBTcpDevice, BoundedShellControl) -> Result<T, RustADBError>,
     {
-        if let Err(error) = control.remaining() {
+        if control.remaining().is_err() {
             self.put_back(request_id, device, Instant::now());
-            return Err(error.into());
+            return Err(AdbError::Transport(super::QUEUED_DEADLINE.into()));
+        }
+        // Disconnected or replaced while this one was taken or opened: run
+        // nothing on a connection the TV's current session does not own.
+        if !self.owns(request_id) {
+            drop(device);
+            return Err(AdbError::Transport("Not connected to a device.".into()));
         }
         on_lane.store(true, Ordering::Release);
         let error = match run(&mut device, control.clone()) {
@@ -379,7 +407,7 @@ mod tests {
         assert_eq!(lanes.take(1, now), Take::Open(owner(1)));
         assert_eq!(lanes.take(1, now), Take::Busy, "both are in use");
         lanes.put_back(1, 7, now);
-        assert_eq!(lanes.take(1, now), Take::Idle(7));
+        assert_eq!(lanes.take(1, now), Take::Idle(7, Duration::ZERO));
         assert_eq!(lanes.take(1, now), Take::Busy);
         lanes.discard(1);
         assert_eq!(lanes.take(1, now), Take::Open(owner(1)));
@@ -415,6 +443,38 @@ mod tests {
     }
 
     #[test]
+    fn a_refusal_leaves_the_open_ones_in_use() {
+        let lanes = Lanes::<u32>::new(2);
+        lanes.bind(Some(owner(1)));
+        let now = Instant::now();
+        assert_eq!(lanes.take(1, now), Take::Open(owner(1)));
+        lanes.put_back(1, 7, now);
+        assert_eq!(lanes.take(1, now), Take::Idle(7, Duration::ZERO));
+        assert_eq!(lanes.take(1, now), Take::Open(owner(1)));
+        lanes.refused(1, now);
+        lanes.put_back(1, 7, now);
+        assert_eq!(lanes.take(1, now), Take::Idle(7, Duration::ZERO));
+        assert_eq!(
+            lanes.take(1, now),
+            Take::Unavailable,
+            "no new one is opened"
+        );
+    }
+
+    #[test]
+    fn a_connection_reports_how_long_it_was_idle_and_its_owner() {
+        let lanes = Lanes::<u32>::new(1);
+        lanes.bind(Some(owner(1)));
+        let now = Instant::now();
+        assert_eq!(lanes.take(1, now), Take::Open(owner(1)));
+        lanes.put_back(1, 7, now);
+        assert_eq!(lanes.take(1, now + CHECK_AFTER), Take::Idle(7, CHECK_AFTER));
+        assert!(lanes.owns(1));
+        lanes.bind(Some(owner(2)));
+        assert!(!lanes.owns(1));
+    }
+
+    #[test]
     fn an_idle_connection_past_the_limit_is_closed_and_replaced() {
         let lanes = Lanes::<u32>::new(1);
         lanes.bind(Some(owner(1)));
@@ -447,7 +507,7 @@ mod tests {
             std::thread::spawn(move || {
                 let started = Instant::now();
                 loop {
-                    if let Take::Idle(device) = lanes.take(1, Instant::now()) {
+                    if let Take::Idle(device, _) = lanes.take(1, Instant::now()) {
                         return (device, started.elapsed());
                     }
                     lanes.wait_for_free(Duration::from_secs(5));

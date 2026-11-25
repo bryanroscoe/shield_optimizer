@@ -136,6 +136,9 @@ fn push_deadline(size: u64) -> Duration {
     PUSH_DEADLINE + Duration::from_secs(size / PUSH_FLOOR_BYTES_PER_SEC)
 }
 const POST_ERROR_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+/// A command whose deadline passed before it reached a connection.
+pub(crate) const QUEUED_DEADLINE: &str =
+    "Native command deadline reached while queued; no command was started.";
 /// Every error that evicts the live connection starts with this so the
 /// frontend can flip its liveness state without parsing transport details.
 pub const CONNECTION_LOST_PREFIX: &str = "Connection to the TV was lost";
@@ -635,11 +638,14 @@ impl WirelessAdb {
                         }
                         Err(std::sync::TryLockError::WouldBlock) => {}
                     }
-                    match lanes.acquire(&identity, &serial, &key, &preferred, &control) {
+                    let Ok(remaining) = control.remaining() else {
+                        return Err(AdbError::Transport(QUEUED_DEADLINE.into()));
+                    };
+                    match lanes.acquire(&identity, &serial, &key, &preferred, remaining) {
                         lanes::Acquired::Lane(request_id, device) => {
                             return lanes.run(request_id, *device, &control, &on_lane, run);
                         }
-                        lanes::Acquired::Busy => lanes.wait_for_free(control.remaining()?),
+                        lanes::Acquired::Busy => lanes.wait_for_free(remaining),
                         lanes::Acquired::Unavailable => break,
                     }
                 }
@@ -668,10 +674,7 @@ impl WirelessAdb {
                         },
                     })
                 } else {
-                    Err(AdbError::Transport(
-                        "Native command deadline reached while queued; no command was started."
-                            .into(),
-                    ))
+                    Err(AdbError::Transport(QUEUED_DEADLINE.into()))
                 }
             }
         }
@@ -948,7 +951,8 @@ impl WirelessAdb {
                 // Extra connections must prove they reach this same TV. One
                 // that reports no id only keeps its commands one at a time.
                 let budget = control.remaining()
-                    .map_err(|error| ConnectFailure::Failed(error.to_string()))?;
+                    .map_err(|error| ConnectFailure::Failed(error.to_string()))?
+                    .min(LIVENESS_PROBE_TIMEOUT);
                 match query_hardware_id(&mut device, budget) {
                     Ok(id) => id,
                     Err(error) if is_fatal_transport_error(&error) => {
