@@ -9,6 +9,7 @@
     "50-snapshot.mjs",
     "60-tweaks-shell-report.mjs",
     "71-remote-generation.mjs",
+    "72-remote-apps.mjs",
     "90-visual-smoke.mjs"
   ],
   "hardware_acceptance_not_run": [

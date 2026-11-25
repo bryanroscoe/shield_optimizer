@@ -17,6 +17,10 @@ use super::devices::ConnectResult;
 use super::state::resolve_scrcpy_server_jar;
 use super::AppState;
 use crate::adb::AdbOutput;
+use crate::engine::launch::{
+    launch_command, launch_query, launch_query_for, launch_succeeded, launchable_apps,
+    pick_component, LaunchableApp, LAUNCHER, LEANBACK_LAUNCHER,
+};
 
 #[derive(Serialize)]
 pub struct SendTextResult {
@@ -450,6 +454,136 @@ async fn open_settings_impl(
     })
 }
 
+/// `list_launchable_apps` — the apps the Remote's Apps key can open: every
+/// enabled app with a TV or phone launch activity, named from the catalog or
+/// the known-names list where they know it. Read-only, one batched shell call.
+#[tauri::command]
+pub async fn list_launchable_apps(
+    state: State<'_, AppState>,
+    serial: String,
+) -> Result<Vec<LaunchableApp>, String> {
+    list_launchable_apps_impl(state.inner(), &serial).await
+}
+
+pub async fn list_launchable_apps_impl(
+    state: &AppState,
+    serial: &str,
+) -> Result<Vec<LaunchableApp>, String> {
+    let adb = state.adb_snapshot().await;
+    let cmd = crate::adb::checked_batch_command(&[
+        &launch_query(LEANBACK_LAUNCHER),
+        &launch_query(LAUNCHER),
+    ]);
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("Couldn't list the TV's apps: {e}"))?;
+    // The TV query is required: a TV that can't answer it (Android 8 has no
+    // query-activities) must not look like a TV with no apps.
+    let sections = crate::adb::parse_checked_batch(&out.stdout, 2, &[0])
+        .map_err(|e| format!("Couldn't list the TV's apps: {e}"))?;
+    let launchers = super::loader::launchers();
+    let name_of = |pkg: &str| {
+        state
+            .known_names
+            .get(pkg)
+            .map(|known| known.name.clone())
+            .or_else(|| {
+                state
+                    .app_lists
+                    .common
+                    .iter()
+                    .chain(state.app_lists.shield.iter())
+                    .chain(state.app_lists.googletv.iter())
+                    .find(|e| e.package == pkg)
+                    .map(|e| e.name.clone())
+            })
+            .or_else(|| {
+                launchers
+                    .custom
+                    .iter()
+                    .chain(launchers.stock.iter())
+                    .find(|e| e.package == pkg)
+                    .map(|e| e.name.clone())
+            })
+    };
+    Ok(launchable_apps(&sections[0], &sections[1], name_of))
+}
+
+/// `launch_app` — open an app through its TV launch activity, or its phone one
+/// when it has no TV one. Runs in the Remote's session order, like Settings.
+#[tauri::command]
+pub async fn launch_app(
+    state: State<'_, AppState>,
+    serial: String,
+    package: String,
+    generation: Option<String>,
+) -> Result<SendTextResult, String> {
+    let generation = Some(request_generation(&state, &serial, generation.as_deref()).await?);
+    launch_app_impl(&state, &serial, &package, generation).await
+}
+
+pub(crate) async fn launch_app_impl(
+    state: &AppState,
+    serial: &str,
+    package: &str,
+    generation: Option<u64>,
+) -> Result<SendTextResult, String> {
+    let (Some(tv_query), Some(phone_query)) = (
+        launch_query_for(LEANBACK_LAUNCHER, package),
+        launch_query_for(LAUNCHER, package),
+    ) else {
+        return Err("That isn't an app the TV can open.".to_string());
+    };
+    let adb = state.adb_snapshot().await;
+    let _generation_operation = state
+        .lock_remote_generation_operation(serial, generation)
+        .await?;
+    // Open the named launch activity, as a launcher does. An implicit start of
+    // the package would also need CATEGORY_DEFAULT, and could show a chooser.
+    let read = adb
+        .shell(
+            serial,
+            &crate::adb::checked_batch_command(&[&tv_query, &phone_query]),
+        )
+        .await
+        .map_err(|e| format!("Couldn't read {package}'s launch activity: {e}"))?;
+    let sections = crate::adb::parse_checked_batch(&read.stdout, 2, &[])
+        .map_err(|e| format!("Couldn't read {package}'s launch activity: {e}"))?;
+    let Some(cmd) = pick_component(package, &sections[0], &sections[1])
+        .and_then(|(component, category)| launch_command(&component, category))
+    else {
+        return Ok(SendTextResult {
+            ok: false,
+            message: format!(
+                "The TV has no launch activity for {package}. It may be disabled or uninstalled."
+            ),
+            transport: "shell",
+        });
+    };
+    let out = adb
+        .shell(serial, &cmd)
+        .await
+        .map_err(|e| format!("am start: {e}"))?;
+    let combined = out.combined();
+    Ok(if launch_succeeded(out.success(), &combined) {
+        SendTextResult {
+            ok: true,
+            message: format!("Opened {package}."),
+            transport: "shell",
+        }
+    } else {
+        SendTextResult {
+            ok: false,
+            message: match combined.trim() {
+                "" => format!("The TV didn't open {package}."),
+                text => text.to_string(),
+            },
+            transport: "shell",
+        }
+    })
+}
+
 /// `find_remote` — ring an Nvidia Shield remote through the Shield's own
 /// remote-locator activity. The activity only exists on Shield builds, so the
 /// apps show the control only for a device that reported itself as a Shield;
@@ -574,6 +708,170 @@ mod tests {
             .is_ok());
         assert!(raw.lock().unwrap().is_empty());
         assert!(shell.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn launchable_apps_are_named_from_the_lists_and_need_the_tv_query() {
+        use crate::engine::{AppEntry, AppListBundle};
+        let leanback = "com.netflix.ninja/.MainActivity\ncom.example.sideload/.Main\ncom.spocky.projengmenu/.Main\n";
+        let launcher = "com.netflix.ninja/.Phone\ncom.example.phoneonly/.Main\n";
+        let batch = format!(
+            "{leanback}\n__SHIELDOPT_STATUS__0\n__SHIELDOPT_SEP__\n{launcher}\n__SHIELDOPT_STATUS__0\n"
+        );
+        let mock =
+            super::super::test_support::MockAdb::default().on_shell("LEANBACK_LAUNCHER", &batch);
+        let shell = mock.shell_log();
+        let mut lists = AppListBundle::default();
+        lists.common.push(
+            serde_json::from_str::<AppEntry>(
+                r#"{"package":"com.netflix.ninja","name":"Netflix","method":"disable","risk":"safe","optimize_description":"","restore_description":""}"#,
+            )
+            .unwrap(),
+        );
+        let state = AppState::new(std::sync::Arc::new(mock), lists, std::env::temp_dir());
+        let apps = list_launchable_apps_impl(&state, "fixture-TV")
+            .await
+            .unwrap();
+        assert_eq!(
+            apps.iter()
+                .map(|a| (a.package.as_str(), a.name.as_deref(), a.tv))
+                .collect::<Vec<_>>(),
+            vec![
+                ("com.netflix.ninja", Some("Netflix"), true),
+                ("com.spocky.projengmenu", Some("Projectivy Launcher"), true),
+                ("com.example.phoneonly", None, false),
+                ("com.example.sideload", None, true),
+            ]
+        );
+        {
+            let calls = shell.lock().unwrap();
+            assert_eq!(calls.len(), 1, "one batched read");
+            assert!(calls[0].contains("query-activities --components --user 0 -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER"));
+            assert!(calls[0].contains("-c android.intent.category.LAUNCHER"));
+        }
+
+        let failed = "Unknown command\n__SHIELDOPT_STATUS__255\n__SHIELDOPT_SEP__\n\n__SHIELDOPT_STATUS__255\n";
+        let state = super::super::test_support::state_with(
+            super::super::test_support::MockAdb::default().on_shell("LEANBACK_LAUNCHER", failed),
+        );
+        let err = list_launchable_apps_impl(&state, "fixture-TV")
+            .await
+            .unwrap_err();
+        assert!(err.starts_with("Couldn't list the TV's apps"), "{err}");
+    }
+
+    fn batch(tv: &str, phone: &str) -> String {
+        format!("{tv}\n__SHIELDOPT_STATUS__0\n__SHIELDOPT_SEP__\n{phone}\n__SHIELDOPT_STATUS__0\n")
+    }
+
+    #[tokio::test]
+    async fn launch_app_opens_the_named_tv_activity_then_the_phone_one() {
+        use super::super::test_support::{state_with, MockAdb};
+        let mock = MockAdb::default()
+            .on_shell(
+                "query-activities",
+                &batch("com.netflix.ninja/.MainActivity\ncom.netflix.ninja/.Other", "com.netflix.ninja/.Phone"),
+            )
+            .on_shell(
+                "am start -n com.netflix.ninja/.MainActivity -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER",
+                "Starting: Intent { act=android.intent.action.MAIN cat=[android.intent.category.LEANBACK_LAUNCHER] cmp=com.netflix.ninja/.MainActivity }\n",
+            );
+        let shell = mock.shell_log();
+        let tv = state_with(mock);
+        let generation = tv.begin_remote_generation("fixture-TV").await.unwrap();
+        let r = launch_app_impl(&tv, "fixture-TV", "com.netflix.ninja", Some(generation))
+            .await
+            .unwrap();
+        assert!(r.ok, "{}", r.message);
+        {
+            let calls = shell.lock().unwrap();
+            assert_eq!(calls.len(), 2, "one batched read, one start");
+            assert!(
+                calls[0].contains("-c android.intent.category.LEANBACK_LAUNCHER com.netflix.ninja")
+            );
+            assert!(
+                calls[1].starts_with("am start -n "),
+                "an explicit component, never an implicit package start: {}",
+                calls[1]
+            );
+        }
+
+        let mock = MockAdb::default()
+            .on_shell(
+                "query-activities",
+                &batch("", "com.example.phoneonly/.Main"),
+            )
+            .on_shell(
+                "am start -n com.example.phoneonly/.Main",
+                "Starting: Intent { … }\n",
+            );
+        let shell = mock.shell_log();
+        let phone = state_with(mock);
+        let generation = phone.begin_remote_generation("fixture-TV").await.unwrap();
+        let r = launch_app_impl(
+            &phone,
+            "fixture-TV",
+            "com.example.phoneonly",
+            Some(generation),
+        )
+        .await
+        .unwrap();
+        assert!(r.ok);
+        assert!(shell.lock().unwrap()[1].ends_with("-c android.intent.category.LAUNCHER"));
+
+        let mock = MockAdb::default().on_shell("query-activities", &batch("", ""));
+        let shell = mock.shell_log();
+        let missing = state_with(mock);
+        let generation = missing.begin_remote_generation("fixture-TV").await.unwrap();
+        let r = launch_app_impl(&missing, "fixture-TV", "com.example.gone", Some(generation))
+            .await
+            .unwrap();
+        assert!(!r.ok);
+        assert!(r.message.contains("no launch activity"), "{}", r.message);
+        assert_eq!(
+            shell.lock().unwrap().len(),
+            1,
+            "nothing is started without a launch activity"
+        );
+
+        let refused = state_with(
+            MockAdb::default()
+                .on_shell("query-activities", &batch("com.example.x/.Main", ""))
+                .on_shell(
+                    "am start",
+                    "Starting: Intent { … }\nError: Activity class {com.example.x/.Main} does not exist.\n",
+                ),
+        );
+        let generation = refused.begin_remote_generation("fixture-TV").await.unwrap();
+        let r = launch_app_impl(&refused, "fixture-TV", "com.example.x", Some(generation))
+            .await
+            .unwrap();
+        assert!(!r.ok);
+        assert!(r.message.contains("does not exist"), "{}", r.message);
+    }
+
+    #[tokio::test]
+    async fn launch_app_refuses_anything_but_a_package_name_and_stale_sessions() {
+        let mock = super::super::test_support::MockAdb::default();
+        let shell = mock.shell_log();
+        let state = super::super::test_support::state_with(mock);
+        let current = state.begin_remote_generation("fixture-TV").await.unwrap();
+        for bad in ["com.x; reboot", "$(reboot)", "com.x/.Main", "-n com.x", ""] {
+            assert!(
+                launch_app_impl(&state, "fixture-TV", bad, Some(current))
+                    .await
+                    .is_err(),
+                "{bad}"
+            );
+        }
+        let newer = state.begin_remote_generation("fixture-TV").await.unwrap();
+        assert_ne!(current, newer);
+        assert!(
+            launch_app_impl(&state, "fixture-TV", "com.netflix.ninja", Some(current))
+                .await
+                .is_err()
+        );
+        assert!(shell.lock().unwrap().is_empty(), "nothing reached the TV");
     }
 
     #[tokio::test]

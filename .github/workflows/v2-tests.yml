@@ -491,6 +491,10 @@ jobs:
         working-directory: v2
         run: npm run test:remote-outcome
 
+      - name: Remote apps and shortcuts
+        working-directory: v2
+        run: npm run test:remote-apps
+
       # Force stop, Shield-only Find remote and the reported temperature
       # context, the features desktop gained from the phone.
       - name: Desktop parity with mobile

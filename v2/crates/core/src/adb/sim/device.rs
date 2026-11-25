@@ -7,6 +7,15 @@ use serde::{Deserialize, Serialize};
 
 use super::faults::{FaultEffect, FaultRule, FaultScope};
 use super::shell::{glob_match, printf, Exec, Out};
+use crate::engine::launch::{LAUNCHER, LEANBACK_LAUNCHER};
+
+/// An app's launch activity: `tv` for LEANBACK_LAUNCHER, otherwise LAUNCHER only.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LaunchActivity {
+    pub package: String,
+    pub class: String,
+    pub tv: bool,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Package {
@@ -140,6 +149,10 @@ pub struct Device {
     pub input_log: Vec<String>,
     /// Last `am start` intents.
     pub started: Vec<String>,
+    /// Apps with a launch activity, for `query-activities` on the launcher
+    /// categories and for `am start` of a package. Filled by `synthesize`.
+    #[serde(default)]
+    pub launch: Vec<LaunchActivity>,
     pub uptime_base: f64,
 }
 
@@ -169,6 +182,7 @@ impl Device {
             reattach_after_polls: None,
             input_log: Vec::new(),
             started: Vec::new(),
+            launch: Vec::new(),
             uptime_base: 86_400.0,
         }
     }
@@ -279,6 +293,45 @@ impl Device {
             [] => handlers.first().map(|c| c.short()),
             _ => Some("android/com.android.internal.app.ResolverActivity".to_string()),
         }
+    }
+
+    /// Enabled, installed apps with a launch activity in the category, as
+    /// `--components` prints them, optionally for one package. Every TV app
+    /// also answers LAUNCHER here.
+    fn query_launch(&self, tv_only: bool, package: Option<&str>) -> String {
+        self.launch
+            .iter()
+            .filter(|a| (a.tv || !tv_only) && self.usable(&a.package))
+            .filter(|a| package.map_or(true, |p| p == a.package))
+            .map(|a| format!("{}/{}\n", a.package, a.class))
+            .collect()
+    }
+
+    /// `am start -n <component>` of an app the simulator models a launch
+    /// activity for: starts it while the app is enabled, and answers as a TV
+    /// does for a disabled app or a class it doesn't have. Any other `-n` is
+    /// left to the generic `am start` answer.
+    fn start_component(&mut self, args: &[String]) -> Option<Out> {
+        let component = args
+            .windows(2)
+            .find(|w| w[0] == "-n")
+            .map(|w| w[1].clone())?;
+        let (pkg, class) = component.split_once('/')?;
+        if !self.launch.iter().any(|a| a.package == pkg) {
+            return None;
+        }
+        self.started.push(args[1..].join(" "));
+        let known = self
+            .launch
+            .iter()
+            .any(|a| a.package == pkg && a.class == class);
+        Some(if known && self.usable(pkg) {
+            Out::ok(format!("Starting: Intent {{ cmp={component} }}\n"))
+        } else {
+            Out::ok(format!(
+                "Starting: Intent {{ cmp={component} }}\nError: Activity class {{{component}}} does not exist.\n"
+            ))
+        })
     }
 
     fn query_home(&self, components: bool) -> String {
@@ -453,6 +506,10 @@ impl Device {
                 let components = rest.iter().any(|a| a == "--components");
                 if rest.iter().any(|a| a == "android.intent.category.HOME") {
                     Out::ok(self.query_home(components))
+                } else if components && rest.iter().any(|a| a == LEANBACK_LAUNCHER) {
+                    Out::ok(self.query_launch(true, launch_package(rest)))
+                } else if components && rest.iter().any(|a| a == LAUNCHER) {
+                    Out::ok(self.query_launch(false, launch_package(rest)))
                 } else {
                     return None;
                 }
@@ -975,6 +1032,9 @@ impl Device {
         let sub = args.first()?.as_str();
         Some(match sub {
             "start" => {
+                if let Some(out) = self.start_component(args) {
+                    return Some(out);
+                }
                 let intent = args[1..].join(" ");
                 self.started.push(intent.clone());
                 let wait = args.iter().any(|a| a == "-W");
@@ -990,6 +1050,14 @@ impl Device {
             _ => return None,
         })
     }
+}
+
+/// The package a `query-activities` call is narrowed to: its last argument,
+/// when that isn't a flag, an action or a category.
+fn launch_package(args: &[String]) -> Option<&str> {
+    let last = args.last()?.as_str();
+    (!last.starts_with('-') && !last.starts_with("android.intent.") && args.len() > 1)
+        .then_some(last)
 }
 
 fn apk_path(name: &str, p: &Package) -> String {

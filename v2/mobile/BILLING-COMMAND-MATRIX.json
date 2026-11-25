@@ -597,6 +597,24 @@
       ]
     },
     {
+      "command": "list_launchable_apps",
+      "api": "listLaunchableApps",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
+      "command": "launch_app",
+      "api": "launchApp",
+      "gate": "Free",
+      "backend": "../crates/core/src/commands/input.rs",
+      "callers": [
+        "src/screens/Remote.svelte"
+      ]
+    },
+    {
       "command": "remote_warm",
       "api": "remoteWarm",
       "gate": "Free",
