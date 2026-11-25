@@ -270,7 +270,8 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/launcher.rs",
       "callers": [
-        "src/screens/Launcher.svelte"
+        "src/screens/Launcher.svelte",
+        "src/screens/Optimize.svelte"
       ]
     },
     {
@@ -279,7 +280,8 @@
       "gate": "Free",
       "backend": "../crates/core/src/commands/launcher.rs",
       "callers": [
-        "src/screens/Launcher.svelte"
+        "src/screens/Launcher.svelte",
+        "src/screens/Optimize.svelte"
       ]
     },
     {

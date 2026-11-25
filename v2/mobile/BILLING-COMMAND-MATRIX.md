@@ -40,8 +40,8 @@ Callers name actual API call sites; `session.svelte.ts` mediates Onboarding/Devi
 | `resource_sample` | Free | `../crates/core/src/commands/health.rs` | `src/screens/Diagnostics.svelte` |
 | `app_list_for_device` | Free | `../crates/core/src/commands/health.rs` | `src/lib/session.svelte.ts`, `src/screens/Apps.svelte`, `src/screens/Diagnostics.svelte`, `src/screens/Tweaks.svelte` |
 | `report_all` | Free | `../crates/core/src/commands/health.rs` | No direct API caller |
-| `list_launchers` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
-| `current_launcher` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
+| `list_launchers` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte`, `src/screens/Optimize.svelte` |
+| `current_launcher` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte`, `src/screens/Optimize.svelte` |
 | `channel_provider_disabled` | Free | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
 | `set_default_launcher` | LauncherTakeover | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |
 | `disable_launcher` | CuratedDebloat | `../crates/core/src/commands/launcher.rs` | `src/screens/Launcher.svelte` |

@@ -39,6 +39,7 @@
   import { sendTelemetry } from "../lib/api";
   import { recordAction } from "../../../shared/telemetry";
   import { destructiveWarning } from "../../../shared/support";
+  import { dismissHomeOffer, homeOfferDismissed, onStockHome } from "../../../shared/home-screen-offer";
   import CleanYourTvListCard from "../../../shared/components/CleanYourTvListCard.svelte";
   import {
     activeLists,
@@ -96,6 +97,12 @@
   /// Changes the last Optimize run made to the TV. A snapshot taken before a
   /// run can't undo it, so saving one is offered only after a run changed it.
   let lastOptimizeChanged = $state(0);
+  /// After a run that changed the TV, a TV still on its stock Home app gets a
+  /// quiet link to Launcher. Dismissing it is remembered by hardware id; a TV
+  /// without one keeps it hidden until this screen closes.
+  let homeOffer = $state(false);
+  let homeOfferHidden = $state(false);
+  let homeOfferRequest = 0;
   let snapshotSaving = $state(false);
   /// Saves still running in the backend, whether or not their offer is
   /// current: a snapshot records the TV as it is, so Apply waits for all of them.
@@ -674,6 +681,39 @@
     lastOptimizeChanged = 0;
     snapshotSaving = false;
     snapshotResult = null;
+    ++homeOfferRequest;
+    homeOffer = false;
+  }
+
+  async function checkHomeOffer(serial: string, generation: number) {
+    const request = ++homeOfferRequest;
+    homeOffer = false;
+    const id = hardwareId;
+    let dismissed = false;
+    try {
+      dismissed = homeOfferDismissed(localStorage, id);
+    } catch {
+      /* storage unavailable: nothing was remembered */
+    }
+    if (homeOfferHidden || dismissed) return;
+    try {
+      const [rows, current] = await Promise.all([api.listLaunchers(serial), api.currentLauncher(serial)]);
+      if (request !== homeOfferRequest || !sessionCurrent(serial, generation) || hardwareId !== id) return;
+      homeOffer = onStockHome(rows, current?.package) === true;
+    } catch {
+      // An unreadable Home app claims nothing, so there is no link.
+    }
+  }
+
+  function dismissHome() {
+    ++homeOfferRequest;
+    homeOffer = false;
+    homeOfferHidden = true;
+    try {
+      dismissHomeOffer(localStorage, hardwareId);
+    } catch {
+      /* storage unavailable: hidden until this screen closes */
+    }
   }
 
   async function saveSetupSnapshot() {
@@ -937,6 +977,9 @@
       }
       // After a reconnect the session effect has already reloaded the plan.
       if (!safetyStopped && live) await loadPlan(runMode);
+      if (runMode === "optimize" && live && completed > 0 && !canceled && !entitlementLost && !safetyStopped && request === applyRequest) {
+        void checkHomeOffer(serial, generation);
+      }
     } finally {
       if (request === applyRequest) {
         applying = false;
@@ -1304,6 +1347,14 @@
           </HelpSheet>
         </div>
       {/if}
+      {#if mode === "optimize" && homeOffer}
+        <div class="home-offer" role="status">
+          <span class="msr" aria-hidden="true">home</span>
+          <span class="home-offer-text">Still on the stock home screen.</span>
+          <button class="home-offer-link" onclick={() => navigate("launcher")}>Get a better home screen</button>
+          <button class="home-offer-dismiss" onclick={dismissHome}>Dismiss</button>
+        </div>
+      {/if}
     {/if}
   {/if}
 
@@ -1566,6 +1617,48 @@
   }
   .snapshot-result.failed {
     color: var(--danger);
+  }
+  .home-offer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 8px;
+    margin-top: 12px;
+    color: var(--text-soft);
+    font-size: 13px;
+    line-height: 1.4;
+  }
+  .home-offer .msr {
+    font-size: 18px;
+  }
+  .home-offer-text {
+    flex: 1 1 12em;
+  }
+  .home-offer-link,
+  .home-offer-dismiss {
+    min-height: 44px;
+    padding: 0 4px;
+    border: 0;
+    background: transparent;
+    font-family: var(--sans);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .home-offer-link {
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+  .home-offer-dismiss {
+    margin-left: auto;
+    color: var(--muted);
+  }
+  .home-offer-link:focus-visible,
+  .home-offer-dismiss:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
   }
 
   .stale-warning {
