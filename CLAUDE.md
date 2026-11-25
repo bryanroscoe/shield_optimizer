@@ -25,7 +25,7 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
   this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
   commit that last held it).
 
-### What is in flight right now (2026-11-20)
+### What is in flight right now (2026-11-24)
 
 `v2-2.5.1` (2026-11-20) is the latest desktop release: a hotfix cut from `release/2.5.x` that makes
 confirmations work in the installed app and fixes in-app AppImage updates (#365), with nothing else
@@ -35,10 +35,14 @@ from `main`. Version files on `main` still say 2.5.0, so cut the next release fr
 (identifier `com.atvoptimizer.app`, Homebrew cask `atv-optimizer`) and shipped without the physical
 device script, at Bryan's direction: see `v2/HANDOFF.md` for what is still unverified on hardware.
 
-**Unreleased on `main`:** PR #268 (merged 2026-11-09) made built-in Rust ADB the default desktop
-engine, with Settings › ADB › ADB engine switching to Google platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md));
-the release that ships it waits for `docs/DEVICE-TEST-SCRIPT.md` N1–N18. Snapshot schema is 4
-(#353), which 2.5.1 and earlier refuse. The full list is `v2/CHANGELOG.md`'s `## Unreleased`.
+**Next desktop release: 2.6.0, prepared and waiting for Bryan to tag it.** It ships built-in Rust
+ADB as the default desktop engine (PR #268), with Settings › ADB › ADB engine switching to Google
+platform-tools ([`v2/DIRECT-ADB.md`](v2/DIRECT-ADB.md)). Its notes are cut as `## v2-2.6.0` in
+`v2/CHANGELOG.md`. **Until `v2-2.6.0` is tagged, an entry for anything merged to `main` goes in
+that section (Android-only ones under its Android app group), not under `## Unreleased`.** Before
+tagging: the whole of `docs/DEVICE-TEST-SCRIPT.md` on hardware (N1–N18 and S1–S9 are new for
+2.6.0) and `npm run e2e`, set the section's date to the tag day, then
+`cd v2 && ./release.sh --minor`. Snapshot schema is 4 (#353), which 2.5.1 and earlier refuse.
 
 Shipped in 2.5.0 or live on the server side:
 
