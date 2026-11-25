@@ -28,6 +28,9 @@ test("mobile type check, production and demo builds need no desktop generated fi
   await cp(join(desktop, "catalogs/cleanyourtv"), join(isolatedDesktop, "catalogs/cleanyourtv"), { recursive: true });
   await mkdir(join(isolatedDesktop, "src"), { recursive: true });
   await cp(join(desktop, "src/lib"), join(isolatedDesktop, "src/lib"), { recursive: true });
+  // The demo layer reads the protected and caution tables from the Rust source.
+  await mkdir(join(isolatedDesktop, "crates/core/src/engine"), { recursive: true });
+  await cp(join(desktop, "crates/core/src/engine/safety.rs"), join(isolatedDesktop, "crates/core/src/engine/safety.rs"));
   for (const name of ["package.json", "tsconfig.json", "svelte.config.js"]) await cp(join(desktop, name), join(isolatedDesktop, name));
   await symlink(join(mobile, "node_modules"), join(isolatedMobile, "node_modules"), process.platform === "win32" ? "junction" : "dir");
   const env = { ...process.env };
@@ -39,6 +42,7 @@ test("mobile type check, production and demo builds need no desktop generated fi
   const production = await bundleText(join(isolatedMobile, "build"));
   assert.ok(!production.includes("Unlock every Pro tool."), "production must exclude the demo entitlement fixture");
   assert.ok(!production.includes("Fast control channel ready."), "production must exclude the simulated transport reply");
+  assert.ok(!production.includes("const NEVER_DISABLE"), "production must exclude the Rust source the demo reads");
   assert.ok(production.includes("com.realtek.leanbacklauncher.partnercustomizer"), "source package information ships offline");
   assert.ok(production.includes("Copyright (c) 2026 Gathin"), "the source copyright ships in the app");
   assert.ok(production.includes("Permission is hereby granted"), "the full MIT notice ships with the source information");
@@ -46,6 +50,7 @@ test("mobile type check, production and demo builds need no desktop generated fi
   const demo = await bundleText(join(isolatedMobile, "demo-build"));
   assert.ok(demo.includes("Unlock every Pro tool."), "explicit demo builds must retain their fixture");
   assert.ok(demo.includes("Fast control channel ready."));
+  assert.ok(demo.includes("const NEVER_DISABLE"), "demo builds read the real safety tables");
   await assert.rejects(access(join(isolatedDesktop, ".svelte-kit")), "no desktop sync dependency");
   await assert.rejects(access(join(isolatedDesktop, "node_modules")), "no desktop dependency installation");
 });

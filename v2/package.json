@@ -12,6 +12,7 @@
     "test:app-files-catalog": "node tests/app-files-catalog.mjs",
     "test:profile-catalog": "node tests/profile-catalog.mjs",
     "test:cleanyourtv-lists": "node tests/cleanyourtv-lists.mjs",
+    "test:demo-safety-parity": "node tests/demo-safety-parity.mjs",
     "test:pairing-flow": "node tests/pairing-flow.mjs",
     "test:adb-errors": "node tests/adb-errors.mjs",
     "test:sideload-scan": "node tests/sideload-scan.mjs",

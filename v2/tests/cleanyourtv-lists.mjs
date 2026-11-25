@@ -163,7 +163,7 @@ try {
   const base = `http://127.0.0.1:${server.httpServer.address().port}`;
   const deviceUrl = `${base}/devices/${encodeURIComponent("192.168.1.42:5555")}`;
   browser = await chromium.launch();
-  context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark" });
+  context = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "dark", permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -191,8 +191,15 @@ try {
   assert.match(headings[0], /^ATV Optimizer catalog/, "the catalog comes first");
   assert.match(headings[1], /^CleanYourTV list for NVIDIA SHIELD TV Pro 2019/);
   assert.match(headings[1], /Community list, not reviewed by ATV Optimizer · Disable only/);
-  const listedRow = group.locator("tr", { has: page.locator(".pkg-id", { hasText: "android.autoinstalls.config.nvidia" }) }).first();
+  const listedRow = group.locator('tr[data-package="android.autoinstalls.config.nvidia"]');
   await listedRow.waitFor();
+  assert.equal(
+    (await listedRow.locator(".app-cell").innerText()).split("android.autoinstalls.config.nvidia").length - 1,
+    1,
+    "an app with no label is named by its package id once, not twice",
+  );
+  await listedRow.getByRole("button", { name: "Copy package name android.autoinstalls.config.nvidia" }).click();
+  assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "android.autoinstalls.config.nvidia", "its id can still be copied");
   const options = await listedRow.locator(".action-radio .radio-pill").evaluateAll((els) =>
     els.map((el) => ({ label: el.querySelector(".radio-label")?.textContent?.trim(), active: el.classList.contains("active") })),
   );
@@ -240,7 +247,7 @@ try {
   const group2017 = opt.locator('[data-cleanyourtv-rows="nvidia-shield-tv-2017"]');
   await group2017.waitFor();
   assert.equal(await group.count(), 0, "the replaced list's group is gone");
-  const row2017 = group2017.locator("tr", { has: page.locator(".pkg-id", { hasText: "android.autoinstalls.config.nvidia" }) }).first();
+  const row2017 = group2017.locator('tr[data-package="android.autoinstalls.config.nvidia"]');
   await row2017.waitFor();
   assert.deepEqual(
     await row2017.locator(".action-radio .radio-pill.active .radio-label").allInnerTexts(),
