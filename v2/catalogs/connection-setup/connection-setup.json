@@ -23,14 +23,17 @@
           "About"
         ],
         "action": "press OK on Android TV OS build (or Build) seven times",
-        "when": "Many Google TV sets"
+        "when": "On some Google TV sets, such as the Sony BRAVIA 9 II and Philips TA models"
       }
     ],
     "developer_options": "Go back one screen and open Developer options.",
     "turn_on": "Turn on USB debugging, and Network or ADB debugging too if the TV lists one. If port 5555 stays closed, the TV may only offer Wireless debugging: pair it with a code.",
     "sources": [
       "README.md",
-      "PROMPT.md"
+      "PROMPT.md",
+      "examples/sony-bravia-9-ii/debloat.txt",
+      "examples/philips-google-tv-ta1/README.md",
+      "examples/philips-google-tv-ta7/README.md"
     ]
   },
   "brands": [
@@ -50,7 +53,7 @@
           "connect": "port",
           "notes": [
             "Network debugging is what opens port 5555. Turn it off again when you're done.",
-            "Ethernet and Wi-Fi get different addresses, and the Shield can come back from a restart on the other one, so reserve its address in your router."
+            "On the 2019 Pro, Ethernet and Wi-Fi get different addresses and it can come back from a restart on the other one, so reserve its address in your router."
           ],
           "sources": [
             "examples/nvidia-shield-tv-pro-2019/debloat.txt",
@@ -76,7 +79,7 @@
           ],
           "connect": "pair",
           "notes": [
-            "Port 5555 stays closed until the TV has been paired with a code.",
+            "Port 5555 stays closed on these, so connect with the pairing code.",
             "On a Chromecast with Google TV 4K, Wireless debugging switched straight back off on Ethernet: join Wi-Fi to pair."
           ],
           "sources": [
@@ -92,7 +95,7 @@
       "name": "Sony",
       "variants": [
         {
-          "models": "BRAVIA Google TV on Android 14 (BRAVIA 9 II, 8 II, 5)",
+          "models": "BRAVIA 9 II (Google TV 14)",
           "unlock": {
             "path": [
               "Settings",
@@ -110,17 +113,66 @@
           ],
           "connect": "pair",
           "notes": [
-            "USB debugging alone leaves port 5555 closed on these sets.",
-            "On a BRAVIA 5 the switch is called Debugging over Wi-Fi, and it turns itself back off while the TV is on Ethernet: use Wi-Fi."
+            "USB debugging alone leaves port 5555 closed on this set."
           ],
           "sources": [
-            "examples/sony-bravia-9-ii/debloat.txt",
+            "examples/sony-bravia-9-ii/debloat.txt"
+          ]
+        },
+        {
+          "models": "BRAVIA 8 II and BRAVIA 4K AE2 (Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "Wireless debugging",
+              "then": "Pair device with pairing code"
+            }
+          ],
+          "connect": "pair",
+          "notes": [
+            "USB debugging alone leaves port 5555 closed. On the 8 II, Wireless debugging is off again after every restart, on a new port."
+          ],
+          "sources": [
             "examples/sony-bravia-8-ii/debloat.txt",
+            "examples/sony-bravia-ae2/debloat.txt"
+          ]
+        },
+        {
+          "models": "BRAVIA 5 (K-55XR50, Europe, Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "Debugging over Wi-Fi"
+            }
+          ],
+          "connect": "pair",
+          "notes": [
+            "It turns itself back off while the TV is on Ethernet: put the TV on Wi-Fi, then pair with the code. A restart also turns it off."
+          ],
+          "sources": [
             "examples/sony-bravia-ae2/debloat-k55xr50-eu.txt"
           ]
         },
         {
-          "models": "BRAVIA on Android TV 9 (2018–2019, such as X900F, X805G, X8000G)",
+          "models": "BRAVIA VU31 (India, Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "USB debugging"
+            }
+          ],
+          "connect": "either",
+          "if_closed": "If port 5555 doesn't answer yet, turn on Wireless debugging and pair with the code. On one VU31 port 5555 answered only after the first restart.",
+          "notes": [],
+          "sources": [
+            "examples/sony-bravia-vu31/debloat.txt"
+          ]
+        },
+        {
+          "models": "BRAVIA on Android TV 9 (2018–2019, such as X900F, X805G)",
           "unlock": null,
           "developer_options": null,
           "turn_on": [
@@ -140,7 +192,7 @@
           ]
         },
         {
-          "models": "Other BRAVIA on Android TV 7–11 or Google TV (such as X9300D, TL2, VU2, VU31, X82L)",
+          "models": "Other BRAVIA on Android TV 7–11 or Google TV 12 (such as X9300D, TL2, VU2, X82L)",
           "unlock": null,
           "developer_options": null,
           "turn_on": [
@@ -157,7 +209,6 @@
             "examples/sony-kj-55x9300d/debloat.txt",
             "examples/sony-bravia-tl2/debloat.txt",
             "examples/sony-bravia-vu2/debloat.txt",
-            "examples/sony-bravia-vu31/debloat.txt",
             "examples/sony-xbr-55x850d/debloat.txt",
             "examples/sony-kd-65x82l/debloat.txt"
           ]
@@ -169,7 +220,31 @@
       "name": "TCL",
       "variants": [
         {
-          "models": "Google TV on Android 14 (such as C7K, C7L, Q7C, C8L, QM8L)",
+          "models": "C8L, QM8L and other G17 models (Google TV 14)",
+          "unlock": null,
+          "developer_options": [
+            "Settings",
+            "System",
+            "Developer options"
+          ],
+          "turn_on": [
+            {
+              "name": "Wireless debugging",
+              "then": "Pair device with pairing code"
+            }
+          ],
+          "connect": "pair",
+          "notes": [
+            "These sets offer only Wireless debugging, and the connect port changes after each restart."
+          ],
+          "sources": [
+            "examples/tcl-65c8l-google-tv/README.md",
+            "examples/tcl-65c8l-google-tv/debloat.txt",
+            "examples/tcl-65qm8l-google-tv/README.md"
+          ]
+        },
+        {
+          "models": "C7L (Google TV 14)",
           "unlock": null,
           "developer_options": [
             "Settings",
@@ -181,20 +256,72 @@
               "name": "Wireless debugging"
             }
           ],
-          "connect": "either",
+          "connect": "port",
           "notes": [
-            "Some of these sets also open port 5555 with USB debugging alone. Others only take a pairing code, and their connect port changes after each restart.",
-            "On the Q7C, Wireless debugging can't be turned on over Ethernet, but USB debugging opens port 5555 by itself."
+            "Turning on Wireless debugging was enough: port 5555 answered without pairing."
           ],
           "sources": [
             "examples/tcl-65c7l-google-tv/README.md",
-            "examples/tcl-65c8l-google-tv/README.md",
-            "examples/tcl-65qm8l-google-tv/README.md",
+            "examples/tcl-65c7l-google-tv/debloat.txt"
+          ]
+        },
+        {
+          "models": "Q7C (Europe, Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "USB debugging"
+            }
+          ],
+          "connect": "port",
+          "notes": [
+            "USB debugging opened port 5555 by itself. Wireless debugging can't be turned on over Ethernet, and isn't needed."
+          ],
+          "sources": [
             "examples/tcl-q7c-google-tv/README.md"
           ]
         },
         {
-          "models": "Google TV on Android 12 (such as 75P8K and the UK G09 models)",
+          "models": "65Q7D Pro and 65T8C (Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "Wireless debugging",
+              "then": "Pair device with pairing code"
+            }
+          ],
+          "connect": "pair",
+          "notes": [
+            "USB debugging didn't open port 5555 on the 65Q7D Pro; Wireless debugging with a pairing code did."
+          ],
+          "sources": [
+            "examples/tcl-q7c-google-tv/README.md"
+          ]
+        },
+        {
+          "models": "55C69K (Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "USB debugging"
+            },
+            {
+              "name": "Network debugging"
+            }
+          ],
+          "connect": "port",
+          "notes": [
+            "Port 5555 opened directly with both switches on."
+          ],
+          "sources": [
+            "examples/tcl-q7c-google-tv/README.md"
+          ]
+        },
+        {
+          "models": "UK G09 models (Google TV 12)",
           "unlock": null,
           "developer_options": [
             "Settings",
@@ -207,16 +334,30 @@
             }
           ],
           "connect": "port",
+          "notes": [],
+          "sources": [
+            "examples/tcl-g09-google-tv/README.md"
+          ]
+        },
+        {
+          "models": "75P8K (Google TV 12)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "USB debugging"
+            }
+          ],
+          "connect": "port",
           "notes": [
             "USB debugging opens port 5555 over Wi-Fi; there's no separate Wireless or Network debugging switch."
           ],
           "sources": [
-            "examples/tcl-g09-google-tv/README.md",
             "examples/tcl-75p8k/debloat.txt"
           ]
         },
         {
-          "models": "Google TV on Android 11 (such as the US G06 models and 65C735)",
+          "models": "US G06 models (Google TV 11)",
           "unlock": {
             "path": [
               "Settings",
@@ -233,15 +374,14 @@
           ],
           "connect": "port",
           "notes": [
-            "USB debugging alone opens port 5555 over Wi-Fi; these sets have no Wireless debugging."
+            "USB debugging alone opens port 5555 over Wi-Fi; this firmware has no Wireless debugging."
           ],
           "sources": [
-            "examples/tcl-g06-us-google-tv/README.md",
-            "examples/tcl-65c735/debloat.txt"
+            "examples/tcl-g06-us-google-tv/README.md"
           ]
         },
         {
-          "models": "Android TV 11 with the Google TV home screen (such as 55C725, 43C645)",
+          "models": "55C725 (Android TV 11, Google TV home screen)",
           "unlock": {
             "path": [
               "Settings",
@@ -258,15 +398,32 @@
           ],
           "connect": "port",
           "notes": [
+            "Port 5555 was open without pairing."
+          ],
+          "sources": [
+            "examples/tcl-55c725/README.md"
+          ]
+        },
+        {
+          "models": "65C735 and 43C645 (Google TV 11, Android TV 11)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "USB debugging"
+            }
+          ],
+          "connect": "port",
+          "notes": [
             "USB debugging alone opens port 5555; there's no separate network debugging switch."
           ],
           "sources": [
-            "examples/tcl-55c725/README.md",
+            "examples/tcl-65c735/debloat.txt",
             "examples/tcl-43c645/README.md"
           ]
         },
         {
-          "models": "Android TV 11 (such as 32L5A)",
+          "models": "32L5A (Android TV 11)",
           "unlock": null,
           "developer_options": [
             "Settings",
@@ -321,8 +478,9 @@
             }
           ],
           "connect": "port",
+          "if_closed": "If port 5555 stays closed, turn on Network debugging too and restart the TV (one HG9 needed both).",
           "notes": [
-            "USB debugging alone opens port 5555 on most of these sets. One HG9 also needed its Network debugging switch and a restart."
+            "USB debugging alone opens port 5555 on most of these sets."
           ],
           "sources": [
             "examples/hisense-hismarttv-a4/debloat.txt",
@@ -358,7 +516,7 @@
           ]
         },
         {
-          "models": "Xiaomi TV Box S (2nd and 3rd gen) and TV Stick 4K (2nd gen), Google TV",
+          "models": "Mi Box S 2nd gen and TV Stick 4K 2nd gen (Google TV)",
           "unlock": null,
           "developer_options": null,
           "turn_on": [
@@ -368,12 +526,29 @@
           ],
           "connect": "port",
           "notes": [
-            "Port 5555 answers once USB debugging is on, without pairing.",
-            "On the 3rd gen box, USB debugging cuts power to the USB port, so a USB Ethernet adapter drops. Use Wi-Fi."
+            "Port 5555 answers once USB debugging is on, without pairing."
           ],
           "sources": [
             "examples/xiaomi-mi-box-s-2nd-gen/debloat.txt",
-            "examples/xiaomi-mitv-afmu1/debloat.txt",
+            "examples/xiaomi-mitv-afmu1/debloat.txt"
+          ]
+        },
+        {
+          "models": "TV Box S 3rd gen (Google TV 14)",
+          "unlock": null,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "Wireless debugging",
+              "then": "Pair device with pairing code"
+            }
+          ],
+          "connect": "pair",
+          "notes": [
+            "USB debugging cuts power to this box's USB port, so a USB Ethernet adapter drops."
+          ],
+          "sources": [
+            "examples/xiaomi-mitv-afmu0/debloat.txt",
             "docs/TROUBLESHOOTING.md"
           ]
         }
@@ -384,7 +559,7 @@
       "name": "Philips",
       "variants": [
         {
-          "models": "Google TV on Android 14 made by TP Vision (such as PUS8729)",
+          "models": "Google TV on Android 14 by TP Vision (TA1 and TA7 models, such as PUS8729)",
           "unlock": {
             "path": [
               "Settings",
@@ -427,7 +602,7 @@
           ]
         },
         {
-          "models": "Android TV 7–12 made by TP Vision",
+          "models": "Android TV 8 and 12 by TP Vision (such as 55PUS7503 and TPM191E)",
           "unlock": null,
           "developer_options": null,
           "turn_on": [
@@ -437,7 +612,7 @@
           ],
           "connect": "port",
           "notes": [
-            "USB debugging alone opens port 5555. Android 8 has no Wireless debugging."
+            "USB debugging alone opens port 5555; these had no Wireless debugging."
           ],
           "sources": [
             "examples/philips-55pus7503/README.md",
@@ -536,7 +711,7 @@
           ]
         },
         {
-          "models": "Fire TV smart TVs on Fire OS 8 (such as the Xiaomi Fire TV)",
+          "models": "Xiaomi Fire TV (Fire OS 8)",
           "unlock": null,
           "generic_unlock": false,
           "developer_options": [
@@ -551,10 +726,27 @@
           ],
           "connect": "port",
           "notes": [
-            "On the Xiaomi Fire TV, network ADB stops after every restart: turn ADB Debugging off and on again."
+            "Network ADB stops after every restart: turn ADB Debugging off and on again."
           ],
           "sources": [
-            "examples/xiaomi-fire-tv-aftne4e43f/README.md",
+            "examples/xiaomi-fire-tv-aftne4e43f/README.md"
+          ]
+        },
+        {
+          "models": "TCL Fire TV smart TVs (Fire OS 8)",
+          "unlock": null,
+          "generic_unlock": false,
+          "developer_options": null,
+          "turn_on": [
+            {
+              "name": "ADB debugging"
+            }
+          ],
+          "connect": "port",
+          "notes": [
+            "Port 5555 opens as soon as ADB debugging is on, without pairing."
+          ],
+          "sources": [
             "examples/tcl-43s450f-ca/README.md"
           ]
         }
@@ -713,9 +905,8 @@
             }
           ],
           "connect": "port",
-          "notes": [
-            "On some units USB debugging opens port 5555 only after a restart (Settings › Device Preferences › About › Restart)."
-          ],
+          "if_closed": "If port 5555 stays closed, restart the TV (Settings › Device Preferences › About › Restart).",
+          "notes": [],
           "sources": [
             "examples/sharp-aquos-tve19c/README.md"
           ]

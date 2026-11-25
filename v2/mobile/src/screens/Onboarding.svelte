@@ -506,9 +506,7 @@
     <p class="eyebrow">Step 1 of 2</p>
     <h1>Find your TV</h1>
     <p class="lede">
-      On the TV, turn on <span class="soft">Wireless debugging</span> (Android 11 and later) or
-      <span class="soft">Network debugging</span> (Shield and older TVs) in
-      <span class="soft">Developer options</span>.
+      On the TV, turn on debugging in <span class="soft">Developer options</span>, then scan.
     </p>
     <HelpSheet title="How to turn on debugging">
       <BrandSetupGuide />

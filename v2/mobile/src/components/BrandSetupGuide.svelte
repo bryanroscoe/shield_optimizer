@@ -8,6 +8,7 @@
     SOURCE_NAME,
     type ConnectMethod,
   } from "../../../shared/connection-setup";
+  import licenseText from "../../../catalogs/connection-setup/LICENSE?raw";
 
   /// The menu path to Developer options and the debugging switch for the TV's
   /// brand. Shown inside the "How to turn on debugging" help sheet.
@@ -73,6 +74,10 @@
     <p class="setup-note">{note}</p>
   {/each}
   <p class="attribution">From owners' notes in {SOURCE_NAME} (MIT).{#if guide} Menus can differ by firmware.{/if}</p>
+  <details class="license">
+    <summary>License</summary>
+    <pre>{licenseText}</pre>
+  </details>
 </div>
 
 <style>
@@ -143,5 +148,19 @@
   .attribution {
     margin: 0;
     font-size: 0.75rem;
+  }
+  .license summary {
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    font-size: 0.8125rem;
+  }
+  .license pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-size: 0.6875rem;
+    color: var(--text-soft);
   }
 </style>

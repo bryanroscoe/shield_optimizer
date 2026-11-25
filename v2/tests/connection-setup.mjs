@@ -44,6 +44,7 @@ async function dataChecks(server) {
       assert.ok(v.developer_options === null || menu(v.developer_options), `${where}: developer options path`);
       assert.ok(v.sources.length > 0 && v.sources.every((s) => SOURCE.test(s)), `${where}: every step has a source`);
       assert.ok(v.notes.every((n) => typeof n === "string" && n.endsWith(".")), `${where}: notes are sentences`);
+      assert.ok(v.if_closed === undefined || (v.if_closed.startsWith("If ") && v.if_closed.endsWith(".")), `${where}: conditional step`);
     }
   }
   for (const s of data.generic.sources) assert.ok(SOURCE.test(s));
@@ -57,9 +58,18 @@ async function dataChecks(server) {
   const sony = m.brandGuide("sony").variants[0];
   assert.match(sony.steps[0], /^Show Developer options: open Settings › System › About and press OK on Android TV OS build seven times/);
   assert.match(sony.steps.at(-1), /^Turn on Wireless debugging, then choose Pair device with pairing code\.$/);
-  const fireTvs = m.brandGuide("firetv").variants.find((v) => v.models.includes("smart TVs"));
-  assert.ok(!fireTvs.steps.some((s) => s.includes("Device Preferences")), "Fire OS never gets Android TV's generic steps");
-  assert.equal(fireTvs.steps[0], "Open Settings › Device & Software › Developer options.");
+  for (const v of m.brandGuide("firetv").variants) {
+    assert.ok(!v.steps.some((s) => s.includes("Device Preferences") || s.includes("Go back one screen")), `Fire OS never gets Android TV's generic steps: ${v.models}`);
+  }
+  const fire = Object.fromEntries(m.brandGuide("firetv").variants.map((v) => [v.models, v.steps]));
+  assert.equal(fire["Xiaomi Fire TV (Fire OS 8)"][0], "Open Settings › Device & Software › Developer options.");
+  assert.equal(fire["TCL Fire TV smart TVs (Fire OS 8)"][0], "Open Developer options.", "no source gives the TCL path, so none is stated");
+  const hg9 = m.brandGuide("hisense").variants.find((v) => v.models.includes("HG9"));
+  assert.match(hg9.steps.at(-1), /^If port 5555 stays closed, turn on Network debugging too and restart the TV/, "a sourced fallback is a step, not a footnote");
+  const sonyModels = m.brandGuide("sony").variants.map((v) => v.models);
+  assert.ok(sonyModels.some((n) => n.startsWith("BRAVIA 5")) && sonyModels.some((n) => n.startsWith("BRAVIA VU31")));
+  assert.match(m.brandGuide("sony").variants.find((v) => v.models.startsWith("BRAVIA 5")).steps.at(-1), /^Turn on Debugging over Wi-Fi\.$/);
+  assert.equal(m.brandGuide("sony").variants.filter((v) => v.steps[0].startsWith("Show Developer options")).length, 1, "only the BRAVIA 9 II's own path is stated");
   assert.match(m.brandGuide("nokia").variants[1].steps.at(-1), /^Turn on USB debugging and Network debugging\.$/);
   assert.equal(m.brandGuide("nope"), null);
   assert.equal(m.genericGuide().connect, "either");
@@ -124,8 +134,9 @@ try {
   await brand.selectOption({ label: "Sony" });
   const models = setup.getByRole("radio");
   assert.match(await stepsText(setup), /Android TV OS build seven times[\s\S]*Then use Pair PIN/);
-  await models.nth(1).focus();
-  await page.keyboard.press("Space");
+  await models.nth(0).focus();
+  for (let i = 0; i < 4; i++) await page.keyboard.press("ArrowDown");
+  assert.equal(await setup.getByRole("radio", { name: /Android TV 9/ }).isChecked(), true, "arrow keys move through the model groups");
   assert.match(await stepsText(setup), /Turn on ADB debugging \(USB debugging on some sets\)\.\nThen enter the TV's address in Add by IP/);
   await brand.selectOption({ label: "Amazon Fire TV" });
   assert.equal(await models.nth(0).isChecked(), true, "a new brand starts at its first model group");
@@ -147,6 +158,8 @@ try {
   await page.evaluate(() => { document.documentElement.style.fontSize = ""; document.documentElement.setAttribute("data-theme", "dark"); });
   await page.setViewportSize({ width: 1280, height: 900 });
 
+  await setup.locator("details.license summary").click();
+  assert.match(await setup.locator("details.license pre").innerText(), /^MIT License[\s\S]*Copyright \(c\) 2026 Gathin[\s\S]*Permission is hereby granted/, "the full notice ships with the steps");
   const link = setup.getByRole("link", { name: "CleanYourTV" });
   assert.match(await link.getAttribute("href"), /^https:\/\/github\.com\/Gathin23\/cleanyourtv\/tree\/[0-9a-f]{40}$/);
 
@@ -154,11 +167,13 @@ try {
   await page.reload({ waitUntil: "networkidle" });
   await page.getByRole("button", { name: "Pair PIN", exact: true }).first().click();
   const pairHelp = page.locator(".pair-form .help-details");
-  await pairHelp.locator("summary").click();
+  await pairHelp.getByText("Help with pairing", { exact: true }).click();
   const pairSetup = pairHelp.locator("[data-brand-setup]");
   assert.equal(await pairSetup.getByLabel("TV brand").inputValue(), "firetv", "the last brand picked is remembered");
   await pairSetup.getByLabel("TV brand").selectOption({ label: "Google (Chromecast, Google TV Streamer)" });
   assert.match(await stepsText(pairSetup), /Pair device with pairing code\.\nThen use Pair PIN/);
+  const helpSetup = page.locator(".help-details").filter({ has: page.locator("summary", { hasText: "Connection help" }) }).locator("[data-brand-setup]");
+  assert.equal(await helpSetup.getByLabel("TV brand").inputValue(), "google", "both disclosures show the same pick without a reload");
   if (evidence) await page.locator(".pair-form").screenshot({ path: join(evidence, "pair-panel-google.png") });
   await pairSetup.getByLabel("TV brand").selectOption({ label: "Other or not sure" });
   assert.equal(await page.evaluate(() => localStorage.getItem("atvopt.connectionBrand")), null, "Other forgets the pick");

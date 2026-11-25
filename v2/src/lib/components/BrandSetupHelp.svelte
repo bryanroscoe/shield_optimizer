@@ -4,38 +4,29 @@
     brandGuide,
     brandList,
     genericGuide,
-    savedBrand,
-    saveBrand,
     SOURCE_NAME,
     SOURCE_URL,
     type ConnectMethod,
   } from "../../../shared/connection-setup";
+  import licenseText from "../../../catalogs/connection-setup/LICENSE?raw";
+  import { chooseConnectionBrand, connectionBrand } from "$lib/connection-brand.svelte";
 
   // The menu path to Developer options and the debugging switch for the TV's
   // brand. Lives inside the existing help disclosures, never on the page.
   const id = $props.id();
   const brands = brandList();
-  let brand = $state(readSaved());
+  let brand = $derived(connectionBrand.id);
   let model = $state(0);
   let guide = $derived(brandGuide(brand));
+  // Another disclosure picking a brand starts this one at its first model too.
+  $effect(() => {
+    void brand;
+    model = 0;
+  });
   let variant = $derived(guide ? guide.variants[Math.min(model, guide.variants.length - 1)] : genericGuide());
 
-  function readSaved(): string {
-    try {
-      return savedBrand(localStorage) ?? "";
-    } catch {
-      return "";
-    }
-  }
-
   function chooseBrand(value: string) {
-    brand = value;
-    model = 0;
-    try {
-      saveBrand(localStorage, value || null);
-    } catch {
-      /* storage unavailable: the pick lasts for this page */
-    }
+    chooseConnectionBrand(value);
   }
 
   const NEXT: Record<ConnectMethod, string> = {
@@ -88,6 +79,10 @@
     From owners' notes in <a href={SOURCE_URL} onclick={(e) => open(SOURCE_URL, e)}>{SOURCE_NAME}</a> (MIT).
     {#if guide}Menus can differ by firmware.{/if}
   </p>
+  <details class="license">
+    <summary>License</summary>
+    <pre>{licenseText}</pre>
+  </details>
 </div>
 
 <style>
@@ -110,4 +105,7 @@
   .setup-note { margin: 0.35rem 0; }
   .attribution { color: var(--fg-muted); font-size: 0.78rem; }
   .attribution a { color: var(--accent); }
+  .license { color: var(--fg-muted); font-size: 0.78rem; }
+  .license summary { cursor: pointer; width: fit-content; }
+  .license pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 14rem; overflow-y: auto; font-size: 0.72rem; }
 </style>

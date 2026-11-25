@@ -15,6 +15,10 @@ Rules for editing it:
   `pair` (Wireless debugging pairing code) or `either`.
 - Set `generic_unlock: false` only where the generic Android TV steps would be
   wrong (Fire OS).
+- `if_closed` is a sourced extra step for units where the switch alone didn't
+  open the port (a restart, a second switch). It starts with "If".
+- Scope a path or quirk to the models its source covers. When models of one
+  brand differ, give them separate groups rather than one merged line.
 
 `tests/connection-setup.mjs` (desktop) and `mobile/tests/connection-setup.test.mjs`
 check the schema, that every variant has a source, and the help in both apps.

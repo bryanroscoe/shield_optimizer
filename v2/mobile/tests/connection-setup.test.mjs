@@ -60,10 +60,11 @@ for (const [width, scale] of [[412, 1], [320, 1], [320, 2]]) {
     await setup.getByLabel("TV brand").selectOption({ label: "Nvidia Shield" });
     assert.match(await steps(setup), /Turn on Network debugging\.\nThen scan, or choose Enter IP address manually and Connect \(no code\) on port 5555\./);
     await setup.getByLabel("TV brand").selectOption({ label: "TCL" });
-    assert.match(await steps(setup), /Open Settings › System › Developer options\.\nTurn on Wireless debugging\./);
-    await setup.getByRole("radio").nth(2).tap();
+    assert.match(await steps(setup), /Open Settings › System › Developer options\.\nTurn on Wireless debugging, then choose Pair device with pairing code\.\nThen scan and choose Pair with code/);
+    await setup.getByRole("radio", { name: /US G06/ }).tap();
     assert.match(await steps(setup), /Settings › Device Preferences › About and press OK on Build seven times/);
-    for (const el of await sheet.locator("select, button, fieldset label").all()) assert.ok((await el.boundingBox()).height >= 44, "touch targets");
+    for (const el of await sheet.locator("select, button, fieldset label, details summary").all()) assert.ok((await el.boundingBox()).height >= 44, "touch targets");
+    assert.equal(await page.getByText("Wireless debugging (Android 11 and later)").count(), 0, "the screen doesn't pick a switch for every TV");
     const box = await sheet.boundingBox();
     assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
     const clipped = await sheet.evaluate((el) => [...el.querySelectorAll("select, li, p, label, h3")]
@@ -95,4 +96,12 @@ test("the last brand picked is remembered", async (t) => {
   const again = page.getByRole("dialog", { name: "How to turn on debugging" });
   assert.equal(await again.getByLabel("TV brand").inputValue(), "firetv");
   assert.match(await steps(again), /Settings › My Fire TV › About and press select seven times on the device name/);
+});
+
+test("the help sheet ships the full MIT notice", async (t) => {
+  const page = await open(t);
+  await page.getByRole("button", { name: "How to turn on debugging", exact: true }).tap();
+  const sheet = page.getByRole("dialog", { name: "How to turn on debugging" });
+  await sheet.locator("details.license summary").tap();
+  assert.match(await sheet.locator("details.license pre").innerText(), /^MIT License[\s\S]*Copyright \(c\) 2026 Gathin[\s\S]*Permission is hereby granted/);
 });

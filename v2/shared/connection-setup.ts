@@ -27,6 +27,8 @@ interface Variant {
   generic_unlock?: boolean;
   developer_options: string[] | null;
   turn_on: Toggle[];
+  /// A sourced extra step for when the switch alone didn't open the port.
+  if_closed?: string;
   connect: ConnectMethod;
   notes: string[];
   sources: string[];
@@ -80,7 +82,7 @@ const menu = (path: string[]) => path.join(SEPARATOR);
 
 function genericUnlock(): string {
   const [first, ...others] = setup.generic.unlock;
-  const rest = others.map((u) => ` ${u.when ?? "Some TVs"}: ${menu(u.path)}, then ${u.action}.`).join("");
+  const rest = others.map((u) => ` ${u.when ?? "On some TVs"}, it's ${menu(u.path)}: ${u.action}.`).join("");
   return `If Developer options isn't there yet, open ${menu(first.path)} and ${first.action}.${rest}`;
 }
 
@@ -97,10 +99,18 @@ function turnOn(toggles: Toggle[]): string {
 
 function variantGuide(v: Variant): VariantGuide {
   const steps: string[] = [];
+  const unlocked = v.unlock !== null || v.generic_unlock !== false;
   if (v.unlock) steps.push(`Show Developer options: open ${menu(v.unlock.path)} and ${v.unlock.action}.`);
-  else if (v.generic_unlock !== false) steps.push(genericUnlock());
-  steps.push(v.developer_options ? `Open ${menu(v.developer_options)}.` : setup.generic.developer_options);
+  else if (unlocked) steps.push(genericUnlock());
+  steps.push(
+    v.developer_options
+      ? `Open ${menu(v.developer_options)}.`
+      : unlocked
+        ? setup.generic.developer_options
+        : "Open Developer options.",
+  );
   steps.push(turnOn(v.turn_on));
+  if (v.if_closed) steps.push(v.if_closed);
   return {
     models: v.models,
     steps,
