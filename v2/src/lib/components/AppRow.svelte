@@ -134,6 +134,9 @@
   }
 
   let pkgCopied = $state(false);
+  // An app with no label is named by its package id, so the id line below
+  // would only repeat the title.
+  let unnamed = $derived(name.trim() === pkg);
 
   async function copyPkgFromMenu(): Promise<string> {
     await navigator.clipboard.writeText(pkg);
@@ -159,6 +162,7 @@
 <tr
   class={rowClass}
   class:row-open={detailOpen}
+  data-package={pkg}
   onclick={onRowClick}
   oncontextmenu={(e) => openContextMenu(e, [{ label: "Copy package name", run: copyPkgFromMenu }])}
 >
@@ -199,7 +203,7 @@
       <div class="muted app-desc" title={description}>{description}</div>
     {/if}
     <div class="pkg-line">
-      <span class="mono pkg-id">{pkg}</span>
+      {#if !unnamed}<span class="mono pkg-id">{pkg}</span>{/if}
       <button
         class="pkg-copy"
         data-tip={pkgCopied ? "Copied" : "Copy package name"}

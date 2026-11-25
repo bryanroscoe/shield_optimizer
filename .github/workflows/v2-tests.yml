@@ -395,6 +395,10 @@ jobs:
         working-directory: v2
         run: npm run test:cleanyourtv-lists
 
+      - name: Demo verdicts match the safety tables
+        working-directory: v2
+        run: npm run test:demo-safety-parity
+
       - name: Catalog review queue
         run: python3 -m unittest discover -s v2/tools/catalog-review -p 'test_*.py'
 
