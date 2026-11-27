@@ -1570,6 +1570,63 @@
         "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/xiaomi-mitv-mooq0/debloat.txt#L109"
       ],
       "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "com.sony.dtv.sonybugreportsys": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-27",
+      "reconsider_after": "2026-12-27",
+      "reason": "Exact-ID vendor components/callers remain unverified. New upstream issue3608 reports disabling this package alone breaks USB Ethernet after reboot on one VH2 Android12 build, recovered by enabling both Sony agents. Telemetry-only scope, firmware dependencies and general recovery/applicability are unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-27.md",
+      "primary_evidence": [
+        "https://www.sony.com/electronics/support/televisions-projectors-lcd-tvs-android-/articles/00122502"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 27,
+        "commented_profiles": 2,
+        "note_profiles": 0
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh2/debloat.txt#L172",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-ur3/debloat.txt#L71",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-kd-65x82l/debloat.txt#L105"
+      ],
+      "new_upstream_report": "https://github.com/Gathin23/cleanyourtv/issues/3608",
+      "independent_evidence": [
+        "https://helpguide.sony.net/tv/iusltn1/v1/en-003/08-01_01.html",
+        "https://helpguide.sony.net/tv/iaepm1/v1/en/3_6_1_device_preferences.html"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, disable/removal consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "android.autoinstalls.config.tcl.device": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-27",
+      "reconsider_after": "2026-12-27",
+      "reason": "Vendor setup and Play installation instructions do not bind this exact config package to payload, receivers, callers or disable/recovery behavior. Pinned profiles include firmware-limited commented choices and safety-check skips with package left enabled; setup/input dependencies and enforceable scope remain unresolved.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-27.md",
+      "primary_evidence": [
+        "https://support.tcl.com/androidtv-setup-configuration/614297",
+        "https://support.tcl.com/en_CA/how-to-download-and-install-new-apps-to-your-tcl-android-tv-963"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 26,
+        "commented_profiles": 1,
+        "note_profiles": 3
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-32s5400a/debloat.txt#L97",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c715/debloat.txt#L30",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55c715/debloat.txt#L57",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-65p615/debloat.txt#L19",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-uniontv-latin-america/debloat.txt#L83",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-uniontv-latin-america/debloat.txt#L116"
+      ],
+      "independent_evidence": [
+        "https://support.tcl.com/set-up-your-tcl-google-tv-device-remote",
+        "https://support.tcl.com/en_US/tcl-google-tv-settings-and-user-manual-guide"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, disable/removal consequences, recovery and applicability; both agents agree HOLD."
     }
   }
 }
