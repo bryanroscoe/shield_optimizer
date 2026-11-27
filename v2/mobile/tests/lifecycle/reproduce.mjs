@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 import { createServer } from 'vite';
 
 const root = path.resolve(process.env.LIFECYCLE_MOBILE_ROOT || fileURLToPath(new URL('../../', import.meta.url)));
-const out = path.resolve(process.env.LIFECYCLE_OUTPUT || '/tmp/so-vtm.8-lifecycle');
+const out = path.resolve(process.env.LIFECYCLE_OUTPUT || '/tmp/atvopt-lifecycle');
 const observations = [];
 let server, browser, origin;
 const saved = (host = 'tv-a.invalid') => ({ host, connectPort: 5555, name: host === 'tv-a.invalid' ? 'Fixture TV A' : 'Fixture TV B', deviceType: 'shield', lastUsed: '2026-09-06T00:00:00.000Z' });

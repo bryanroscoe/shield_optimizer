@@ -1,8 +1,8 @@
 {
   "scope": "Host Chromium with mocked Tauri; synthetic visibility events and virtual time; no Android lifecycle or real ADB execution",
   "sourceHead": "48cba2384ca3938e6655b77ccf85716dd86cca5f",
-  "sourceStatus": "M ../../.gitignore\n M ../../CLAUDE.md\n?? ../../.beads/\n?? evidence/",
-  "root": "/Users/bryanroscoe/Developer/gastown/shield_optimizer/crew/navigator/v2/mobile",
+  "sourceStatus": "M ../../.gitignore\n M ../../CLAUDE.md\n?? evidence/",
+  "root": "v2/mobile",
   "node": "v26.3.0",
   "platform": "darwin/arm64",
   "browser": "148.0.7778.96",
