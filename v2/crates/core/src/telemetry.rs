@@ -219,6 +219,9 @@ struct Queued {
     /// [`excerpt_key`]: may carry a log excerpt when sent, if it is the
     /// first with this key today (desktop only, budgeted).
     excerpt_key: Option<String>,
+    /// The day and [`once_a_day_key`] of a once-a-day diagnostic, given
+    /// back to the ledger if the report never reaches the server.
+    daily_key: Option<(String, String)>,
 }
 
 pub struct TelemetryConfig {
@@ -274,11 +277,14 @@ struct ErrorLimiter {
     window_start: Option<Instant>,
     in_window: u32,
     session: u32,
-    per_code: HashMap<String, u32>,
+    /// Keyed by [`excerpt_key`], so repeats of one command's failure never
+    /// hide the first failure of another that shares its code.
+    per_key: HashMap<String, u32>,
 }
 
 impl ErrorLimiter {
-    fn allow(&mut self, code: &str, now: Instant) -> bool {
+    /// The burst and session ceilings, checked before an event is built.
+    fn has_room(&mut self, now: Instant) -> bool {
         match self.window_start {
             Some(start) if now.duration_since(start) < Duration::from_secs(60) => {}
             _ => {
@@ -286,17 +292,18 @@ impl ErrorLimiter {
                 self.in_window = 0;
             }
         }
-        let repeats = self.per_code.entry(code.to_string()).or_default();
-        if self.in_window >= ERRORS_PER_MINUTE
-            || self.session >= ERRORS_PER_SESSION
-            || *repeats >= REPEATS_PER_CODE
-        {
-            return false;
-        }
+        self.in_window < ERRORS_PER_MINUTE && self.session < ERRORS_PER_SESSION
+    }
+
+    fn repeats_left(&self, key: &str) -> bool {
+        self.per_key.get(key).copied().unwrap_or(0) < REPEATS_PER_CODE
+    }
+
+    /// Count an event that is actually queued.
+    fn charge(&mut self, key: &str) {
         self.in_window += 1;
         self.session += 1;
-        *repeats += 1;
-        true
+        *self.per_key.entry(key.to_string()).or_default() += 1;
     }
 }
 
@@ -582,12 +589,43 @@ impl Telemetry {
     }
 
     fn enqueue(&self, inner: &mut Inner, event: TelemetryEvent) {
+        self.enqueue_daily(inner, event, None);
+    }
+
+    fn enqueue_daily(
+        &self,
+        inner: &mut Inner,
+        event: TelemetryEvent,
+        daily_key: Option<(String, String)>,
+    ) {
         let excerpt_key = excerpt_key(&event);
-        inner.queue.push_back(Queued { event, excerpt_key });
+        inner.queue.push_back(Queued {
+            event,
+            excerpt_key,
+            daily_key,
+        });
         while inner.queue.len() > MAX_QUEUE {
-            inner.queue.pop_front();
+            if let Some(dropped) = inner.queue.pop_front() {
+                Self::give_back(inner, &[dropped], None);
+            }
         }
         self.wake.notify_one();
+    }
+
+    /// Return what these unsent events took from today's ledger: their
+    /// once-a-day marks and the excerpt `grant`, so a later occurrence is
+    /// still reported in full.
+    fn give_back(inner: &mut Inner, events: &[Queued], grant: Option<&(String, String)>) {
+        for q in events {
+            if let Some((day, key)) = &q.daily_key {
+                inner.settings.ledger.unmark_sent(day, key);
+                inner.ledger_dirty = true;
+            }
+        }
+        if let Some((day, key)) = grant {
+            inner.settings.ledger.return_excerpt(day, key);
+            inner.ledger_dirty = true;
+        }
     }
 
     /// Called by the canonical device listing after a TV was profiled.
@@ -711,10 +749,10 @@ impl Telemetry {
             self.record_diagnostic_locked(inner, reason, serial, None, diag);
             return;
         }
-        let code = crate::engine::telemetry::sanitize_error_code(error_code);
-        if !inner.limiter.allow(&code, Instant::now()) {
+        if !inner.limiter.has_room(Instant::now()) {
             return;
         }
+        let code = crate::engine::telemetry::sanitize_error_code(error_code);
         let device = serial.and_then(|s| inner.devices.get(s).cloned());
         let known = Self::known(inner, serial);
         let known: Vec<&str> = known.iter().map(String::as_str).collect();
@@ -728,10 +766,16 @@ impl Telemetry {
             &known,
         );
         let key = excerpt_key(&event).unwrap_or_default();
-        inner.ledger_dirty = true;
-        if !inner.settings.ledger.allow_error(&today(), &key) {
+        let day = today();
+        let first = inner.settings.ledger.first_error_today(&day, &key);
+        if !first && !inner.limiter.repeats_left(&key) {
             return;
         }
+        inner.ledger_dirty = true;
+        if !inner.settings.ledger.allow_error(&day, &key) {
+            return;
+        }
+        inner.limiter.charge(&key);
         self.enqueue(inner, event);
     }
 
@@ -775,65 +819,59 @@ impl Telemetry {
         if !inner.diagnostics.allow(reason, once_key) {
             return;
         }
-        if let Some((day, key)) = &daily {
+        let mut daily_key = None;
+        if let Some((day, key)) = daily {
             inner.ledger_dirty = true;
-            if !inner.settings.ledger.mark_sent(day, key) {
-                return;
+            // A full ledger can't record it; it still goes.
+            if inner.settings.ledger.mark_sent(&day, &key) {
+                daily_key = Some((day, key));
             }
         }
         if diag.adb.is_none() {
             diag.adb = inner.adb_facts.clone();
         }
         let event = diagnostic_event(&self.context(inner), &now(), reason, device, diag);
-        self.enqueue(inner, event);
+        self.enqueue_daily(inner, event, daily_key);
     }
 
-    /// Attach a log excerpt to each event in the batch that is the first
-    /// with its [`excerpt_key`] today, within the daily budget. Repeats go
-    /// with their code and message only. The log is read here, at send
-    /// time, so it includes the lines written after the failure was
-    /// recorded.
-    fn attach_excerpts(&self, batch: &mut [Queued]) {
+    /// Attach a log excerpt to the newest event in the batch that is the
+    /// first with its [`excerpt_key`] today, within the daily budget.
+    /// The log is read here, at send time, so it includes the lines written
+    /// after the failure was recorded, and it is one tail: older first
+    /// occurrences in the same batch don't take theirs, so their next
+    /// occurrence still carries one. Repeats go with their code and message
+    /// only. Returns the grant, to give back if the upload fails.
+    fn attach_excerpt(&self, batch: &mut [Queued]) -> Option<(String, String)> {
         if self.config.app != AppKind::Desktop {
-            return;
+            return None;
         }
-        let Some(source) = self.excerpt_source.get() else {
-            return;
-        };
+        let source = self.excerpt_source.get()?;
         let day = today();
-        let granted: Vec<usize> = {
+        let (index, grant) = {
             let mut inner = self.lock();
-            let granted: Vec<usize> = batch
-                .iter()
-                .enumerate()
-                .filter(|(_, q)| {
-                    q.excerpt_key
-                        .as_deref()
-                        .is_some_and(|key| inner.settings.ledger.take_excerpt(&day, key))
-                })
-                .map(|(i, _)| i)
-                .collect();
-            if !granted.is_empty() {
+            let found = batch.iter().enumerate().rev().find_map(|(i, q)| {
+                let key = q.excerpt_key.as_deref()?;
+                inner
+                    .settings
+                    .ledger
+                    .take_excerpt(&day, key)
+                    .then(|| (i, (day.clone(), key.to_string())))
+            });
+            if found.is_some() {
                 inner.ledger_dirty = true;
             }
-            granted
+            found?
         };
-        if granted.is_empty() {
-            return;
-        }
         let known = self.known_identifiers();
-        let excerpt = source(&known);
-        if excerpt.is_none() {
-            let mut inner = self.lock();
-            for &i in &granted {
-                if let Some(key) = batch[i].excerpt_key.as_deref() {
-                    inner.settings.ledger.return_excerpt(&day, key);
-                }
+        match source(&known) {
+            Some(excerpt) => {
+                batch[index].event.log_excerpt = Some(excerpt);
+                Some(grant)
             }
-            return;
-        }
-        for &i in &granted {
-            batch[i].event.log_excerpt = excerpt.clone();
+            None => {
+                Self::give_back(&mut self.lock(), &[], Some(&grant));
+                None
+            }
         }
     }
 
@@ -883,10 +921,11 @@ impl Telemetry {
                 let events: Vec<_> = inner.queue.drain(..n).collect();
                 (events, inner.generation)
             };
-            let mut events = events;
-            self.attach_excerpts(&mut events);
+            let mut queued = events;
+            let grant = self.attach_excerpt(&mut queued);
             self.persist_ledger();
-            let events: Vec<TelemetryEvent> = events.into_iter().map(|q| q.event).collect();
+            let events: Vec<TelemetryEvent> = queued.iter().map(|q| q.event.clone()).collect();
+            let mut delivered = true;
             for body in encode_batches(&events) {
                 // Register for cancellation before the last check, so an
                 // opt-out landing in between still wakes this waiter.
@@ -894,12 +933,26 @@ impl Telemetry {
                 tokio::pin!(cancelled);
                 cancelled.as_mut().enable();
                 if !self.still_sending(generation) {
-                    return;
+                    delivered = false;
+                    break;
                 }
-                tokio::select! {
-                    _ = self.post_events(body) => {}
-                    _ = &mut cancelled => return,
+                let sent = tokio::select! {
+                    sent = self.post_events(body) => sent,
+                    _ = &mut cancelled => false,
+                };
+                if !sent {
+                    delivered = false;
+                    break;
                 }
+            }
+            if !delivered {
+                // Nothing is retried, so what these events took from today's
+                // ledger goes back for the next occurrence. When the batch
+                // was split and an earlier part arrived, that part's
+                // once-a-day reports can go a second time; never fewer.
+                Self::give_back(&mut self.lock(), &queued, grant.as_ref());
+                self.persist_ledger();
+                return;
             }
         }
     }
@@ -913,9 +966,10 @@ impl Telemetry {
         self.client.get_or_init(build_client).as_ref()
     }
 
-    async fn post_events(&self, body: String) {
+    /// Whether the server accepted the batch. Failures stay silent.
+    async fn post_events(&self, body: String) -> bool {
         let (Some(base), Some(client)) = (self.config.base_url.as_deref(), self.client()) else {
-            return;
+            return false;
         };
         let result = client
             .post(format!("{base}/v1/events"))
@@ -924,9 +978,15 @@ impl Telemetry {
             .send()
             .await;
         match result {
-            Ok(resp) if resp.status().is_success() => {}
-            Ok(resp) => tracing::debug!(status = %resp.status(), "telemetry upload refused"),
-            Err(e) => tracing::debug!(error = %e, "telemetry upload failed"),
+            Ok(resp) if resp.status().is_success() => true,
+            Ok(resp) => {
+                tracing::debug!(status = %resp.status(), "telemetry upload refused");
+                false
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "telemetry upload failed");
+                false
+            }
         }
     }
 
@@ -2080,8 +2140,25 @@ mod tests {
             .collect()
     }
 
+    fn fail_connect(hub: &Telemetry, code: &str) {
+        hub.record_action(TelemetryAction::Connect, None, false, Some(code), Some("x"));
+    }
+
+    /// Drain the queue and attach excerpts as one batch would.
+    fn send_batch(hub: &Telemetry) -> Vec<Queued> {
+        let mut batch = drain(hub);
+        hub.attach_excerpt(&mut batch);
+        batch
+    }
+
+    fn excerpt_hub(dir: &Path, base: &str) -> Arc<Telemetry> {
+        let hub = Telemetry::new(desktop(Some(base)), dir);
+        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        hub
+    }
+
     #[test]
-    fn desktop_attaches_an_excerpt_to_the_first_of_each_failure_per_day() {
+    fn one_log_tail_goes_with_the_newest_first_failure_in_a_batch() {
         use crate::engine::telemetry_diag::DiagReason;
         let dir = tempfile::tempdir().unwrap();
         let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
@@ -2094,96 +2171,62 @@ mod tests {
             Some("excerpt".into())
         }));
         hub.record_action(TelemetryAction::Disable, None, true, None, None);
-        hub.record_action(
-            TelemetryAction::Connect,
-            None,
-            false,
-            Some("timeout"),
-            Some("x"),
-        );
+        fail_connect(&hub, "timeout");
         hub.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
         hub.record_diagnostic(DiagReason::ScanConnectFailed, None, None, Diag::default());
         hub.record_action(TelemetryAction::Disable, None, true, None, None);
-        let mut batch = drain(&hub);
-        hub.attach_excerpts(&mut batch);
         assert_eq!(
-            excerpts(&batch),
-            vec![None, Some("excerpt"), None, Some("excerpt"), None]
+            excerpts(&send_batch(&hub)),
+            vec![None, None, None, Some("excerpt"), None]
         );
+        // The older connect failure didn't take the scan's tail, so its next
+        // occurrence carries its own.
+        fail_connect(&hub, "timeout");
+        assert_eq!(excerpts(&send_batch(&hub)), vec![Some("excerpt")]);
+    }
 
-        // The same failure later that day goes with its code and message,
-        // and a different one still gets its first excerpt.
-        hub.record_action(
-            TelemetryAction::Connect,
-            None,
-            false,
-            Some("timeout"),
-            Some("x"),
-        );
+    #[test]
+    fn a_repeat_that_day_goes_without_an_excerpt_even_after_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = excerpt_hub(dir.path(), "https://t.example");
+        fail_connect(&hub, "timeout");
+        assert_eq!(excerpts(&send_batch(&hub)), vec![Some("excerpt")]);
+        fail_connect(&hub, "timeout");
+        let batch = send_batch(&hub);
+        assert_eq!(excerpts(&batch), vec![None]);
+        assert_eq!(batch[0].event.error_code.as_deref(), Some("timeout"));
+        assert_eq!(batch[0].event.message.as_deref(), Some("x"));
+        // Unknown failures of different commands are told apart.
         hub.record_error(
             TelemetryAction::Other,
             None,
             "unknown",
             "list_packages: boom",
         );
+        assert_eq!(excerpts(&send_batch(&hub)), vec![Some("excerpt")]);
         hub.record_error(TelemetryAction::Other, None, "unknown", "read_props: boom");
-        hub.record_error(TelemetryAction::Other, None, "unknown", "read_props: boom");
-        let mut batch = drain(&hub);
-        hub.attach_excerpts(&mut batch);
-        assert_eq!(
-            excerpts(&batch),
-            vec![None, Some("excerpt"), Some("excerpt"), None]
-        );
-        let repeat = &batch[0].event;
-        assert_eq!(repeat.error_code.as_deref(), Some("timeout"));
-        assert_eq!(repeat.message.as_deref(), Some("x"));
+        assert_eq!(excerpts(&send_batch(&hub)), vec![Some("excerpt")]);
 
-        // A restart keeps what was already sent today.
         hub.persist_ledger();
-        let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
-        again.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
-        again.record_action(
-            TelemetryAction::Connect,
-            None,
-            false,
-            Some("timeout"),
-            Some("x"),
-        );
-        again.record_action(
-            TelemetryAction::Launcher,
-            None,
-            false,
-            Some("permission_denied"),
-            Some("y"),
-        );
-        let mut batch = drain(&again);
-        again.attach_excerpts(&mut batch);
-        assert_eq!(excerpts(&batch), vec![None, Some("excerpt")]);
+        let again = excerpt_hub(dir.path(), "https://t.example");
+        fail_connect(&again, "timeout");
+        assert_eq!(excerpts(&send_batch(&again)), vec![None]);
+        fail_connect(&again, "permission_denied");
+        assert_eq!(excerpts(&send_batch(&again)), vec![Some("excerpt")]);
     }
 
     #[test]
     fn the_daily_excerpt_budget_survives_a_restart() {
         let dir = tempfile::tempdir().unwrap();
-        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
-        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        let hub = excerpt_hub(dir.path(), "https://t.example");
         for i in 0..(EXCERPTS_PER_DAY + 5) {
-            hub.record_action(
-                TelemetryAction::Connect,
-                None,
-                false,
-                Some(&format!("code_{i}")),
-                None,
-            );
-            let mut batch = drain(&hub);
-            hub.attach_excerpts(&mut batch);
+            fail_connect(&hub, &format!("code_{i}"));
+            send_batch(&hub);
         }
         hub.persist_ledger();
-        let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
-        again.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
-        again.record_action(TelemetryAction::Connect, None, false, Some("new"), None);
-        let mut batch = drain(&again);
-        again.attach_excerpts(&mut batch);
-        assert_eq!(batch[0].event.log_excerpt, None);
+        let again = excerpt_hub(dir.path(), "https://t.example");
+        fail_connect(&again, "new");
+        assert_eq!(excerpts(&send_batch(&again)), vec![None]);
     }
 
     #[test]
@@ -2196,11 +2239,75 @@ mod tests {
             (seen.fetch_add(1, Ordering::SeqCst) > 0).then(|| "excerpt".to_string())
         }));
         for expected in [None, Some("excerpt")] {
-            hub.record_action(TelemetryAction::Connect, None, false, Some("timeout"), None);
-            let mut batch = drain(&hub);
-            hub.attach_excerpts(&mut batch);
-            assert_eq!(batch[0].event.log_excerpt.as_deref(), expected);
+            fail_connect(&hub, "timeout");
+            assert_eq!(excerpts(&send_batch(&hub)), vec![expected]);
         }
+    }
+
+    #[tokio::test]
+    async fn a_failed_upload_gives_the_excerpt_and_once_a_day_marks_back() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let hub = excerpt_hub(dir.path(), &base);
+        hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        let empty_read = || {
+            hub.record_error(
+                TelemetryAction::Other,
+                Some("10.0.0.2:5555"),
+                "unknown",
+                "app_usage_map: dumpsys usagestats reported no usage rows",
+            )
+        };
+        empty_read();
+        fail_connect(&hub, "timeout");
+        let server = tokio::spawn(answer_one_post(
+            listener,
+            "HTTP/1.1 503 Service Unavailable\r\ncontent-length: 0\r\n\r\n".to_string(),
+        ));
+        hub.flush().await;
+        let (_, body) = server.await.unwrap();
+        assert!(body.contains("\"log_excerpt\":\"excerpt\""), "{body}");
+        assert!(body.contains("usage_stats_empty"), "{body}");
+        assert!(hub.queued().is_empty());
+
+        // Neither was delivered, so both go again in full, and that survives
+        // a restart.
+        let again = excerpt_hub(dir.path(), "https://t.example");
+        again.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        again.record_error(
+            TelemetryAction::Other,
+            Some("10.0.0.2:5555"),
+            "unknown",
+            "app_usage_map: dumpsys usagestats reported no usage rows",
+        );
+        fail_connect(&again, "timeout");
+        let batch = send_batch(&again);
+        let codes: Vec<_> = batch
+            .iter()
+            .map(|q| q.event.error_code.as_deref())
+            .collect();
+        assert_eq!(
+            codes,
+            vec![None, Some("usage_stats_empty"), Some("timeout")]
+        );
+        assert_eq!(excerpts(&batch), vec![None, None, Some("excerpt")]);
+    }
+
+    #[tokio::test]
+    async fn a_delivered_excerpt_stays_spent() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let dir = tempfile::tempdir().unwrap();
+        let hub = excerpt_hub(dir.path(), &base);
+        fail_connect(&hub, "timeout");
+        let server = tokio::spawn(capture_one_post(listener));
+        hub.flush().await;
+        let (_, body) = server.await.unwrap();
+        assert!(body.contains("\"log_excerpt\":\"excerpt\""), "{body}");
+        let again = excerpt_hub(dir.path(), "https://t.example");
+        fail_connect(&again, "timeout");
+        assert_eq!(excerpts(&send_batch(&again)), vec![None]);
     }
 
     #[test]
@@ -2219,8 +2326,7 @@ mod tests {
     #[test]
     fn an_empty_app_list_read_is_a_once_a_day_diagnostic_without_an_excerpt() {
         let dir = tempfile::tempdir().unwrap();
-        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
-        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        let hub = excerpt_hub(dir.path(), "https://t.example");
         hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
         for _ in 0..5 {
             hub.record_error(
@@ -2236,7 +2342,7 @@ mod tests {
                 "app_storage_map: dumpsys diskstats reported no per-app sizes",
             );
         }
-        let mut batch = drain(&hub);
+        let batch = send_batch(&hub);
         let kinds: Vec<_> = batch
             .iter()
             .map(|q| (q.event.kind, q.event.error_code.clone().unwrap_or_default()))
@@ -2257,7 +2363,6 @@ mod tests {
             usage.diag.as_ref().unwrap().errors,
             vec!["usage_stats_empty".to_string()]
         );
-        hub.attach_excerpts(&mut batch);
         assert_eq!(excerpts(&batch), vec![None, None, None]);
 
         // Still once a day after a restart.
@@ -2307,6 +2412,31 @@ mod tests {
     }
 
     #[test]
+    fn repeats_of_one_failure_never_hide_another_with_the_same_code() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        for _ in 0..8 {
+            hub.record_error(
+                TelemetryAction::Other,
+                None,
+                "unknown",
+                "list_packages: boom",
+            );
+        }
+        assert_eq!(hub.queued().len(), REPEATS_PER_CODE as usize);
+        hub.record_error(TelemetryAction::Other, None, "unknown", "read_props: boom");
+        let queued = hub.queued();
+        assert_eq!(queued.len(), REPEATS_PER_CODE as usize + 1);
+        assert!(queued
+            .last()
+            .unwrap()
+            .message
+            .as_deref()
+            .unwrap()
+            .starts_with("read_props"));
+    }
+
+    #[test]
     fn the_phone_app_never_sends_an_excerpt() {
         use crate::engine::telemetry_diag::DiagReason;
         let dir = tempfile::tempdir().unwrap();
@@ -2314,7 +2444,7 @@ mod tests {
         hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
         hub.record_diagnostic(DiagReason::ScanConnectFailed, None, None, Diag::default());
         let mut batch = drain(&hub);
-        hub.attach_excerpts(&mut batch);
+        assert_eq!(hub.attach_excerpt(&mut batch), None);
         assert_eq!(batch[0].event.log_excerpt, None);
         assert!(hub.excerpt_source.get().is_none());
     }

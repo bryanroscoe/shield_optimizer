@@ -466,8 +466,9 @@ pub const EXCERPTS_PER_DAY: u32 = 20;
 /// Error events per install per UTC day once each error has been sent once.
 /// The first of each kind always goes (see [`DailyLedger::allow_error`]).
 pub const ERRORS_PER_DAY: u32 = 30;
-/// Bounds the ledger file. A full ledger sends no further excerpts, first
-/// errors or once-a-day reports that day.
+/// Bounds the ledger file. A full ledger sends no further excerpts that day,
+/// and stops limiting first errors and once-a-day reports, which are then
+/// bounded by the per-session limits alone.
 const MAX_LEDGER_KEYS: usize = 128;
 
 /// What one install has already sent today, so restarts don't resend it.
@@ -530,25 +531,41 @@ impl DailyLedger {
         true
     }
 
-    /// Put an excerpt back that [`Self::take_excerpt`] granted but the log
-    /// had nothing to fill, so the next occurrence can carry one.
+    /// Put back an excerpt [`Self::take_excerpt`] granted that never
+    /// reached the server (the log was empty, or the upload failed), so
+    /// the next occurrence can carry one.
     pub fn return_excerpt(&mut self, today: &str, key: &str) {
-        if self.day != today {
-            return;
-        }
-        let key = format!("x|{key}");
-        if let Some(i) = self.keys.iter().position(|k| *k == key) {
-            self.keys.remove(i);
+        if self.remove(today, &format!("x|{key}")) {
             self.excerpts = self.excerpts.saturating_sub(1);
         }
+    }
+
+    fn remove(&mut self, today: &str, key: &str) -> bool {
+        if self.day != today {
+            return false;
+        }
+        match self.keys.iter().position(|k| k == key) {
+            Some(i) => {
+                self.keys.remove(i);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// No error event with this key has been sent today. A key a full
+    /// ledger couldn't record counts as unsent.
+    pub fn first_error_today(&mut self, today: &str, key: &str) -> bool {
+        !self.contains(today, &format!("e|{key}"))
     }
 
     /// The daily ceiling on error events. The first event today with each
     /// key always goes, so no error goes unreported because another one
     /// repeated all day; repeats stop at [`ERRORS_PER_DAY`].
     pub fn allow_error(&mut self, today: &str, key: &str) -> bool {
-        let first = self.insert(today, format!("e|{key}"));
-        if !first && self.errors >= ERRORS_PER_DAY {
+        if self.first_error_today(today, key) {
+            self.insert(today, format!("e|{key}"));
+        } else if self.errors >= ERRORS_PER_DAY {
             return false;
         }
         self.errors = self.errors.saturating_add(1);
@@ -560,10 +577,15 @@ impl DailyLedger {
         self.contains(today, &format!("d|{key}"))
     }
 
-    /// Mark a once-a-day report as sent. False when the ledger is full, in
-    /// which case it must not be sent.
+    /// Mark a once-a-day report as sent. False when the ledger is full and
+    /// couldn't record it; the report still goes.
     pub fn mark_sent(&mut self, today: &str, key: &str) -> bool {
         self.insert(today, format!("d|{key}"))
+    }
+
+    /// Undo [`Self::mark_sent`] for a report whose upload failed.
+    pub fn unmark_sent(&mut self, today: &str, key: &str) {
+        self.remove(today, &format!("d|{key}"));
     }
 
     /// Forget which keys were sent, for a fresh install id. The excerpt
@@ -1231,7 +1253,9 @@ mod tests {
             .count();
         assert_eq!(sent as u32, ERRORS_PER_DAY);
         // Over the cap, a different error is still sent once, and only once.
+        assert!(ledger.first_error_today(day, "error|other|panic"));
         assert!(ledger.allow_error(day, "error|other|panic"));
+        assert!(!ledger.first_error_today(day, "error|other|panic"));
         assert!(!ledger.allow_error(day, "error|other|panic"));
         assert!(ledger.allow_error("2026-11-28", "error|other|permission_denied"));
     }
@@ -1257,6 +1281,9 @@ mod tests {
         assert!(ledger.sent_today(day, &key));
         let other = once_a_day_key(DiagReason::DiskStatsEmpty, Some(&device));
         assert!(!ledger.sent_today(day, &other));
+        ledger.unmark_sent(day, &key);
+        assert!(!ledger.sent_today(day, &key));
+        assert!(ledger.mark_sent(day, &key));
         assert!(!ledger.sent_today("2026-11-28", &key));
     }
 
@@ -1268,9 +1295,14 @@ mod tests {
             assert!(ledger.mark_sent(day, &format!("k{i}")));
         }
         assert!(!ledger.mark_sent(day, "late"));
+        assert!(!ledger.sent_today(day, "late"));
         assert!(!ledger.take_excerpt(day, "late"));
+        // An error the ledger can't record is still treated as a first one,
+        // so the daily ceiling never drops it.
         ledger.errors = ERRORS_PER_DAY;
-        assert!(!ledger.allow_error(day, "late"));
+        assert!(ledger.first_error_today(day, "late"));
+        assert!(ledger.allow_error(day, "late"));
+        assert!(ledger.allow_error(day, "late"));
         ledger.forget_keys();
         assert!(ledger.mark_sent(day, "late"));
         assert_eq!(ledger.errors, 0);
