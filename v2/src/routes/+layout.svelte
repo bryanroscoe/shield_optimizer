@@ -316,6 +316,9 @@
     let total = 0;
     let received = 0;
     try {
+      // The Windows installer ends the app without a normal quit, which is
+      // when the window's size and position are otherwise saved (#419).
+      await send("plugin:window-state|save_window_state", {}).catch(() => {});
       await pendingUpdate.downloadAndInstall((event) => {
         if (event.event === "Started") {
           total = event.data.contentLength ?? 0;
