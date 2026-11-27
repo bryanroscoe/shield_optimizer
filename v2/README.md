@@ -165,8 +165,8 @@ desktop build; leave it unset to ship a build that never reports.
 - Events: `device_seen` once per TV per session after profiling, `action_result` for connect,
   scan, disable, enable, uninstall, optimize, snapshot apply, launcher, settings writes and
   pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands
-  (rate limited per session, and to 30 a day per install once each kind of error has gone once:
-  the first of each always goes). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
+  (10 a minute, 100 and 5 per kind of error a session, and 30 a day per install; a kind of error
+  not yet sent that day is exempt from the daily and per-kind limits, not the others). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
   `telemetry_error`; `shared/telemetry.ts` maps commands to actions.
 - `diagnostic` events (schema 2) report a call that worked but found nothing usable, with the
   reason as `error_code`: `scan_empty` (Scan LAN found no device), `scan_connect_failed` (found
@@ -193,10 +193,13 @@ desktop build; leave it unset to ship a build that never reports.
   Command output never leaves: a line's `stdout=` value and its continuation lines are dropped,
   and `stderr=` becomes an error code. The adb driver also logs `settings put … device_name`
   and Private DNS writes without their value, and withholds named-setting reads from the debug
-  log, so the name isn't in the file in the first place. Only the first event per install per
-  UTC day with a given kind, action and error code (and, for an `error`, the command it names)
-  carries one; repeats send the code and message alone. At most 20 a day. Other diagnostics send
-  none: their `diag` holds what they found. What was sent today (`excerpt_day`,
+  log, so the name isn't in the file in the first place. A kind of failure (its event kind,
+  action and error code, and for an `error` the command it names) carries one at most once per
+  install per UTC day, and repeats send the code and message alone. Each upload batch carries
+  one tail of the log, on its newest such failure; an older one in the same batch goes without
+  and its next occurrence can carry one. One that never reaches the server (the log was empty,
+  the upload failed) is given back. At most 20 a day. Other diagnostics send none: their `diag`
+  holds what they found. What was sent today (`excerpt_day`,
   `excerpts_today`, `errors_today`, `sent_today` in `telemetry.json`, the pure
   `engine::telemetry::DailyLedger`) survives restarts and is never sent. The phone app never
   sends an excerpt; the Worker also drops any that claims to come from it.
