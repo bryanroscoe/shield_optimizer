@@ -430,6 +430,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
+        .plugin(window_state_plugin())
         .manage(state)
         .manage(log_control)
         .manage(AdbQuitControl::default())
@@ -471,6 +472,15 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+/// Reopens the window at its last size, position and maximized or full-screen
+/// state (#419). Visibility is left out: the window always opens shown.
+fn window_state_plugin<R: tauri::Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    use tauri_plugin_window_state::StateFlags;
+    tauri_plugin_window_state::Builder::default()
+        .with_state_flags(StateFlags::all() - StateFlags::VISIBLE)
+        .build()
 }
 
 /// Give a bundle the updater left at `Shield Optimizer.app` the new name.
