@@ -1380,26 +1380,29 @@
     if (!clonePkg) return;
     const pkg = clonePkg;
     if (cloneBusy) return;
+    const context = capturePageContext();
     if (
       !(await confirmAction(
         `Copy ${pkg} to ${target.name} (${target.serial})?\n\n• App data does not transfer.\n• DRM or licensed apps may refuse to run. Install paid apps from the Play Store instead.`,
       ))
       || cloneBusy
       || clonePkg !== pkg
+      || !pageContextIsCurrent(context)
     )
       return;
     cloneBusy = true;
     appActionBusy = pkg;
     appActionMessage = `Copying ${pkg} to ${target.serial}… (this pulls the APK and can take a minute)`;
     try {
-      const r = await api.cloneApp(serial, target.serial, pkg);
+      const r = await api.cloneApp(context.serial, target.serial, pkg);
+      if (!pageContextIsCurrent(context)) return;
       appActionMessage = r.hint ? `${r.message}\n→ ${r.hint}` : r.message;
       if (r.ok) clonePkg = null;
     } catch (e) {
-      appActionMessage = String(e);
+      if (pageContextIsCurrent(context)) appActionMessage = String(e);
     } finally {
       cloneBusy = false;
-      appActionBusy = null;
+      if (pageContextIsCurrent(context)) appActionBusy = null;
     }
   }
 
@@ -5173,9 +5176,6 @@
     margin: 0.4rem 0;
     padding-left: 1.2rem;
   }
-  .preview-disclaimer {
-    margin-top: 0 !important;
-  }
   .header-actions {
     display: flex;
     gap: 0.8rem;
@@ -5495,26 +5495,6 @@
     border-top: 1px solid var(--border);
   }
   .type-cell { white-space: nowrap; }
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    font-size: 0.85rem;
-    color: var(--fg-secondary);
-    cursor: pointer;
-  }
-
-  .install-output {
-    background: var(--bg-inset);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 0.7rem 1rem;
-    margin: 0.8rem 0;
-    font-family: var(--mono);
-    font-size: 0.82rem;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
   code {
     background: var(--bg-inset);
     border: 1px solid var(--border);

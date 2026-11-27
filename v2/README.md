@@ -165,20 +165,26 @@ desktop build; leave it unset to ship a build that never reports.
 - Events: `device_seen` once per TV per session after profiling, `action_result` for connect,
   scan, disable, enable, uninstall, optimize, snapshot apply, launcher, settings writes and
   pairing, and `error` for Rust panics, uncaught frontend errors and failed untracked commands
-  (rate limited). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
+  (10 a minute, 100 and 5 per kind of error a session, and 30 a day per install; a kind of error
+  not yet sent that day is exempt from the daily and per-kind limits, not the others). The frontend's one invoke wrapper reports outcomes through `telemetry_action` /
   `telemetry_error`; `shared/telemetry.ts` maps commands to actions.
 - `diagnostic` events (schema 2) report a call that worked but found nothing usable, with the
   reason as `error_code`: `scan_empty` (Scan LAN found no device), `scan_connect_failed` (found
   some, connected to none), `discover_empty` (mobile wireless discovery), and
   `device_details_empty` (a listed TV that is unauthorized, offline, failed `getprop` or reported
-  a blank make and model; once per transport per session). Each carries a `diag` object built by
+  a blank make and model; once per transport per session). An App List read the TV answered
+  with nothing is a state of that TV, not an error: `usage_stats_empty`, `disk_stats_empty` and
+  `meminfo_empty` (action `other`) go once per install per UTC day per reason and TV model,
+  instead of the `error` the failed `app_usage_map` / `app_storage_map` / `app_memory_map` call
+  would send. Each carries a `diag` object built by
   the pure `engine/telemetry_diag.rs` from counts, fixed enums, version numbers and error codes
   only: adb source (`bundled`/`sdk`/`system`/`custom`/`builtin`/`none`) and version, server
   reachable, transports by state, `adb mdns check` and service counts by type, interface counts
   and IPv4 prefix lengths (no addresses or names), whether the swept /24 is on a local
   interface, probes/open/timeouts/refused, connect counts and failure codes, empty `getprop`
   keys from a fixed list, and durations. At most 30 a session, 10 per reason.
-- Desktop only: failure and `diagnostic` events can carry `log_excerpt`, the last 60 lines
+- Desktop only: failed actions, errors and `scan_connect_failed` diagnostics can carry
+  `log_excerpt`, the last 60 lines
   (8 KiB) of the app log from the adb, connect and discovery code, redacted by the pure
   `engine/log_redact.rs` (addresses, MACs, mDNS and `.local` names, serials and TV names seen
   this session or named in the log itself, paths, the home directory and user name, emails,
@@ -187,9 +193,16 @@ desktop build; leave it unset to ship a build that never reports.
   Command output never leaves: a line's `stdout=` value and its continuation lines are dropped,
   and `stderr=` becomes an error code. The adb driver also logs `settings put … device_name`
   and Private DNS writes without their value, and withholds named-setting reads from the debug
-  log, so the name isn't in the file in the first place. One per upload batch,
-  at most 20 per install per UTC day (`excerpt_day`/`excerpts_today` in `telemetry.json`). The
-  phone app never sends one; the Worker also drops any that claims to come from it.
+  log, so the name isn't in the file in the first place. A kind of failure (its event kind,
+  action and error code, and for an `error` the command it names) carries one at most once per
+  install per UTC day, and repeats send the code and message alone. Each upload batch carries
+  one tail of the log, on its newest such failure; an older one in the same batch goes without
+  and its next occurrence can carry one. One that never reaches the server (the log was empty,
+  the upload failed) is given back. At most 20 a day. Other diagnostics send none: their `diag`
+  holds what they found. What was sent today (`excerpt_day`,
+  `excerpts_today`, `errors_today`, `sent_today` in `telemetry.json`, the pure
+  `engine::telemetry::DailyLedger`) survives restarts and is never sent. The phone app never
+  sends an excerpt; the Worker also drops any that claims to come from it.
 - **Support ID.** `telemetry_settings` returns `support_id`, the install id, while reports are on
   and the build has an endpoint (`null` otherwise); `formatSupportId` shows its first eight hex
   digits as `7D0B-0B9E`. The bug-report bundle shows only the short form, because it is pasted into public

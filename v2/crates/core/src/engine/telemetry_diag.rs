@@ -42,6 +42,33 @@ pub enum DiagReason {
     /// adb lists a device but it gave no usable details: unauthorized,
     /// offline, `getprop` failed, or make and model came back blank.
     DeviceDetailsEmpty,
+    /// `dumpsys usagestats` had no per-app rows ([`USAGE_STATS_EMPTY`]).
+    UsageStatsEmpty,
+    /// `dumpsys diskstats` had no per-app sizes ([`DISK_STATS_EMPTY`]).
+    DiskStatsEmpty,
+    /// `dumpsys meminfo` listed no processes ([`MEMINFO_EMPTY`]).
+    MeminfoEmpty,
+}
+
+/// The errors the App List's per-app reads return when the TV answered with
+/// nothing to parse. Some TVs always do, so the reports treat them as a
+/// state of the TV ([`expected_empty_read`]), not as an app failure.
+pub const USAGE_STATS_EMPTY: &str = "dumpsys usagestats reported no usage rows";
+pub const DISK_STATS_EMPTY: &str = "dumpsys diskstats reported no per-app sizes";
+pub const MEMINFO_EMPTY: &str = "dumpsys meminfo reported no processes";
+
+/// The reason to report an error message as instead, when it is one of the
+/// expected empty reads above. The frontend prefixes the command name, so
+/// the text is matched anywhere in the message.
+pub fn expected_empty_read(message: &str) -> Option<DiagReason> {
+    [
+        (USAGE_STATS_EMPTY, DiagReason::UsageStatsEmpty),
+        (DISK_STATS_EMPTY, DiagReason::DiskStatsEmpty),
+        (MEMINFO_EMPTY, DiagReason::MeminfoEmpty),
+    ]
+    .into_iter()
+    .find(|(text, _)| message.contains(text))
+    .map(|(_, reason)| reason)
 }
 
 impl DiagReason {
@@ -51,6 +78,9 @@ impl DiagReason {
             Self::ScanConnectFailed => "scan_connect_failed",
             Self::DiscoverEmpty => "discover_empty",
             Self::DeviceDetailsEmpty => "device_details_empty",
+            Self::UsageStatsEmpty => "usage_stats_empty",
+            Self::DiskStatsEmpty => "disk_stats_empty",
+            Self::MeminfoEmpty => "meminfo_empty",
         }
     }
 
@@ -60,7 +90,43 @@ impl DiagReason {
                 TelemetryAction::Scan
             }
             Self::DeviceDetailsEmpty => TelemetryAction::Connect,
+            Self::UsageStatsEmpty | Self::DiskStatsEmpty | Self::MeminfoEmpty => {
+                TelemetryAction::Other
+            }
         }
+    }
+
+    pub fn from_code(code: &str) -> Option<Self> {
+        [
+            Self::ScanEmpty,
+            Self::ScanConnectFailed,
+            Self::DiscoverEmpty,
+            Self::DeviceDetailsEmpty,
+            Self::UsageStatsEmpty,
+            Self::DiskStatsEmpty,
+            Self::MeminfoEmpty,
+        ]
+        .into_iter()
+        .find(|r| r.code() == code)
+    }
+
+    /// Whether the desktop attaches a log excerpt (first one per install per
+    /// day only). The `diag` already holds what the others need, and they
+    /// are mostly states of the network or the TV rather than failures: an
+    /// unauthorized TV, an empty subnet, a TV whose `dumpsys` is empty. A
+    /// scan that found TVs and reached none is a connection failure, where
+    /// the log says why.
+    pub fn carries_excerpt(self) -> bool {
+        matches!(self, Self::ScanConnectFailed)
+    }
+
+    /// Reported at most once per install per UTC day (per TV model), since
+    /// every App List visit repeats the same read.
+    pub fn once_a_day(self) -> bool {
+        matches!(
+            self,
+            Self::UsageStatsEmpty | Self::DiskStatsEmpty | Self::MeminfoEmpty
+        )
     }
 }
 
@@ -950,5 +1016,58 @@ mod tests {
             DiagReason::DeviceDetailsEmpty.action(),
             TelemetryAction::Connect
         );
+    }
+
+    #[test]
+    fn empty_app_list_reads_are_expected_states_not_errors() {
+        assert_eq!(
+            expected_empty_read("app_usage_map: dumpsys usagestats reported no usage rows"),
+            Some(DiagReason::UsageStatsEmpty)
+        );
+        assert_eq!(
+            expected_empty_read("app_storage_map: dumpsys diskstats reported no per-app sizes"),
+            Some(DiagReason::DiskStatsEmpty)
+        );
+        assert_eq!(
+            expected_empty_read("app_memory_map: dumpsys meminfo reported no processes"),
+            Some(DiagReason::MeminfoEmpty)
+        );
+        // A read that failed outright is still an error.
+        for message in [
+            "app_usage_map: dumpsys usagestats: device offline",
+            "app_storage_map: dumpsys diskstats timed out",
+            "app_memory_map: dumpsys meminfo: closed",
+            "uncaught TypeError",
+            "",
+        ] {
+            assert_eq!(expected_empty_read(message), None, "{message}");
+        }
+        for reason in [
+            DiagReason::UsageStatsEmpty,
+            DiagReason::DiskStatsEmpty,
+            DiagReason::MeminfoEmpty,
+        ] {
+            assert!(reason.once_a_day());
+            assert!(!reason.carries_excerpt());
+            assert_eq!(reason.action(), TelemetryAction::Other);
+        }
+    }
+
+    #[test]
+    fn only_a_failed_connection_after_a_scan_carries_an_excerpt() {
+        for (reason, excerpt) in [
+            (DiagReason::ScanEmpty, false),
+            (DiagReason::ScanConnectFailed, true),
+            (DiagReason::DiscoverEmpty, false),
+            (DiagReason::DeviceDetailsEmpty, false),
+            (DiagReason::UsageStatsEmpty, false),
+            (DiagReason::DiskStatsEmpty, false),
+            (DiagReason::MeminfoEmpty, false),
+        ] {
+            assert_eq!(reason.carries_excerpt(), excerpt, "{}", reason.code());
+            assert_eq!(DiagReason::from_code(reason.code()), Some(reason));
+            assert!(!reason.once_a_day() || !excerpt);
+        }
+        assert_eq!(DiagReason::from_code("unknown"), None);
     }
 }

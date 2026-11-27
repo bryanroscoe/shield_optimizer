@@ -38,7 +38,9 @@ Each event is one of `device_seen`, `action_result`, `error` or (schema 2) `diag
 | `log_excerpt` | `2026-11-02T14:00:02Z INFO ...::devices: connect finished address=<redacted> ...` | Schema 2, desktop only. Up to 60 lines / 8 KiB of the app's adb and connection log, redacted on the client and again here. Never command output (`stdout=`/`stderr=` values), TV names or Private DNS hosts. Cleared after 30 days. |
 
 `diagnostic` events carry the reason as `error_code`: `scan_empty`, `scan_connect_failed`,
-`discover_empty` or `device_details_empty`. Schema 1 events are still accepted unchanged; a schema
+`discover_empty`, `device_details_empty`, or one of `usage_stats_empty`, `disk_stats_empty` and
+`meminfo_empty` (an App List read the TV answered with nothing, at most once per install per day
+per TV model; before 2.6.0 these came as `error` events with code `unknown`). Schema 1 events are still accepted unchanged; a schema
 1 event cannot be a `diagnostic` and any `diag` or `log_excerpt` on it is ignored.
 
 ### Send logs uploads and bug reports

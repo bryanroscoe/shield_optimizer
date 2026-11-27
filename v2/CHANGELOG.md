@@ -134,6 +134,9 @@ ATV Optimizer now connects to your TVs with its own built-in ADB instead of Goog
 - Desktop: the App List's per-row badges no longer add a Tab stop per row; the App, RAM and Last used column headers each have a **?** that explains them by keyboard.
 - Desktop: question-mark help (in Settings and the macOS local network notice) opens as a small pop-over beside the button instead of pushing the rows below it down. It closes with the button, ×, Escape, or a click or focus elsewhere.
 - App reports preserve explicit public HTTP(S) store/developer hostnames, including the reported app's Play Store id, in the preview and GitHub Details. Desktop and mobile share the privacy rules; device identifiers, other package ids, private-network or package-shaped hosts, URL credentials, query keys other than `id`/`hl`/`gl`, other query values and fragments remain redacted (#323).
+- Desktop: deleting a file, changing display scaling and copying an app to another TV act only on the TV the confirmation asked about. If the app moves to a different TV while the question is open, nothing happens (#369).
+- Desktop: a confirmation that never gets an answer counts as Cancel after ten minutes. Before, it blocked every later confirmation until the app restarted (#369).
+- Desktop and Android: anonymous reports are much smaller (#367). A TV that returns no app usage, storage or memory figures is reported once a day as a known state, not as an error each time App List opens. On desktop, an error repeated the same day no longer attaches a log excerpt, scans that find nothing and TVs that haven't allowed the connection no longer attach one, and repeated error reports stop at 30 a day.
 - Anonymous reports: the report server keeps raw reports for 30 days instead of 90, and its privacy policy and Android's More › Privacy help say so. Per-model totals are kept longer, as before.
 
 ### Android app
