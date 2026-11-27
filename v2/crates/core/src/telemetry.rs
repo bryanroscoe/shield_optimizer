@@ -20,11 +20,12 @@ use tokio::sync::Notify;
 
 use crate::commands::AppState;
 use crate::engine::telemetry::{
-    action_event, device_seen_event, diagnostic_event, encode_batches, error_event,
-    telemetry_device, AppKind, EventContext, EventKind, TelemetryAction, TelemetryDevice,
-    TelemetryEvent,
+    action_event, device_seen_event, diagnostic_event, encode_batches, error_event, excerpt_key,
+    once_a_day_key, telemetry_device, AppKind, DailyLedger, EventContext, TelemetryAction,
+    TelemetryDevice, TelemetryEvent,
 };
-use crate::engine::telemetry_diag::{AdbDiag, Diag, DiagReason};
+pub use crate::engine::telemetry::{ERRORS_PER_DAY, EXCERPTS_PER_DAY};
+use crate::engine::telemetry_diag::{expected_empty_read, AdbDiag, Diag, DiagReason};
 use crate::engine::types::Device;
 use crate::engine::{parse_support_rules, SupportRules};
 
@@ -51,8 +52,6 @@ const REPEATS_PER_CODE: u32 = 5;
 /// TV stuck unauthorized is also reported once per transport per session.
 const DIAGNOSTICS_PER_SESSION: u32 = 30;
 const DIAGNOSTIC_REPEATS_PER_REASON: u32 = 10;
-/// Desktop log excerpts attached per install per UTC day.
-pub const EXCERPTS_PER_DAY: u32 = 20;
 /// Bumped when what the reports collect changes, so the first-launch notice
 /// shows once more to everyone who dismissed an older one. 2: connection
 /// diagnostics, desktop log excerpts and the support id.
@@ -141,11 +140,11 @@ struct StoredSettings {
     /// existed read as 0, so their users see the new notice.
     #[serde(default)]
     notice_version: u32,
-    /// UTC day and count for [`EXCERPTS_PER_DAY`], kept across restarts.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    excerpt_day: String,
-    #[serde(default)]
-    excerpts_today: u32,
+    /// What was sent today: the excerpt budget, the first excerpt per
+    /// error, the daily error ceiling and once-a-day diagnostics. Kept
+    /// across restarts; never sent.
+    #[serde(flatten)]
+    ledger: DailyLedger,
 }
 
 impl StoredSettings {
@@ -217,8 +216,9 @@ pub type ExcerptSource = Box<dyn Fn(&[String]) -> Option<String> + Send + Sync>;
 
 struct Queued {
     event: TelemetryEvent,
-    /// Attach a log excerpt when this is sent (desktop only, budgeted).
-    wants_excerpt: bool,
+    /// [`excerpt_key`]: may carry a log excerpt when sent, if it is the
+    /// first with this key today (desktop only, budgeted).
+    excerpt_key: Option<String>,
 }
 
 pub struct TelemetryConfig {
@@ -318,6 +318,9 @@ struct Inner {
     adb_facts: Option<AdbDiag>,
     /// Bumped on opt-out so a batch drained before it is never sent.
     generation: u64,
+    /// The ledger changed since it was last saved. Saved by the uploader,
+    /// so recording an event never touches the disk.
+    ledger_dirty: bool,
 }
 
 pub struct Telemetry {
@@ -396,6 +399,7 @@ impl Telemetry {
                 identifiers: HashSet::new(),
                 adb_facts: None,
                 generation: 0,
+                ledger_dirty: false,
             }),
             wake: Notify::new(),
             cancel: Notify::new(),
@@ -539,6 +543,7 @@ impl Telemetry {
                 inner.settings.enabled = enabled;
                 if enabled {
                     inner.settings.install_id = new_install_id();
+                    inner.settings.ledger.forget_keys();
                     // Turned on from the setting, next to the same notice
                     // text: nothing to show again.
                     inner.settings.notice_seen = true;
@@ -577,16 +582,8 @@ impl Telemetry {
     }
 
     fn enqueue(&self, inner: &mut Inner, event: TelemetryEvent) {
-        // Failures and "found nothing" reports may carry a log excerpt.
-        let wants_excerpt = match event.kind {
-            EventKind::Error | EventKind::Diagnostic => true,
-            EventKind::ActionResult => event.ok == Some(false),
-            EventKind::DeviceSeen => false,
-        };
-        inner.queue.push_back(Queued {
-            event,
-            wants_excerpt,
-        });
+        let excerpt_key = excerpt_key(&event);
+        inner.queue.push_back(Queued { event, excerpt_key });
         while inner.queue.len() > MAX_QUEUE {
             inner.queue.pop_front();
         }
@@ -681,7 +678,9 @@ impl Telemetry {
         self.enqueue(&mut inner, event);
     }
 
-    /// An unexpected failure. Rate limited.
+    /// An unexpected failure. Rate limited per session and per day. An App
+    /// List read the TV answered with nothing ([`expected_empty_read`]) is
+    /// a state of that TV, so it becomes a once-a-day diagnostic instead.
     pub fn record_error(
         &self,
         action: TelemetryAction,
@@ -704,6 +703,14 @@ impl Telemetry {
         if !Self::active(inner, self.configured()) {
             return;
         }
+        if let Some(reason) = expected_empty_read(message) {
+            let diag = Diag {
+                errors: vec![reason.code().to_string()],
+                ..Default::default()
+            };
+            self.record_diagnostic_locked(inner, reason, serial, None, diag);
+            return;
+        }
         let code = crate::engine::telemetry::sanitize_error_code(error_code);
         if !inner.limiter.allow(&code, Instant::now()) {
             return;
@@ -720,6 +727,11 @@ impl Telemetry {
             message,
             &known,
         );
+        let key = excerpt_key(&event).unwrap_or_default();
+        inner.ledger_dirty = true;
+        if !inner.settings.ledger.allow_error(&today(), &key) {
+            return;
+        }
         self.enqueue(inner, event);
     }
 
@@ -732,57 +744,106 @@ impl Telemetry {
         reason: DiagReason,
         serial: Option<&str>,
         once_key: Option<&str>,
-        mut diag: Diag,
+        diag: Diag,
     ) {
         let mut inner = self.lock();
-        if !Self::active(&inner, self.configured()) || !inner.diagnostics.allow(reason, once_key) {
+        self.record_diagnostic_locked(&mut inner, reason, serial, once_key, diag);
+    }
+
+    fn record_diagnostic_locked(
+        &self,
+        inner: &mut Inner,
+        reason: DiagReason,
+        serial: Option<&str>,
+        once_key: Option<&str>,
+        mut diag: Diag,
+    ) {
+        if !Self::active(inner, self.configured()) {
             return;
+        }
+        let device = serial.and_then(|s| inner.devices.get(s).cloned());
+        // Checked before the session limiter, so a read already reported
+        // today doesn't use up the session's diagnostics.
+        let daily = reason
+            .once_a_day()
+            .then(|| (today(), once_a_day_key(reason, device.as_ref())));
+        if let Some((day, key)) = &daily {
+            if inner.settings.ledger.sent_today(day, key) {
+                return;
+            }
+        }
+        if !inner.diagnostics.allow(reason, once_key) {
+            return;
+        }
+        if let Some((day, key)) = &daily {
+            inner.ledger_dirty = true;
+            if !inner.settings.ledger.mark_sent(day, key) {
+                return;
+            }
         }
         if diag.adb.is_none() {
             diag.adb = inner.adb_facts.clone();
         }
-        let device = serial.and_then(|s| inner.devices.get(s).cloned());
-        let event = diagnostic_event(&self.context(&inner), &now(), reason, device, diag);
-        self.enqueue(&mut inner, event);
+        let event = diagnostic_event(&self.context(inner), &now(), reason, device, diag);
+        self.enqueue(inner, event);
     }
 
-    /// Spend one of today's excerpts, if any are left. Persisted so a
-    /// restart doesn't reset the budget.
-    fn take_excerpt_budget(&self) -> bool {
-        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        {
-            let mut inner = self.lock();
-            if inner.settings.excerpt_day != today {
-                inner.settings.excerpt_day = today;
-                inner.settings.excerpts_today = 0;
-            }
-            if inner.settings.excerpts_today >= EXCERPTS_PER_DAY {
-                return false;
-            }
-            inner.settings.excerpts_today += 1;
-        }
-        let _ = self.persist();
-        true
-    }
-
-    /// Attach one excerpt to the newest event in the batch that wants one.
-    /// The log is read here, at send time, so it includes the lines written
-    /// after the failure was recorded.
-    fn attach_excerpt(&self, batch: &mut [Queued]) {
+    /// Attach a log excerpt to each event in the batch that is the first
+    /// with its [`excerpt_key`] today, within the daily budget. Repeats go
+    /// with their code and message only. The log is read here, at send
+    /// time, so it includes the lines written after the failure was
+    /// recorded.
+    fn attach_excerpts(&self, batch: &mut [Queued]) {
         if self.config.app != AppKind::Desktop {
             return;
         }
         let Some(source) = self.excerpt_source.get() else {
             return;
         };
-        let Some(target) = batch.iter_mut().rev().find(|q| q.wants_excerpt) else {
-            return;
+        let day = today();
+        let granted: Vec<usize> = {
+            let mut inner = self.lock();
+            let granted: Vec<usize> = batch
+                .iter()
+                .enumerate()
+                .filter(|(_, q)| {
+                    q.excerpt_key
+                        .as_deref()
+                        .is_some_and(|key| inner.settings.ledger.take_excerpt(&day, key))
+                })
+                .map(|(i, _)| i)
+                .collect();
+            if !granted.is_empty() {
+                inner.ledger_dirty = true;
+            }
+            granted
         };
-        if !self.take_excerpt_budget() {
+        if granted.is_empty() {
             return;
         }
         let known = self.known_identifiers();
-        target.event.log_excerpt = source(&known);
+        let excerpt = source(&known);
+        if excerpt.is_none() {
+            let mut inner = self.lock();
+            for &i in &granted {
+                if let Some(key) = batch[i].excerpt_key.as_deref() {
+                    inner.settings.ledger.return_excerpt(&day, key);
+                }
+            }
+            return;
+        }
+        for &i in &granted {
+            batch[i].event.log_excerpt = excerpt.clone();
+        }
+    }
+
+    /// Save the ledger if it changed. Called by the uploader, never on the
+    /// path that records an event (that may hold the lock in a panic hook).
+    fn persist_ledger(&self) {
+        let dirty = std::mem::take(&mut self.lock().ledger_dirty);
+        if dirty {
+            let _ = self.persist();
+        }
     }
 
     /// Start the background uploader. Idempotent, and a no-op for a build
@@ -823,7 +884,8 @@ impl Telemetry {
                 (events, inner.generation)
             };
             let mut events = events;
-            self.attach_excerpt(&mut events);
+            self.attach_excerpts(&mut events);
+            self.persist_ledger();
             let events: Vec<TelemetryEvent> = events.into_iter().map(|q| q.event).collect();
             for body in encode_batches(&events) {
                 // Register for cancellation before the last check, so an
@@ -932,6 +994,11 @@ impl Telemetry {
 
 fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
+}
+
+/// The UTC day the ledger counts in.
+fn today() -> String {
+    chrono::Utc::now().format("%Y-%m-%d").to_string()
 }
 
 fn build_client() -> Option<reqwest::Client> {
@@ -2006,8 +2073,15 @@ mod tests {
         hub.lock().queue.drain(..).collect()
     }
 
+    fn excerpts(batch: &[Queued]) -> Vec<Option<&str>> {
+        batch
+            .iter()
+            .map(|q| q.event.log_excerpt.as_deref())
+            .collect()
+    }
+
     #[test]
-    fn desktop_attaches_one_budgeted_excerpt_per_batch() {
+    fn desktop_attaches_an_excerpt_to_the_first_of_each_failure_per_day() {
         use crate::engine::telemetry_diag::DiagReason;
         let dir = tempfile::tempdir().unwrap();
         let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
@@ -2028,39 +2102,208 @@ mod tests {
             Some("x"),
         );
         hub.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
+        hub.record_diagnostic(DiagReason::ScanConnectFailed, None, None, Diag::default());
         hub.record_action(TelemetryAction::Disable, None, true, None, None);
         let mut batch = drain(&hub);
-        hub.attach_excerpt(&mut batch);
-        let excerpts: Vec<Option<&str>> = batch
-            .iter()
-            .map(|q| q.event.log_excerpt.as_deref())
-            .collect();
-        assert_eq!(excerpts, vec![None, None, Some("excerpt"), None]);
+        hub.attach_excerpts(&mut batch);
+        assert_eq!(
+            excerpts(&batch),
+            vec![None, Some("excerpt"), None, Some("excerpt"), None]
+        );
 
-        for _ in 0..(EXCERPTS_PER_DAY + 5) {
-            hub.record_action(TelemetryAction::Connect, None, false, Some("timeout"), None);
-            let mut batch = drain(&hub);
-            hub.attach_excerpt(&mut batch);
-        }
-        // The day's budget is spent, and stays spent after a restart.
+        // The same failure later that day goes with its code and message,
+        // and a different one still gets its first excerpt.
+        hub.record_action(
+            TelemetryAction::Connect,
+            None,
+            false,
+            Some("timeout"),
+            Some("x"),
+        );
+        hub.record_error(
+            TelemetryAction::Other,
+            None,
+            "unknown",
+            "list_packages: boom",
+        );
+        hub.record_error(TelemetryAction::Other, None, "unknown", "read_props: boom");
+        hub.record_error(TelemetryAction::Other, None, "unknown", "read_props: boom");
+        let mut batch = drain(&hub);
+        hub.attach_excerpts(&mut batch);
+        assert_eq!(
+            excerpts(&batch),
+            vec![None, Some("excerpt"), Some("excerpt"), None]
+        );
+        let repeat = &batch[0].event;
+        assert_eq!(repeat.error_code.as_deref(), Some("timeout"));
+        assert_eq!(repeat.message.as_deref(), Some("x"));
+
+        // A restart keeps what was already sent today.
+        hub.persist_ledger();
         let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
         again.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
-        again.record_diagnostic(DiagReason::ScanEmpty, None, None, Diag::default());
+        again.record_action(
+            TelemetryAction::Connect,
+            None,
+            false,
+            Some("timeout"),
+            Some("x"),
+        );
+        again.record_action(
+            TelemetryAction::Launcher,
+            None,
+            false,
+            Some("permission_denied"),
+            Some("y"),
+        );
         let mut batch = drain(&again);
-        again.attach_excerpt(&mut batch);
+        again.attach_excerpts(&mut batch);
+        assert_eq!(excerpts(&batch), vec![None, Some("excerpt")]);
+    }
+
+    #[test]
+    fn the_daily_excerpt_budget_survives_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        for i in 0..(EXCERPTS_PER_DAY + 5) {
+            hub.record_action(
+                TelemetryAction::Connect,
+                None,
+                false,
+                Some(&format!("code_{i}")),
+                None,
+            );
+            let mut batch = drain(&hub);
+            hub.attach_excerpts(&mut batch);
+        }
+        hub.persist_ledger();
+        let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        again.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        again.record_action(TelemetryAction::Connect, None, false, Some("new"), None);
+        let mut batch = drain(&again);
+        again.attach_excerpts(&mut batch);
         assert_eq!(batch[0].event.log_excerpt, None);
     }
 
     #[test]
-    fn spending_the_excerpt_budget_never_undoes_an_opt_out() {
+    fn an_empty_log_keeps_the_excerpt_for_the_next_occurrence() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let seen = Arc::clone(&calls);
+        hub.set_excerpt_source(Box::new(move |_: &[String]| {
+            (seen.fetch_add(1, Ordering::SeqCst) > 0).then(|| "excerpt".to_string())
+        }));
+        for expected in [None, Some("excerpt")] {
+            hub.record_action(TelemetryAction::Connect, None, false, Some("timeout"), None);
+            let mut batch = drain(&hub);
+            hub.attach_excerpts(&mut batch);
+            assert_eq!(batch[0].event.log_excerpt.as_deref(), expected);
+        }
+    }
+
+    #[test]
+    fn saving_the_ledger_never_undoes_an_opt_out() {
         let dir = tempfile::tempdir().unwrap();
         let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
         hub.set_enabled(false).unwrap();
-        // The uploader saving its budget after the opt-out writes the
+        // The uploader saving the ledger after the opt-out writes the
         // current state, not one it read before.
-        assert!(hub.take_excerpt_budget());
+        hub.lock().ledger_dirty = true;
+        hub.persist_ledger();
         let reloaded = Telemetry::new(desktop(Some("https://t.example")), dir.path());
         assert!(!reloaded.settings().enabled);
+    }
+
+    #[test]
+    fn an_empty_app_list_read_is_a_once_a_day_diagnostic_without_an_excerpt() {
+        let dir = tempfile::tempdir().unwrap();
+        let hub = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
+        hub.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        for _ in 0..5 {
+            hub.record_error(
+                TelemetryAction::Other,
+                Some("10.0.0.2:5555"),
+                "unknown",
+                "app_usage_map: dumpsys usagestats reported no usage rows",
+            );
+            hub.record_error(
+                TelemetryAction::Other,
+                Some("10.0.0.2:5555"),
+                "unknown",
+                "app_storage_map: dumpsys diskstats reported no per-app sizes",
+            );
+        }
+        let mut batch = drain(&hub);
+        let kinds: Vec<_> = batch
+            .iter()
+            .map(|q| (q.event.kind, q.event.error_code.clone().unwrap_or_default()))
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (EventKind::DeviceSeen, String::new()),
+                (EventKind::Diagnostic, "usage_stats_empty".into()),
+                (EventKind::Diagnostic, "disk_stats_empty".into()),
+            ]
+        );
+        let usage = &batch[1].event;
+        assert_eq!(usage.action, Some(TelemetryAction::Other));
+        assert_eq!(usage.message, None);
+        assert_eq!(usage.device.as_ref().unwrap().model, "SHIELD Android TV");
+        assert_eq!(
+            usage.diag.as_ref().unwrap().errors,
+            vec!["usage_stats_empty".to_string()]
+        );
+        hub.attach_excerpts(&mut batch);
+        assert_eq!(excerpts(&batch), vec![None, None, None]);
+
+        // Still once a day after a restart.
+        hub.persist_ledger();
+        let again = Telemetry::new(desktop(Some("https://t.example")), dir.path());
+        again.device_profiled(&shield("10.0.0.2:5555", "1324619053514"));
+        again.record_error(
+            TelemetryAction::Other,
+            Some("10.0.0.2:5555"),
+            "unknown",
+            "app_usage_map: dumpsys usagestats reported no usage rows",
+        );
+        let queued = again.queued();
+        assert!(
+            queued.iter().all(|e| e.kind == EventKind::DeviceSeen),
+            "{queued:?}"
+        );
+
+        // A read that failed outright is still an error.
+        again.record_error(
+            TelemetryAction::Other,
+            Some("10.0.0.2:5555"),
+            "timeout",
+            "app_usage_map: dumpsys usagestats: timed out",
+        );
+        assert_eq!(again.queued().last().unwrap().kind, EventKind::Error);
+    }
+
+    #[test]
+    fn error_reports_have_a_daily_ceiling_across_restarts() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut sent = 0;
+        // Each session is under its own limits; the day as a whole is not.
+        for _ in 0..20 {
+            let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+            hub.record_error(TelemetryAction::Other, None, "panic", "boom");
+            hub.record_error(TelemetryAction::Other, None, "panic", "boom");
+            sent += hub.queued().len();
+            hub.persist_ledger();
+        }
+        assert_eq!(sent as u32, ERRORS_PER_DAY);
+        // A new kind of error still gets through once.
+        let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
+        hub.record_error(TelemetryAction::Other, None, "uncaught_error", "x");
+        hub.record_error(TelemetryAction::Other, None, "uncaught_error", "x");
+        assert_eq!(hub.queued().len(), 1);
     }
 
     #[test]
@@ -2069,9 +2312,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let hub = Telemetry::new(config(Some("https://t.example")), dir.path());
         hub.set_excerpt_source(Box::new(|_: &[String]| Some("excerpt".into())));
-        hub.record_diagnostic(DiagReason::DiscoverEmpty, None, None, Diag::default());
+        hub.record_diagnostic(DiagReason::ScanConnectFailed, None, None, Diag::default());
         let mut batch = drain(&hub);
-        hub.attach_excerpt(&mut batch);
+        hub.attach_excerpts(&mut batch);
         assert_eq!(batch[0].event.log_excerpt, None);
         assert!(hub.excerpt_source.get().is_none());
     }

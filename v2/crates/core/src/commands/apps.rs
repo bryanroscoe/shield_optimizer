@@ -16,6 +16,7 @@ use crate::adb::{
     parse_installed_packages_output, parse_permission_granted, parse_pm_path_apks,
     parse_stat_sizes_total, parse_total_pss_by_process, parse_usage_stats, AppStorage, AppUsage,
 };
+use crate::engine::telemetry_diag::{DISK_STATS_EMPTY, MEMINFO_EMPTY, USAGE_STATS_EMPTY};
 use crate::engine::{
     active_role_reason, classify_safety, classify_with_sources, is_last_enabled_home_handler,
     is_valid_package_name, ActiveRoles, CatalogVerdict, DeviceType, Safety,
@@ -368,7 +369,7 @@ pub async fn app_memory_map_impl(
     // A running device always has processes. An empty table is a failed read,
     // and returning it as Ok would read as "no app is running".
     if map.is_empty() {
-        return Err("dumpsys meminfo reported no processes".to_string());
+        return Err(MEMINFO_EMPTY.to_string());
     }
     Ok(map)
 }
@@ -411,7 +412,7 @@ pub async fn app_usage_map_impl(
     // The launcher and system UI alone always leave rows. No rows at all is an
     // unreadable report, which must not read as "no app was ever used".
     if map.is_empty() {
-        return Err("dumpsys usagestats reported no usage rows".to_string());
+        return Err(USAGE_STATS_EMPTY.to_string());
     }
     Ok(map)
 }
@@ -444,8 +445,7 @@ pub async fn app_storage_map_impl(
     .await
     .map_err(|_| "dumpsys diskstats timed out".to_string())?
     .map_err(|e| format!("dumpsys diskstats: {e}"))?;
-    parse_diskstats_package_sizes(&out.stdout)
-        .ok_or_else(|| "dumpsys diskstats reported no per-app sizes".to_string())
+    parse_diskstats_package_sizes(&out.stdout).ok_or_else(|| DISK_STATS_EMPTY.to_string())
 }
 
 /// `app_apk_size` — fallback for one package diskstats has no row for: the

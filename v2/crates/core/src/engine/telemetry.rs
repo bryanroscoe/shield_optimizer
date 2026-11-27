@@ -461,6 +461,171 @@ pub fn diagnostic_event(
     }
 }
 
+/// Log excerpts attached per install per UTC day, at most.
+pub const EXCERPTS_PER_DAY: u32 = 20;
+/// Error events per install per UTC day once each error has been sent once.
+/// The first of each kind always goes (see [`DailyLedger::allow_error`]).
+pub const ERRORS_PER_DAY: u32 = 30;
+/// Bounds the ledger file. A full ledger sends no further excerpts, first
+/// errors or once-a-day reports that day.
+const MAX_LEDGER_KEYS: usize = 128;
+
+/// What one install has already sent today, so restarts don't resend it.
+/// The host stores it in its settings file; nothing here is ever sent. Keys
+/// are built from codes, actions and command names (and a TV's public
+/// model name), never from a serial, address or message text.
+///
+/// `excerpt_day` and `excerpts_today` keep the names of the excerpt budget
+/// they replaced, so a settings file from an older build keeps its count.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyLedger {
+    #[serde(
+        default,
+        rename = "excerpt_day",
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub day: String,
+    #[serde(default, rename = "excerpts_today")]
+    pub excerpts: u32,
+    #[serde(default, rename = "errors_today")]
+    pub errors: u32,
+    #[serde(default, rename = "sent_today", skip_serializing_if = "Vec::is_empty")]
+    pub keys: Vec<String>,
+}
+
+impl DailyLedger {
+    fn roll(&mut self, today: &str) {
+        if self.day != today {
+            *self = Self {
+                day: today.to_string(),
+                ..Self::default()
+            };
+        }
+    }
+
+    /// Record `key` as sent today. False when it already was, or the ledger
+    /// is full.
+    fn insert(&mut self, today: &str, key: String) -> bool {
+        self.roll(today);
+        if self.keys.contains(&key) || self.keys.len() >= MAX_LEDGER_KEYS {
+            return false;
+        }
+        self.keys.push(key);
+        true
+    }
+
+    fn contains(&mut self, today: &str, key: &str) -> bool {
+        self.roll(today);
+        self.keys.iter().any(|k| k == key)
+    }
+
+    /// Spend one of today's excerpts on the first event today with this
+    /// [`excerpt_key`]. A repeat sends its code and message without one.
+    pub fn take_excerpt(&mut self, today: &str, key: &str) -> bool {
+        self.roll(today);
+        if self.excerpts >= EXCERPTS_PER_DAY || !self.insert(today, format!("x|{key}")) {
+            return false;
+        }
+        self.excerpts += 1;
+        true
+    }
+
+    /// Put an excerpt back that [`Self::take_excerpt`] granted but the log
+    /// had nothing to fill, so the next occurrence can carry one.
+    pub fn return_excerpt(&mut self, today: &str, key: &str) {
+        if self.day != today {
+            return;
+        }
+        let key = format!("x|{key}");
+        if let Some(i) = self.keys.iter().position(|k| *k == key) {
+            self.keys.remove(i);
+            self.excerpts = self.excerpts.saturating_sub(1);
+        }
+    }
+
+    /// The daily ceiling on error events. The first event today with each
+    /// key always goes, so no error goes unreported because another one
+    /// repeated all day; repeats stop at [`ERRORS_PER_DAY`].
+    pub fn allow_error(&mut self, today: &str, key: &str) -> bool {
+        let first = self.insert(today, format!("e|{key}"));
+        if !first && self.errors >= ERRORS_PER_DAY {
+            return false;
+        }
+        self.errors = self.errors.saturating_add(1);
+        true
+    }
+
+    /// Whether a once-a-day report with this key was already sent today.
+    pub fn sent_today(&mut self, today: &str, key: &str) -> bool {
+        self.contains(today, &format!("d|{key}"))
+    }
+
+    /// Mark a once-a-day report as sent. False when the ledger is full, in
+    /// which case it must not be sent.
+    pub fn mark_sent(&mut self, today: &str, key: &str) -> bool {
+        self.insert(today, format!("d|{key}"))
+    }
+
+    /// Forget which keys were sent, for a fresh install id. The excerpt
+    /// count stays, so turning reports off and on can't raise the budget.
+    pub fn forget_keys(&mut self) {
+        self.keys.clear();
+        self.errors = 0;
+    }
+}
+
+fn action_name(action: Option<TelemetryAction>) -> String {
+    action
+        .and_then(|a| serde_json::to_value(a).ok())
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// The command a frontend-reported error names first (`app_usage_map: …`),
+/// when it reads as one.
+fn command_prefix(message: Option<&str>) -> Option<&str> {
+    let (head, _) = message?.split_once(':')?;
+    let ok = !head.is_empty()
+        && head.len() <= MAX_FIELD_CHARS
+        && head.starts_with(|c: char| c.is_ascii_lowercase())
+        && head
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
+    ok.then_some(head)
+}
+
+/// Which events may carry a desktop log excerpt, and the key that limits it
+/// to the first one per install per day: the kind, action and error code,
+/// plus the command for an error event, since the frontend reports every
+/// unrecognised command failure as `unknown`. Keying finer than the code
+/// alone means no code ever loses its first excerpt to another. `None`: no
+/// excerpt (device seen, a success, a diagnostic whose `diag` suffices).
+pub fn excerpt_key(event: &TelemetryEvent) -> Option<String> {
+    let code = event.error_code.as_deref().unwrap_or("unknown");
+    let action = action_name(event.action);
+    match event.kind {
+        EventKind::DeviceSeen => None,
+        EventKind::ActionResult if event.ok != Some(false) => None,
+        EventKind::ActionResult => Some(format!("action|{action}|{code}")),
+        EventKind::Error => Some(match command_prefix(event.message.as_deref()) {
+            Some(command) => format!("error|{action}|{code}|{command}"),
+            None => format!("error|{action}|{code}"),
+        }),
+        EventKind::Diagnostic => DiagReason::from_code(code)
+            .filter(|r| r.carries_excerpt())
+            .map(|r| format!("diag|{}", r.code())),
+    }
+}
+
+/// The key that limits a once-a-day diagnostic: its reason and the TV model
+/// it came from, so a second TV of another model is still reported.
+pub fn once_a_day_key(reason: DiagReason, device: Option<&TelemetryDevice>) -> String {
+    match device {
+        Some(d) => format!("{}|{}|{}", reason.code(), d.manufacturer, d.model),
+        None => reason.code().to_string(),
+    }
+}
+
 /// The short form of an install id a user reads out: the first eight hex
 /// digits, grouped (`7D0B-0B9E`). Same as `formatSupportId` in
 /// `shared/telemetry.ts`; empty when there aren't eight.
@@ -919,5 +1084,209 @@ mod tests {
         }
         assert_eq!(total, 120);
         assert!(encode_batches(&[]).is_empty());
+    }
+
+    fn err(code: &str, message: &str) -> TelemetryEvent {
+        error_event(
+            &ctx(),
+            "t",
+            TelemetryAction::Other,
+            None,
+            code,
+            message,
+            &[],
+        )
+    }
+
+    #[test]
+    fn excerpts_go_to_failures_and_connection_failures_only() {
+        let failed = action_event(
+            &ctx(),
+            "t",
+            TelemetryAction::Connect,
+            None,
+            false,
+            Some("timeout"),
+            Some("timed out"),
+            &[],
+        );
+        assert_eq!(
+            excerpt_key(&failed).as_deref(),
+            Some("action|connect|timeout")
+        );
+        let ok = action_event(
+            &ctx(),
+            "t",
+            TelemetryAction::Connect,
+            None,
+            true,
+            None,
+            None,
+            &[],
+        );
+        assert_eq!(excerpt_key(&ok), None);
+        let seen = device_seen_event(
+            &ctx(),
+            "t",
+            telemetry_device(
+                &shield_props(),
+                DeviceType::Shield,
+                TvEvidence::Tv,
+                &SupportInfo {
+                    tier: SupportTier::FullySupported,
+                    note: None,
+                },
+            ),
+        );
+        assert_eq!(excerpt_key(&seen), None);
+        let diag = |reason| diagnostic_event(&ctx(), "t", reason, None, Diag::default());
+        assert_eq!(
+            excerpt_key(&diag(DiagReason::ScanConnectFailed)).as_deref(),
+            Some("diag|scan_connect_failed")
+        );
+        for reason in [
+            DiagReason::ScanEmpty,
+            DiagReason::DeviceDetailsEmpty,
+            DiagReason::DiscoverEmpty,
+            DiagReason::UsageStatsEmpty,
+        ] {
+            assert_eq!(excerpt_key(&diag(reason)), None, "{}", reason.code());
+        }
+    }
+
+    #[test]
+    fn error_excerpt_keys_tell_commands_apart_without_message_text() {
+        assert_eq!(
+            excerpt_key(&err(
+                "unknown",
+                "list_packages: pm list failed for 1324619053514"
+            ))
+            .as_deref(),
+            Some("error|other|unknown|list_packages")
+        );
+        assert_eq!(
+            excerpt_key(&err("unknown", "read_props: closed")).as_deref(),
+            Some("error|other|unknown|read_props")
+        );
+        // Anything that isn't a bare command name falls back to the code.
+        for message in [
+            "TypeError: x is undefined",
+            "Command plugin:dialog|confirm not allowed by ACL",
+            "no colon at all",
+            "",
+        ] {
+            assert_eq!(
+                excerpt_key(&err("uncaught_error", message)).as_deref(),
+                Some("error|other|uncaught_error"),
+                "{message}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_excerpt_goes_with_the_first_of_each_key_per_day() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        assert!(ledger.take_excerpt(day, "error|other|panic"));
+        assert!(!ledger.take_excerpt(day, "error|other|panic"));
+        // Another code still gets its first one.
+        assert!(ledger.take_excerpt(day, "action|connect|timeout"));
+        assert!(!ledger.take_excerpt(day, "action|connect|timeout"));
+        assert_eq!(ledger.excerpts, 2);
+        // A new day starts over.
+        assert!(ledger.take_excerpt("2026-11-28", "error|other|panic"));
+        assert_eq!(ledger.day, "2026-11-28");
+        assert_eq!(ledger.excerpts, 1);
+    }
+
+    #[test]
+    fn an_excerpt_the_log_could_not_fill_is_given_back() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        assert!(ledger.take_excerpt(day, "k"));
+        ledger.return_excerpt(day, "k");
+        assert_eq!(ledger.excerpts, 0);
+        assert!(ledger.take_excerpt(day, "k"));
+        // Returning on another day touches nothing.
+        ledger.return_excerpt("2026-11-28", "k");
+        assert_eq!(ledger.excerpts, 1);
+    }
+
+    #[test]
+    fn the_daily_excerpt_budget_still_binds() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        for i in 0..EXCERPTS_PER_DAY {
+            assert!(ledger.take_excerpt(day, &format!("k{i}")));
+        }
+        assert!(!ledger.take_excerpt(day, "one_more"));
+    }
+
+    #[test]
+    fn errors_are_capped_per_day_but_never_the_first_of_a_kind() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        let sent = (0..100)
+            .filter(|_| ledger.allow_error(day, "error|other|permission_denied"))
+            .count();
+        assert_eq!(sent as u32, ERRORS_PER_DAY);
+        // Over the cap, a different error is still sent once, and only once.
+        assert!(ledger.allow_error(day, "error|other|panic"));
+        assert!(!ledger.allow_error(day, "error|other|panic"));
+        assert!(ledger.allow_error("2026-11-28", "error|other|permission_denied"));
+    }
+
+    #[test]
+    fn once_a_day_reports_are_once_per_reason_and_model() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        let device = telemetry_device(
+            &shield_props(),
+            DeviceType::Shield,
+            TvEvidence::Tv,
+            &SupportInfo {
+                tier: SupportTier::FullySupported,
+                note: None,
+            },
+        );
+        let key = once_a_day_key(DiagReason::UsageStatsEmpty, Some(&device));
+        assert_eq!(key, "usage_stats_empty|NVIDIA|SHIELD Android TV");
+        assert!(!key.contains("1324619053514") && !key.contains("Living Room"));
+        assert!(!ledger.sent_today(day, &key));
+        assert!(ledger.mark_sent(day, &key));
+        assert!(ledger.sent_today(day, &key));
+        let other = once_a_day_key(DiagReason::DiskStatsEmpty, Some(&device));
+        assert!(!ledger.sent_today(day, &other));
+        assert!(!ledger.sent_today("2026-11-28", &key));
+    }
+
+    #[test]
+    fn a_full_ledger_sends_less_never_more() {
+        let mut ledger = DailyLedger::default();
+        let day = "2026-11-27";
+        for i in 0..MAX_LEDGER_KEYS {
+            assert!(ledger.mark_sent(day, &format!("k{i}")));
+        }
+        assert!(!ledger.mark_sent(day, "late"));
+        assert!(!ledger.take_excerpt(day, "late"));
+        ledger.errors = ERRORS_PER_DAY;
+        assert!(!ledger.allow_error(day, "late"));
+        ledger.forget_keys();
+        assert!(ledger.mark_sent(day, "late"));
+        assert_eq!(ledger.errors, 0);
+    }
+
+    #[test]
+    fn the_ledger_reads_an_older_excerpt_budget() {
+        let old: DailyLedger =
+            serde_json::from_str(r#"{"excerpt_day":"2026-11-27","excerpts_today":7}"#).unwrap();
+        assert_eq!(old.day, "2026-11-27");
+        assert_eq!(old.excerpts, 7);
+        assert!(old.keys.is_empty());
+        let fresh = serde_json::to_value(DailyLedger::default()).unwrap();
+        assert_eq!(
+            fresh,
+            serde_json::json!({ "excerpts_today": 0, "errors_today": 0 })
+        );
     }
 }
