@@ -13,17 +13,13 @@ Before touching v2, skim `v2/HANDOFF.md` — it carries the current roadmap, the
 
 ## Start here — where the work is tracked
 
-- **The backlog is GitHub issues labeled [`gastown`](https://github.com/bryanroscoe/shield_optimizer/issues?q=is%3Aissue+is%3Aopen+label%3Agastown)**
-  in `bryanroscoe/shield_optimizer`. Each is titled `[<id>] <title>` and carries the original
-  description, acceptance criteria and dependencies. Issues without that label are user reports.
+- **The backlog is the [open GitHub issues](https://github.com/bryanroscoe/shield_optimizer/issues)**
+  in `bryanroscoe/shield_optimizer`. Label an issue by kind (`bug`, `enhancement`, `task`) and,
+  if it matters, priority (`p1`–`p3`). Don't create labels to mark who or what filed it.
 - **[`docs/DEVICE-TEST-SCRIPT.md`](docs/DEVICE-TEST-SCRIPT.md)** is the step-by-step physical
   device test script. Run it before tagging a v2 release.
-- **[`docs/gastown-shield_optimizer-beads-export.json`](docs/gastown-shield_optimizer-beads-export.json)**
-  is the full historical task archive including closed items — useful for "why was this done this
-  way", not a live queue.
-- **[`docs/ARCHIVE-INDEX.md`](docs/ARCHIVE-INDEX.md)** points at bulk working material kept outside
-  this repo on Bryan's machine, and at the historical docs removed from the repo (each with the
-  commit that last held it).
+- **[`docs/ARCHIVE-INDEX.md`](docs/ARCHIVE-INDEX.md)** lists the historical docs removed from the
+  repo, each with the commit that last held it.
 
 ### What is in flight right now (2026-11-24)
 

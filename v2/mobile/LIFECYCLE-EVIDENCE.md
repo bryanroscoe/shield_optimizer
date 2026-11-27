@@ -32,7 +32,7 @@ Playwright's virtual clock. They test frontend event handling and the 45-second 
 OS backgrounding, elapsed grace time, timer throttling, Android suspension or scrcpy reuse. Reload
 reconstructs JavaScript; the fixture separately models an empty or retained native connection.
 
-Output defaults to `/tmp/so-vtm.8-lifecycle/observations.json`; set `LIFECYCLE_OUTPUT` to choose
+Output defaults to `/tmp/atvopt-lifecycle/observations.json`; set `LIFECYCLE_OUTPUT` to choose
 another directory, or `LIFECYCLE_MOBILE_ROOT` to run against another checkout's `v2/mobile`. The
 output records the source HEAD, dirty paths, source hashes, runtime versions, state and invoke
 sequence. The recorded baseline run is in `tests/lifecycle/` (`baseline-48cba23.*`).
