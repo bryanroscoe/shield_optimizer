@@ -1380,26 +1380,29 @@
     if (!clonePkg) return;
     const pkg = clonePkg;
     if (cloneBusy) return;
+    const context = capturePageContext();
     if (
       !(await confirmAction(
         `Copy ${pkg} to ${target.name} (${target.serial})?\n\n• App data does not transfer.\n• DRM or licensed apps may refuse to run. Install paid apps from the Play Store instead.`,
       ))
       || cloneBusy
       || clonePkg !== pkg
+      || !pageContextIsCurrent(context)
     )
       return;
     cloneBusy = true;
     appActionBusy = pkg;
     appActionMessage = `Copying ${pkg} to ${target.serial}… (this pulls the APK and can take a minute)`;
     try {
-      const r = await api.cloneApp(serial, target.serial, pkg);
+      const r = await api.cloneApp(context.serial, target.serial, pkg);
+      if (!pageContextIsCurrent(context)) return;
       appActionMessage = r.hint ? `${r.message}\n→ ${r.hint}` : r.message;
       if (r.ok) clonePkg = null;
     } catch (e) {
-      appActionMessage = String(e);
+      if (pageContextIsCurrent(context)) appActionMessage = String(e);
     } finally {
       cloneBusy = false;
-      appActionBusy = null;
+      if (pageContextIsCurrent(context)) appActionBusy = null;
     }
   }
 

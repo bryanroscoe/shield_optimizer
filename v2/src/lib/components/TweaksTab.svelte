@@ -341,21 +341,28 @@
       : preset === "hd_720p" ? "720p (1280x720, density 213)"
       : "device defaults";
     if (displayScaleBusy) return;
-    if (!(await confirmAction(`Change display scaling to ${label}? The screen will flicker briefly as menus redraw.`)) || displayScaleBusy) return;
+    const target = serial;
+    if (!(await confirmAction(`Change display scaling to ${label}? The screen will flicker briefly as menus redraw.`))
+      || !alive
+      || serial !== target
+      || displayScaleBusy) return;
     displayScaleBusy = preset;
     displayScaleMessage = "";
     try {
-      const r = await api.setDisplayScaling(serial, preset);
+      const r = await api.setDisplayScaling(target, preset);
+      if (!alive || serial !== target) return;
       // On success the message is the read-back size and density, which the
       // refreshed current values below already show.
       displayScaleMessage = r.ok ? "Applied." : r.message.trim() || "The TV did not confirm the change.";
-      const now = await readDisplayScaling(serial);
+      const now = await readDisplayScaling(target);
+      if (!alive || serial !== target) return;
       currentDisplayScaling = now.scaling;
       displayScalingErr = now.err;
     } catch (e) {
+      if (!alive || serial !== target) return;
       displayScaleMessage = String(e);
     } finally {
-      displayScaleBusy = null;
+      if (alive && serial === target) displayScaleBusy = null;
     }
   }
 

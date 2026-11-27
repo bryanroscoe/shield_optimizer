@@ -166,17 +166,24 @@
       ? `Warning: system path (${filesPath}). Deleting here can break the TV.\n\n`
       : "";
     if (filesBusy) return;
+    const target = serial;
     const dir = filesPath;
+    const allowSystem = powerUserPaths;
     if (!(await confirmAction(`${prefix}Delete ${what} "${entry.name}" from the TV? This can't be undone.`))
+      || destroyed
       || filesBusy
-      || filesPath !== dir) return;
+      || serial !== target
+      || filesPath !== dir
+      || powerUserPaths !== allowSystem) return;
     filesBusy = entry.name;
     filesMessage = "";
     try {
-      const r = await api.deletePath(serial, joinPath(filesPath, entry.name), powerUserPaths);
+      const r = await api.deletePath(target, joinPath(dir, entry.name), allowSystem);
+      if (destroyed || serial !== target) return;
       filesMessage = r.message;
-      if (r.ok) await loadFiles(filesPath);
+      if (r.ok) await loadFiles(dir);
     } catch (e) {
+      if (destroyed || serial !== target) return;
       filesMessage = String(e);
     } finally {
       filesBusy = null;
