@@ -10,6 +10,7 @@
     "dialog:allow-save",
     "dialog:allow-message",
     "updater:default",
-    "process:allow-restart"
+    "process:allow-restart",
+    "window-state:allow-save-window-state"
   ]
 }
