@@ -131,6 +131,7 @@
 </script>
 
 <script lang="ts">
+  import { version as appVersion } from "../../src-tauri/tauri.conf.json";
   import HelpSheet from "../components/HelpSheet.svelte";
   import { onMount } from "svelte";
   import { session } from "../lib/session.svelte";
@@ -734,6 +735,7 @@
     <!-- About -->
     <div class="more-card">
       <span class="card-label">About</span>
+      <p class="card-desc">App version <span class="mono">{appVersion}</span></p>
       <button class="ghost-btn" onclick={toggleNotices}>
         <span class="msr">{showNotices ? "expand_less" : "expand_more"}</span>
         {showNotices ? "Hide third-party notices" : "Third-party notices"}

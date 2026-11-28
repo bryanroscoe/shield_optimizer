@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import { after, before, test } from "node:test";
 import { chromium } from "playwright";
 import { startViteServer } from "./helpers/vite-harness.mjs";
@@ -226,12 +227,14 @@ test("the private report is reviewed, then copied with TV details", async (t) =>
 });
 
 test("failed onboarding exposes privacy, debug log and a public report without losing the scan", async (t) => {
+  const { version } = JSON.parse(await readFile(new URL("../src-tauri/tauri.conf.json", import.meta.url), "utf8"));
   const page = await open(t, "onboarding");
   await page.getByRole("button", { name: "Scan network" }).click();
   await page.getByText("No TVs found", { exact: true }).waitFor();
   await page.getByRole("button", { name: "Support and privacy" }).click();
   const panel = page.getByRole("dialog", { name: "Support and privacy" });
   await page.setViewportSize({ width: 275, height: 610 });
+  await panel.getByText(`App version ${version}`, { exact: true }).waitFor();
   await panel.getByRole("switch", { name: /anonymous/i }).waitFor();
   await panel.getByRole("button", { name: "Show debug log" }).click();
   assert.equal((await calls(page, "read_debug_log")).length, 1);
