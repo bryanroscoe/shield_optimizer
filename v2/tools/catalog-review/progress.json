@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
-  "updated_at": "2026-11-25",
+  "updated_at": "2026-11-28",
   "purpose": "Research progress only; never consumed by the app or used as an action/safety authority.",
   "packages": {
     "com.google.android.partnersetup": {
@@ -1625,6 +1625,60 @@
       "independent_evidence": [
         "https://support.tcl.com/set-up-your-tcl-google-tv-device-remote",
         "https://support.tcl.com/en_US/tcl-google-tv-settings-and-user-manual-guide"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, disable/removal consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "com.tcl.assistant": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-28",
+      "reconsider_after": "2026-12-28",
+      "reason": "Exact vendor package identity, components/callers, voice/remote dependencies and independent disable/recovery behavior are unresolved. Pinned voice-group keep warnings and differing firmware observations cannot justify family-wide action coverage.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-28.md",
+      "primary_evidence": [
+        "https://support.tcl.com/set-up-and-use-the-google-assistant-on-your-tcl-google-tv",
+        "https://support.tcl.com/en_US/us-googletv-setup-configuration/how-to-control-your-tcl-google-tv-with-alexa"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 26,
+        "commented_profiles": 1,
+        "note_profiles": 8
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-43p725/debloat.txt#L54",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-beyondtv2-android-11/debloat.txt#L79",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-50ep680/debloat.txt#L28",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-55s546-us/debloat.txt#L19",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/tcl-beyondtv4-uk/debloat.txt#L27"
+      ],
+      "independent_evidence": [
+        "https://support.tcl.com/en_US/us-googletv-setup-configuration/set-up-and-use-the-google-assistant-on-your-tcl-google-tv"
+      ],
+      "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, disable/removal consequences, recovery and applicability; both agents agree HOLD."
+    },
+    "android.autoinstalls.config.sony.bravia": {
+      "status": "held",
+      "source_commit": "8672e68e8a24c1258e4662cd11daa4ed13795dad",
+      "assessed_at": "2026-11-28",
+      "reconsider_after": "2026-12-28",
+      "reason": "Sony setup/app guidance does not identify the exact config payload, receivers, provisioning callers or recovery contract. VH2 notes say the unreadable package was skipped and left enabled despite an active line. Setup/input dependencies, missed provisioning recovery and enforceable firmware scope remain unknown.",
+      "evidence": "docs/OPTIMIZE-CATALOG-REVIEW-2026-11-28.md",
+      "primary_evidence": [
+        "https://helpguide.sony.net/tv/iusltn1/v1/en-003/01-02_01.html"
+      ],
+      "original_profile_counts": {
+        "active_profiles": 25,
+        "commented_profiles": 0,
+        "note_profiles": 2
+      },
+      "source_observations": [
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-gb/debloat.txt#L42",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh2/debloat.txt#L125",
+        "https://github.com/Gathin23/cleanyourtv/blob/8672e68e8a24c1258e4662cd11daa4ed13795dad/examples/sony-bravia-4k-vh2/debloat.txt#L195"
+      ],
+      "independent_evidence": [
+        "https://www.sony.com/electronics/support/televisions-projectors-lcd-tvs-android-/articles/00122502",
+        "https://www.sony.co.uk/electronics/support/televisions-projectors-lcd-tvs/articles/00226737"
       ],
       "independent_review": "Exactly one inherited-model read-only reviewer independently researched identity, purpose, dependencies, disable/removal consequences, recovery and applicability; both agents agree HOLD."
     }
